@@ -27,7 +27,10 @@ import datetime
 import json
 from typing import List, Dict
 
-from mlb_app.analysis_pipeline import generate_daily_matchups
+import os
+
+from mlb_app.database import get_engine, get_session
+from mlb_app.matchup_generator import generate_matchups_for_date
 
 
 def main() -> None:
@@ -52,8 +55,12 @@ def main() -> None:
         date_str = args.date
     else:
         date_str = datetime.date.today().isoformat()
-    # Generate matchups
-    matchups: List[Dict] = generate_daily_matchups(date_str)
+    # Generate matchups using database-backed generator
+    db_url = os.getenv("DATABASE_URL", "sqlite:///mlb.db")
+    engine = get_engine(db_url)
+    SessionLocal = get_session(engine)
+    with SessionLocal() as session:
+        matchups: List[Dict] = generate_matchups_for_date(session, date_str)
     # Print as pretty JSON
     print(json.dumps(matchups, indent=2))
 
