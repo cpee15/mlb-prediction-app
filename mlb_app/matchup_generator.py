@@ -94,14 +94,22 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
         home_pitcher_id = game.get("home", {}).get("probablePitcher", {}).get("id")
         away_pitcher_id = game.get("away", {}).get("probablePitcher", {}).get("id")
 
+        home_record = game.get("home", {}).get("leagueRecord", {})
+        away_record = game.get("away", {}).get("leagueRecord", {})
+
         if not all([home_team, away_team, home_pitcher_id, away_pitcher_id]):
             # Still include games without probable pitchers — just no win probs
             matchup = {
                 "game_date": date_str,
+                "game_time": game.get("_game_date"),
+                "venue": game.get("_venue"),
+                "status": game.get("_status"),
                 "home_team_id": home_team,
                 "away_team_id": away_team,
                 "home_team_name": game.get("home", {}).get("team", {}).get("name"),
                 "away_team_name": game.get("away", {}).get("team", {}).get("name"),
+                "home_team_record": f"{home_record.get('wins', 0)}-{home_record.get('losses', 0)}" if home_record else None,
+                "away_team_record": f"{away_record.get('wins', 0)}-{away_record.get('losses', 0)}" if away_record else None,
                 "home_pitcher_id": home_pitcher_id,
                 "away_pitcher_id": away_pitcher_id,
                 "home_pitcher_name": game.get("home", {}).get("probablePitcher", {}).get("fullName"),
@@ -127,10 +135,15 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
 
         matchup = {
             "game_date": date_str,
+            "game_time": game.get("_game_date"),
+            "venue": game.get("_venue"),
+            "status": game.get("_status"),
             "home_team_id": home_team,
             "away_team_id": away_team,
             "home_team_name": game.get("home", {}).get("team", {}).get("name"),
             "away_team_name": game.get("away", {}).get("team", {}).get("name"),
+            "home_team_record": f"{home_record.get('wins', 0)}-{home_record.get('losses', 0)}" if home_record else None,
+            "away_team_record": f"{away_record.get('wins', 0)}-{away_record.get('losses', 0)}" if away_record else None,
             "home_pitcher_id": home_pitcher_id,
             "away_pitcher_id": away_pitcher_id,
             "home_pitcher_name": game.get("home", {}).get("probablePitcher", {}).get("fullName"),
