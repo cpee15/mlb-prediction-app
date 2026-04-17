@@ -5,6 +5,7 @@ Endpoints:
     GET  /health
     GET  /matchups?date=YYYY-MM-DD
     GET  /matchup/{game_pk}              Full detail: pitchers, lineup, splits, game log
+    GET  /matchup/{game_pk}/competitive  Lineup-level competitive matchup matrix
     GET  /pitcher/{id}                   Aggregate + arsenal
     GET  /pitcher/{id}/rolling           L15G–L150G rolling stats
     GET  /pitcher/{id}/game-log          Recent game-by-game appearances
@@ -36,7 +37,7 @@ except ImportError:
     BaseModel = object
     _FASTAPI = False
 
-from .database import get_engine, create_tables, get_session
+from .database import StatcastEvent, get_engine, create_tables, get_session
 from .matchup_generator import generate_matchups_for_date
 from .db_utils import (
     get_pitcher_aggregate,
@@ -59,12 +60,179 @@ from .scoring import compute_win_probability, score_individual_matchup, get_park
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 
+HIT_EVENTS = {"single", "double", "triple", "home_run"}
+OUTCOME_EVENTS = {
+    "single", "double", "triple", "home_run",
+    "strikeout", "strikeout_double_play",
+    "walk", "intent_walk", "hit_by_pitch",
+    "field_out", "force_out", "double_play",
+    "grounded_into_double_play", "fielders_choice",
+    "fielders_choice_out", "sac_fly", "sac_bunt",
+}
+
 
 def _get_session():
     db_url = os.getenv("DATABASE_URL", "sqlite:///mlb.db")
     engine = get_engine(db_url)
     create_tables(engine)
     return get_session(engine)
+
+
+def _statcast_batting_avg(events: List[StatcastEvent]) -> Optional[float]:
+    if not events:
+        return None
+    pa = len(events)
+    hits = sum(1 for e in events if e.events in HIT_EVENTS)
+    return round(hits / pa, 3) if pa else None
+
+
+def _average(values: List[Optional[float]], digits: int = 3) -> Optional[float]:
+    nums = [v for v in values if v is not None]
+    if not nums:
+        return None
+    return round(sum(nums) / len(nums), digits)
+
+
+def _normalize_pitch_label(pitch_type: Optional[str], pitch_name: Optional[str]) -> str:
+    return pitch_name or pitch_type or "Unknown"
+
+
+def _edge_score_from_components(
+    batter_ba: Optional[float],
+    batter_xwoba: Optional[float],
+    pitcher_xwoba: Optional[float],
+    pitcher_hard_hit_pct: Optional[float],
+    usage_pct: Optional[float],
+) -> float:
+    score = 0.0
+    if batter_ba is not None:
+        score += (batter_ba - 0.245) * 4.0
+    if batter_xwoba is not None:
+        score += (batter_xwoba - 0.320) * 5.0
+    if pitcher_xwoba is not None:
+        score -= (pitcher_xwoba - 0.320) * 5.0
+    if pitcher_hard_hit_pct is not None:
+        score -= (pitcher_hard_hit_pct - 0.35) * 2.0
+    if usage_pct is not None:
+        score *= max(0.35, min(1.0, usage_pct))
+    return round(score, 3)
+
+
+def _confidence_from_sample(pa: int, usage_pct: Optional[float]) -> float:
+    pa_component = min(1.0, pa / 12.0)
+    usage_component = min(1.0, max(0.25, usage_pct or 0.0))
+    return round(min(1.0, pa_component * usage_component + (0.25 if pa >= 3 else 0.0)), 3)
+
+
+def _player_vs_pitch_type_summary(
+    session,
+    batter_id: int,
+    pitcher_id: int,
+    pitch_type: Optional[str],
+    season: int,
+):
+    q = (
+        session.query(StatcastEvent)
+        .filter(
+            StatcastEvent.batter_id == batter_id,
+            StatcastEvent.pitcher_id == pitcher_id,
+            StatcastEvent.pitch_type == pitch_type,
+            StatcastEvent.game_date >= datetime.date(season, 1, 1),
+        )
+    )
+    events = q.all()
+    terminal = [e for e in events if e.events and e.events in OUTCOME_EVENTS]
+    return {
+        "pa": len(terminal),
+        "batting_avg": _statcast_batting_avg(terminal),
+        "xwoba": None,
+        "avg_exit_velocity": _average([e.launch_speed for e in terminal], 1),
+        "avg_launch_angle": _average([e.launch_angle for e in terminal], 1),
+        "hard_hit_pct": round(sum(1 for e in terminal if (e.launch_speed or 0) >= 95) / len([e for e in terminal if e.launch_speed is not None]), 3)
+        if any(e.launch_speed is not None for e in terminal) else None,
+    }
+
+
+def _head_to_head_summary(session, batter_id: int, pitcher_id: int, season: int) -> Dict[str, Any]:
+    events = (
+        session.query(StatcastEvent)
+        .filter(
+            StatcastEvent.batter_id == batter_id,
+            StatcastEvent.pitcher_id == pitcher_id,
+            StatcastEvent.game_date >= datetime.date(season, 1, 1),
+        )
+        .all()
+    )
+    terminal = [e for e in events if e.events and e.events in OUTCOME_EVENTS]
+    return {
+        "pa": len(terminal),
+        "batting_avg": _statcast_batting_avg(terminal),
+        "xwoba": None,
+        "avg_exit_velocity": _average([e.launch_speed for e in terminal], 1),
+        "avg_launch_angle": _average([e.launch_angle for e in terminal], 1),
+    }
+
+
+def _build_competitive_matchup(
+    session,
+    batter_id: int,
+    batter_name: str,
+    batting_order: int,
+    opposing_pitcher_id: int,
+    season: int,
+) -> Dict[str, Any]:
+    arsenal, arsenal_season = get_pitch_arsenal_with_fallback(session, opposing_pitcher_id, season)
+    head_to_head = _head_to_head_summary(session, batter_id, opposing_pitcher_id, season)
+
+    pitch_type_matrix = []
+    for pitch in arsenal:
+        batter_vs_type = _player_vs_pitch_type_summary(
+            session, batter_id, opposing_pitcher_id, pitch.pitch_type, season
+        )
+        pa = batter_vs_type["pa"] or 0
+        edge_score = _edge_score_from_components(
+            batter_ba=batter_vs_type["batting_avg"],
+            batter_xwoba=batter_vs_type["xwoba"],
+            pitcher_xwoba=pitch.xwoba,
+            pitcher_hard_hit_pct=pitch.hard_hit_pct,
+            usage_pct=pitch.usage_pct,
+        )
+        confidence = _confidence_from_sample(pa, pitch.usage_pct)
+
+        pitch_type_matrix.append(
+            {
+                "pitch_type": _normalize_pitch_label(pitch.pitch_type, pitch.pitch_name),
+                "raw_pitch_type": pitch.pitch_type,
+                "pitcher_usage_pct": pitch.usage_pct or 0.0,
+                "pitcher_pitch_count": pitch.pitch_count,
+                "pitcher_whiff_pct": pitch.whiff_pct,
+                "pitcher_strikeout_pct": pitch.strikeout_pct,
+                "pitcher_xwoba": pitch.xwoba,
+                "pitcher_hard_hit_pct": pitch.hard_hit_pct,
+                "batter_vs_type": batter_vs_type,
+                "edge_score": edge_score,
+                "confidence": confidence,
+            }
+        )
+
+    pitch_type_matrix.sort(key=lambda x: x["pitcher_usage_pct"], reverse=True)
+    biggest_edge = max(pitch_type_matrix, key=lambda x: x["edge_score"], default=None)
+    biggest_weakness = min(pitch_type_matrix, key=lambda x: x["edge_score"], default=None)
+
+    return {
+        "batter_id": batter_id,
+        "batter_name": batter_name,
+        "batting_order": batting_order,
+        "matchup": {
+            "head_to_head": head_to_head,
+            "arsenal_season": arsenal_season,
+            "pitch_type_matrix": pitch_type_matrix,
+            "summary": {
+                "biggest_edge": biggest_edge["pitch_type"] if biggest_edge and biggest_edge["edge_score"] > 0 else None,
+                "biggest_weakness": biggest_weakness["pitch_type"] if biggest_weakness and biggest_weakness["edge_score"] < 0 else None,
+            },
+        },
+    }
 
 
 class PredictRequest(BaseModel):  # type: ignore[misc]
@@ -80,7 +248,7 @@ def create_app():
 
     app = FastAPI(
         title="MLB Prediction API",
-        version="0.5.0",
+        version="0.5.1",
         description="Statcast-powered daily matchup predictions",
     )
 
@@ -91,17 +259,9 @@ def create_app():
         allow_headers=["*"],
     )
 
-    # -------------------------------------------------------------------------
-    # Health
-    # -------------------------------------------------------------------------
-
     @app.get("/health")
     def health():
-        return {"status": "ok", "version": "0.5.0"}
-
-    # -------------------------------------------------------------------------
-    # Matchups
-    # -------------------------------------------------------------------------
+        return {"status": "ok", "version": "0.5.1"}
 
     @app.get("/matchups")
     def list_matchups(date: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -116,7 +276,6 @@ def create_app():
 
     @app.get("/matchup/{game_pk}")
     def get_matchup_detail(game_pk: int) -> Dict[str, Any]:
-        """Full matchup detail: probable pitchers, lineup, team splits, recent outings."""
         url = f"{MLB_STATS_BASE}/schedule"
         params = {
             "gamePk": game_pk,
@@ -252,9 +411,76 @@ def create_app():
                 },
             }
 
-    # -------------------------------------------------------------------------
-    # Pitcher endpoints
-    # -------------------------------------------------------------------------
+    @app.get("/matchup/{game_pk}/competitive")
+    def get_competitive_analysis(game_pk: int) -> Dict[str, Any]:
+        url = f"{MLB_STATS_BASE}/schedule"
+        params = {
+            "gamePk": game_pk,
+            "hydrate": "probablePitcher,team,lineups",
+        }
+        try:
+            resp = _req.get(url, params=params, timeout=20)
+            resp.raise_for_status()
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"MLB API error: {exc}")
+
+        dates = resp.json().get("dates", [])
+        if not dates or not dates[0].get("games"):
+            raise HTTPException(status_code=404, detail=f"Game {game_pk} not found")
+
+        game = dates[0]["games"][0]
+        teams = game.get("teams", {})
+        home = teams.get("home", {})
+        away = teams.get("away", {})
+        game_date_iso = game.get("gameDate", "")
+        season = int(game_date_iso[:4]) if game_date_iso else datetime.date.today().year
+
+        home_team_name = home.get("team", {}).get("name")
+        away_team_name = away.get("team", {}).get("name")
+        home_pitcher_id = home.get("probablePitcher", {}).get("id")
+        away_pitcher_id = away.get("probablePitcher", {}).get("id")
+
+        lineups = game.get("lineups", {})
+        home_lineup_raw = lineups.get("homePlayers", []) or []
+        away_lineup_raw = lineups.get("awayPlayers", []) or []
+
+        Session = _get_session()
+        with Session() as session:
+            away_lineup_matchups = [
+                _build_competitive_matchup(
+                    session=session,
+                    batter_id=p.get("id"),
+                    batter_name=p.get("fullName") or f"Batter #{p.get('id')}",
+                    batting_order=i + 1,
+                    opposing_pitcher_id=home_pitcher_id,
+                    season=season,
+                )
+                for i, p in enumerate(away_lineup_raw)
+                if p.get("id") and home_pitcher_id
+            ]
+            home_lineup_matchups = [
+                _build_competitive_matchup(
+                    session=session,
+                    batter_id=p.get("id"),
+                    batter_name=p.get("fullName") or f"Batter #{p.get('id')}",
+                    batting_order=i + 1,
+                    opposing_pitcher_id=away_pitcher_id,
+                    season=season,
+                )
+                for i, p in enumerate(home_lineup_raw)
+                if p.get("id") and away_pitcher_id
+            ]
+
+        return {
+            "game_pk": game_pk,
+            "game_date": game_date_iso,
+            "away_team": away_team_name,
+            "home_team": home_team_name,
+            "away_pitcher_id": away_pitcher_id,
+            "home_pitcher_id": home_pitcher_id,
+            "away_lineup_matchups": away_lineup_matchups,
+            "home_lineup_matchups": home_lineup_matchups,
+        }
 
     @app.get("/pitcher/{player_id}")
     def get_pitcher(player_id: int) -> Dict[str, Any]:
@@ -315,10 +541,6 @@ def create_app():
         Session = _get_session()
         with Session() as session:
             return {"player_id": player_id, "game_log": get_pitcher_game_log(session, player_id, n)}
-
-    # -------------------------------------------------------------------------
-    # Batter endpoints
-    # -------------------------------------------------------------------------
 
     @app.get("/batter/{player_id}")
     def get_batter(player_id: int) -> Dict[str, Any]:
@@ -390,10 +612,6 @@ def create_app():
                 "at_bats": rows,
             }
 
-    # -------------------------------------------------------------------------
-    # Standings
-    # -------------------------------------------------------------------------
-
     @app.get("/standings")
     def get_standings(season: Optional[int] = None) -> List[Dict[str, Any]]:
         if not season:
@@ -411,10 +629,6 @@ def create_app():
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"MLB API error: {exc}")
         return resp.json().get("records", [])
-
-    # -------------------------------------------------------------------------
-    # Lineup
-    # -------------------------------------------------------------------------
 
     @app.get("/lineup/{team_id}")
     def get_team_lineup(team_id: int, date: Optional[str] = None) -> Dict[str, Any]:
@@ -456,10 +670,6 @@ def create_app():
                 for i, p in enumerate(lineup_raw)
             ],
         }
-
-    # -------------------------------------------------------------------------
-    # Team
-    # -------------------------------------------------------------------------
 
     @app.get("/team/{team_id}")
     def get_team(team_id: int, season: Optional[int] = None) -> Dict[str, Any]:
@@ -513,10 +723,6 @@ def create_app():
             "standing": team_standing,
             "splits": {"vsL": _sd(vsL), "vsR": _sd(vsR)},
         }
-
-    # -------------------------------------------------------------------------
-    # Predict
-    # -------------------------------------------------------------------------
 
     @app.post("/predict")
     def predict_matchup(req: PredictRequest) -> Dict[str, Any]:
