@@ -10,7 +10,10 @@ import pandas as pd
 
 try:
     import pybaseball
-    pybaseball.cache.enable()
+    try:
+        pybaseball.cache.enable()
+    except Exception:
+        pass  # Cache dir may be unwritable in some deployment environments
     _PYBASEBALL_AVAILABLE = True
 except ImportError:
     _PYBASEBALL_AVAILABLE = False
