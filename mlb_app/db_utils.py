@@ -304,6 +304,27 @@ def get_batter_multi_season(session: Session, batter_id: int, seasons: List[int]
     return result
 
 
+def get_player_splits_multi_season(
+    session: Session, player_id: int, seasons: List[int]
+) -> Dict[int, Dict[str, Any]]:
+    """Return vsL/vsR splits keyed by season for the given player."""
+    result: Dict[int, Dict[str, Any]] = {}
+    for season in seasons:
+        vsL = get_player_split(session, player_id, season, "vsL")
+        vsR = get_player_split(session, player_id, season, "vsR")
+        if vsL or vsR:
+            def _sd(s: Optional[PlayerSplit]) -> Optional[Dict[str, Any]]:
+                if not s:
+                    return None
+                return {
+                    "pa": s.pa, "batting_avg": s.batting_avg,
+                    "on_base_pct": s.on_base_pct, "slugging_pct": s.slugging_pct,
+                    "k_pct": s.k_pct, "bb_pct": s.bb_pct, "home_runs": s.home_runs,
+                }
+            result[season] = {"vsL": _sd(vsL), "vsR": _sd(vsR)}
+    return result
+
+
 __all__ = [
     "get_pitcher_aggregate",
     "get_pitcher_aggregate_with_fallback",
@@ -312,6 +333,7 @@ __all__ = [
     "get_pitch_arsenal",
     "get_pitch_arsenal_with_fallback",
     "get_player_split",
+    "get_player_splits_multi_season",
     "get_team_split",
     "get_pitcher_rolling_by_games",
     "get_batter_rolling_by_games",

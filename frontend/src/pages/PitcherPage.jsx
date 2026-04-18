@@ -37,6 +37,17 @@ const s = {
   hint: { color: '#8b949e', textAlign: 'center', padding: '48px' },
 }
 
+const searchDropStyle = {
+  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+  background: '#161b22', border: '1px solid #30363d', borderRadius: '6px',
+  marginTop: '4px', maxHeight: '280px', overflowY: 'auto',
+}
+const searchItemStyle = (hover) => ({
+  padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid #21262d',
+  background: hover ? '#21262d' : 'transparent',
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+})
+
 function fmt(val, decimals = 1) {
   if (val == null) return '—'
   return typeof val === 'number' ? val.toFixed(decimals) : val
@@ -58,15 +69,18 @@ function StatCard({ label, value }) {
 export default function PitcherPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const [inputId, setInputId] = useState(id || '')
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [searching, setSearching] = useState(false)
+  const [hoverIdx, setHoverIdx] = useState(-1)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const debounceRef = React.useRef(null)
 
   function load(pid) {
     if (!pid) return
-    setLoading(true)
-    setError(null)
+    setLoading(true); setError(null); setResults([])
     fetch(`${API}/pitcher/${pid}`)
       .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.detail || r.statusText)))
       .then(d => { setData(d); setLoading(false) })
@@ -75,9 +89,28 @@ export default function PitcherPage() {
 
   useEffect(() => { if (id) load(id) }, [id])
 
-  function handleSearch(e) {
-    e.preventDefault()
-    navigate(`/pitcher/${inputId}`)
+  function onQueryChange(e) {
+    const val = e.target.value
+    setQuery(val)
+    setHoverIdx(-1)
+    clearTimeout(debounceRef.current)
+    if (val.length < 2) { setResults([]); return }
+    debounceRef.current = setTimeout(() => {
+      setSearching(true)
+      fetch(`${API}/players/search?name=${encodeURIComponent(val)}`)
+        .then(r => r.ok ? r.json() : [])
+        .then(d => {
+          setResults((d || []).filter(p => p.position_type === 'Pitcher'))
+          setSearching(false)
+        })
+        .catch(() => setSearching(false))
+    }, 300)
+  }
+
+  function selectPlayer(p) {
+    setQuery(p.name)
+    setResults([])
+    navigate(`/pitcher/${p.id}`)
   }
 
   const agg = data?.aggregate
@@ -89,19 +122,38 @@ export default function PitcherPage() {
     <div>
       <h1 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '20px' }}>Pitcher Profile</h1>
 
-      <form style={s.searchRow} onSubmit={handleSearch}>
-        <input
-          style={s.input}
-          placeholder="MLBAM Pitcher ID (e.g. 605483)"
-          value={inputId}
-          onChange={e => setInputId(e.target.value)}
-        />
-        <button type="submit" style={s.btn}>Look Up</button>
-      </form>
+      <div style={{ position: 'relative', marginBottom: '28px' }}>
+        <div style={s.searchRow}>
+          <input
+            style={s.input}
+            placeholder="Search pitcher by name (e.g. Gerrit Cole)"
+            value={query}
+            onChange={onQueryChange}
+            autoComplete="off"
+          />
+          {searching && <span style={{ color: '#8b949e', fontSize: '13px', alignSelf: 'center' }}>Searching…</span>}
+        </div>
+        {results.length > 0 && (
+          <div style={searchDropStyle}>
+            {results.slice(0, 10).map((p, i) => (
+              <div
+                key={p.id}
+                style={searchItemStyle(i === hoverIdx)}
+                onMouseEnter={() => setHoverIdx(i)}
+                onMouseLeave={() => setHoverIdx(-1)}
+                onClick={() => selectPlayer(p)}
+              >
+                <span style={{ color: '#e6edf3' }}>{p.name}</span>
+                <span style={{ color: '#8b949e', fontSize: '12px' }}>{p.team || ''}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {loading && <div style={s.loader}>Loading…</div>}
       {error && <div style={s.error}>{error}</div>}
-      {!loading && !error && !data && <div style={s.hint}>Enter a pitcher's MLBAM ID to view their stats.</div>}
+      {!loading && !error && !data && <div style={s.hint}>Search for a pitcher by name to view their stats.</div>}
 
       {data && (
         <>

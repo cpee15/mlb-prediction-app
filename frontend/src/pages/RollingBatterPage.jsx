@@ -78,16 +78,24 @@ function evColor(v) {
 
 export default function RollingBatterPage() {
   const { id } = useParams()
-  const [view, setView] = useState('abs')     // 'abs' | 'games'
+  const [view, setView] = useState('abs')
   const [rolling, setRolling] = useState(null)
+  const [splits, setSplits] = useState(null)
   const [abData, setAbData] = useState(null)
   const [abPage, setAbPage] = useState(0)
-  const [abWindow, setAbWindow] = useState(50)
   const [loading, setLoading] = useState(true)
   const [abLoading, setAbLoading] = useState(false)
   const [error, setError] = useState(null)
 
   const AB_PAGE_SIZE = 50
+
+  useEffect(() => {
+    if (!id) return
+    fetch(`${API}/batter/${id}/splits`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setSplits(d.seasons || {}) })
+      .catch(() => {})
+  }, [id])
 
   useEffect(() => {
     if (!id) return
@@ -132,13 +140,11 @@ export default function RollingBatterPage() {
         </div>
       </div>
 
-      {/* Toggle */}
       <div style={s.tabs}>
         <button style={s.tab(view === 'abs')} onClick={() => setView('abs')}>Last N At-Bats</button>
         <button style={s.tab(view === 'games')} onClick={() => setView('games')}>Last N Games</button>
       </div>
 
-      {/* Rolling stats table */}
       {loading ? <div style={s.loader}>Loading…</div> : (
         <div style={s.tableWrap}>
           <table style={s.table}>
@@ -197,7 +203,50 @@ export default function RollingBatterPage() {
         </div>
       )}
 
-      {/* Chronological At-Bat Session */}
+      {splits && Object.keys(splits).length > 0 && (
+        <div style={{ marginBottom: '24px' }}>
+          <div style={s.sectionTitle}>Historical Platoon Splits</div>
+          <div style={s.tableWrap}>
+            <table style={s.table}>
+              <thead>
+                <tr>
+                  <th style={s.th}>Season</th>
+                  <th style={{ ...s.th, ...s.thRight }}>Split</th>
+                  <th style={{ ...s.th, ...s.thRight }}>PA</th>
+                  <th style={{ ...s.th, ...s.thRight }}>AVG</th>
+                  <th style={{ ...s.th, ...s.thRight }}>OBP</th>
+                  <th style={{ ...s.th, ...s.thRight }}>SLG</th>
+                  <th style={{ ...s.th, ...s.thRight }}>K%</th>
+                  <th style={{ ...s.th, ...s.thRight }}>BB%</th>
+                  <th style={{ ...s.th, ...s.thRight }}>HR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(splits)
+                  .sort((a, b) => Number(b[0]) - Number(a[0]))
+                  .flatMap(([season, sp]) => [
+                    { season, name: 'vsL', data: sp.vsL },
+                    { season, name: 'vsR', data: sp.vsR },
+                  ])
+                  .map((row, i) => (
+                    <tr key={`${row.season}-${row.name}-${i}`}>
+                      <td style={{ ...s.td, fontWeight: '700', color: '#58a6ff' }}>{row.season}</td>
+                      <td style={{ ...s.td, ...s.tdRight }}>{row.name}</td>
+                      <td style={{ ...s.td, ...s.tdRight }}>{row.data?.pa ?? '—'}</td>
+                      <td style={{ ...s.td, ...s.tdRight }}>{row.data?.batting_avg != null ? dec(row.data.batting_avg) : '—'}</td>
+                      <td style={{ ...s.td, ...s.tdRight }}>{row.data?.on_base_pct != null ? dec(row.data.on_base_pct) : '—'}</td>
+                      <td style={{ ...s.td, ...s.tdRight }}>{row.data?.slugging_pct != null ? dec(row.data.slugging_pct) : '—'}</td>
+                      <td style={{ ...s.td, ...s.tdRight }}>{row.data?.k_pct != null ? pct(row.data.k_pct) : '—'}</td>
+                      <td style={{ ...s.td, ...s.tdRight }}>{row.data?.bb_pct != null ? pct(row.data.bb_pct) : '—'}</td>
+                      <td style={{ ...s.td, ...s.tdRight }}>{row.data?.home_runs ?? '—'}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div style={{ marginTop: '28px' }}>
         <div style={s.sectionTitle}>Chronological At-Bat Session</div>
         <div style={{ fontSize: '13px', color: '#8b949e', marginBottom: '14px' }}>
@@ -235,7 +284,6 @@ export default function RollingBatterPage() {
               )
             })}
 
-            {/* Pagination */}
             <div style={s.pagination}>
               <button style={s.pageBtn(abPage === 0)} disabled={abPage === 0} onClick={() => goPage(abPage - 1)}>← Prev</button>
               <span>Page {abPage + 1} of {totalPages || 1}</span>
