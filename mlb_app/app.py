@@ -32,6 +32,7 @@ import requests as _req
 try:
     from fastapi import FastAPI, HTTPException, Query
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
     _FASTAPI = True
 except ImportError:
@@ -825,6 +826,11 @@ def create_app():
                 pitcher_throws=req.pitcher_throws,
             )
         return {"pitcher_id": req.pitcher_id, "batter_id": req.batter_id, **result}
+
+    # Serve the built React frontend — must be mounted last so API routes take priority
+    _dist = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend', 'dist')
+    if os.path.isdir(_dist):
+        app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")
 
     return app
 
