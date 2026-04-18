@@ -43,6 +43,17 @@ const s = {
   hint: { color: '#8b949e', textAlign: 'center', padding: '48px' },
 }
 
+const searchDropStyle = {
+  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+  background: '#161b22', border: '1px solid #30363d', borderRadius: '6px',
+  marginTop: '4px', maxHeight: '280px', overflowY: 'auto',
+}
+const searchItemStyle = (hover) => ({
+  padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid #21262d',
+  background: hover ? '#21262d' : 'transparent',
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+})
+
 function fmt(val, decimals = 1) {
   if (val == null) return '—'
   return typeof val === 'number' ? val.toFixed(decimals) : val
@@ -93,15 +104,20 @@ function SplitCard({ title, split }) {
 export default function BatterPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const [inputId, setInputId] = useState(id || '')
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [searching, setSearching] = useState(false)
+  const [hoverIdx, setHoverIdx] = useState(-1)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const debounceRef = React.useRef(null)
 
   function load(pid) {
     if (!pid) return
     setLoading(true)
     setError(null)
+    setResults([])
     fetch(`${API}/batter/${pid}`)
       .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.detail || r.statusText)))
       .then(d => { setData(d); setLoading(false) })
@@ -110,31 +126,73 @@ export default function BatterPage() {
 
   useEffect(() => { if (id) load(id) }, [id])
 
-  function handleSearch(e) {
-    e.preventDefault()
-    navigate(`/batter/${inputId}`)
+  function onQueryChange(e) {
+    const val = e.target.value
+    setQuery(val)
+    setHoverIdx(-1)
+    clearTimeout(debounceRef.current)
+    if (val.length < 2) {
+      setResults([])
+      return
+    }
+    debounceRef.current = setTimeout(() => {
+      setSearching(true)
+      fetch(`${API}/players/search?name=${encodeURIComponent(val)}`)
+        .then(r => r.ok ? r.json() : [])
+        .then(d => {
+          setResults((d || []).filter(p => p.position_type === 'Batter'))
+          setSearching(false)
+        })
+        .catch(() => setSearching(false))
+    }, 300)
+  }
+
+  function selectPlayer(p) {
+    setQuery(p.name)
+    setResults([])
+    navigate(`/batter/${p.id}`)
   }
 
   const agg = data?.aggregate
   const multiSeason = data?.multi_season || []
+  const splitSeasons = data?.split_seasons || {}
 
   return (
     <div>
       <h1 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '20px' }}>Batter Profile</h1>
 
-      <form style={s.searchRow} onSubmit={handleSearch}>
-        <input
-          style={s.input}
-          placeholder="MLBAM Batter ID (e.g. 660271)"
-          value={inputId}
-          onChange={e => setInputId(e.target.value)}
-        />
-        <button type="submit" style={s.btn}>Look Up</button>
-      </form>
+      <div style={{ position: 'relative', marginBottom: '28px' }}>
+        <div style={s.searchRow}>
+          <input
+            style={s.input}
+            placeholder="Search batter by name (e.g. Aaron Judge)"
+            value={query}
+            onChange={onQueryChange}
+            autoComplete="off"
+          />
+          {searching && <span style={{ color: '#8b949e', fontSize: '13px', alignSelf: 'center' }}>Searching…</span>}
+        </div>
+        {results.length > 0 && (
+          <div style={searchDropStyle}>
+            {results.slice(0, 10).map((p, i) => (
+              <div
+                key={p.id}
+                style={searchItemStyle(i === hoverIdx)}
+                onMouseEnter={() => setHoverIdx(i)}
+                onMouseLeave={() => setHoverIdx(-1)}
+                onClick={() => selectPlayer(p)}
+              >
+                <span style={{ color: '#e6edf3' }}>{p.name}</span>
+                <span style={{ color: '#8b949e', fontSize: '12px' }}>{p.team || ''}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {loading && <div style={s.loader}>Loading…</div>}
       {error && <div style={s.error}>{error}</div>}
-      {!loading && !error && !data && <div style={s.hint}>Enter a batter's MLBAM ID to view their stats.</div>}
+      {!loading && !error && !data && <div style={s.hint}>Search for a batter by name to view their stats.</div>}
 
       {data && (
         <>
@@ -199,12 +257,29 @@ export default function BatterPage() {
           )}
 
           <div style={s.section}>
-            <div style={s.sectionTitle}>Platoon Splits</div>
+            <div style={s.sectionTitle}>Current Platoon Splits</div>
             <div style={s.splitGrid}>
               <SplitCard title="vs Left-Handed Pitchers" split={data.splits?.vsL} />
               <SplitCard title="vs Right-Handed Pitchers" split={data.splits?.vsR} />
             </div>
           </div>
+
+          {Object.keys(splitSeasons).length > 0 && (
+            <div style={s.section}>
+              <div style={s.sectionTitle}>Historical Platoon Splits</div>
+              {Object.entries(splitSeasons)
+                .sort((a, b) => Number(b[0]) - Number(a[0]))
+                .map(([season, splits]) => (
+                  <div key={season} style={{ marginBottom: '20px' }}>
+                    <div style={{ color: '#58a6ff', fontSize: '14px', fontWeight: '600', marginBottom: '10px' }}>{season}</div>
+                    <div style={s.splitGrid}>
+                      <SplitCard title="vs Left-Handed Pitchers" split={splits.vsL} />
+                      <SplitCard title="vs Right-Handed Pitchers" split={splits.vsR} />
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </>
       )}
     </div>

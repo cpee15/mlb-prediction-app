@@ -42,6 +42,19 @@ def fetch_statcast_batter_data(
     return pybaseball.statcast_batter(start_date, end_date, player_id)
 
 
+def fetch_statcast_all_events(start_date: str, end_date: str) -> pd.DataFrame:
+    """Bulk-fetch ALL Statcast events for a date range via pybaseball.statcast().
+
+    Far more efficient than per-pitcher calls for large historical loads.
+    """
+    if not _PYBASEBALL_AVAILABLE:
+        raise ImportError("pybaseball is required. Run: pip install pybaseball")
+    df = pybaseball.statcast(start_dt=start_date, end_dt=end_date, parallel=True)
+    if df is None:
+        return pd.DataFrame()
+    return df
+
+
 def fetch_pitch_arsenal_leaderboard(year: int, min_pitches: int = 50) -> pd.DataFrame:
     """Download pitch arsenal leaderboard from Baseball Savant for a season.
 
@@ -81,7 +94,6 @@ def calculate_pitcher_aggregates(df: pd.DataFrame) -> Dict[str, float]:
     hard_hit = (exit_v >= 95).sum()
     batted = exit_v.notna().sum()
 
-    # xwOBA and xBA — use columns if present (statcast provides these)
     xwoba_vals = pd.to_numeric(df.get("estimated_woba_using_speedangle", pd.Series(dtype=float)), errors="coerce")
     xba_vals = pd.to_numeric(df.get("estimated_ba_using_speedangle", pd.Series(dtype=float)), errors="coerce")
 
