@@ -63,6 +63,7 @@ from .db_utils import (
     get_batter_multi_season,
 )
 from .scoring import compute_win_probability, score_individual_matchup, get_park_factor
+from .statcast_utils import fetch_pitch_arsenal_leaderboard
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 
@@ -141,6 +142,55 @@ def _average(values: List[Optional[float]], digits: int = 3) -> Optional[float]:
 
 def _normalize_pitch_label(pitch_type: Optional[str], pitch_name: Optional[str]) -> str:
     return pitch_name or pitch_type or "Unknown"
+
+
+def _extract_weather(game: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    w = game.get("weather") or {}
+    condition = w.get("condition")
+    temp = w.get("temp")
+    wind = w.get("wind")
+    if condition is None and temp is None and wind is None:
+        return None
+    return {"condition": condition, "temp_f": temp, "wind": wind}
+
+
+def _fetch_live_pitch_arsenal(pitcher_id: int, current_season: int) -> tuple[list[dict], Optional[int]]:
+    """Fallback arsenal from Savant leaderboard if DB does not yet have rows."""
+    season_candidates = [current_season, current_season - 1, current_season - 2]
+    for season in season_candidates:
+        try:
+            df = fetch_pitch_arsenal_leaderboard(season, min_pitches=1)
+            if df is None or df.empty:
+                continue
+            pid_col = next((c for c in ["pitcher", "player_id", "mlbam_id"] if c in df.columns), None)
+            if not pid_col:
+                continue
+            rows = df[df[pid_col].astype(str) == str(pitcher_id)]
+            if rows.empty:
+                continue
+            out = []
+            for _, row in rows.iterrows():
+                pitch_type = row.get("pitch_type")
+                if not pitch_type:
+                    continue
+                out.append(
+                    {
+                        "pitch_type": pitch_type,
+                        "pitch_name": row.get("pitch_name"),
+                        "usage_pct": _safe_float(row.get("pitch_usage") or row.get("usage_pct")),
+                        "whiff_pct": _safe_float(row.get("whiff_percent") or row.get("whiff_pct")),
+                        "strikeout_pct": _safe_float(row.get("k_percent") or row.get("strikeout_pct")),
+                        "rv_per_100": _safe_float(row.get("run_value_per_100") or row.get("rv_per_100")),
+                        "xwoba": _safe_float(row.get("est_woba") or row.get("xwoba")),
+                        "hard_hit_pct": _safe_float(row.get("hard_hit_percent") or row.get("hard_hit_pct")),
+                    }
+                )
+            out = sorted(out, key=lambda r: r.get("usage_pct") or 0, reverse=True)
+            if out:
+                return out, season
+        except Exception:
+            continue
+    return [], None
 
 
 def _edge_score_from_components(
@@ -473,7 +523,7 @@ def create_app():
         url = f"{MLB_STATS_BASE}/schedule"
         params = {
             "gamePk": game_pk,
-            "hydrate": "probablePitcher,team,linescore,lineups,decisions",
+            "hydrate": "probablePitcher,team,linescore,lineups,decisions,weather",
         }
         try:
             resp = _req.get(url, params=params, timeout=20)
@@ -513,6 +563,24 @@ def create_app():
                     return {"aggregate": None, "arsenal": [], "game_log": []}
                 agg, data_source = get_pitcher_aggregate_with_fallback(session, pid, season)
                 arsenal, arsenal_season = get_pitch_arsenal_with_fallback(session, pid, season)
+                arsenal_rows = [
+                    {
+                        "pitch_type": r.pitch_type,
+                        "pitch_name": r.pitch_name,
+                        "usage_pct": r.usage_pct,
+                        "whiff_pct": r.whiff_pct,
+                        "strikeout_pct": r.strikeout_pct,
+                        "rv_per_100": r.rv_per_100,
+                        "xwoba": r.xwoba,
+                        "hard_hit_pct": r.hard_hit_pct,
+                    }
+                    for r in arsenal
+                ]
+                if not arsenal_rows:
+                    live_arsenal, live_season = _fetch_live_pitch_arsenal(pid, season)
+                    if live_arsenal:
+                        arsenal_rows = live_arsenal
+                        arsenal_season = live_season
                 game_log = get_pitcher_game_log(session, pid, 5)
                 return {
                     "aggregate": {
@@ -527,19 +595,7 @@ def create_app():
                         "avg_horiz_break": agg.avg_horiz_break if agg else None,
                         "avg_vert_break": agg.avg_vert_break if agg else None,
                     },
-                    "arsenal": [
-                        {
-                            "pitch_type": r.pitch_type,
-                            "pitch_name": r.pitch_name,
-                            "usage_pct": r.usage_pct,
-                            "whiff_pct": r.whiff_pct,
-                            "strikeout_pct": r.strikeout_pct,
-                            "rv_per_100": r.rv_per_100,
-                            "xwoba": r.xwoba,
-                            "hard_hit_pct": r.hard_hit_pct,
-                        }
-                        for r in arsenal
-                    ],
+                    "arsenal": arsenal_rows,
                     "arsenal_season": arsenal_season,
                     "game_log": game_log,
                 }
@@ -587,6 +643,7 @@ def create_app():
                 "game_date": game_date_iso,
                 "venue": venue_name,
                 "status": game.get("status", {}).get("detailedState"),
+                "weather": _extract_weather(game),
                 "park_factor": get_park_factor(venue_name),
                 "home_win_prob": home_win_prob,
                 "away_win_prob": away_win_prob,
@@ -623,7 +680,7 @@ def create_app():
         url = f"{MLB_STATS_BASE}/schedule"
         params = {
             "gamePk": game_pk,
-            "hydrate": "probablePitcher,team,lineups",
+            "hydrate": "probablePitcher,team,lineups,weather",
         }
         try:
             resp = _req.get(url, params=params, timeout=20)
@@ -711,9 +768,27 @@ def create_app():
         with Session() as session:
             agg, data_source = get_pitcher_aggregate_with_fallback(session, player_id, season)
             arsenal, arsenal_season = get_pitch_arsenal_with_fallback(session, player_id, season)
+            arsenal_rows = [
+                {
+                    "pitch_type": r.pitch_type,
+                    "pitch_name": r.pitch_name,
+                    "usage_pct": r.usage_pct,
+                    "whiff_pct": r.whiff_pct,
+                    "strikeout_pct": r.strikeout_pct,
+                    "rv_per_100": r.rv_per_100,
+                    "xwoba": r.xwoba,
+                    "hard_hit_pct": r.hard_hit_pct,
+                }
+                for r in arsenal
+            ]
+            if not arsenal_rows:
+                live_arsenal, live_season = _fetch_live_pitch_arsenal(player_id, season)
+                if live_arsenal:
+                    arsenal_rows = live_arsenal
+                    arsenal_season = live_season
             multi = get_pitcher_multi_season(session, player_id, [season, season - 1, season - 2, season - 3])
             game_log = get_pitcher_game_log(session, player_id, 10)
-            if not agg and not arsenal:
+            if not agg and not arsenal_rows:
                 # Fallback: fetch basic player info from MLB Stats API so the page
                 # can at least show the player's name rather than a hard 404
                 player_name = None
@@ -747,19 +822,7 @@ def create_app():
                     c.name: getattr(agg, c.name)
                     for c in agg.__table__.columns
                 } if agg else None,
-                "arsenal": [
-                    {
-                        "pitch_type": r.pitch_type,
-                        "pitch_name": r.pitch_name,
-                        "usage_pct": r.usage_pct,
-                        "whiff_pct": r.whiff_pct,
-                        "strikeout_pct": r.strikeout_pct,
-                        "rv_per_100": r.rv_per_100,
-                        "xwoba": r.xwoba,
-                        "hard_hit_pct": r.hard_hit_pct,
-                    }
-                    for r in arsenal
-                ],
+                "arsenal": arsenal_rows,
                 "arsenal_season": arsenal_season,
                 "multi_season": multi,
                 "game_log": game_log,

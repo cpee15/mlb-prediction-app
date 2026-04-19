@@ -53,6 +53,15 @@ function formatTime(iso) {
   } catch { return null }
 }
 
+function weatherLabel(weather) {
+  if (!weather) return null
+  const pieces = []
+  if (weather.temp_f != null) pieces.push(`${weather.temp_f}°F`)
+  if (weather.condition) pieces.push(weather.condition)
+  if (weather.wind) pieces.push(weather.wind)
+  return pieces.length ? pieces.join(' · ') : null
+}
+
 function ProbBar({ homeProb, awayProb }) {
   const hp = homeProb != null ? Math.round(homeProb * 100) : 50
   const ap = 100 - hp
@@ -115,6 +124,7 @@ export default function HomePage() {
               <div style={s.venue}>
                 <span>{m.venue || '—'}</span>
                 {m.game_time && <span>· {formatTime(m.game_time)}</span>}
+                {weatherLabel(m.weather) && <span>· {weatherLabel(m.weather)}</span>}
               </div>
               {m.status && <span style={s.statusBadge(m.status)}>{m.status}</span>}
             </div>
