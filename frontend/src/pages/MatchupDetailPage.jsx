@@ -90,6 +90,15 @@ function formatTime(iso) {
   catch { return null }
 }
 
+function weatherLabel(weather) {
+  if (!weather) return null
+  const bits = []
+  if (weather.temp_f != null) bits.push(`${weather.temp_f}°F`)
+  if (weather.condition) bits.push(weather.condition)
+  if (weather.wind) bits.push(weather.wind)
+  return bits.length ? bits.join(' · ') : null
+}
+
 function edgeLabel(score) {
   if (score == null) return '—'
   return (score > 0 ? '+' : '') + score.toFixed(2)
@@ -355,6 +364,7 @@ export default function MatchupDetailPage() {
         <div style={{ marginTop: '8px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
           {matchup.venue && <span style={t.metaText}>📍 {matchup.venue}</span>}
           {matchup.game_date && <span style={t.metaText}>🕐 {formatTime(matchup.game_date)}</span>}
+          {weatherLabel(matchup.weather) && <span style={t.metaText}>☁️ {weatherLabel(matchup.weather)}</span>}
         </div>
       </div>
 

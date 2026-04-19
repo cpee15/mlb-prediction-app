@@ -56,7 +56,7 @@ MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 def fetch_schedule(date_str: str) -> List[dict]:
     """Return list of game dicts for a date, including probable pitcher IDs."""
     url = f"{MLB_STATS_BASE}/schedule"
-    params = {"sportId": 1, "date": date_str, "hydrate": "probablePitcher,team,linescore"}
+    params = {"sportId": 1, "date": date_str, "hydrate": "probablePitcher,team,linescore,weather"}
     resp = requests.get(url, params=params, timeout=30)
     resp.raise_for_status()
     games = []
@@ -67,6 +67,7 @@ def fetch_schedule(date_str: str) -> List[dict]:
             teams["_game_date"] = game.get("gameDate")
             teams["_venue"] = game.get("venue", {}).get("name")
             teams["_status"] = game.get("status", {}).get("detailedState")
+            teams["_weather"] = game.get("weather")
             games.append(teams)
     return games
 
