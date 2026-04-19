@@ -286,6 +286,130 @@ def _build_competitive_matchup(
     }
 
 
+def _fetch_batter_live_data(player_id: int, season: int) -> Dict[str, Any]:
+    """Fetch player info, season stats, vsL/vsR splits, and year-by-year from MLB Stats API."""
+    out: Dict[str, Any] = {"player_info": None, "season_stats": None,
+                           "splits": {"vsL": None, "vsR": None}, "year_by_year": []}
+
+    # Player info
+    try:
+        r = _req.get(f"{MLB_STATS_BASE}/people/{player_id}",
+                     params={"hydrate": "currentTeam"}, timeout=10)
+        if r.ok:
+            p = (r.json().get("people") or [{}])[0]
+            out["player_info"] = {
+                "name": p.get("fullName"),
+                "position": (p.get("primaryPosition") or {}).get("abbreviation"),
+                "team": (p.get("currentTeam") or {}).get("name"),
+                "bats": (p.get("batSide") or {}).get("code"),
+                "throws": (p.get("pitchHand") or {}).get("code"),
+                "birth_date": p.get("birthDate"),
+                "mlb_debut": p.get("mlbDebutDate"),
+            }
+    except Exception:
+        pass
+
+    def _parse_stat(s: dict) -> Dict[str, Any]:
+        pa = s.get("plateAppearances") or 0
+        k = s.get("strikeOuts") or 0
+        bb = s.get("baseOnBalls") or 0
+        return {
+            "g": s.get("gamesPlayed"), "ab": s.get("atBats"), "pa": pa,
+            "r": s.get("runs"), "h": s.get("hits"),
+            "doubles": s.get("doubles"), "triples": s.get("triples"),
+            "hr": s.get("homeRuns"), "rbi": s.get("rbi"),
+            "sb": s.get("stolenBases"), "bb": bb, "k": k,
+            "batting_avg": _safe_float(s.get("avg")),
+            "on_base_pct": _safe_float(s.get("obp")),
+            "slugging_pct": _safe_float(s.get("slg")),
+            "ops": _safe_float(s.get("ops")),
+            "k_pct": round(k / pa, 3) if pa > 0 else None,
+            "bb_pct": round(bb / pa, 3) if pa > 0 else None,
+            "home_runs": s.get("homeRuns"),
+        }
+
+    # Current season stats
+    try:
+        r = _req.get(f"{MLB_STATS_BASE}/people/{player_id}/stats",
+                     params={"stats": "season", "group": "hitting", "season": season}, timeout=10)
+        if r.ok:
+            splits = (r.json().get("stats") or [{}])[0].get("splits", [])
+            if splits:
+                out["season_stats"] = _parse_stat(splits[0].get("stat", {}))
+    except Exception:
+        pass
+
+    # vsL / vsR splits
+    for sit, key in [("vl", "vsL"), ("vr", "vsR")]:
+        try:
+            r = _req.get(f"{MLB_STATS_BASE}/people/{player_id}/stats",
+                         params={"stats": "statSplits", "group": "hitting",
+                                 "season": season, "sitCodes": sit}, timeout=10)
+            if r.ok:
+                splits = (r.json().get("stats") or [{}])[0].get("splits", [])
+                if splits:
+                    out["splits"][key] = _parse_stat(splits[0].get("stat", {}))
+        except Exception:
+            pass
+
+    # Year-by-year
+    try:
+        r = _req.get(f"{MLB_STATS_BASE}/people/{player_id}/stats",
+                     params={"stats": "yearByYear", "group": "hitting"}, timeout=15)
+        if r.ok:
+            for sp in (r.json().get("stats") or [{}])[0].get("splits", []):
+                yr = sp.get("season")
+                if yr:
+                    row = _parse_stat(sp.get("stat", {}))
+                    row["season"] = yr
+                    out["year_by_year"].append(row)
+            out["year_by_year"].sort(key=lambda x: x["season"], reverse=True)
+    except Exception:
+        pass
+
+    return out
+
+
+def _compute_batter_statcast(session, batter_id: int, since_year: int = 2024) -> Optional[Dict[str, Any]]:
+    """Derive Statcast metrics from raw StatcastEvent rows already in the DB."""
+    events = (
+        session.query(StatcastEvent)
+        .filter(StatcastEvent.batter_id == batter_id,
+                StatcastEvent.game_date >= datetime.date(since_year, 1, 1))
+        .all()
+    )
+    terminal = [e for e in events if e.events and e.events in OUTCOME_EVENTS]
+    if not terminal:
+        return None
+    pa = len(terminal)
+    hits = sum(1 for e in terminal if e.events in HIT_EVENTS)
+    k = sum(1 for e in terminal if e.events in {"strikeout", "strikeout_double_play"})
+    bb = sum(1 for e in terminal if e.events in {"walk", "intent_walk", "hit_by_pitch"})
+    hr = sum(1 for e in terminal if e.events == "home_run")
+    ev = [e.launch_speed for e in terminal if e.launch_speed is not None]
+    la = [e.launch_angle for e in terminal if e.launch_angle is not None]
+    hard = sum(1 for v in ev if v >= 95)
+    barrels = sum(
+        1 for e in terminal
+        if e.launch_speed and e.launch_angle
+        and e.launch_speed >= 98 and 8 <= e.launch_angle <= 50
+    )
+    return {
+        "pa": pa,
+        "batting_avg": round(hits / pa, 3),
+        "k_pct": round(k / pa, 3) if pa > 0 else None,
+        "bb_pct": round(bb / pa, 3) if pa > 0 else None,
+        "hr": hr,
+        "avg_exit_velocity": round(sum(ev) / len(ev), 1) if ev else None,
+        "max_exit_velocity": round(max(ev), 1) if ev else None,
+        "avg_launch_angle": round(sum(la) / len(la), 1) if la else None,
+        "hard_hit_pct": round(hard / len(ev), 3) if ev else None,
+        "barrel_pct": round(barrels / pa, 3) if pa > 0 else None,
+        "data_window": f"Since {since_year}",
+        "sample_size": pa,
+    }
+
+
 def _fetch_roster_as_lineup(team_id: int, season: int) -> List[Dict[str, Any]]:
     """Return active non-pitcher roster when official lineup hasn't been submitted yet."""
     try:
@@ -675,30 +799,40 @@ def create_app():
             split_R = get_player_split(session, player_id, season, "vsR")
             multi = get_batter_multi_season(session, player_id, [season, season - 1, season - 2, season - 3])
             split_seasons = get_player_splits_multi_season(session, player_id, [season, season - 1, season - 2, season - 3])
-            if not agg and not split_L and not split_R:
-                raise HTTPException(status_code=404, detail=f"No data for batter {player_id}")
+            statcast = _compute_batter_statcast(session, player_id, since_year=2024)
 
-            def _sd(s):
-                if not s:
-                    return None
-                return {
-                    "pa": s.pa, "batting_avg": s.batting_avg,
-                    "on_base_pct": s.on_base_pct, "slugging_pct": s.slugging_pct,
-                    "iso": s.iso, "k_pct": s.k_pct, "bb_pct": s.bb_pct,
-                    "home_runs": s.home_runs,
-                }
+        # Always fetch live MLB data regardless of DB state
+        live = _fetch_batter_live_data(player_id, season)
 
+        def _sd(s):
+            if not s:
+                return None
             return {
-                "player_id": player_id,
-                "data_source": data_source,
-                "aggregate": {
-                    c.name: getattr(agg, c.name)
-                    for c in agg.__table__.columns
-                } if agg else None,
-                "splits": {"vsL": _sd(split_L), "vsR": _sd(split_R)},
-                "multi_season": multi,
-                "split_seasons": split_seasons,
+                "pa": s.pa, "batting_avg": s.batting_avg,
+                "on_base_pct": s.on_base_pct, "slugging_pct": s.slugging_pct,
+                "iso": s.iso, "k_pct": s.k_pct, "bb_pct": s.bb_pct,
+                "home_runs": s.home_runs,
             }
+
+        # Prefer DB splits; fall back to live API splits
+        db_vsL, db_vsR = _sd(split_L), _sd(split_R)
+        if db_vsL or db_vsR:
+            splits = {"vsL": db_vsL, "vsR": db_vsR}
+        else:
+            splits = live["splits"]
+
+        return {
+            "player_id": player_id,
+            "player_info": live["player_info"],
+            "data_source": data_source,
+            "aggregate": {c.name: getattr(agg, c.name) for c in agg.__table__.columns} if agg else None,
+            "statcast": statcast,
+            "season_stats": live["season_stats"],
+            "splits": splits,
+            "year_by_year": live["year_by_year"],
+            "multi_season": multi,
+            "split_seasons": split_seasons,
+        }
 
     @app.get("/batter/{player_id}/rolling")
     def batter_rolling(
