@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 import requests as _req
@@ -66,6 +67,7 @@ from .scoring import compute_win_probability, score_individual_matchup, get_park
 from .statcast_utils import fetch_pitch_arsenal_leaderboard
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
+MATCHUP_SNAPSHOT_CACHE: Dict[str, List[Dict[str, Any]]] = {}
 
 HIT_EVENTS = {"single", "double", "triple", "home_run"}
 OUTCOME_EVENTS = {
@@ -154,6 +156,23 @@ def _extract_weather(game: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {"condition": condition, "temp_f": temp, "wind": wind}
 
 
+def _normalize_rate(value: Optional[float]) -> Optional[float]:
+    if value is None:
+        return None
+    if value > 1:
+        return round(value / 100.0, 4)
+    return round(value, 4)
+
+
+def _build_date_window() -> Dict[str, str]:
+    today = datetime.date.today()
+    return {
+        "yesterday": (today - datetime.timedelta(days=1)).isoformat(),
+        "today": today.isoformat(),
+        "tomorrow": (today + datetime.timedelta(days=1)).isoformat(),
+    }
+
+
 def _fetch_live_pitch_arsenal(pitcher_id: int, current_season: int) -> tuple[list[dict], Optional[int]]:
     """Fallback arsenal from Savant leaderboard if DB does not yet have rows."""
     season_candidates = [current_season, current_season - 1, current_season - 2]
@@ -177,12 +196,12 @@ def _fetch_live_pitch_arsenal(pitcher_id: int, current_season: int) -> tuple[lis
                     {
                         "pitch_type": pitch_type,
                         "pitch_name": row.get("pitch_name"),
-                        "usage_pct": _safe_float(row.get("pitch_usage") or row.get("usage_pct")),
-                        "whiff_pct": _safe_float(row.get("whiff_percent") or row.get("whiff_pct")),
-                        "strikeout_pct": _safe_float(row.get("k_percent") or row.get("strikeout_pct")),
+                        "usage_pct": _normalize_rate(_safe_float(row.get("pitch_usage") or row.get("usage_pct"))),
+                        "whiff_pct": _normalize_rate(_safe_float(row.get("whiff_percent") or row.get("whiff_pct"))),
+                        "strikeout_pct": _normalize_rate(_safe_float(row.get("k_percent") or row.get("strikeout_pct"))),
                         "rv_per_100": _safe_float(row.get("run_value_per_100") or row.get("rv_per_100")),
                         "xwoba": _safe_float(row.get("est_woba") or row.get("xwoba")),
-                        "hard_hit_pct": _safe_float(row.get("hard_hit_percent") or row.get("hard_hit_pct")),
+                        "hard_hit_pct": _normalize_rate(_safe_float(row.get("hard_hit_percent") or row.get("hard_hit_pct"))),
                     }
                 )
             out = sorted(out, key=lambda r: r.get("usage_pct") or 0, reverse=True)
@@ -518,6 +537,82 @@ def create_app():
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
 
+    @app.get("/matchups/calendar")
+    def matchup_calendar() -> Dict[str, Any]:
+        """Return yesterday/today/tomorrow with cached snapshots for consistency."""
+        dates = _build_date_window()
+        Session = _get_session()
+        with Session() as session:
+            payload = {}
+            for key, d in dates.items():
+                if d not in MATCHUP_SNAPSHOT_CACHE:
+                    MATCHUP_SNAPSHOT_CACHE[d] = generate_matchups_for_date(session, d)
+                payload[key] = {
+                    "date": d,
+                    "count": len(MATCHUP_SNAPSHOT_CACHE[d]),
+                    "games": MATCHUP_SNAPSHOT_CACHE[d],
+                }
+            return payload
+
+    @app.post("/matchups/snapshot/{date_str}")
+    def snapshot_matchups(date_str: str) -> Dict[str, Any]:
+        """Persist the latest schedule pull for a specific date into in-memory cache."""
+        Session = _get_session()
+        with Session() as session:
+            try:
+                MATCHUP_SNAPSHOT_CACHE[date_str] = generate_matchups_for_date(session, date_str)
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=str(exc))
+        return {"date": date_str, "games_cached": len(MATCHUP_SNAPSHOT_CACHE[date_str])}
+
+    @app.post("/ai/ask")
+    def ai_ask(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Lightweight MLB data assistant powered by current API data."""
+        question = str(payload.get("question", "")).strip()
+        if not question:
+            raise HTTPException(status_code=400, detail="Question is required")
+        ql = question.lower()
+        dates = _build_date_window()
+        Session = _get_session()
+        with Session() as session:
+            if "today" in ql or "matchup" in ql:
+                games = generate_matchups_for_date(session, dates["today"])
+                return {
+                    "answer": f"There are {len(games)} scheduled games for {dates['today']}.",
+                    "sources": ["/matchups", f"/matchups?date={dates['today']}"],
+                    "data": {"date": dates["today"], "games": games[:8]},
+                }
+            if "yesterday" in ql:
+                games = MATCHUP_SNAPSHOT_CACHE.get(dates["yesterday"]) or generate_matchups_for_date(session, dates["yesterday"])
+                MATCHUP_SNAPSHOT_CACHE[dates["yesterday"]] = games
+                return {
+                    "answer": f"Loaded {len(games)} games for yesterday ({dates['yesterday']}).",
+                    "sources": ["/matchups/calendar", f"/matchups?date={dates['yesterday']}"],
+                    "data": {"date": dates["yesterday"], "games": games[:8]},
+                }
+            if "weather" in ql:
+                games = generate_matchups_for_date(session, dates["today"])
+                weather_games = [g for g in games if g.get("weather")]
+                return {
+                    "answer": f"Found weather data for {len(weather_games)} of {len(games)} games today.",
+                    "sources": [f"/matchups?date={dates['today']}"],
+                    "data": weather_games[:10],
+                }
+            team_match = re.search(r"team\s+(\d+)", ql)
+            if team_match:
+                team_id = int(team_match.group(1))
+                team = get_team(team_id)
+                return {
+                    "answer": f"Team {team_id} standing and split profile loaded.",
+                    "sources": [f"/team/{team_id}", "/standings"],
+                    "data": team,
+                }
+        return {
+            "answer": "I can currently answer questions about today/yesterday matchups, weather, and team IDs (e.g., 'team 147').",
+            "sources": ["/matchups", "/team/{team_id}", "/standings"],
+            "data": None,
+        }
+
     @app.get("/matchup/{game_pk}")
     def get_matchup_detail(game_pk: int) -> Dict[str, Any]:
         url = f"{MLB_STATS_BASE}/schedule"
@@ -567,12 +662,12 @@ def create_app():
                     {
                         "pitch_type": r.pitch_type,
                         "pitch_name": r.pitch_name,
-                        "usage_pct": r.usage_pct,
-                        "whiff_pct": r.whiff_pct,
-                        "strikeout_pct": r.strikeout_pct,
+                        "usage_pct": _normalize_rate(r.usage_pct),
+                        "whiff_pct": _normalize_rate(r.whiff_pct),
+                        "strikeout_pct": _normalize_rate(r.strikeout_pct),
                         "rv_per_100": r.rv_per_100,
                         "xwoba": r.xwoba,
-                        "hard_hit_pct": r.hard_hit_pct,
+                        "hard_hit_pct": _normalize_rate(r.hard_hit_pct),
                     }
                     for r in arsenal
                 ]
@@ -772,12 +867,12 @@ def create_app():
                 {
                     "pitch_type": r.pitch_type,
                     "pitch_name": r.pitch_name,
-                    "usage_pct": r.usage_pct,
-                    "whiff_pct": r.whiff_pct,
-                    "strikeout_pct": r.strikeout_pct,
+                    "usage_pct": _normalize_rate(r.usage_pct),
+                    "whiff_pct": _normalize_rate(r.whiff_pct),
+                    "strikeout_pct": _normalize_rate(r.strikeout_pct),
                     "rv_per_100": r.rv_per_100,
                     "xwoba": r.xwoba,
-                    "hard_hit_pct": r.hard_hit_pct,
+                    "hard_hit_pct": _normalize_rate(r.hard_hit_pct),
                 }
                 for r in arsenal
             ]
