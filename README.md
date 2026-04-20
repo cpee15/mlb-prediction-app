@@ -1,52 +1,240 @@
 # MLB Prediction App
 
-This repository contains a work‑in‑progress implementation of an advanced MLB match‑ups and prediction engine.  The goal of this project is to ingest detailed baseball data from public APIs (including the **MLB Stats API** and **Statcast**) and compute rich feature vectors for each daily matchup.
+A production full-stack MLB matchup and prediction engine. Data is ingested from the **MLB Stats API** and **Baseball Savant / Statcast**, stored in PostgreSQL, and served through a **FastAPI** backend to a **React 18** frontend hosted at [mlbgpt.com](https://mlbgpt.com).
 
-## Features
+---
 
-- **Daily schedule ingestion**: Fetch the list of scheduled games, teams and probable pitchers for a given date.
-- **Team standings and records**: Retrieve wins, losses and run differential for each team in the current season.
-- **Platoon splits**: Collect hitting statistics for teams and players vs left‑ and right‑handed pitching, yielding metrics such as K%, BB%, ISO and wOBA.
-- **Statcast aggregation**: Calculate advanced pitcher and batter metrics such as average velocity, spin rate, hard‑hit percentage, barrel rate, strikeout and walk rates, average exit velocity and launch angle.  These aggregations can be computed over rolling windows (e.g. last 3, 6, 9 or 12 months) or per season.
-- **Matchup pipeline**: Assemble all of the above data into a feature vector for each scheduled game.  The pipeline is designed to be extensible, allowing future integration of pitch‑arsenal data, count‑based splits and machine‑learning models.
+## Architecture — Two Separate Railway Services
 
-## Repository structure
+This project deploys as **two independent Railway services**. Understanding this is mandatory before contributing.
 
-- **mlb_app/main.py** – A simple script that demonstrates fetching the daily schedule and estimating win probabilities using basic team records.  This serves as a baseline example.
-- **mlb_app/data_ingestion.py** – Functions to fetch schedules, team standings and team hitting splits from the MLB Stats API.
-- **mlb_app/player_splits.py** – Helper functions to retrieve individual player splits vs left‑ and right‑handed pitching.
-- **mlb_app/statcast_utils.py** – Utility functions to aggregate raw Statcast data for pitchers and hitters into useful metrics.  Note: the functions that fetch Statcast data are placeholders, as direct Statcast downloads require an accessible endpoint.
-- **mlb_app/pitcher_analysis.py** – Wraps `statcast_utils` to compute pitcher metrics given a date range or pre‑fetched raw data.
-- **mlb_app/batter_analysis.py** – Wraps `statcast_utils` to compute batter metrics given a date range or pre‑fetched raw data.
-- **mlb_app/analysis_pipeline.py** – Orchestrates the data ingestion and aggregation functions to produce a list of matchup feature dictionaries for a given date.
-- **generate_matchups.py** – Command‑line utility that accepts a date and prints the generated matchups in JSON format.
+| Service | Builder | Role | Domain |
+|---------|---------|------|--------|
+| `mlb-prediction-app` | Dockerfile | FastAPI backend + API | `*.up.railway.app` |
+| Frontend | Railpack (Node) | React SPA | `mlbgpt.com` |
 
-## Usage
+The frontend calls the backend via `VITE_API_BASE_URL` (set in Railway env vars at build time). If `VITE_API_BASE_URL` is unset, API calls fall back to relative URLs — which **breaks** because the frontend service has no API routes.
 
-1. **Clone this repository** and install Python 3.9+.
-2. Install required dependencies (if any) listed in a `requirements.txt` file (not yet provided).  The current scripts rely only on Python’s standard library for HTTP requests and JSON handling.
-3. Run the CLI to generate today’s matchups:
+### CORS Policy
 
-```bash
-python generate_matchups.py
+The backend (`mlb_app/app.py`) allows:
+- `https://mlbgpt.com` and `https://www.mlbgpt.com`
+- `https://*.up.railway.app` via `allow_origin_regex`
+
+**Never restrict CORS to only the custom domain.** The Railway service URL must always be allowed.
+
+---
+
+## Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | Python 3.11, FastAPI, Uvicorn |
+| ORM / DB | SQLAlchemy 2.x, PostgreSQL (SQLite fallback for local) |
+| Data | pybaseball (Statcast), MLB Stats API (`statsapi.mlb.com`) |
+| Frontend | React 18, Vite, React Router 6 |
+| Deployment | Docker (backend), Railpack/Node (frontend), Railway, GitHub Actions |
+
+---
+
+## Repository Structure
+
+```
+mlb-prediction-app/
+├── mlb_app/                    # Core Python package
+│   ├── app.py                  # FastAPI application — all API routes
+│   ├── database.py             # SQLAlchemy ORM models
+│   ├── db_utils.py             # Database query helpers
+│   ├── etl.py                  # ETL pipeline (Statcast, arsenal, splits → DB)
+│   ├── matchup_generator.py    # Assembles game-level feature vectors from DB
+│   ├── scoring.py              # Matchup scoring engine / win probability
+│   ├── aggregation.py          # Rolling-window and seasonal stat aggregation
+│   ├── data_ingestion.py       # MLB Stats API wrappers (schedule, standings, splits)
+│   ├── statcast_utils.py       # Statcast retrieval and aggregation (pybaseball)
+│   ├── pitcher_analysis.py     # Pitcher metric retrieval helpers
+│   ├── batter_analysis.py      # Batter metric retrieval helpers
+│   ├── player_splits.py        # Player splits vs L/R pitching
+│   ├── analysis_pipeline.py    # Matchup analysis orchestration
+│   └── hitter_profile.py       # Hitter profile scaffold (in progress)
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx             # Root component + routing
+│   │   ├── pages/
+│   │   │   ├── HomePage.jsx                # Daily matchups
+│   │   │   ├── MatchupDetailPage.jsx       # Single-game drill-down
+│   │   │   ├── CompetitiveAnalysisPage.jsx # Lineup-vs-pitcher matrix
+│   │   │   ├── PitcherPage.jsx             # Pitcher profile + arsenal
+│   │   │   ├── RollingPitcherPage.jsx      # Pitcher rolling stats (L15G–L150G)
+│   │   │   ├── BatterPage.jsx              # Batter profile + platoon splits
+│   │   │   ├── RollingBatterPage.jsx       # Batter rolling stats (L10–L1000 ABs)
+│   │   │   ├── TeamPage.jsx                # Team vsL/vsR splits + standings
+│   │   │   ├── StandingsPage.jsx           # AL/NL standings
+│   │   │   ├── YesterdayTodayPage.jsx      # Calendar view (yesterday/today/tomorrow)
+│   │   │   └── AIPage.jsx                  # Lightweight MLB Q&A assistant
+│   │   └── utils/
+│   │       └── formatters.js   # Shared number/percent/date formatters
+│   ├── index.html
+│   └── package.json
+├── main.py                     # Uvicorn entry point for Railway
+├── seed_db.py                  # Bootstrap: loads last N days of Statcast into DB
+├── generate_matchups.py        # CLI: prints matchups JSON for a given date
+├── Dockerfile                  # Multi-stage build (Python 3.11 + Node 20)
+├── railway.json                # Railway deploy config (healthcheck, restart policy)
+├── CLAUDE.md                   # Architecture notes for AI-assisted development
+└── requirements.txt            # Python dependencies
 ```
 
-To specify a different date (YYYY‑MM‑DD), use the `--date` flag:
+---
+
+## API Endpoints
+
+All endpoints are served by `mlb_app/app.py`.
+
+### Health
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
+
+### Matchups / Schedule
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/matchups` | List games for a date (`?date=YYYY-MM-DD`) |
+| `GET` | `/matchups/calendar` | Yesterday / today / tomorrow snapshot |
+| `POST` | `/matchups/snapshot/{date_str}` | Cache matchups for a specific date |
+| `GET` | `/matchup/{game_pk}` | Full game detail (pitchers, lineups, splits, game log) |
+| `GET` | `/matchup/{game_pk}/competitive` | Lineup-level competitive matchup matrix |
+
+### Pitchers
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/pitcher/{id}` | Aggregate stats + pitch arsenal |
+| `GET` | `/pitcher/{id}/rolling` | Rolling stats (L15G–L150G) |
+| `GET` | `/pitcher/{id}/game-log` | Recent game-by-game appearances |
+
+### Batters
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/batter/{id}` | Aggregate stats + platoon splits |
+| `GET` | `/batter/{id}/rolling` | Rolling stats (L10, L25, L50, L100, L200, L400, L1000 ABs) |
+| `GET` | `/batter/{id}/splits` | Multi-season vsL/vsR splits |
+| `GET` | `/batter/{id}/at-bats` | Chronological Statcast-level at-bat log |
+
+### Teams / Standings / Rosters
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/standings` | AL/NL standings |
+| `GET` | `/team/{team_id}` | Team splits (vsL/vsR) + standings |
+| `GET` | `/team/{team_id}/roster` | Full active roster |
+| `GET` | `/lineup/{team_id}` | Day-of lineup (`?date=YYYY-MM-DD`) |
+
+### Players
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/players/search` | Search by name (`?name=...`) |
+| `GET` | `/players/all` | All active MLB players (`?season=YYYY`) |
+
+### AI / Prediction
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/ai/ask` | Lightweight MLB data Q&A assistant |
+| `POST` | `/predict` | Score a specific pitcher vs batter matchup |
+
+---
+
+## Local Development
+
+### Backend
 
 ```bash
-python generate_matchups.py --date 2026‑04‑15
+# 1. Create and activate a virtual environment
+python -m venv .venv
+source .venv/bin/activate
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Set environment variables
+#    DATABASE_URL  — PostgreSQL connection string (omit to use SQLite fallback)
+#    VITE_API_BASE_URL — only needed when building the frontend
+export DATABASE_URL=postgresql://user:pass@localhost:5432/mlb
+
+# 4. Seed the database with recent Statcast data
+python seed_db.py
+
+# 5. Start the API server
+uvicorn mlb_app.app:app --reload --port 8000
 ```
 
-The command prints a JSON array of matchup objects, each containing fields like home and away team win/loss records, run differential, splits and aggregated metrics.  Note that some fields (such as pitcher and batter Statcast metrics) may be empty if the corresponding data retrieval functions have not yet been implemented.
+The API will be available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
 
-## Roadmap
+### Frontend
 
-The current implementation provides the skeleton of a data pipeline.  Future work includes:
+```bash
+cd frontend
 
-- Implementing full Statcast data retrieval for pitchers and hitters, using either the official Statcast API or a proxy service.
-- Downloading and aggregating Baseball Savant pitch‑arsenal CSVs to compute career and seasonal pitch mix effectiveness.
-- Incorporating count‑based splits and additional contextual factors (e.g. weather, park factors).
-- Building a machine‑learning model to translate the feature vectors into win probabilities or projected run totals.
-- Developing a web‑based or ChatGPT‑plugin interface to view matchups and predictions interactively.
+# Install Node dependencies
+npm install
 
-This project is under active development and contributions are welcome.
+# Set the API base URL to point at your local backend
+echo "VITE_API_BASE_URL=http://localhost:8000" > .env.local
+
+# Start the dev server
+npm run dev
+```
+
+The frontend dev server runs at `http://localhost:5173`.
+
+---
+
+## Deployment
+
+Pushing to `main` triggers two automatic deploys:
+
+1. **Backend** — GitHub Actions runs `railway up --detach --service mlb-prediction-app`, which builds and deploys the Dockerfile.
+2. **Frontend** — Railway's Railpack detects Node and deploys the React SPA automatically.
+
+The `VITE_API_BASE_URL` environment variable **must** be set in the Railway frontend service's env vars before deploying, or the frontend will break.
+
+---
+
+## Contributing
+
+Before opening a PR, read this entire README and `CLAUDE.md`.
+
+### Branch naming
+
+Use descriptive prefixes:
+
+```
+feature/<short-description>
+fix/<short-description>
+refactor/<short-description>
+```
+
+### Code conventions
+
+- **Python**: Follow the existing module structure. New backend modules go in `mlb_app/`. Keep logic out of `app.py` — routes should call helpers, not contain business logic inline.
+- **Comments**: Only add a comment when the *why* is non-obvious. Do not write docstrings that restate what the function name already says. Do not write multi-paragraph docstrings for placeholder or scaffold code.
+- **Parameters**: Do not define function parameters that are not used. If a function is a scaffold, either omit the parameter until it is needed or use it.
+- **No dead code**: Do not merge modules or functions that are entirely placeholder (returning `None` for every field). At minimum, implement enough logic to be testable.
+- **Tests**: Every new module must include a corresponding test file in `tests/`. There is currently no test suite — new contributions are expected to establish one.
+- **Trailing newline**: All Python files must end with a newline character.
+
+### PR checklist
+
+- [ ] New Python files end with a trailing newline
+- [ ] No unused function parameters
+- [ ] No overly verbose docstrings on scaffold/placeholder code
+- [ ] A test file exists for every new module (`tests/test_<module>.py`)
+- [ ] If touching `mlb_app/app.py` CORS config, review `CLAUDE.md` first
+- [ ] If touching the frontend build or `VITE_API_BASE_URL`, verify the two-service deploy still works
+
+---
+
+## Data Sources
+
+| Source | Used For |
+|--------|---------|
+| [MLB Stats API](https://statsapi.mlb.com) | Schedule, standings, rosters, lineups, player splits |
+| [Baseball Savant / Statcast](https://baseballsavant.mlb.com) | Pitch velocity, spin rate, exit velocity, barrel rate, pitch arsenal CSVs |
+| [pybaseball](https://github.com/jldbc/pybaseball) | Python wrapper for Statcast bulk downloads |
