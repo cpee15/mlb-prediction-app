@@ -67,7 +67,7 @@ from .scoring import compute_win_probability, score_individual_matchup, get_park
 from .statcast_utils import fetch_pitch_arsenal_leaderboard
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
-MATCHUP_SNAPSHOT_CACHE: Dict[str, Dict[str, Any]] = {}
+MATCHUP_SNAPSHOT_CACHE: Dict[str, List[Dict[str, Any]]] = {}
 
 HIT_EVENTS = {"single", "double", "triple", "home_run"}
 OUTCOME_EVENTS = {
@@ -170,36 +170,6 @@ def _build_date_window() -> Dict[str, str]:
         "yesterday": (today - datetime.timedelta(days=1)).isoformat(),
         "today": today.isoformat(),
         "tomorrow": (today + datetime.timedelta(days=1)).isoformat(),
-    }
-
-
-def _get_snapshot_payload(session, date_str: str, force_refresh: bool = False) -> Dict[str, Any]:
-    cached = MATCHUP_SNAPSHOT_CACHE.get(date_str)
-    today_str = datetime.date.today().isoformat()
-
-    should_refresh = force_refresh
-    if cached is None:
-        should_refresh = True
-    elif date_str == today_str and cached.get("refreshed_on") != today_str:
-        should_refresh = True
-
-    if should_refresh:
-        games = generate_matchups_for_date(session, date_str)
-        cached = {
-            "date": date_str,
-            "games": games,
-            "count": len(games),
-            "refreshed_on": today_str,
-            "snapshot_type": "in_memory",
-        }
-        MATCHUP_SNAPSHOT_CACHE[date_str] = cached
-
-    return {
-        "date": cached["date"],
-        "games": cached["games"],
-        "count": cached["count"],
-        "snapshot_type": cached.get("snapshot_type", "in_memory"),
-        "refreshed_on": cached.get("refreshed_on"),
     }
 
 
@@ -528,7 +498,7 @@ def _fetch_roster_as_lineup(team_id: int, season: int) -> List[Dict[str, Any]]:
         return []
 
 
-class PredictRequest(BaseModel):
+
     pitcher_id: int
     batter_id: int
     season: Optional[int] = None
@@ -569,27 +539,31 @@ def create_app():
 
     @app.get("/matchups/calendar")
     def matchup_calendar() -> Dict[str, Any]:
-        """Return yesterday/today/tomorrow with in-memory snapshots and daily refresh for today."""
+        """Return yesterday/today/tomorrow with cached snapshots for consistency."""
         dates = _build_date_window()
         Session = _get_session()
         with Session() as session:
-            return {key: _get_snapshot_payload(session, date_str) for key, date_str in dates.items()}
+            payload = {}
+            for key, d in dates.items():
+                if d not in MATCHUP_SNAPSHOT_CACHE:
+                    MATCHUP_SNAPSHOT_CACHE[d] = generate_matchups_for_date(session, d)
+                payload[key] = {
+                    "date": d,
+                    "count": len(MATCHUP_SNAPSHOT_CACHE[d]),
+                    "games": MATCHUP_SNAPSHOT_CACHE[d],
+                }
+            return payload
 
     @app.post("/matchups/snapshot/{date_str}")
     def snapshot_matchups(date_str: str) -> Dict[str, Any]:
-        """Refresh and store the latest schedule pull for a specific date in process memory."""
+        """Persist the latest schedule pull for a specific date into in-memory cache."""
         Session = _get_session()
         with Session() as session:
             try:
-                snapshot = _get_snapshot_payload(session, date_str, force_refresh=True)
+                MATCHUP_SNAPSHOT_CACHE[date_str] = generate_matchups_for_date(session, date_str)
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
-        return {
-            "date": snapshot["date"],
-            "games_cached": snapshot["count"],
-            "snapshot_type": snapshot["snapshot_type"],
-            "refreshed_on": snapshot["refreshed_on"],
-        }
+        return {"date": date_str, "games_cached": len(MATCHUP_SNAPSHOT_CACHE[date_str])}
 
     @app.post("/ai/ask")
     def ai_ask(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -601,19 +575,20 @@ def create_app():
         dates = _build_date_window()
         Session = _get_session()
         with Session() as session:
-            if "yesterday" in ql:
-                snapshot = _get_snapshot_payload(session, dates["yesterday"])
+            if "today" in ql or "matchup" in ql:
+                games = generate_matchups_for_date(session, dates["today"])
                 return {
-                    "answer": f"Loaded {snapshot['count']} games for yesterday ({dates['yesterday']}).",
-                    "sources": ["/matchups/calendar", f"/matchups?date={dates['yesterday']}"],
-                    "data": {"date": dates["yesterday"], "games": snapshot["games"][:8]},
+                    "answer": f"There are {len(games)} scheduled games for {dates['today']}.",
+                    "sources": ["/matchups", f"/matchups?date={dates['today']}"],
+                    "data": {"date": dates["today"], "games": games[:8]},
                 }
-            if "tomorrow" in ql:
-                snapshot = _get_snapshot_payload(session, dates["tomorrow"])
+            if "yesterday" in ql:
+                games = MATCHUP_SNAPSHOT_CACHE.get(dates["yesterday"]) or generate_matchups_for_date(session, dates["yesterday"])
+                MATCHUP_SNAPSHOT_CACHE[dates["yesterday"]] = games
                 return {
-                    "answer": f"Loaded {snapshot['count']} scheduled games for tomorrow ({dates['tomorrow']}).",
-                    "sources": ["/matchups/calendar", f"/matchups?date={dates['tomorrow']}"],
-                    "data": {"date": dates['tomorrow'], "games": snapshot["games"][:8]},
+                    "answer": f"Loaded {len(games)} games for yesterday ({dates['yesterday']}).",
+                    "sources": ["/matchups/calendar", f"/matchups?date={dates['yesterday']}"],
+                    "data": {"date": dates["yesterday"], "games": games[:8]},
                 }
             if "weather" in ql:
                 games = generate_matchups_for_date(session, dates["today"])
@@ -632,16 +607,9 @@ def create_app():
                     "sources": [f"/team/{team_id}", "/standings"],
                     "data": team,
                 }
-            if "today" in ql or "matchup" in ql or "games" in ql:
-                games = generate_matchups_for_date(session, dates["today"])
-                return {
-                    "answer": f"There are {len(games)} scheduled games for {dates['today']}.",
-                    "sources": ["/matchups", f"/matchups?date={dates['today']}"],
-                    "data": {"date": dates["today"], "games": games[:8]},
-                }
         return {
-            "answer": "I can currently answer questions about today, yesterday, or tomorrow matchups, weather, and team IDs like 'team 147'. Calendar snapshots are stored in memory for the running app instance.",
-            "sources": ["/matchups", "/matchups/calendar", "/team/{team_id}", "/standings"],
+            "answer": "I can currently answer questions about today/yesterday matchups, weather, and team IDs (e.g., 'team 147').",
+            "sources": ["/matchups", "/team/{team_id}", "/standings"],
             "data": None,
         }
 
@@ -741,6 +709,7 @@ def create_app():
                     }
 
                 db_result = {"vsL": sd(vsL), "vsR": sd(vsR)}
+                # If DB is missing both splits or both are identical, use live MLB API data
                 both_missing = not db_result["vsL"] and not db_result["vsR"]
                 identical = (
                     db_result["vsL"] and db_result["vsR"] and
@@ -836,6 +805,8 @@ def create_app():
         home_lineup_raw = lineups.get("homePlayers", []) or []
         away_lineup_raw = lineups.get("awayPlayers", []) or []
 
+        # Official lineups aren't posted until ~1-2 hrs before game time.
+        # Fall back to active non-pitcher roster so the matrix always renders.
         away_lineup_source = "official"
         home_lineup_source = "official"
         if not away_lineup_raw and away_team_id:
@@ -913,6 +884,8 @@ def create_app():
             multi = get_pitcher_multi_season(session, player_id, [season, season - 1, season - 2, season - 3])
             game_log = get_pitcher_game_log(session, player_id, 10)
             if not agg and not arsenal_rows:
+                # Fallback: fetch basic player info from MLB Stats API so the page
+                # can at least show the player's name rather than a hard 404
                 player_name = None
                 try:
                     p_resp = _req.get(
@@ -986,6 +959,7 @@ def create_app():
             split_seasons = get_player_splits_multi_season(session, player_id, [season, season - 1, season - 2, season - 3])
             statcast = _compute_batter_statcast(session, player_id, since_year=2024)
 
+        # Always fetch live MLB data regardless of DB state
         live = _fetch_batter_live_data(player_id, season)
 
         def _sd(s):
@@ -998,6 +972,7 @@ def create_app():
                 "home_runs": s.home_runs,
             }
 
+        # Prefer DB splits; fall back to live API splits
         db_vsL, db_vsR = _sd(split_L), _sd(split_R)
         if db_vsL or db_vsR:
             splits = {"vsL": db_vsL, "vsR": db_vsR}
@@ -1274,6 +1249,7 @@ def create_app():
             )
         return {"pitcher_id": req.pitcher_id, "batter_id": req.batter_id, **result}
 
+    # Serve the built React frontend — must be mounted last so API routes take priority
     _dist = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend', 'dist')
     if os.path.isdir(_dist):
         app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")
