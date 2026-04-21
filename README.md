@@ -4,6 +4,24 @@ A production full-stack MLB matchup and prediction engine. Data is ingested from
 
 ---
 
+## Matchup Analyzer — Current Production Reference
+
+The matchup analyzer is now live in production and should be treated as the current known-good behavior for daily game analysis. This section exists to preserve, in plain English, what the analyzer is doing right now so future changes can always be measured against a written baseline. The goal is simple: if the analyzer ever drifts, breaks, or starts returning incomplete matchup cards, this description should make it obvious what changed.
+
+At a high level, the analyzer pulls the daily MLB schedule, resolves each game into a structured matchup object, validates that both teams and both expected starting pitchers can be tied back to internal data, and then returns those matchups through the production API for the frontend to render. It is not intended to guess, partially fill, or fabricate missing core matchup data. A matchup should only move forward when the required game-level identity fields are present and usable.
+
+The analyzer begins with the official game schedule for the requested date. From that schedule it identifies every scheduled game and extracts the base metadata that defines a matchup: game ID, date, away team, home team, team IDs, probable or assigned starting pitchers, and game status. That core layer is the foundation for everything else in the system. If the analyzer cannot reliably resolve those values, it should fail that matchup cleanly rather than emit a misleading or half-built result.
+
+Once the schedule layer is resolved, the analyzer maps the teams and pitchers into the internal data model used by the rest of the app. This includes linking the matchup to database-backed historical statistics, rolling performance views, player split data, and any supporting aggregation used by the scoring and analysis pipeline. Pitcher identity resolution is especially important here. The analyzer must correctly associate the live game pitcher with the stored player record so downstream pages, matchup detail views, and scoring logic all stay aligned.
+
+After identity resolution succeeds, the analyzer assembles a finalized matchup object that the API can return consistently. That object should be stable enough to support the homepage matchup cards, game detail pages, competitive lineup views, and downstream scoring functions without requiring the frontend to invent missing values. In other words, the backend is responsible for giving the frontend a clean, trustworthy matchup payload.
+
+In production, this means the matchup analyzer is expected to do the following every day: retrieve the correct game slate, identify both clubs in every game, resolve both starting pitchers when available, connect those entities to the internal statistical system, assemble complete matchup records, and expose those records through the live API in a structure the frontend can render directly. When no games are scheduled, the analyzer should return a valid empty result, not a broken response. When a specific matchup cannot be built correctly, it should be excluded or flagged cleanly rather than degrade the full slate.
+
+This is the reference behavior that should be preserved. Future refactors can improve speed, coverage, and depth, but they should not change the core expectation that the analyzer returns validated, production-safe matchup objects built from real scheduled games, correctly resolved teams and pitchers, and internally consistent data links across the rest of the application.
+
+---
+
 ## Architecture — Two Separate Railway Services
 
 This project deploys as **two independent Railway services**. Understanding this is mandatory before contributing.
