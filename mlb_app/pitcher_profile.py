@@ -21,25 +21,31 @@ def compute_pitcher_profile(raw_stats: dict) -> dict:
         A structured player-level pitcher profile using raw metrics grouped
         by trait. Missing fields are returned as None.
     """
+    raw_stats = raw_stats or {}
+
     return {
         "arsenal": {
             "pitch_mix": raw_stats.get("pitch_mix"),
             "avg_velocity": raw_stats.get("avg_velocity"),
-            "avg_spin_rate": raw_stats.get("avg_spin_rate"),
+            "avg_spin_rate": raw_stats.get("avg_spin_rate", raw_stats.get("avg_spin")),
         },
         "bat_missing": {
-            "k_rate": raw_stats.get("k_rate"),
+            "k_rate": raw_stats.get("k_rate", raw_stats.get("k_pct")),
             "whiff_rate": raw_stats.get("whiff_rate"),
             "csw_rate": raw_stats.get("csw_rate"),
         },
         "command_control": {
-            "bb_rate": raw_stats.get("bb_rate"),
+            "bb_rate": raw_stats.get("bb_rate", raw_stats.get("bb_pct")),
             "zone_rate": raw_stats.get("zone_rate"),
             "first_pitch_strike_rate": raw_stats.get("first_pitch_strike_rate"),
         },
         "contact_management": {
-            "hard_hit_rate_allowed": raw_stats.get("hard_hit_rate_allowed"),
-            "barrel_rate_allowed": raw_stats.get("barrel_rate_allowed"),
+            "hard_hit_rate_allowed": raw_stats.get(
+                "hard_hit_rate_allowed", raw_stats.get("hard_hit_pct")
+            ),
+            "barrel_rate_allowed": raw_stats.get(
+                "barrel_rate_allowed", raw_stats.get("barrel_pct_allowed")
+            ),
             "avg_exit_velocity_allowed": raw_stats.get("avg_exit_velocity_allowed"),
             "avg_launch_angle_allowed": raw_stats.get("avg_launch_angle_allowed"),
         },
