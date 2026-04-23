@@ -290,6 +290,165 @@ function CompetitiveBatterRow({ batter, expanded, onToggle }) {
   )
 }
 
+
+function metricValue(v) {
+  if (v == null) return '—'
+  if (typeof v === 'number') {
+    if (Math.abs(v) <= 1) return dec(v)
+    return Number(v).toFixed(1)
+  }
+  return String(v)
+}
+
+function ProfileSectionCard({ title, data }) {
+  const entries = Object.entries(data || {})
+  return (
+    <div style={t.splitCard}>
+      <div style={t.splitTitle}>{title}</div>
+      {entries.length === 0 ? (
+        <div style={{ color: '#8b949e', fontSize: '13px' }}>No data</div>
+      ) : (
+        entries.map(([k, v]) => (
+          <div key={k} style={t.statRow}>
+            <span style={t.statKey}>{k}</span>
+            <span style={t.statVal}>{metricValue(v)}</span>
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
+function ProfileMetadataCard({ title, metadata }) {
+  return (
+    <div style={t.splitCard}>
+      <div style={t.splitTitle}>{title}</div>
+      {!metadata ? (
+        <div style={{ color: '#8b949e', fontSize: '13px' }}>No metadata</div>
+      ) : (
+        Object.entries(metadata).map(([k, v]) => (
+          <div key={k} style={t.statRow}>
+            <span style={t.statKey}>{k}</span>
+            <span style={t.statVal}>{Array.isArray(v) ? v.join(', ') : metricValue(v)}</span>
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
+function PitcherProfilePanel({ sideLabel, teamName, profile }) {
+  if (!profile) return <div style={t.noData}>No pitcher profile available</div>
+  return (
+    <div style={t.pitcherCard}>
+      <div style={{ fontSize: '12px', color: '#8b949e', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{sideLabel}</div>
+      <div style={t.pitcherName}>{teamName}</div>
+      <div style={t.dataSource}>{profile.metadata?.generated_from || 'No source info'}</div>
+      <div style={t.splitsGrid}>
+        <ProfileMetadataCard title="Metadata" metadata={profile.metadata} />
+        <ProfileSectionCard title="Arsenal" data={profile.arsenal} />
+        <ProfileSectionCard title="Bat Missing" data={profile.bat_missing} />
+        <ProfileSectionCard title="Command / Control" data={profile.command_control} />
+        <ProfileSectionCard title="Contact Management" data={profile.contact_management} />
+        <ProfileSectionCard title="Platoon Profile" data={profile.platoon_profile} />
+      </div>
+    </div>
+  )
+}
+
+function BatterProfilePanel({ sideLabel, teamName, profile }) {
+  if (!profile) return <div style={t.noData}>No batter profile available</div>
+  return (
+    <div style={t.pitcherCard}>
+      <div style={{ fontSize: '12px', color: '#8b949e', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{sideLabel}</div>
+      <div style={t.pitcherName}>{teamName}</div>
+      <div style={t.dataSource}>{profile.metadata?.generated_from || 'No source info'}</div>
+      <div style={t.splitsGrid}>
+        <ProfileMetadataCard title="Metadata" metadata={profile.metadata} />
+        <ProfileSectionCard title="Contact Skill" data={profile.contact_skill} />
+        <ProfileSectionCard title="Plate Discipline" data={profile.plate_discipline} />
+        <ProfileSectionCard title="Power" data={profile.power} />
+        <ProfileSectionCard title="Batted Ball Quality" data={profile.batted_ball_quality} />
+        <ProfileSectionCard title="Platoon Profile" data={profile.platoon_profile} />
+      </div>
+    </div>
+  )
+}
+
+function EnvironmentPanel({ profile }) {
+  if (!profile) return <div style={t.noData}>No environment profile available</div>
+  return (
+    <div style={t.section}>
+      <div style={t.sectionTitle}>Environment Profile</div>
+      <div style={t.splitsGrid}>
+        <ProfileMetadataCard title="Metadata" metadata={profile.metadata} />
+        <ProfileSectionCard title="Weather" data={profile.weather} />
+        <ProfileSectionCard title="Park Factors" data={profile.park_factors} />
+        <ProfileSectionCard title="Game Context" data={profile.game_context} />
+        <ProfileSectionCard title="Run Environment" data={profile.run_environment} />
+        <ProfileSectionCard title="Risk Flags" data={profile.risk_flags} />
+        <ProfileSectionCard title="Status" data={profile.status} />
+      </div>
+    </div>
+  )
+}
+
+function MatchupAnalysisPanel({ sideLabel, teamName, analysis }) {
+  if (!analysis) return <div style={t.noData}>No matchup analysis available</div>
+  const pitchRows = analysis.pitchTypeMatchups || []
+  return (
+    <div style={t.pitcherCard}>
+      <div style={{ fontSize: '12px', color: '#8b949e', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{sideLabel}</div>
+      <div style={t.pitcherName}>{teamName}</div>
+      <div style={t.dataSource}>{analysis.metadata?.generated_from || 'No source info'}</div>
+
+      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '14px', fontSize: '12px' }}>
+        <span style={{ color: '#8b949e' }}>Confidence: <span style={{ color: '#e6edf3' }}>{metricValue(analysis.confidence)}</span></span>
+        <span style={{ color: '#8b949e' }}>Biggest Edge: <span style={{ color: '#e6edf3' }}>{analysis.biggestEdge?.pitch_type || '—'}</span></span>
+        <span style={{ color: '#8b949e' }}>Biggest Weakness: <span style={{ color: '#e6edf3' }}>{analysis.biggestWeakness?.pitch_type || '—'}</span></span>
+      </div>
+
+      <div style={t.splitsGrid}>
+        <ProfileMetadataCard title="Metadata" metadata={analysis.metadata} />
+        <ProfileSectionCard title="Summary" data={analysis.summary} />
+      </div>
+
+      <div style={{ marginTop: '16px' }}>
+        <div style={{ fontSize: '12px', color: '#8b949e', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Pitch Type Matchups</div>
+        {pitchRows.length === 0 ? (
+          <div style={t.noData}>No pitch matchup rows available</div>
+        ) : (
+          <table style={t.matchupTable}>
+            <thead>
+              <tr>
+                <th style={t.mth}>Pitch</th>
+                <th style={{ ...t.mth, ...t.mtdR }}>Use%</th>
+                <th style={{ ...t.mth, ...t.mtdR }}>xwOBA</th>
+                <th style={{ ...t.mth, ...t.mtdR }}>HH%</th>
+                <th style={{ ...t.mth, ...t.mtdR }}>Edge</th>
+                <th style={{ ...t.mth, ...t.mtdR }}>Conf</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pitchRows.map((p, idx) => (
+                <tr key={idx}>
+                  <td style={t.mtd}>{p.pitch_type || p.raw_pitch_type || '—'}</td>
+                  <td style={{ ...t.mtd, ...t.mtdR }}>{pct(p.pitcher_usage_pct)}</td>
+                  <td style={{ ...t.mtd, ...t.mtdR }}>{dec(p.pitcher_xwoba)}</td>
+                  <td style={{ ...t.mtd, ...t.mtdR }}>{pct(p.pitcher_hard_hit_pct)}</td>
+                  <td style={{ ...t.mtd, ...t.mtdR }}>{edgeLabel(p.edge_score)}</td>
+                  <td style={{ ...t.mtd, ...t.mtdR }}>{pct(p.confidence)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
 export default function MatchupDetailPage() {
   const { game_pk } = useParams()
   const [matchup, setMatchup] = useState(null)
@@ -397,6 +556,10 @@ export default function MatchupDetailPage() {
 
       <div style={t.compTabs}>
         <button style={t.compTab(activeTab === 'overview')} onClick={() => setActiveTab('overview')}>Overview</button>
+        <button style={t.compTab(activeTab === 'pitcher')} onClick={() => setActiveTab('pitcher')}>Pitcher</button>
+        <button style={t.compTab(activeTab === 'batter')} onClick={() => setActiveTab('batter')}>Batter</button>
+        <button style={t.compTab(activeTab === 'environment')} onClick={() => setActiveTab('environment')}>Environment</button>
+        <button style={t.compTab(activeTab === 'analysis')} onClick={() => setActiveTab('analysis')}>Matchup Analysis</button>
         <button style={t.compTab(activeTab === 'competitive')} onClick={() => setActiveTab('competitive')}>Batter vs Arsenal</button>
       </div>
 
@@ -472,6 +635,41 @@ export default function MatchupDetailPage() {
             </div>
           </div>
         </>
+      )}
+
+
+      {activeTab === 'pitcher' && (
+        <div style={t.section}>
+          <div style={t.sectionTitle}>Pitcher Profiles</div>
+          <div style={t.pitcherGrid}>
+            <PitcherProfilePanel sideLabel="Away" teamName={away.name} profile={matchup.awayPitcherProfile} />
+            <PitcherProfilePanel sideLabel="Home" teamName={home.name} profile={matchup.homePitcherProfile} />
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'batter' && (
+        <div style={t.section}>
+          <div style={t.sectionTitle}>Projected Lineup Offense Profiles</div>
+          <div style={t.pitcherGrid}>
+            <BatterProfilePanel sideLabel="Away" teamName={away.name} profile={matchup.awayProjectedLineupOffenseProfile} />
+            <BatterProfilePanel sideLabel="Home" teamName={home.name} profile={matchup.homeProjectedLineupOffenseProfile} />
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'environment' && (
+        <EnvironmentPanel profile={matchup.environmentProfile} />
+      )}
+
+      {activeTab === 'analysis' && (
+        <div style={t.section}>
+          <div style={t.sectionTitle}>Matchup Analysis</div>
+          <div style={t.pitcherGrid}>
+            <MatchupAnalysisPanel sideLabel="Away Offense" teamName={away.name} analysis={matchup.awayMatchupAnalysis} />
+            <MatchupAnalysisPanel sideLabel="Home Offense" teamName={home.name} analysis={matchup.homeMatchupAnalysis} />
+          </div>
+        </div>
       )}
 
       {activeTab === 'competitive' && (
