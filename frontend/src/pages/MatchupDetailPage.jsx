@@ -406,6 +406,7 @@ function InsightCards({ items }) {
       ))}
     </div>
   )
+  }
 function displayKey(key) {
   if (!key) return '—'
   const map = {
