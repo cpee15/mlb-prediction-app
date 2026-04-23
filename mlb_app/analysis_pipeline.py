@@ -37,6 +37,8 @@ from .environment_data import build_environment_context
 from .lineup_data import resolve_team_lineup
 from .offense_profile_aggregation import build_projected_lineup_offense_profile
 from .matchup_analysis import build_matchup_analysis
+from .pitcher_windows import fetch_pitcher_metrics_for_window
+from .sample_blending import PITCHER_BLEND_WEIGHTS, blend_metric_dict
 
 
 def _determine_hand(player_id: int) -> str | None:
@@ -199,25 +201,49 @@ def generate_daily_matchups(date_str: str) -> List[Dict]:
         home_pitcher_metrics: Dict[str, object] = {}
         away_pitcher_metrics: Dict[str, object] = {}
 
-        if home_pitcher_id:
+        def _blend_pitcher_windows(pitcher_id: int) -> Dict[str, object]:
             try:
-                home_pitcher_metrics = get_pitcher_metrics(
-                    home_pitcher_id,
-                    (target_date - datetime.timedelta(days=365)).isoformat(),
-                    date_str,
-                )
+                windows = {
+                    "last_30_days": fetch_pitcher_metrics_for_window(
+                        pitcher_id=pitcher_id,
+                        target_date=target_date,
+                        window_name="last_30_days",
+                    ),
+                    "last_90_days": fetch_pitcher_metrics_for_window(
+                        pitcher_id=pitcher_id,
+                        target_date=target_date,
+                        window_name="last_90_days",
+                    ),
+                    "last_365_days": fetch_pitcher_metrics_for_window(
+                        pitcher_id=pitcher_id,
+                        target_date=target_date,
+                        window_name="last_365_days",
+                    ),
+                }
             except NotImplementedError:
-                home_pitcher_metrics = {}
+                return {}
+
+            metric_windows = {
+                window_name: {
+                    k: v
+                    for k, v in metrics.items()
+                    if isinstance(v, (int, float)) and k not in {"sample_is_scaffold"}
+                }
+                for window_name, metrics in windows.items()
+            }
+
+            blended = blend_metric_dict(metric_windows, PITCHER_BLEND_WEIGHTS)
+            blended["sample_window"] = "blended"
+            blended["sample_blend_policy"] = "pitcher_v1_weighted_blend"
+            blended["stabilizer_window"] = "last_365_days"
+            blended["sample_size"] = None
+            return blended
+
+        if home_pitcher_id:
+            home_pitcher_metrics = _blend_pitcher_windows(home_pitcher_id)
 
         if away_pitcher_id:
-            try:
-                away_pitcher_metrics = get_pitcher_metrics(
-                    away_pitcher_id,
-                    (target_date - datetime.timedelta(days=365)).isoformat(),
-                    date_str,
-                )
-            except NotImplementedError:
-                away_pitcher_metrics = {}
+            away_pitcher_metrics = _blend_pitcher_windows(away_pitcher_id)
 
         matchup_features["homePitcherMetrics"] = home_pitcher_metrics
         matchup_features["awayPitcherMetrics"] = away_pitcher_metrics
@@ -226,27 +252,27 @@ def generate_daily_matchups(date_str: str) -> List[Dict]:
         home_pitcher_profile = compute_pitcher_profile(
             {
                 **(home_pitcher_metrics or {}),
-                "source_type": "statcast_aggregate" if home_pitcher_metrics else "missing",
+                "source_type": "statcast_aggregate_blended" if home_pitcher_metrics else "missing",
                 "source_fields_used": sorted(list((home_pitcher_metrics or {}).keys())),
                 "data_confidence": "medium" if home_pitcher_metrics else "low",
-                "generated_from": "get_pitcher_metrics",
-                "sample_window": "last_365_days",
-                "sample_blend_policy": "single_window_v1",
+                "generated_from": "fetch_pitcher_metrics_for_window + sample_blending",
+                "sample_window": "blended",
+                "sample_blend_policy": "pitcher_v1_weighted_blend",
                 "sample_size": None,
-                "stabilizer_window": None,
+                "stabilizer_window": "last_365_days",
             }
         )
         away_pitcher_profile = compute_pitcher_profile(
             {
                 **(away_pitcher_metrics or {}),
-                "source_type": "statcast_aggregate" if away_pitcher_metrics else "missing",
+                "source_type": "statcast_aggregate_blended" if away_pitcher_metrics else "missing",
                 "source_fields_used": sorted(list((away_pitcher_metrics or {}).keys())),
                 "data_confidence": "medium" if away_pitcher_metrics else "low",
-                "generated_from": "get_pitcher_metrics",
-                "sample_window": "last_365_days",
-                "sample_blend_policy": "single_window_v1",
+                "generated_from": "fetch_pitcher_metrics_for_window + sample_blending",
+                "sample_window": "blended",
+                "sample_blend_policy": "pitcher_v1_weighted_blend",
                 "sample_size": None,
-                "stabilizer_window": None,
+                "stabilizer_window": "last_365_days",
             }
         )
 
