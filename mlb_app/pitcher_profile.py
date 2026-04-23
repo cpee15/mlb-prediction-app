@@ -5,6 +5,8 @@ This module defines a player-level pitcher profile structure that can later
 be populated with real calculations from split and Statcast inputs.
 """
 
+from .sample_windows import build_sample_metadata
+
 
 def compute_pitcher_profile(raw_stats: dict) -> dict:
     """
