@@ -2,7 +2,10 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
-from apify_client import ApifyClient
+try:
+    from apify_client import ApifyClient
+except ImportError:
+    ApifyClient = None
 
 _CACHE: Dict[str, Dict[str, Any]] = {}
 
@@ -21,7 +24,7 @@ def _cache_set(key: str, data: Any, ttl: int = 60):
     }
 
 
-def _provider_not_configured(scope: str, game_pk: Optional[int] = None) -> Dict[str, Any]:
+def _provider_not_configured(scope: str, game_pk: Optional[int] = None, message: str = "APIFY_TOKEN is not configured.") -> Dict[str, Any]:
     return {
         "provider": "draftkings",
         "status": "provider_not_configured",
@@ -33,7 +36,23 @@ def _provider_not_configured(scope: str, game_pk: Optional[int] = None) -> Dict[
         "raw_count": 0,
         "market_count": 0,
         "errors": [],
-        "message": "APIFY_TOKEN is not configured.",
+        "message": message,
+    }
+
+
+def _provider_error(scope: str, game_pk: Optional[int], exc: Exception) -> Dict[str, Any]:
+    return {
+        "provider": "draftkings",
+        "status": "provider_error",
+        "scope": scope,
+        "game_pk": game_pk,
+        "markets": [],
+        "books": ["DraftKings"],
+        "last_updated": int(time.time()),
+        "raw_count": 0,
+        "market_count": 0,
+        "errors": [str(exc)],
+        "message": "DraftKings odds provider failed while fetching Apify data.",
     }
 
 
@@ -89,7 +108,7 @@ def _normalize_selection(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_items(items: List[Dict[str, Any]], scope: str, game_pk: Optional[int] = None) -> List[Dict[str, Any]]:
+def _normalize_items(items: List[Dict[str, Any]], game_pk: Optional[int] = None) -> List[Dict[str, Any]]:
     markets: List[Dict[str, Any]] = []
     for idx, item in enumerate(items):
         if game_pk is not None:
@@ -100,7 +119,7 @@ def _normalize_items(items: List[Dict[str, Any]], scope: str, game_pk: Optional[
         market_name = _first_present(item, ["marketName", "market_name", "market", "name", "categoryName"])
         market_key = _first_present(item, ["marketKey", "market_key", "marketType", "market_type", "category"])
         selections = _first_present(item, ["selections", "outcomes", "runners", "offers", "participants"])
-        normalized_selections: List[Dict[str, Any]] = []
+
         if isinstance(selections, list):
             normalized_selections = [_normalize_selection(sel) for sel in selections if isinstance(sel, dict)]
         else:
@@ -122,6 +141,9 @@ def _normalize_items(items: List[Dict[str, Any]], scope: str, game_pk: Optional[
 
 
 def fetch_draftkings_odds(scope: str = "pregame", game_pk: Optional[int] = None, props_only: bool = False) -> Dict[str, Any]:
+    if ApifyClient is None:
+        return _provider_not_configured(scope, game_pk=game_pk, message="apify-client is not installed in the running image.")
+
     token = os.getenv("APIFY_TOKEN")
     if not token:
         return _provider_not_configured(scope, game_pk=game_pk)
@@ -131,8 +153,6 @@ def fetch_draftkings_odds(scope: str = "pregame", game_pk: Optional[int] = None,
     if cached:
         return cached
 
-    client = ApifyClient(token)
-
     run_input = {
         "leagues": [os.getenv("DRAFTKINGS_ODDS_LEAGUE", "MLB")],
         "marketTypes": ["player_props" if props_only else "all"],
@@ -140,9 +160,13 @@ def fetch_draftkings_odds(scope: str = "pregame", game_pk: Optional[int] = None,
         "usState": os.getenv("DRAFTKINGS_ODDS_STATE", "IL"),
     }
 
-    run = client.actor(os.getenv("DRAFTKINGS_ODDS_ACTOR_ID", "mherzog/draftkings-sportsbook-odds")).call(run_input=run_input)
-    items: List[Dict[str, Any]] = list(client.dataset(run["defaultDatasetId"]).iterate_items())
-    markets = _normalize_items(items, scope=scope, game_pk=game_pk)
+    try:
+        client = ApifyClient(token)
+        run = client.actor(os.getenv("DRAFTKINGS_ODDS_ACTOR_ID", "mherzog/draftkings-sportsbook-odds")).call(run_input=run_input)
+        items: List[Dict[str, Any]] = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+        markets = _normalize_items(items, game_pk=game_pk)
+    except Exception as exc:
+        return _provider_error(scope, game_pk, exc)
 
     normalized = {
         "provider": "draftkings",
