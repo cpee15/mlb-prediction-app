@@ -868,11 +868,16 @@ def create_app():
                 return False
 
             def _team_split_for_pitcher_hand(team_splits_payload, pitcher_hand):
+                team_splits_payload = team_splits_payload or {}
                 if pitcher_hand == "L":
-                    return (team_splits_payload or {}).get("vsL")
+                    return team_splits_payload.get("vsL")
                 if pitcher_hand == "R":
-                    return (team_splits_payload or {}).get("vsR")
-                return None
+                    return team_splits_payload.get("vsR")
+
+                # If probable pitcher handedness is unavailable, use the most
+                # common/default split as a pragmatic fallback rather than
+                # leaving the Batter tab empty.
+                return team_splits_payload.get("vsR") or team_splits_payload.get("vsL")
 
             def _team_split_offense_fallback_profile(
                 existing_profile,
@@ -891,7 +896,7 @@ def create_app():
                 avg = split.get("batting_avg")
                 slg = split.get("slugging_pct")
                 iso = slg - avg if slg is not None and avg is not None else None
-                selected_split = "vsL" if pitcher_hand == "L" else "vsR" if pitcher_hand == "R" else "unknown"
+                selected_split = "vsL" if pitcher_hand == "L" else "vsR" if pitcher_hand == "R" else "vsR_default"
 
                 return {
                     "metadata": {
