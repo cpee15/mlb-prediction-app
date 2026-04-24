@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 try:
     from apify_client import ApifyClient
@@ -20,7 +20,8 @@ _STATE_ABBREVIATIONS = {
     "NJ": "New Jersey", "NY": "New York", "OH": "Ohio", "PA": "Pennsylvania",
     "TN": "Tennessee", "VA": "Virginia", "WV": "West Virginia", "WY": "Wyoming",
 }
-_DEFAULT_MARKET_TYPES = ["moneyline", "spread", "total", "player_props"]
+_DEFAULT_MLB_LEAGUE_ID = "84240"
+_DEFAULT_MARKET_TYPES = ["all"]
 
 
 def _cache_get(key: str):
@@ -30,7 +31,7 @@ def _cache_get(key: str):
     return None
 
 
-def _cache_set(key: str, data: Any, ttl: int = 60):
+def _cache_set(key: str, data: Any, ttl: int = 300):
     _CACHE[key] = {"data": data, "expires_at": time.time() + ttl}
 
 
@@ -66,11 +67,40 @@ def _json_env(name: str) -> Optional[Dict[str, Any]]:
 
 
 def _provider_not_configured(scope: str, game_pk: Optional[int] = None, message: str = "APIFY_TOKEN is not configured.") -> Dict[str, Any]:
-    return {"provider": "draftkings", "status": "provider_not_configured", "scope": scope, "game_pk": game_pk, "markets": [], "books": ["DraftKings"], "last_updated": None, "raw_count": 0, "market_count": 0, "errors": [], "message": message}
+    return {
+        "provider": "draftkings",
+        "status": "provider_not_configured",
+        "scope": scope,
+        "game_pk": game_pk,
+        "markets": [],
+        "events": [],
+        "books": ["DraftKings"],
+        "last_updated": None,
+        "raw_count": 0,
+        "event_count": 0,
+        "market_count": 0,
+        "errors": [],
+        "message": message,
+    }
 
 
 def _provider_error(scope: str, game_pk: Optional[int], exc: Exception, run_input: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    return {"provider": "draftkings", "status": "provider_error", "scope": scope, "game_pk": game_pk, "markets": [], "books": ["DraftKings"], "last_updated": int(time.time()), "raw_count": 0, "market_count": 0, "errors": [str(exc)], "message": "DraftKings odds provider failed while fetching Apify data.", "run_input": run_input or {}}
+    return {
+        "provider": "draftkings",
+        "status": "provider_error",
+        "scope": scope,
+        "game_pk": game_pk,
+        "markets": [],
+        "events": [],
+        "books": ["DraftKings"],
+        "last_updated": int(time.time()),
+        "raw_count": 0,
+        "event_count": 0,
+        "market_count": 0,
+        "errors": [str(exc)],
+        "message": "DraftKings odds provider failed while fetching Apify data.",
+        "run_input": run_input or {},
+    }
 
 
 def _first_present(row: Dict[str, Any], keys: List[str]) -> Any:
@@ -89,83 +119,133 @@ def _to_float(value: Any) -> Optional[float]:
         return None
 
 
-def _decimal_price(price: Any) -> Optional[float]:
-    n = _to_float(price)
-    if n is None:
-        return None
-    if n > 0:
-        return round((n / 100) + 1, 4)
-    if n < 0:
-        return round((100 / abs(n)) + 1, 4)
-    return None
+def _odds_dict(selection: Dict[str, Any]) -> Dict[str, Any]:
+    odds = selection.get("odds") if isinstance(selection.get("odds"), dict) else {}
+    american = _first_present(odds, ["american", "americanOdds", "oddsAmerican"])
+    if american is None:
+        american = _first_present(selection, ["americanOdds", "american_odds", "oddsAmerican", "price"])
+    decimal = _first_present(odds, ["decimal", "decimalOdds"])
+    fractional = _first_present(odds, ["fractional", "fractionalOdds"])
+    implied = _first_present(odds, ["impliedProbability", "implied_probability"])
+    return {
+        "american": american,
+        "decimal": decimal,
+        "fractional": fractional,
+        "implied_probability": implied,
+    }
 
 
-def _implied_probability(price: Any) -> Optional[float]:
-    n = _to_float(price)
-    if n is None:
-        return None
-    if n > 0:
-        return round(100 / (n + 100), 4)
-    if n < 0:
-        return round(abs(n) / (abs(n) + 100), 4)
-    return None
+def _normalize_selection(selection: Dict[str, Any], market: Dict[str, Any]) -> Dict[str, Any]:
+    odds = _odds_dict(selection)
+    return {
+        "selection_id": _first_present(selection, ["id", "selectionId", "outcomeId"]),
+        "name": _first_present(selection, ["name", "label", "outcome", "participant", "playerName", "teamName"]),
+        "team": _first_present(selection, ["team", "teamAbbreviation", "teamName"]),
+        "side": _first_present(selection, ["side", "homeAway", "designation"]),
+        "line": _first_present(selection, ["line", "points", "handicap", "total", "spread"]) or _first_present(market, ["line", "points", "total", "spread"]),
+        "odds": odds,
+        "price": odds.get("american"),
+        "is_open": selection.get("isOpen", selection.get("is_open", market.get("isOpen"))),
+        "raw": selection,
+    }
 
 
-def _price_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        return _first_present(value, ["american", "americanOdds", "oddsAmerican", "price"])
-    return value
-
-
-def _normalize_selection(row: Dict[str, Any]) -> Dict[str, Any]:
-    price = _price_value(_first_present(row, ["price", "odds", "americanOdds", "american_odds", "oddsAmerican", "displayOdds"]))
-    return {"name": _first_present(row, ["name", "selection", "outcome", "label", "participant", "playerName", "teamName"]), "team": _first_present(row, ["team", "teamAbbreviation", "team_abbreviation", "teamName"]), "side": _first_present(row, ["side", "homeAway", "designation"]), "line": _first_present(row, ["line", "points", "handicap", "total", "spread"]), "price": price, "decimal_price": _decimal_price(price), "implied_probability": _implied_probability(price), "raw": row}
-
-
-def _normalize_items(items: List[Dict[str, Any]], game_pk: Optional[int] = None) -> List[Dict[str, Any]]:
+def _normalize_event(item: Dict[str, Any]) -> Dict[str, Any]:
+    event_markets = item.get("markets") if isinstance(item.get("markets"), list) else []
     markets: List[Dict[str, Any]] = []
-    for idx, item in enumerate(items):
-        if game_pk is not None:
-            raw_game_pk = _first_present(item, ["game_pk", "gamePk", "mlbGamePk", "eventId", "event_id"])
-            if raw_game_pk is not None and str(raw_game_pk) != str(game_pk):
+    for market in event_markets:
+        if not isinstance(market, dict):
+            continue
+        selections = market.get("selections") if isinstance(market.get("selections"), list) else []
+        markets.append({
+            "market_id": _first_present(market, ["id", "marketId"]),
+            "market_key": _first_present(market, ["type", "marketType", "market_key"]),
+            "market_name": _first_present(market, ["name", "marketName", "label"]),
+            "market_type": _first_present(market, ["type", "marketType"]),
+            "line": _first_present(market, ["line", "points", "total", "spread"]),
+            "period": _first_present(market, ["period", "periodName"]),
+            "is_open": market.get("isOpen", market.get("is_open")),
+            "selections": [_normalize_selection(sel, market) for sel in selections if isinstance(sel, dict)],
+            "raw": market,
+        })
+    return {
+        "event_id": _first_present(item, ["eventId", "event_id", "id"]),
+        "name": _first_present(item, ["name", "eventName"]),
+        "sport": item.get("sport"),
+        "league": item.get("league"),
+        "league_id": _first_present(item, ["leagueId", "league_id"]),
+        "home_team": item.get("homeTeam"),
+        "away_team": item.get("awayTeam"),
+        "start_time": _first_present(item, ["startTime", "start_time", "commence_time"]),
+        "status": item.get("status"),
+        "is_live": bool(item.get("isLive", item.get("is_live", False))),
+        "source_url": _first_present(item, ["sourceUrl", "source_url"]),
+        "scraped_at": _first_present(item, ["scrapedAt", "scraped_at"]),
+        "markets": markets,
+        "market_count": len(markets),
+        "raw": item,
+    }
+
+
+def _flatten_markets(events: List[Dict[str, Any]], game_pk: Optional[int] = None) -> List[Dict[str, Any]]:
+    flat: List[Dict[str, Any]] = []
+    for event in events:
+        event_id = event.get("event_id")
+        if game_pk is not None and event_id is not None and str(event_id) != str(game_pk):
+            continue
+        for market in event.get("markets", []):
+            row = dict(market)
+            row.pop("raw", None)
+            row["event_id"] = event_id
+            row["event_name"] = event.get("name")
+            row["league"] = event.get("league")
+            row["league_id"] = event.get("league_id")
+            row["start_time"] = event.get("start_time")
+            row["is_live"] = event.get("is_live")
+            row["source_url"] = event.get("source_url")
+            flat.append(row)
+    return flat
+
+
+def _filter_events(events: List[Dict[str, Any]], game_pk: Optional[int], target_date: Optional[str]) -> List[Dict[str, Any]]:
+    filtered: List[Dict[str, Any]] = []
+    for event in events:
+        if game_pk is not None and event.get("event_id") is not None and str(event.get("event_id")) != str(game_pk):
+            continue
+        if target_date:
+            start_time = event.get("start_time") or ""
+            if start_time and not str(start_time).startswith(target_date):
                 continue
-        market_name = _first_present(item, ["marketName", "market_name", "market", "name", "categoryName"])
-        market_key = _first_present(item, ["marketKey", "market_key", "marketType", "market_type", "category"])
-        selections = _first_present(item, ["selections", "outcomes", "runners", "offers", "participants"])
-        normalized_selections = [_normalize_selection(sel) for sel in selections if isinstance(sel, dict)] if isinstance(selections, list) else [_normalize_selection(item)]
-        markets.append({"market_key": str(market_key or market_name or f"market_{idx}"), "market_name": str(market_name or market_key or "DraftKings Market"), "market_type": _first_present(item, ["marketType", "market_type", "type"]), "period": _first_present(item, ["period", "periodName", "period_name"]), "game_pk": _first_present(item, ["game_pk", "gamePk", "mlbGamePk"]), "event_id": _first_present(item, ["eventId", "event_id", "id"]), "start_time": _first_present(item, ["startTime", "start_time", "commence_time"]), "is_live": bool(_first_present(item, ["isLive", "is_live", "live"])), "selections": normalized_selections, "raw": item})
-    return markets
+        filtered.append(event)
+    return filtered
 
 
-def build_draftkings_run_input(scope: str = "pregame", props_only: bool = False, date: Optional[str] = None, league: Optional[str] = None, market_types: Optional[List[str]] = None, live_only: Optional[bool] = None, state: Optional[str] = None) -> Dict[str, Any]:
+def build_draftkings_run_input(
+    scope: str = "pregame",
+    props_only: bool = False,
+    date: Optional[str] = None,
+    league: Optional[str] = None,
+    market_types: Optional[List[str]] = None,
+    live_only: Optional[bool] = None,
+    state: Optional[str] = None,
+) -> Dict[str, Any]:
     override = _json_env("DRAFTKINGS_ODDS_RUN_INPUT_JSON")
     if override is not None:
         return override
-    resolved_market_types = market_types or (["player_props"] if props_only else _parse_csv(os.getenv("DRAFTKINGS_ODDS_MARKET_TYPES"), _DEFAULT_MARKET_TYPES))
-    run_input: Dict[str, Any] = {"leagues": [league or os.getenv("DRAFTKINGS_ODDS_LEAGUE", "MLB")], "marketTypes": resolved_market_types, "maxEvents": int(os.getenv("DRAFTKINGS_ODDS_MAX_EVENTS", "500")), "liveOnly": scope == "live" if live_only is None else live_only, "usState": _normalize_state(state or os.getenv("DRAFTKINGS_ODDS_STATE", "Illinois"))}
-    if date:
-        run_input["date"] = date
-    return run_input
-
-
-def build_draftkings_run_input_candidates(scope: str = "pregame", props_only: bool = False, date: Optional[str] = None, league: Optional[str] = None, market_types: Optional[List[str]] = None, live_only: Optional[bool] = None, state: Optional[str] = None) -> List[Dict[str, Any]]:
-    override = _json_env("DRAFTKINGS_ODDS_RUN_INPUT_JSON")
-    if override is not None:
-        return [override]
-    full = build_draftkings_run_input(scope, props_only, date, league, market_types, live_only, state)
-    resolved_live = scope == "live" if live_only is None else live_only
-    resolved_state = full["usState"]
-    resolved_league = league or os.getenv("DRAFTKINGS_ODDS_LEAGUE", "MLB")
-    resolved_markets = full.get("marketTypes") or _DEFAULT_MARKET_TYPES
-    candidates = [full, {"usState": resolved_state, "liveOnly": resolved_live, "maxEvents": full["maxEvents"]}, {"usState": resolved_state, "liveOnly": resolved_live}, {"usState": resolved_state}, {"state": resolved_state, "liveOnly": resolved_live, "league": resolved_league}, {"usState": resolved_state, "sports": [resolved_league], "liveOnly": resolved_live}, {"usState": resolved_state, "leagues": [resolved_league], "liveOnly": resolved_live}, {"usState": resolved_state, "marketTypes": resolved_markets, "liveOnly": resolved_live}]
-    unique: List[Dict[str, Any]] = []
-    seen = set()
-    for candidate in candidates:
-        key = str(sorted(candidate.items()))
-        if key not in seen:
-            seen.add(key)
-            unique.append(candidate)
-    return unique
+    if props_only:
+        resolved_market_types = ["player_props"]
+    else:
+        resolved_market_types = market_types or _parse_csv(os.getenv("DRAFTKINGS_ODDS_MARKET_TYPES"), _DEFAULT_MARKET_TYPES)
+    resolved_league = league or os.getenv("DRAFTKINGS_ODDS_LEAGUE", _DEFAULT_MLB_LEAGUE_ID)
+    return {
+        "leagues": [resolved_league],
+        "marketTypes": resolved_market_types,
+        "maxEvents": int(os.getenv("DRAFTKINGS_ODDS_MAX_EVENTS", "500")),
+        "liveOnly": scope == "live" if live_only is None else live_only,
+        "oddsFormat": os.getenv("DRAFTKINGS_ODDS_FORMAT", "all"),
+        "usState": _normalize_state(state or os.getenv("DRAFTKINGS_ODDS_STATE", "Illinois")),
+        "requestDelay": int(os.getenv("DRAFTKINGS_ODDS_REQUEST_DELAY_MS", "500")),
+    }
 
 
 def _run_actor(token: str, run_input: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -177,48 +257,59 @@ def _run_actor(token: str, run_input: Dict[str, Any]) -> List[Dict[str, Any]]:
     return list(client.dataset(dataset_id).iterate_items())
 
 
-def _run_actor_with_fallbacks(token: str, candidates: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, Any], List[Dict[str, Any]]]:
-    attempts: List[Dict[str, Any]] = []
-    last_items: List[Dict[str, Any]] = []
-    last_input = candidates[0] if candidates else {}
-    for run_input in candidates:
-        try:
-            items = _run_actor(token, run_input)
-            attempts.append({"run_input": run_input, "raw_count": len(items), "error": None})
-            last_items = items
-            last_input = run_input
-            if items:
-                return items, run_input, attempts
-        except Exception as exc:
-            attempts.append({"run_input": run_input, "raw_count": 0, "error": str(exc)})
-            last_input = run_input
-    return last_items, last_input, attempts
-
-
-def fetch_draftkings_odds(scope: str = "pregame", game_pk: Optional[int] = None, props_only: bool = False, date: Optional[str] = None, raw: bool = False, league: Optional[str] = None, market_types: Optional[List[str]] = None, live_only: Optional[bool] = None, state: Optional[str] = None) -> Dict[str, Any]:
+def fetch_draftkings_odds(
+    scope: str = "pregame",
+    game_pk: Optional[int] = None,
+    props_only: bool = False,
+    date: Optional[str] = None,
+    raw: bool = False,
+    league: Optional[str] = None,
+    market_types: Optional[List[str]] = None,
+    live_only: Optional[bool] = None,
+    state: Optional[str] = None,
+) -> Dict[str, Any]:
     if ApifyClient is None:
         return _provider_not_configured(scope, game_pk=game_pk, message="apify-client is not installed in the running image.")
     token = os.getenv("APIFY_TOKEN")
     if not token:
         return _provider_not_configured(scope, game_pk=game_pk)
-    candidates = build_draftkings_run_input_candidates(scope, props_only, date, league, market_types, live_only, state)
-    cache_key = f"dk:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{str(candidates)}:{raw}"
+
+    run_input = build_draftkings_run_input(scope, props_only, date, league, market_types, live_only, state)
+    cache_key = f"dk:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{json.dumps(run_input, sort_keys=True)}:{raw}"
     cached = _cache_get(cache_key)
     if cached:
-        return cached
+        cached_copy = dict(cached)
+        cached_copy["cache_hit"] = True
+        return cached_copy
+
     try:
-        if scope == "debug" or os.getenv("DRAFTKINGS_ODDS_TRY_FALLBACKS", "false").lower() == "true":
-            items, used_input, attempts = _run_actor_with_fallbacks(token, candidates)
-        else:
-            used_input = build_draftkings_run_input(scope, props_only, date, league, market_types, live_only, state)
-            items = _run_actor(token, used_input)
-            attempts = [{"run_input": used_input, "raw_count": len(items), "error": None}]
-        markets = _normalize_items(items, game_pk=game_pk)
+        items = _run_actor(token, run_input)
+        events = [_normalize_event(item) for item in items if isinstance(item, dict)]
+        events = _filter_events(events, game_pk=game_pk, target_date=date)
+        markets = _flatten_markets(events, game_pk=game_pk)
     except Exception as exc:
-        return _provider_error(scope, game_pk, exc, run_input=candidates[0] if candidates else {})
-    normalized = {"provider": "draftkings", "status": "ok" if items else "empty", "scope": scope, "sport": "baseball_mlb", "game_pk": game_pk, "target_date": date, "books": ["DraftKings"], "markets": markets, "last_updated": int(time.time()), "raw_count": len(items), "market_count": len(markets), "errors": [], "run_input": used_input, "attempts": attempts}
+        return _provider_error(scope, game_pk, exc, run_input=run_input)
+
+    normalized = {
+        "provider": "draftkings",
+        "status": "ok" if items else "empty",
+        "scope": scope,
+        "sport": "baseball_mlb",
+        "game_pk": game_pk,
+        "target_date": date,
+        "books": ["DraftKings"],
+        "events": events,
+        "markets": markets,
+        "last_updated": int(time.time()),
+        "raw_count": len(items),
+        "event_count": len(events),
+        "market_count": len(markets),
+        "errors": [],
+        "run_input": run_input,
+        "cache_hit": False,
+    }
     if raw or scope == "debug":
         normalized["raw_items_sample"] = items[:10]
-    ttl = int(os.getenv("DRAFTKINGS_ODDS_CACHE_TTL_SECONDS", "60"))
+    ttl = int(os.getenv("DRAFTKINGS_ODDS_CACHE_TTL_SECONDS", "300"))
     _cache_set(cache_key, normalized, ttl)
     return normalized
