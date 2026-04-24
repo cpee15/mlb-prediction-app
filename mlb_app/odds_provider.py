@@ -1,6 +1,6 @@
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     from apify_client import ApifyClient
@@ -124,8 +124,14 @@ def _implied_probability(price: Any) -> Optional[float]:
     return None
 
 
+def _price_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return _first_present(value, ["american", "americanOdds", "oddsAmerican", "price"])
+    return value
+
+
 def _normalize_selection(row: Dict[str, Any]) -> Dict[str, Any]:
-    price = _first_present(row, ["price", "odds", "americanOdds", "american_odds", "oddsAmerican"])
+    price = _price_value(_first_present(row, ["price", "odds", "americanOdds", "american_odds", "oddsAmerican", "displayOdds"]))
     return {
         "name": _first_present(row, ["name", "selection", "outcome", "label", "participant", "playerName", "teamName"]),
         "team": _first_present(row, ["team", "teamAbbreviation", "team_abbreviation", "teamName"]),
@@ -192,10 +198,65 @@ def build_draftkings_run_input(
     return run_input
 
 
+def build_draftkings_run_input_candidates(
+    scope: str = "pregame",
+    props_only: bool = False,
+    date: Optional[str] = None,
+    league: Optional[str] = None,
+    market_types: Optional[List[str]] = None,
+    live_only: Optional[bool] = None,
+    state: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    full = build_draftkings_run_input(scope, props_only, date, league, market_types, live_only, state)
+    resolved_live = scope == "live" if live_only is None else live_only
+    resolved_state = full["usState"]
+    resolved_league = league or os.getenv("DRAFTKINGS_ODDS_LEAGUE", "MLB")
+    resolved_markets = full.get("marketTypes") or _DEFAULT_MARKET_TYPES
+    candidates = [
+        full,
+        {"usState": resolved_state, "liveOnly": resolved_live, "maxEvents": full["maxEvents"]},
+        {"usState": resolved_state, "liveOnly": resolved_live},
+        {"usState": resolved_state},
+        {"state": resolved_state, "liveOnly": resolved_live, "league": resolved_league},
+        {"usState": resolved_state, "sports": [resolved_league], "liveOnly": resolved_live},
+        {"usState": resolved_state, "leagues": [resolved_league], "liveOnly": resolved_live},
+        {"usState": resolved_state, "marketTypes": resolved_markets, "liveOnly": resolved_live},
+    ]
+    unique: List[Dict[str, Any]] = []
+    seen = set()
+    for candidate in candidates:
+        key = str(sorted(candidate.items()))
+        if key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique
+
+
 def _run_actor(token: str, run_input: Dict[str, Any]) -> List[Dict[str, Any]]:
     client = ApifyClient(token)
     run = client.actor(os.getenv("DRAFTKINGS_ODDS_ACTOR_ID", "mherzog/draftkings-sportsbook-odds")).call(run_input=run_input)
-    return list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    dataset_id = run.get("defaultDatasetId") or run.get("default_dataset_id")
+    if not dataset_id:
+        return []
+    return list(client.dataset(dataset_id).iterate_items())
+
+
+def _run_actor_with_fallbacks(token: str, candidates: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, Any], List[Dict[str, Any]]]:
+    attempts: List[Dict[str, Any]] = []
+    last_items: List[Dict[str, Any]] = []
+    last_input = candidates[0] if candidates else {}
+    for run_input in candidates:
+        try:
+            items = _run_actor(token, run_input)
+            attempts.append({"run_input": run_input, "raw_count": len(items), "error": None})
+            last_items = items
+            last_input = run_input
+            if items:
+                return items, run_input, attempts
+        except Exception as exc:
+            attempts.append({"run_input": run_input, "raw_count": 0, "error": str(exc)})
+            last_input = run_input
+    return last_items, last_input, attempts
 
 
 def fetch_draftkings_odds(
@@ -216,7 +277,7 @@ def fetch_draftkings_odds(
     if not token:
         return _provider_not_configured(scope, game_pk=game_pk)
 
-    run_input = build_draftkings_run_input(
+    candidates = build_draftkings_run_input_candidates(
         scope=scope,
         props_only=props_only,
         date=date,
@@ -226,20 +287,20 @@ def fetch_draftkings_odds(
         state=state,
     )
 
-    cache_key = f"dk:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{str(run_input)}:{raw}"
+    cache_key = f"dk:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{str(candidates)}:{raw}"
     cached = _cache_get(cache_key)
     if cached:
         return cached
 
     try:
-        items = _run_actor(token, run_input)
+        items, used_input, attempts = _run_actor_with_fallbacks(token, candidates)
         markets = _normalize_items(items, game_pk=game_pk)
     except Exception as exc:
-        return _provider_error(scope, game_pk, exc, run_input=run_input)
+        return _provider_error(scope, game_pk, exc, run_input=candidates[0] if candidates else {})
 
     normalized = {
         "provider": "draftkings",
-        "status": "ok",
+        "status": "ok" if items else "empty",
         "scope": scope,
         "sport": "baseball_mlb",
         "game_pk": game_pk,
@@ -250,9 +311,10 @@ def fetch_draftkings_odds(
         "raw_count": len(items),
         "market_count": len(markets),
         "errors": [],
-        "run_input": run_input,
+        "run_input": used_input,
+        "attempts": attempts,
     }
-    if raw:
+    if raw or scope == "debug":
         normalized["raw_items_sample"] = items[:10]
 
     ttl = int(os.getenv("DRAFTKINGS_ODDS_CACHE_TTL_SECONDS", "60"))
