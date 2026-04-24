@@ -71,7 +71,11 @@ from .db_utils import (
 )
 from .scoring import compute_win_probability, score_individual_matchup, get_park_factor
 from .statcast_utils import fetch_pitch_arsenal_leaderboard
-from .odds_provider import fetch_draftkings_odds
+from .odds_provider import (
+    fetch_draftkings_odds,
+    fetch_draftkings_event_odds,
+    fetch_draftkings_events,
+)
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 MATCHUP_SNAPSHOT_CACHE: Dict[str, List[Dict[str, Any]]] = {}
@@ -698,7 +702,7 @@ def create_app():
             date=date,
             raw=raw,
         )
-
+        
     @app.get("/odds/draftkings/props/{game_pk}")
     def draftkings_game_props(
         game_pk: int,
@@ -712,6 +716,47 @@ def create_app():
             date=date,
             raw=raw,
         )
+
+    @app.get("/odds/draftkings/events")
+    def draftkings_events(
+        date: Optional[str] = None,
+        raw: bool = False,
+    ) -> Dict[str, Any]:
+        return fetch_draftkings_events(
+            date=date,
+            raw=raw,
+        )
+
+    @app.get("/odds/draftkings/event/{event_id}")
+    def draftkings_event_odds(
+        event_id: str,
+        raw: bool = False,
+    ) -> Dict[str, Any]:
+        return fetch_draftkings_event_odds(
+            event_id=event_id,
+            props_only=False,
+            raw=raw,
+        )
+
+    @app.get("/odds/draftkings/event/{event_id}/props")
+    def draftkings_event_props(
+        event_id: str,
+        raw: bool = False,
+    ) -> Dict[str, Any]:
+        return fetch_draftkings_event_odds(
+            event_id=event_id,
+            props_only=True,
+            raw=raw,
+        )
+
+    @app.get("/odds/draftkings/debug")
+    def draftkings_debug_odds(
+        date: Optional[str] = None,
+        league: Optional[str] = None,
+        market_types: Optional[str] = None,
+        live_only: Optional[bool] = None,
+        state: Optional[str] = None,
+    ) -> Dict[str, Any]:
 
     @app.get("/odds/draftkings/debug")
     def draftkings_debug_odds(
