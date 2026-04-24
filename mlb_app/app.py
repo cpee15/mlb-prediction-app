@@ -860,6 +860,101 @@ def create_app():
                 target_date=datetime.date.fromisoformat(game_date_iso[:10]) if game_date_iso else datetime.date.today(),
             )
 
+            def _profile_has_useful_offense_metrics(profile):
+                for section in ["contact_skill", "plate_discipline", "power", "platoon_profile"]:
+                    values = (profile.get(section) or {}).values()
+                    if any(value is not None for value in values):
+                        return True
+                return False
+
+            def _team_split_for_pitcher_hand(team_splits_payload, pitcher_hand):
+                if pitcher_hand == "L":
+                    return (team_splits_payload or {}).get("vsL")
+                if pitcher_hand == "R":
+                    return (team_splits_payload or {}).get("vsR")
+                return None
+
+            def _team_split_offense_fallback_profile(
+                existing_profile,
+                team_splits_payload,
+                pitcher_hand,
+                lineup_source,
+                player_count_used,
+            ):
+                if _profile_has_useful_offense_metrics(existing_profile):
+                    return existing_profile
+
+                split = _team_split_for_pitcher_hand(team_splits_payload, pitcher_hand)
+                if not split:
+                    return existing_profile
+
+                avg = split.get("batting_avg")
+                slg = split.get("slugging_pct")
+                iso = slg - avg if slg is not None and avg is not None else None
+                selected_split = "vsL" if pitcher_hand == "L" else "vsR" if pitcher_hand == "R" else "unknown"
+
+                return {
+                    "metadata": {
+                        **(existing_profile.get("metadata") or {}),
+                        "source_type": "team_split_fallback",
+                        "source_fields_used": sorted(list(split.keys())),
+                        "data_confidence": "low",
+                        "generated_from": "matchup_detail.team_splits_fallback",
+                        "profile_granularity": "team_split_proxy",
+                        "is_projected_lineup_derived": False,
+                        "lineup_source": lineup_source,
+                        "opposing_pitcher_hand": pitcher_hand if pitcher_hand in {"L", "R"} else "unknown",
+                        "player_count_used": player_count_used,
+                        "selected_team_split": selected_split,
+                        "sample_window": "current_season",
+                        "sample_family": "team_split",
+                        "sample_description": "Team split fallback used because player-level lineup splits were unavailable",
+                        "sample_size": split.get("pa"),
+                        "sample_blend_policy": "team_split_fallback_v1",
+                        "stabilizer_window": "current_season",
+                    },
+                    "contact_skill": {
+                        "k_rate": split.get("k_pct"),
+                        "whiff_rate": None,
+                        "contact_rate": None,
+                    },
+                    "plate_discipline": {
+                        "bb_rate": split.get("bb_pct"),
+                        "chase_rate": None,
+                        "swing_rate": None,
+                    },
+                    "power": {
+                        "iso": iso,
+                        "barrel_rate": None,
+                        "hard_hit_rate": None,
+                    },
+                    "batted_ball_quality": {
+                        "avg_exit_velocity": None,
+                        "avg_launch_angle": None,
+                    },
+                    "platoon_profile": {
+                        "vs_lhp_woba": None,
+                        "vs_rhp_woba": None,
+                        "vs_lhp_iso": iso if pitcher_hand == "L" else None,
+                        "vs_rhp_iso": iso if pitcher_hand == "R" else None,
+                    },
+                }
+
+            home_projected_lineup_offense_profile = _team_split_offense_fallback_profile(
+                existing_profile=home_projected_lineup_offense_profile,
+                team_splits_payload=home_team_splits,
+                pitcher_hand=away_pitcher_hand,
+                lineup_source="official" if home_lineup else "missing",
+                player_count_used=len(home_lineup),
+            )
+            away_projected_lineup_offense_profile = _team_split_offense_fallback_profile(
+                existing_profile=away_projected_lineup_offense_profile,
+                team_splits_payload=away_team_splits,
+                pitcher_hand=home_pitcher_hand,
+                lineup_source="official" if away_lineup else "missing",
+                player_count_used=len(away_lineup),
+            )
+
             environment_profile = compute_environment_profile(
                 {
                     "game_pk": game_pk,
