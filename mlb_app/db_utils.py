@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session
 from .database import BatterAggregate, PitchArsenal, PitcherAggregate, PlayerSplit, StatcastEvent, TeamSplit
 
 HIT_EVENTS = {"single", "double", "triple", "home_run"}
+WALK_EVENTS = {"walk", "intent_walk"}
+HBP_EVENTS = {"hit_by_pitch"}
+STRIKEOUT_EVENTS = {"strikeout", "strikeout_double_play"}
 NON_AB_EVENTS = {"walk", "intent_walk", "hit_by_pitch", "sac_bunt", "sac_fly", "catcher_interf", "catcher_interference"}
 TERMINAL_EVENTS = {
     "single", "double", "triple", "home_run",
@@ -19,6 +22,26 @@ TERMINAL_EVENTS = {
     "fielders_choice", "fielders_choice_out", "sac_fly", "sac_bunt",
     "catcher_interf", "catcher_interference",
 }
+TOTAL_BASES = {"single": 1, "double": 2, "triple": 3, "home_run": 4}
+
+
+def _clean_event_name(event_name: Optional[Any]) -> Optional[str]:
+    if event_name is None:
+        return None
+    text = str(event_name).strip().lower()
+    if text in {"", "nan", "none", "null", "na", "n/a"}:
+        return None
+    return text
+
+
+def _is_terminal_event(event_name: Optional[Any]) -> bool:
+    cleaned = _clean_event_name(event_name)
+    return cleaned in TERMINAL_EVENTS
+
+
+def _is_true_ab_event(event_name: Optional[Any]) -> bool:
+    cleaned = _clean_event_name(event_name)
+    return bool(cleaned and cleaned in TERMINAL_EVENTS and cleaned not in NON_AB_EVENTS)
 
 
 def get_pitcher_aggregate(session: Session, pitcher_id: int, window: str) -> Optional[PitcherAggregate]:
@@ -106,7 +129,7 @@ def _events_to_pitcher_df(events: List[StatcastEvent]) -> pd.DataFrame:
             "release_speed": e.release_speed,
             "release_spin_rate": e.release_spin_rate,
             "launch_speed": e.launch_speed,
-            "events": e.events or "",
+            "events": _clean_event_name(e.events) or "",
             "description": "",
             "pfx_x": e.pfx_x,
             "pfx_z": e.pfx_z,
@@ -122,17 +145,60 @@ def _events_to_pitcher_df(events: List[StatcastEvent]) -> pd.DataFrame:
 
 def _events_to_batter_df(events: List[StatcastEvent]) -> pd.DataFrame:
     return pd.DataFrame([
-        {"launch_speed": e.launch_speed, "launch_angle": e.launch_angle, "events": e.events or ""}
+        {"launch_speed": e.launch_speed, "launch_angle": e.launch_angle, "events": _clean_event_name(e.events) or ""}
         for e in events
     ])
 
 
-def _calculate_batter_stats(events: List[StatcastEvent]) -> Dict[str, Any]:
-    from .statcast_utils import calculate_batter_aggregates
-    stats = calculate_batter_aggregates(_events_to_batter_df(events)) if events else {}
-    dates = [e.game_date for e in events if e.game_date]
-    stats["start_date"] = min(dates).isoformat() if dates else None
-    stats["end_date"] = max(dates).isoformat() if dates else None
+def _calculate_batter_stats(events: List[StatcastEvent], raw_event_count: Optional[int] = None) -> Dict[str, Any]:
+    terminal = [e for e in events if _is_terminal_event(e.events)]
+    raw_count = len(events) if raw_event_count is None else raw_event_count
+    dates = [e.game_date for e in terminal if e.game_date]
+    pa = len(terminal)
+    ab_events = [e for e in terminal if _is_true_ab_event(e.events)]
+    ab = len(ab_events)
+    outcomes = [_clean_event_name(e.events) for e in terminal]
+    hits = sum(1 for event in outcomes if event in HIT_EVENTS)
+    walks = sum(1 for event in outcomes if event in WALK_EVENTS)
+    hbp = sum(1 for event in outcomes if event in HBP_EVENTS)
+    strikeouts = sum(1 for event in outcomes if event in STRIKEOUT_EVENTS)
+    home_runs = sum(1 for event in outcomes if event == "home_run")
+    sacrifice_flies = sum(1 for event in outcomes if event == "sac_fly")
+    total_bases = sum(TOTAL_BASES.get(event or "", 0) for event in outcomes)
+    batted_balls = [e for e in terminal if e.launch_speed is not None]
+    launch_angles = [e.launch_angle for e in terminal if e.launch_angle is not None]
+    hard_hit_count = sum(1 for e in batted_balls if e.launch_speed is not None and e.launch_speed >= 95)
+    barrel_count = sum(1 for e in batted_balls if e.launch_speed is not None and e.launch_angle is not None and e.launch_speed >= 98 and 8 <= e.launch_angle <= 50)
+    obp_denominator = ab + walks + hbp + sacrifice_flies
+    obp = round((hits + walks + hbp) / obp_denominator, 3) if obp_denominator else None
+    slg = round(total_bases / ab, 3) if ab else None
+    stats = {
+        "actual_pa": pa,
+        "actual_ab": ab,
+        "event_count": raw_count,
+        "terminal_event_count": pa,
+        "invalid_event_count": max(raw_count - pa, 0),
+        "batted_ball_count": len(batted_balls),
+        "hard_hit_count": hard_hit_count,
+        "barrel_count": barrel_count,
+        "hits": hits,
+        "walks": walks,
+        "strikeouts": strikeouts,
+        "home_runs": home_runs,
+        "batting_avg": round(hits / ab, 3) if ab else None,
+        "on_base_pct": obp,
+        "slugging_pct": slg,
+        "ops": round(obp + slg, 3) if obp is not None and slg is not None else None,
+        "k_pct": round(strikeouts / pa, 3) if pa else None,
+        "bb_pct": round(walks / pa, 3) if pa else None,
+        "avg_exit_velocity": round(sum(e.launch_speed for e in batted_balls if e.launch_speed is not None) / len(batted_balls), 1) if batted_balls else None,
+        "avg_launch_angle": round(sum(launch_angles) / len(launch_angles), 1) if launch_angles else None,
+        "hard_hit_pct": round(hard_hit_count / len(batted_balls), 3) if batted_balls else None,
+        "barrel_pct": round(barrel_count / len(batted_balls), 3) if batted_balls else None,
+        "start_date": min(dates).isoformat() if dates else None,
+        "end_date": max(dates).isoformat() if dates else None,
+        "source": "postgres_statcast_events",
+    }
     return stats
 
 
@@ -145,6 +211,17 @@ def _has_full_event_order(session: Session, batter_id: int) -> bool:
     ).first() is not None
 
 
+def _freshness_from_latest(latest: Optional[datetime.date]) -> Dict[str, Any]:
+    today = datetime.date.today()
+    days_stale = (today - latest).days if latest else None
+    return {
+        "as_of_date": today.isoformat(),
+        "latest_event_date": latest.isoformat() if latest else None,
+        "days_stale": days_stale,
+        "is_stale": days_stale is None or days_stale > 1,
+    }
+
+
 def get_batter_data_quality(session: Session, batter_id: int) -> Dict[str, Any]:
     total = session.query(func.count(StatcastEvent.id)).filter(StatcastEvent.batter_id == batter_id).scalar() or 0
     latest = (
@@ -154,11 +231,16 @@ def get_batter_data_quality(session: Session, batter_id: int) -> Dict[str, Any]:
     )
     terminal_count = session.query(func.count(StatcastEvent.id)).filter(
         StatcastEvent.batter_id == batter_id,
-        StatcastEvent.events.isnot(None),
-        StatcastEvent.events != "",
+        StatcastEvent.events.in_(TERMINAL_EVENTS),
     ).scalar() or 0
     full_order = _has_full_event_order(session, batter_id)
+    freshness = _freshness_from_latest(latest)
     warnings: List[str] = []
+    if freshness["is_stale"]:
+        warnings.append(
+            f"Statcast data is stale: latest event is {freshness['latest_event_date'] or 'unavailable'}, "
+            f"as-of date is {freshness['as_of_date']}."
+        )
     if total == 0:
         ordering_quality = "unavailable"
         warnings.append("No Statcast events found for this batter.")
@@ -169,19 +251,24 @@ def get_batter_data_quality(session: Session, batter_id: int) -> Dict[str, Any]:
         warnings.append("Rolling PA order is date-level only; intra-game PA order unavailable.")
     return {
         "has_statcast": total > 0,
-        "latest_event_date": latest.isoformat() if latest else None,
+        "total_event_rows": total,
+        "terminal_event_rows": terminal_count,
+        "latest_event_date": freshness["latest_event_date"],
+        "as_of_date": freshness["as_of_date"],
+        "days_stale": freshness["days_stale"],
+        "is_stale": freshness["is_stale"],
         "rolling_pa_available": terminal_count > 0,
         "rolling_game_available": total > 0,
         "ordering_quality": ordering_quality,
         "warnings": warnings,
+        "source": "postgres_statcast_events",
     }
 
 
 def _ordered_batter_terminal_query(session: Session, batter_id: int):
     query = session.query(StatcastEvent).filter(
         StatcastEvent.batter_id == batter_id,
-        StatcastEvent.events.isnot(None),
-        StatcastEvent.events != "",
+        StatcastEvent.events.in_(TERMINAL_EVENTS),
     )
     if _has_full_event_order(session, batter_id):
         return query.order_by(
@@ -191,12 +278,6 @@ def _ordered_batter_terminal_query(session: Session, batter_id: int):
             StatcastEvent.pitch_number.desc(),
         )
     return query.order_by(StatcastEvent.game_date.desc(), StatcastEvent.id.desc())
-
-
-def _is_true_ab_event(event_name: Optional[str]) -> bool:
-    if not event_name:
-        return False
-    return event_name not in NON_AB_EVENTS
 
 
 def get_pitcher_rolling_by_games(session: Session, pitcher_id: int, n_games: int) -> Optional[Dict[str, Any]]:
@@ -231,7 +312,11 @@ def get_batter_rolling_by_games(session: Session, batter_id: int, n_games: int) 
     if quality["ordering_quality"] == "full_event_order":
         game_rows = (
             session.query(StatcastEvent.game_pk, func.max(StatcastEvent.game_date).label("game_date"))
-            .filter(StatcastEvent.batter_id == batter_id, StatcastEvent.game_pk.isnot(None))
+            .filter(
+                StatcastEvent.batter_id == batter_id,
+                StatcastEvent.game_pk.isnot(None),
+                StatcastEvent.events.in_(TERMINAL_EVENTS),
+            )
             .group_by(StatcastEvent.game_pk)
             .order_by(func.max(StatcastEvent.game_date).desc(), StatcastEvent.game_pk.desc())
             .limit(n_games)
@@ -243,14 +328,13 @@ def get_batter_rolling_by_games(session: Session, batter_id: int, n_games: int) 
         events = session.query(StatcastEvent).filter(
             StatcastEvent.batter_id == batter_id,
             StatcastEvent.game_pk.in_(game_pks),
-            StatcastEvent.events.isnot(None),
-            StatcastEvent.events != "",
+            StatcastEvent.events.in_(TERMINAL_EVENTS),
         ).all()
         actual_games = len(game_pks)
     else:
         date_rows = (
             session.query(StatcastEvent.game_date)
-            .filter(StatcastEvent.batter_id == batter_id)
+            .filter(StatcastEvent.batter_id == batter_id, StatcastEvent.events.in_(TERMINAL_EVENTS))
             .distinct()
             .order_by(StatcastEvent.game_date.desc())
             .limit(n_games)
@@ -262,14 +346,13 @@ def get_batter_rolling_by_games(session: Session, batter_id: int, n_games: int) 
         events = session.query(StatcastEvent).filter(
             StatcastEvent.batter_id == batter_id,
             StatcastEvent.game_date.in_(date_list),
-            StatcastEvent.events.isnot(None),
-            StatcastEvent.events != "",
+            StatcastEvent.events.in_(TERMINAL_EVENTS),
         ).all()
         actual_games = len(date_list)
         quality["warnings"] = list(quality.get("warnings", [])) + ["Rolling game windows are date-based because game_pk is unavailable."]
     if not events:
         return None
-    stats = _calculate_batter_stats(events)
+    stats = _calculate_batter_stats(events, raw_event_count=len(events))
     stats["actual_games"] = actual_games
     stats["window_type"] = "games"
     stats["data_quality"] = quality
@@ -280,7 +363,7 @@ def get_batter_rolling_by_pa(session: Session, batter_id: int, n_pa: int) -> Opt
     events = _ordered_batter_terminal_query(session, batter_id).limit(n_pa).all()
     if not events:
         return None
-    stats = _calculate_batter_stats(events)
+    stats = _calculate_batter_stats(events, raw_event_count=len(events))
     stats["actual_pa"] = len(events)
     stats["window_type"] = "PA"
     stats["label"] = f"Last {n_pa} PA"
@@ -289,11 +372,11 @@ def get_batter_rolling_by_pa(session: Session, batter_id: int, n_pa: int) -> Opt
 
 
 def get_batter_rolling_by_ab(session: Session, batter_id: int, n_ab: int) -> Optional[Dict[str, Any]]:
-    candidates = _ordered_batter_terminal_query(session, batter_id).limit(max(n_ab * 3, n_ab)).all()
+    candidates = _ordered_batter_terminal_query(session, batter_id).limit(max(n_ab * 5, n_ab)).all()
     events = [e for e in candidates if _is_true_ab_event(e.events)][:n_ab]
     if not events:
         return None
-    stats = _calculate_batter_stats(events)
+    stats = _calculate_batter_stats(events, raw_event_count=len(candidates))
     stats["actual_ab"] = len(events)
     stats["window_type"] = "AB"
     stats["label"] = f"Last {n_ab} AB"
@@ -319,6 +402,7 @@ def get_batter_rolling_splits(session: Session, batter_id: int, n_pa: int = 100)
     return {
         "window_type": "PA",
         "requested_pa": n_pa,
+        "actual_pa": len(events),
         "splits": {k: ({**_calculate_batter_stats(v), "actual_pa": len(v)} if v else None) for k, v in grouped.items()},
         "data_quality": get_batter_data_quality(session, batter_id),
     }
@@ -333,6 +417,7 @@ def get_batter_rolling_pitch_types(session: Session, batter_id: int, n_pa: int =
     return {
         "window_type": "PA",
         "requested_pa": n_pa,
+        "actual_pa": len(events),
         "pitch_types": {
             k: {**_calculate_batter_stats(v), "actual_pa": len(v)}
             for k, v in sorted(grouped.items(), key=lambda item: len(item[1]), reverse=True)
@@ -342,7 +427,7 @@ def get_batter_rolling_pitch_types(session: Session, batter_id: int, n_pa: int =
 
 
 def get_batter_at_bats(session: Session, batter_id: int, n: int = 50, offset: int = 0) -> Tuple[int, List[Dict[str, Any]]]:
-    base = session.query(StatcastEvent).filter(StatcastEvent.batter_id == batter_id, StatcastEvent.events.isnot(None), StatcastEvent.events != "")
+    base = session.query(StatcastEvent).filter(StatcastEvent.batter_id == batter_id, StatcastEvent.events.in_(TERMINAL_EVENTS))
     total = base.count()
     events = _ordered_batter_terminal_query(session, batter_id).offset(offset).limit(n).all()
     rows = [
@@ -357,7 +442,7 @@ def get_batter_at_bats(session: Session, batter_id: int, n: int = 50, offset: in
             "pitcher_id": e.pitcher_id,
             "pitcher_hand": e.p_throws,
             "batter_stand": e.stand,
-            "result": e.events,
+            "result": _clean_event_name(e.events),
             "exit_velocity": e.launch_speed,
             "launch_angle": e.launch_angle,
             "pitch_type": e.pitch_type,
@@ -403,8 +488,8 @@ def get_pitcher_game_log(session: Session, pitcher_id: int, n: int = 10) -> List
     log = []
     for d in sorted(by_date, reverse=True):
         evs = by_date[d]
-        terminal = [e for e in evs if e.events and e.events != ""]
-        outcomes = [e.events for e in terminal]
+        terminal = [e for e in evs if _is_terminal_event(e.events)]
+        outcomes = [_clean_event_name(e.events) for e in terminal]
         ev_vals = [e.launch_speed for e in terminal if e.launch_speed is not None]
         speeds = [e.release_speed for e in evs if e.release_speed is not None]
         hard_hits = sum(1 for v in ev_vals if v >= 95)
