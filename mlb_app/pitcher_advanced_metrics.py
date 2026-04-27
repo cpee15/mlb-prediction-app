@@ -77,6 +77,13 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
             "barrel_rate_allowed": None,
             "avg_exit_velocity_allowed": None,
             "avg_launch_angle_allowed": None,
+            "_debug": {
+                "advanced_event_rows_used": 0,
+                "advanced_zone_rows_used": 0,
+                "advanced_first_pitch_rows_used": 0,
+                "advanced_batted_ball_rows_used": 0,
+                "advanced_metrics_available": [],
+            },
         }
 
     zone_known = [
@@ -104,7 +111,7 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
         if batted_ball_rows else None
     )
 
-    return {
+    metrics = {
         # Requires Statcast description; not persisted yet.
         "csw_rate": None,
         "zone_rate": zone_rate,
@@ -117,3 +124,15 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
             _safe_float(getattr(row, "launch_angle", None)) for row in batted_ball_rows
         ),
     }
+
+    metrics["_debug"] = {
+        "advanced_event_rows_used": len(rows),
+        "advanced_zone_rows_used": len(zone_known),
+        "advanced_first_pitch_rows_used": len(first_pitch_rows),
+        "advanced_batted_ball_rows_used": len(batted_ball_rows),
+        "advanced_metrics_available": sorted(
+            [key for key, value in metrics.items() if not key.startswith("_") and value is not None]
+        ),
+    }
+
+    return metrics
