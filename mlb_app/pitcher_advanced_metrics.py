@@ -8,6 +8,7 @@ CSW rate from pitch description, remain None until those fields are stored.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Iterable, Optional
 
 
@@ -15,9 +16,12 @@ def _safe_float(value: Any) -> Optional[float]:
     if value is None:
         return None
     try:
-        return float(value)
+        numeric = float(value)
     except (TypeError, ValueError):
         return None
+    if math.isnan(numeric) or math.isinf(numeric):
+        return None
+    return numeric
 
 
 def _average(values: Iterable[Optional[float]]) -> Optional[float]:
