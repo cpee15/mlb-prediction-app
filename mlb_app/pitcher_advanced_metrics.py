@@ -88,6 +88,14 @@ def _is_csw(event: Any) -> bool:
     }
 
 
+def _event_name(event: Any) -> Optional[str]:
+    value = _get_field(event, "events")
+    if value is None:
+        return None
+    value = str(value).strip().lower()
+    return value or None
+
+
 def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional[float]]:
     """
     Compute pitcher advanced metrics from stored StatcastEvent rows.
@@ -113,6 +121,11 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
         }
 
     description_rows = [row for row in rows if _description(row) is not None]
+    plate_appearance_rows = [row for row in rows if _event_name(row) is not None]
+    xba_rows = [
+        row for row in rows
+        if _safe_float(_get_field(row, "estimated_ba_using_speedangle")) is not None
+    ]
     zone_known = [
         row for row in rows
         if _safe_float(_get_field(row, "plate_x")) is not None
@@ -129,6 +142,13 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
         sum(1 for row in description_rows if _is_csw(row)) / len(description_rows)
         if description_rows else None
     )
+    bb_rate = (
+        sum(1 for row in plate_appearance_rows if _event_name(row) in {"walk", "intent_walk"}) / len(plate_appearance_rows)
+        if plate_appearance_rows else None
+    )
+    xba_allowed = _average(
+        _safe_float(_get_field(row, "estimated_ba_using_speedangle")) for row in xba_rows
+    )
     zone_rate = (
         sum(1 for row in zone_known if _is_in_approx_zone(row)) / len(zone_known)
         if zone_known else None
@@ -144,6 +164,7 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
 
     metrics = {
         "csw_rate": csw_rate,
+        "bb_rate": bb_rate,
         "zone_rate": zone_rate,
         "first_pitch_strike_rate": first_pitch_strike_rate,
         "barrel_rate_allowed": barrel_rate_allowed,
@@ -153,6 +174,7 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
         "avg_launch_angle_allowed": _average(
             _safe_float(_get_field(row, "launch_angle")) for row in batted_ball_rows
         ),
+        "xba_allowed": xba_allowed,
     }
 
     metrics["_debug"] = {
