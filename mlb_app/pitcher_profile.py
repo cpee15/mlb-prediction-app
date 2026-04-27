@@ -31,6 +31,11 @@ def compute_pitcher_profile(raw_stats: dict) -> dict:
             "source_fields_used": raw_stats.get("source_fields_used", []),
             "data_confidence": raw_stats.get("data_confidence", "unknown"),
             "generated_from": raw_stats.get("generated_from", "compute_pitcher_profile"),
+            "advanced_event_rows_used": raw_stats.get("advanced_event_rows_used"),
+            "advanced_zone_rows_used": raw_stats.get("advanced_zone_rows_used"),
+            "advanced_first_pitch_rows_used": raw_stats.get("advanced_first_pitch_rows_used"),
+            "advanced_batted_ball_rows_used": raw_stats.get("advanced_batted_ball_rows_used"),
+            "advanced_metrics_available": raw_stats.get("advanced_metrics_available"),
             **build_sample_metadata(
                 window_name=raw_stats.get("sample_window", "last_365_days"),
                 sample_size=raw_stats.get("sample_size"),
