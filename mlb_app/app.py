@@ -824,6 +824,7 @@ def create_app():
                         aggregate[key] = value
 
                 advanced_metrics = _pitcher_advanced_metric_input(pitcher_id)
+                advanced_debug = advanced_metrics.pop("_debug", {})
                 for key, value in advanced_metrics.items():
                     if aggregate.get(key) is None and value is not None:
                         aggregate[key] = value
@@ -859,6 +860,7 @@ def create_app():
                         "source_fields_used": fields_used,
                         "data_confidence": "medium" if has_aggregate_values else "low",
                         "generated_from": "matchup_detail.pitcher_detail",
+                        **advanced_debug,
                         "sample_window": "blended",
                         "sample_blend_policy": (
                             "pitcher_v1_weighted_blend_with_advanced_derived_metrics"
