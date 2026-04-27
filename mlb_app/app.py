@@ -69,6 +69,7 @@ from .pitcher_profile import compute_pitcher_profile
 from .offense_profile_aggregation import build_projected_lineup_offense_profile
 from .environment_profile import compute_environment_profile
 from .matchup_analysis import build_matchup_analysis
+from .pitcher_advanced_metrics import derive_pitcher_advanced_metrics
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 MATCHUP_SNAPSHOT_CACHE: Dict[str, List[Dict[str, Any]]] = {}
@@ -792,7 +793,22 @@ def create_app():
                     return sum(simple_values) / len(simple_values)
                 return None
 
-            def _pitcher_profile_input(detail):
+            def _pitcher_advanced_metric_input(pitcher_id):
+                if not pitcher_id:
+                    return {}
+
+                start_date = datetime.date(season, 1, 1)
+                events = (
+                    session.query(StatcastEvent)
+                    .filter(
+                        StatcastEvent.pitcher_id == pitcher_id,
+                        StatcastEvent.game_date >= start_date,
+                    )
+                    .all()
+                )
+                return derive_pitcher_advanced_metrics(events)
+
+            def _pitcher_profile_input(detail, pitcher_id):
                 aggregate = dict(detail.get("aggregate") or {})
                 arsenal_rows = detail.get("arsenal") or {}
 
@@ -807,17 +823,34 @@ def create_app():
                     if aggregate.get(key) is None and value is not None:
                         aggregate[key] = value
 
+                advanced_metrics = _pitcher_advanced_metric_input(pitcher_id)
+                for key, value in advanced_metrics.items():
+                    if aggregate.get(key) is None and value is not None:
+                        aggregate[key] = value
+
                 fields_used = sorted([k for k, v in aggregate.items() if v is not None])
                 has_aggregate_values = bool(fields_used)
                 has_arsenal_fallbacks = any(
                     key in aggregate and aggregate.get(key) is not None
                     for key in ["k_pct", "whiff_rate", "hard_hit_pct", "xwoba"]
                 )
+                has_advanced_derived_metrics = any(
+                    key in aggregate and aggregate.get(key) is not None
+                    for key in [
+                        "zone_rate",
+                        "first_pitch_strike_rate",
+                        "barrel_rate_allowed",
+                        "avg_exit_velocity_allowed",
+                        "avg_launch_angle_allowed",
+                    ]
+                )
 
                 aggregate.update(
                     {
                         "source_type": (
-                            "statcast_aggregate_with_arsenal_fallbacks"
+                            "statcast_aggregate_with_advanced_derived_metrics"
+                            if has_advanced_derived_metrics
+                            else "statcast_aggregate_with_arsenal_fallbacks"
                             if has_arsenal_fallbacks
                             else "statcast_aggregate_blended"
                             if has_aggregate_values
@@ -828,7 +861,9 @@ def create_app():
                         "generated_from": "matchup_detail.pitcher_detail",
                         "sample_window": "blended",
                         "sample_blend_policy": (
-                            "pitcher_v1_weighted_blend_with_arsenal_fallbacks"
+                            "pitcher_v1_weighted_blend_with_advanced_derived_metrics"
+                            if has_advanced_derived_metrics
+                            else "pitcher_v1_weighted_blend_with_arsenal_fallbacks"
                             if has_arsenal_fallbacks
                             else "pitcher_v1_weighted_blend"
                         ),
@@ -839,10 +874,10 @@ def create_app():
                 return aggregate
 
             home_pitcher_profile = compute_pitcher_profile(
-                _pitcher_profile_input(home_pitcher_detail)
+                _pitcher_profile_input(home_pitcher_detail, home_pitcher_id)
             )
             away_pitcher_profile = compute_pitcher_profile(
-                _pitcher_profile_input(away_pitcher_detail)
+                _pitcher_profile_input(away_pitcher_detail, away_pitcher_id)
             )
 
             home_projected_lineup_offense_profile = build_projected_lineup_offense_profile(
