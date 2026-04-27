@@ -33,6 +33,8 @@ const s = {
   }),
   qaBox: { background: '#161b22', border: '1px solid #30363d', borderRadius: '8px', padding: '12px 14px', marginBottom: '20px', fontSize: '13px', color: '#8b949e' },
   qaWarn: { color: '#d29922', marginTop: '6px' },
+  metaGrid: { display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px' },
+  metaChip: { background: '#21262d', border: '1px solid #30363d', borderRadius: '999px', padding: '3px 9px', fontSize: '12px', color: '#8b949e' },
   tableWrap: { background: '#161b22', border: '1px solid #30363d', borderRadius: '10px', overflow: 'auto', marginBottom: '20px' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '600px' },
   th: { padding: '12px 14px', textAlign: 'left', color: '#8b949e', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #21262d', whiteSpace: 'nowrap' },
@@ -53,6 +55,7 @@ const pct = (v) => v != null ? `${(v * 100).toFixed(1)}%` : '—'
 const dec = (v, d = 3) => v != null ? Number(v).toFixed(d) : '—'
 const mph = v => v != null ? `${Number(v).toFixed(1)}` : '—'
 const deg = v => v != null ? `${Number(v).toFixed(1)}°` : '—'
+const num = v => v != null ? Number(v).toLocaleString() : '—'
 
 function avgColor(v) { if (v == null) return '#e6edf3'; if (v >= 0.280) return '#3fb950'; if (v >= 0.240) return '#d29922'; return '#f85149' }
 function kColor(v) { if (v == null) return '#e6edf3'; if (v <= 0.18) return '#3fb950'; if (v <= 0.25) return '#d29922'; return '#f85149' }
@@ -64,8 +67,25 @@ function DataQualityBox({ quality }) {
   return (
     <div style={s.qaBox}>
       <div>Data Quality: <strong style={{ color: '#e6edf3' }}>{quality.ordering_quality || 'unknown'}</strong></div>
-      <div>Latest Event: <strong style={{ color: '#e6edf3' }}>{quality.latest_event_date || '—'}</strong></div>
+      <div>Latest Event: <strong style={{ color: quality.is_stale ? '#d29922' : '#e6edf3' }}>{quality.latest_event_date || '—'}</strong></div>
+      <div style={s.metaGrid}>
+        <span style={s.metaChip}>Source: {quality.source || 'postgres_statcast_events'}</span>
+        <span style={s.metaChip}>As of: {quality.as_of_date || '—'}</span>
+        <span style={s.metaChip}>Days stale: {quality.days_stale ?? '—'}</span>
+        <span style={s.metaChip}>Terminal rows: {num(quality.terminal_event_rows)}</span>
+        <span style={s.metaChip}>Total rows: {num(quality.total_event_rows)}</span>
+      </div>
       {warnings.map((w, i) => <div key={i} style={s.qaWarn}>⚠ {w}</div>)}
+    </div>
+  )
+}
+
+function WindowMeta({ stats }) {
+  if (!stats) return null
+  return (
+    <div style={{ color: '#8b949e', fontSize: '11px', marginTop: '3px' }}>
+      PA {num(stats.actual_pa)} · AB {num(stats.actual_ab)} · BBE {num(stats.batted_ball_count)} · HH {num(stats.hard_hit_count)} · Barrel {num(stats.barrel_count)}
+      {stats.invalid_event_count ? ` · Invalid ${num(stats.invalid_event_count)}` : ''}
     </div>
   )
 }
@@ -169,11 +189,14 @@ export default function RollingBatterPage() {
                 if (!st) {
                   return <tr key={i}><td style={{ ...s.td, fontWeight: '600' }}>{w.window}</td><td colSpan={12} style={{ ...s.td, ...s.tdMuted }}>Insufficient data</td></tr>
                 }
-                const count = st.actual_pa ?? st.actual_ab ?? st.actual_games ?? '—'
+                const count = view === 'games' ? (st.actual_games ?? '—') : view === 'ab' ? (st.actual_ab ?? '—') : (st.actual_pa ?? '—')
                 const dateRange = st.start_date && st.end_date ? `${st.start_date.slice(5)} – ${st.end_date.slice(5)}` : '—'
                 return (
                   <tr key={i}>
-                    <td style={{ ...s.td, fontWeight: '700', color: '#58a6ff' }}>{w.window}</td>
+                    <td style={{ ...s.td, fontWeight: '700', color: '#58a6ff' }}>
+                      {w.window}
+                      <WindowMeta stats={st} />
+                    </td>
                     <td style={s.td}>{count}</td>
                     <td style={{ ...s.td, ...s.tdMuted, fontSize: '12px' }}>{dateRange}</td>
                     <td style={{ ...s.td, ...s.tdRight, color: avgColor(st.batting_avg), fontWeight: '600' }}>{dec(st.batting_avg)}</td>
@@ -203,7 +226,10 @@ export default function RollingBatterPage() {
               <tbody>
                 {Object.entries(splits).map(([name, st]) => st && (
                   <tr key={name}>
-                    <td style={{ ...s.td, fontWeight: '700', color: '#58a6ff' }}>{name}</td>
+                    <td style={{ ...s.td, fontWeight: '700', color: '#58a6ff' }}>
+                      {name}
+                      <WindowMeta stats={st} />
+                    </td>
                     <td style={{ ...s.td, ...s.tdRight }}>{st.actual_pa ?? '—'}</td>
                     <td style={{ ...s.td, ...s.tdRight }}>{dec(st.batting_avg)}</td>
                     <td style={{ ...s.td, ...s.tdRight }}>{pct(st.k_pct)}</td>
@@ -221,6 +247,7 @@ export default function RollingBatterPage() {
       <div style={{ marginTop: '28px' }}>
         <div style={s.sectionTitle}>Chronological Plate Appearance Session</div>
         <div style={{ fontSize: '13px', color: '#8b949e', marginBottom: '14px' }}>{abData ? `${totalEvents.toLocaleString()} total terminal PA outcomes on record · showing ${AB_PAGE_SIZE} per page` : ''}</div>
+        <DataQualityBox quality={abData?.data_quality} />
         {abLoading ? <div style={s.loader}>Loading events…</div> : abData && (
           <div style={s.tableWrap}>
             <div style={s.abHeader}><span>Date</span><span>AB #</span><span>Pitch #</span><span>Pitch</span><span>Result</span><span style={{ textAlign: 'right' }}>EV</span><span style={{ textAlign: 'right' }}>LA</span><span>Stand</span></div>
