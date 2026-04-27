@@ -27,9 +27,15 @@ def _average(values: Iterable[Optional[float]]) -> Optional[float]:
     return sum(nums) / len(nums)
 
 
+def _get_field(event: Any, key: str) -> Any:
+    if isinstance(event, dict):
+        return event.get(key)
+    return getattr(event, key, None)
+
+
 def _is_in_approx_zone(event: Any) -> bool:
-    plate_x = _safe_float(getattr(event, "plate_x", None))
-    plate_z = _safe_float(getattr(event, "plate_z", None))
+    plate_x = _safe_float(_get_field(event, "plate_x"))
+    plate_z = _safe_float(_get_field(event, "plate_z"))
     if plate_x is None or plate_z is None:
         return False
 
@@ -39,7 +45,7 @@ def _is_in_approx_zone(event: Any) -> bool:
 
 
 def _is_first_pitch(event: Any) -> bool:
-    return getattr(event, "balls", None) == 0 and getattr(event, "strikes", None) == 0
+    return _get_field(event, "balls") == 0 and _get_field(event, "strikes") == 0
 
 
 def _is_first_pitch_strike(event: Any) -> bool:
@@ -52,8 +58,8 @@ def _is_first_pitch_strike(event: Any) -> bool:
 
 
 def _is_barrel_approx(event: Any) -> bool:
-    launch_speed = _safe_float(getattr(event, "launch_speed", None))
-    launch_angle = _safe_float(getattr(event, "launch_angle", None))
+    launch_speed = _safe_float(_get_field(event, "launch_speed"))
+    launch_angle = _safe_float(_get_field(event, "launch_angle"))
     if launch_speed is None or launch_angle is None:
         return False
 
@@ -88,14 +94,14 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
 
     zone_known = [
         row for row in rows
-        if _safe_float(getattr(row, "plate_x", None)) is not None
-        and _safe_float(getattr(row, "plate_z", None)) is not None
+        if _safe_float(_get_field(row, "plate_x")) is not None
+        and _safe_float(_get_field(row, "plate_z")) is not None
     ]
     first_pitch_rows = [row for row in rows if _is_first_pitch(row)]
     batted_ball_rows = [
         row for row in rows
-        if _safe_float(getattr(row, "launch_speed", None)) is not None
-        or _safe_float(getattr(row, "launch_angle", None)) is not None
+        if _safe_float(_get_field(row, "launch_speed")) is not None
+        or _safe_float(_get_field(row, "launch_angle")) is not None
     ]
 
     zone_rate = (
@@ -118,10 +124,10 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
         "first_pitch_strike_rate": first_pitch_strike_rate,
         "barrel_rate_allowed": barrel_rate_allowed,
         "avg_exit_velocity_allowed": _average(
-            _safe_float(getattr(row, "launch_speed", None)) for row in batted_ball_rows
+            _safe_float(_get_field(row, "launch_speed")) for row in batted_ball_rows
         ),
         "avg_launch_angle_allowed": _average(
-            _safe_float(getattr(row, "launch_angle", None)) for row in batted_ball_rows
+            _safe_float(_get_field(row, "launch_angle")) for row in batted_ball_rows
         ),
     }
 
