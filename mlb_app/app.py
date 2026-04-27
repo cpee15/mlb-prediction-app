@@ -64,7 +64,7 @@ from .db_utils import (
     get_batter_multi_season,
 )
 from .scoring import compute_win_probability, score_individual_matchup, get_park_factor
-from .statcast_utils import fetch_pitch_arsenal_leaderboard
+from .statcast_utils import fetch_pitch_arsenal_leaderboard, fetch_statcast_pitcher_data
 from .pitcher_profile import compute_pitcher_profile
 from .offense_profile_aggregation import build_projected_lineup_offense_profile
 from .environment_profile import compute_environment_profile
@@ -798,6 +798,7 @@ def create_app():
                     return {}
 
                 start_date = datetime.date(season, 1, 1)
+                end_date = datetime.date.today()
                 events = (
                     session.query(StatcastEvent)
                     .filter(
@@ -806,7 +807,32 @@ def create_app():
                     )
                     .all()
                 )
-                return derive_pitcher_advanced_metrics(events)
+
+                if events:
+                    metrics = derive_pitcher_advanced_metrics(events)
+                    metrics.setdefault("_debug", {})["advanced_event_source"] = "db"
+                    return metrics
+
+                try:
+                    df = fetch_statcast_pitcher_data(
+                        pitcher_id,
+                        start_date.isoformat(),
+                        end_date.isoformat(),
+                    )
+                except Exception:
+                    metrics = derive_pitcher_advanced_metrics([])
+                    metrics.setdefault("_debug", {})["advanced_event_source"] = "live_statcast_failed"
+                    return metrics
+
+                if df is None or df.empty:
+                    metrics = derive_pitcher_advanced_metrics([])
+                    metrics.setdefault("_debug", {})["advanced_event_source"] = "live_statcast_empty"
+                    return metrics
+
+                live_rows = df.to_dict("records")
+                metrics = derive_pitcher_advanced_metrics(live_rows)
+                metrics.setdefault("_debug", {})["advanced_event_source"] = "live_statcast_fallback"
+                return metrics
 
             def _pitcher_profile_input(detail, pitcher_id):
                 aggregate = dict(detail.get("aggregate") or {})
