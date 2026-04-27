@@ -72,6 +72,22 @@ def _is_barrel_approx(event: Any) -> bool:
     return launch_speed >= 98 and 26 <= launch_angle <= 30
 
 
+def _description(event: Any) -> Optional[str]:
+    value = _get_field(event, "description")
+    if value is None:
+        return None
+    value = str(value).strip().lower()
+    return value or None
+
+
+def _is_csw(event: Any) -> bool:
+    return _description(event) in {
+        "called_strike",
+        "swinging_strike",
+        "swinging_strike_blocked",
+    }
+
+
 def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional[float]]:
     """
     Compute pitcher advanced metrics from stored StatcastEvent rows.
@@ -96,6 +112,7 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
             },
         }
 
+    description_rows = [row for row in rows if _description(row) is not None]
     zone_known = [
         row for row in rows
         if _safe_float(_get_field(row, "plate_x")) is not None
@@ -108,6 +125,10 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
         or _safe_float(_get_field(row, "launch_angle")) is not None
     ]
 
+    csw_rate = (
+        sum(1 for row in description_rows if _is_csw(row)) / len(description_rows)
+        if description_rows else None
+    )
     zone_rate = (
         sum(1 for row in zone_known if _is_in_approx_zone(row)) / len(zone_known)
         if zone_known else None
@@ -122,8 +143,7 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
     )
 
     metrics = {
-        # Requires Statcast description; not persisted yet.
-        "csw_rate": None,
+        "csw_rate": csw_rate,
         "zone_rate": zone_rate,
         "first_pitch_strike_rate": first_pitch_strike_rate,
         "barrel_rate_allowed": barrel_rate_allowed,
@@ -137,6 +157,7 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
 
     metrics["_debug"] = {
         "advanced_event_rows_used": len(rows),
+        "advanced_description_rows_used": len(description_rows),
         "advanced_zone_rows_used": len(zone_known),
         "advanced_first_pitch_rows_used": len(first_pitch_rows),
         "advanced_batted_ball_rows_used": len(batted_ball_rows),
