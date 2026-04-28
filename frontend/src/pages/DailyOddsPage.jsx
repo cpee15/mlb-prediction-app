@@ -9,7 +9,7 @@ const s = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' },
   eyebrow: { color: '#58a6ff', fontSize: '12px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1.2px', marginBottom: '8px' },
   title: { fontSize: '30px', lineHeight: 1.05, fontWeight: '900', color: '#e6edf3', margin: 0 },
-  subtitle: { color: '#8b949e', fontSize: '14px', marginTop: '8px', maxWidth: '640px' },
+  subtitle: { color: '#8b949e', fontSize: '14px', marginTop: '8px', maxWidth: '720px' },
   controls: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' },
   input: { background: '#0d1117', border: '1px solid #30363d', color: '#e6edf3', borderRadius: '10px', padding: '10px 12px', fontSize: '14px', outline: 'none' },
   select: { background: '#0d1117', border: '1px solid #30363d', color: '#e6edf3', borderRadius: '10px', padding: '9px 11px', fontSize: '13px', outline: 'none', minWidth: '220px' },
@@ -40,6 +40,20 @@ const s = {
   propMarket: { color: '#d29922', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '6px' },
   propName: { color: '#e6edf3', fontSize: '13px', fontWeight: '900' },
   propDetail: { color: '#8b949e', fontSize: '12px', marginTop: '4px' },
+  modelPanel: { borderTop: '1px solid #30363d', padding: '14px 16px 16px', background: '#0f1720' },
+  modelHeader: { display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '12px' },
+  modelTitle: { color: '#e6edf3', fontSize: '14px', fontWeight: '900' },
+  modelSubtitle: { color: '#8b949e', fontSize: '12px', marginTop: '4px' },
+  modelGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' },
+  modelCard: { border: '1px solid #30363d', borderRadius: '12px', padding: '12px', background: '#0d1117' },
+  modelCardTitle: { color: '#8b949e', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.9px', fontWeight: '900', marginBottom: '8px' },
+  modelPick: { color: '#e6edf3', fontSize: '15px', fontWeight: '900', lineHeight: 1.25 },
+  modelDetail: { color: '#8b949e', fontSize: '12px', marginTop: '6px', lineHeight: 1.35 },
+  confidence: score => ({ color: Number(score) >= 65 ? '#3fb950' : '#d29922', fontSize: '20px', fontWeight: '900', marginTop: '7px' }),
+  reasonList: { margin: '8px 0 0', paddingLeft: '18px', color: '#8b949e', fontSize: '12px', lineHeight: 1.45 },
+  section: { background: '#161b22', border: '1px solid #30363d', borderRadius: '14px', padding: '16px' },
+  sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' },
+  sectionTitle: { color: '#e6edf3', fontSize: '18px', fontWeight: '900' },
   error: { color: '#f85149', background: '#1f1116', border: '1px solid #3b2222', borderRadius: '12px', padding: '14px' },
   loader: { color: '#8b949e', textAlign: 'center', padding: '40px' },
   empty: { color: '#8b949e', textAlign: 'center', padding: '40px', border: '1px solid #30363d', borderRadius: '14px', background: '#161b22' },
@@ -61,11 +75,22 @@ function keyFromEvent(e) {
   return matchupKey(e?.away_team?.name || e?.away_team || '', e?.home_team?.name || e?.home_team || '')
 }
 
+function keyFromModelGame(game) {
+  return matchupKey(game?.away_team || game?.away_team_name || game?.away || '', game?.home_team || game?.home_team_name || game?.home || '')
+}
+
 function american(v) {
   if (v == null || v === '') return '—'
   const n = Number(v)
   if (Number.isNaN(n)) return String(v)
   return n > 0 ? `+${n}` : `${n}`
+}
+
+function pct(v) {
+  if (v == null || v === '') return '—'
+  const n = Number(v)
+  if (Number.isNaN(n)) return String(v)
+  return `${Math.round(n)}%`
 }
 
 function formatTime(iso) {
@@ -92,6 +117,142 @@ function findMarket(event, keys) {
 
 function selectionLabel(sel) {
   return `${sel?.name || sel?.description || '—'}${sel?.line != null ? ` ${sel.line}` : ''}`
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : []
+}
+
+function firstDefined(...values) {
+  return values.find(v => v !== undefined && v !== null && v !== '')
+}
+
+function pickText(value, fallback = '—') {
+  return firstDefined(value, fallback)
+}
+
+function modelGamesFromPayload(payload) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.games)) return payload.games
+  if (Array.isArray(payload?.models)) return payload.models
+  if (Array.isArray(payload?.game_models)) return payload.game_models
+  return []
+}
+
+function propCandidatesFromPayload(payload) {
+  if (Array.isArray(payload?.top_prop_model_candidates)) return payload.top_prop_model_candidates
+  if (Array.isArray(payload?.top_props)) return payload.top_props
+  if (Array.isArray(payload?.prop_candidates)) return payload.prop_candidates
+  if (Array.isArray(payload?.props)) return payload.props
+  return []
+}
+
+function ModelCard({ title, pick, confidence, detail, reasons }) {
+  const reasonItems = asArray(reasons).filter(Boolean).slice(0, 4)
+  return (
+    <div style={s.modelCard}>
+      <div style={s.modelCardTitle}>{title}</div>
+      <div style={s.modelPick}>{pick || 'No model pick'}</div>
+      {confidence != null && <div style={s.confidence(confidence)}>{pct(confidence)}</div>}
+      {detail && <div style={s.modelDetail}>{detail}</div>}
+      {reasonItems.length > 0 && (
+        <ul style={s.reasonList}>
+          {reasonItems.map((reason, idx) => <li key={`${title}-reason-${idx}`}>{reason}</li>)}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function GameModelPanel({ model }) {
+  if (!model) {
+    return (
+      <div style={s.modelPanel}>
+        <div style={s.modelTitle}>Game Model Panel</div>
+        <div style={s.modelSubtitle}>No model output matched this sportsbook event yet.</div>
+      </div>
+    )
+  }
+
+  const sidePick = firstDefined(model.side_pick, model.moneyline_pick, model.winner_pick, model.pick)
+  const totalPick = firstDefined(model.total_pick, model.total_model_pick, model.over_under_pick)
+  const runLinePick = firstDefined(model.run_line_pick, model.spread_pick, model.runline_pick)
+  const edge = firstDefined(model.edge, model.edge_score, model.model_edge)
+  const confidence = firstDefined(model.confidence, model.model_confidence, model.score)
+  const reasons = firstDefined(model.reasons, model.model_reasons, model.summary_reasons, [])
+
+  return (
+    <div style={s.modelPanel}>
+      <div style={s.modelHeader}>
+        <div>
+          <div style={s.modelTitle}>GameModelPanel</div>
+          <div style={s.modelSubtitle}>Visible model output from /daily-odds/models for this matched game.</div>
+        </div>
+        <span style={s.chip}>Edge: {edge ?? '—'}</span>
+      </div>
+      <div style={s.modelGrid}>
+        <ModelCard
+          title="Moneyline Model"
+          pick={sidePick}
+          confidence={confidence}
+          detail={firstDefined(model.moneyline_detail, model.side_detail, model.summary)}
+          reasons={reasons}
+        />
+        <ModelCard
+          title="Run Line Model"
+          pick={runLinePick}
+          confidence={firstDefined(model.run_line_confidence, model.spread_confidence)}
+          detail={firstDefined(model.run_line_detail, model.spread_detail)}
+          reasons={firstDefined(model.run_line_reasons, model.spread_reasons, [])}
+        />
+        <ModelCard
+          title="Total Model"
+          pick={totalPick}
+          confidence={firstDefined(model.total_confidence, model.over_under_confidence)}
+          detail={firstDefined(model.total_detail, model.over_under_detail)}
+          reasons={firstDefined(model.total_reasons, model.over_under_reasons, [])}
+        />
+      </div>
+    </div>
+  )
+}
+
+function TopPropModelCandidates({ candidates }) {
+  const rows = asArray(candidates).slice(0, 12)
+  return (
+    <section style={s.section}>
+      <div style={s.sectionHeader}>
+        <div>
+          <div style={s.sectionTitle}>Top Prop Model Candidates</div>
+          <div style={s.modelSubtitle}>Highest-ranked prop model outputs returned by /daily-odds/models.</div>
+        </div>
+        <span style={s.chip}>{rows.length} shown</span>
+      </div>
+      {rows.length === 0 ? (
+        <div style={s.empty}>No top prop model candidates returned for this date.</div>
+      ) : (
+        <div style={s.modelGrid}>
+          {rows.map((candidate, idx) => {
+            const player = firstDefined(candidate.player_name, candidate.player, candidate.name, 'Player')
+            const market = cleanMarketName(firstDefined(candidate.market, candidate.market_name, candidate.prop_market, 'Prop Market'))
+            const pick = firstDefined(candidate.pick, candidate.side, candidate.recommendation, candidate.selection, 'No pick')
+            const line = firstDefined(candidate.line, candidate.prop_line)
+            const price = firstDefined(candidate.price, candidate.odds, candidate.american_odds)
+            return (
+              <ModelCard
+                key={`${player}-${market}-${idx}`}
+                title={market}
+                pick={`${player}: ${pick}${line != null ? ` ${line}` : ''}${price != null ? ` (${american(price)})` : ''}`}
+                confidence={firstDefined(candidate.confidence, candidate.score, candidate.model_score)}
+                detail={firstDefined(candidate.detail, candidate.summary, candidate.edge ? `Edge: ${candidate.edge}` : '')}
+                reasons={firstDefined(candidate.reasons, candidate.reasoning, [])}
+              />
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
 }
 
 function MarketBox({ label, market }) {
@@ -156,7 +317,7 @@ function PropsPanel({ eventId }) {
           </select>
         )}
       </div>
-      {open && loading && <div style={{ color: '#8b949e', fontSize: '12px', marginTop: '10px' }}>Loading props…</div>}
+      {open && loading && <div style={{ color: '#8b949e', fontSize: '12px', marginTop: '10px' }}>Loading props...</div>}
       {open && error && <div style={{ color: '#f85149', fontSize: '12px', marginTop: '10px' }}>Props error: {error}</div>}
       {open && !loading && !error && data && props.length === 0 && <div style={{ color: '#8b949e', fontSize: '12px', marginTop: '10px' }}>No props returned for this selection.</div>}
       {open && props.length > 0 && (
@@ -179,13 +340,16 @@ export default function DailyOddsPage() {
   const [date, setDate] = useState(today)
   const [matchups, setMatchups] = useState([])
   const [events, setEvents] = useState([])
+  const [modelPayload, setModelPayload] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [modelError, setModelError] = useState(null)
   const [lastRefreshed, setLastRefreshed] = useState(null)
 
   function load() {
     setLoading(true)
     setError(null)
+    setModelError(null)
     Promise.all([
       fetch(`${API}/matchups?date=${date}`).then(async r => {
         if (!r.ok) throw new Error(`/matchups failed: ${r.status} ${r.statusText}: ${await r.text()}`)
@@ -195,10 +359,20 @@ export default function DailyOddsPage() {
         if (!r.ok) throw new Error(`/odds/draftkings/events failed: ${r.status} ${r.statusText}: ${await r.text()}`)
         return r.json()
       }),
+      fetch(`${API}/daily-odds/models?date=${date}`).then(async r => {
+        if (!r.ok) throw new Error(`/daily-odds/models failed: ${r.status} ${r.statusText}: ${await r.text()}`)
+        return r.json()
+      }).catch(err => ({ __modelError: String(err?.message || err) })),
     ])
-      .then(([matchupData, oddsData]) => {
+      .then(([matchupData, oddsData, modelsData]) => {
         setMatchups(Array.isArray(matchupData) ? matchupData : [])
         setEvents(Array.isArray(oddsData?.events) ? oddsData.events : [])
+        if (modelsData?.__modelError) {
+          setModelPayload(null)
+          setModelError(modelsData.__modelError)
+        } else {
+          setModelPayload(modelsData)
+        }
         setLastRefreshed(new Date())
         setLoading(false)
       })
@@ -219,14 +393,27 @@ export default function DailyOddsPage() {
     return map
   }, [matchups])
 
+  const modelByKey = useMemo(() => {
+    const map = new Map()
+    modelGamesFromPayload(modelPayload).forEach(game => {
+      const key = keyFromModelGame(game)
+      if (key !== '@') map.set(key, game)
+    })
+    return map
+  }, [modelPayload])
+
+  const topPropCandidates = useMemo(() => propCandidatesFromPayload(modelPayload), [modelPayload])
+
   const rows = useMemo(() => events.map(event => {
     const key = keyFromEvent(event)
     const matchup = matchupByKey.get(key)
-    return { event, matchup, matched: Boolean(matchup), key }
-  }), [events, matchupByKey])
+    const model = modelByKey.get(key)
+    return { event, matchup, model, matched: Boolean(matchup), key }
+  }), [events, matchupByKey, modelByKey])
 
   const matchedCount = rows.filter(r => r.matched).length
   const unmatchedCount = rows.length - matchedCount
+  const modelCount = modelGamesFromPayload(modelPayload).length
 
   return (
     <div style={s.page}>
@@ -235,11 +422,11 @@ export default function DailyOddsPage() {
           <div>
             <div style={s.eyebrow}>DraftKings board</div>
             <h1 style={s.title}>Daily Odds</h1>
-            <div style={s.subtitle}>Moneyline, run line, totals, prop market selectors, event IDs, and MLB game matching in one clean board.</div>
+            <div style={s.subtitle}>Moneyline, run line, totals, prop market selectors, event IDs, MLB game matching, GameModelPanel, ModelCard, and Top Prop Model Candidates in one clean board.</div>
           </div>
           <div style={s.controls}>
             <input type="date" value={date} onChange={e => setDate(e.target.value)} style={s.input} />
-            <button type="button" style={s.button} onClick={load} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh Odds'}</button>
+            <button type="button" style={s.button} onClick={load} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh Odds'}</button>
           </div>
         </div>
 
@@ -247,7 +434,8 @@ export default function DailyOddsPage() {
           <div style={s.statCard}><div style={s.statLabel}>MLB Games</div><div style={s.statValue}>{matchups.length}</div></div>
           <div style={s.statCard}><div style={s.statLabel}>DK Events</div><div style={s.statValue}>{events.length}</div></div>
           <div style={s.statCard}><div style={s.statLabel}>Matched</div><div style={s.statValue}>{matchedCount}</div></div>
-          <div style={s.statCard}><div style={s.statLabel}>Unmatched</div><div style={s.statValue}>{unmatchedCount}</div></div>
+          <div style={s.statCard}><div style={s.statLabel}>Model Games</div><div style={s.statValue}>{modelCount}</div></div>
+          <div style={s.statCard}><div style={s.statLabel}>Top Props</div><div style={s.statValue}>{topPropCandidates.length}</div></div>
           <div style={s.statCard}><div style={s.statLabel}>Last Refreshed</div><div style={{ ...s.statValue, fontSize: '15px' }}>{lastRefreshed ? lastRefreshed.toLocaleTimeString() : '—'}</div></div>
         </div>
       </section>
@@ -258,11 +446,14 @@ export default function DailyOddsPage() {
       </div>
 
       {error && <div style={s.error}>{error}</div>}
-      {loading && <div style={s.loader}>Loading daily odds…</div>}
+      {modelError && <div style={s.error}>Model panel error: {modelError}</div>}
+      {loading && <div style={s.loader}>Loading daily odds...</div>}
       {!loading && !error && rows.length === 0 && <div style={s.empty}>No DraftKings events returned for {date}.</div>}
 
+      {!loading && !error && <TopPropModelCandidates candidates={topPropCandidates} />}
+
       <div style={s.grid}>
-        {rows.map(({ event, matchup, matched, key }, idx) => {
+        {rows.map(({ event, matchup, model, matched, key }, idx) => {
           const away = event?.away_team?.name || event?.away_team || matchup?.away_team_name || 'Away'
           const home = event?.home_team?.name || event?.home_team || matchup?.home_team_name || 'Home'
           const moneyline = findMarket(event, 'h2h')
@@ -277,10 +468,13 @@ export default function DailyOddsPage() {
                     <span style={s.chip}>Time: {formatTime(matchup?.game_time || event?.start_time || event?.commence_time)}</span>
                     <span style={s.chip}>MLB: {matchup?.game_pk ? <Link to={`/matchup/${matchup.game_pk}`} style={{ color: '#58a6ff', textDecoration: 'none' }}>{matchup.game_pk}</Link> : '—'}</span>
                     <span style={s.chip}>DK: {event.event_id || '—'}</span>
+                    <span style={s.chip}>Model: {model ? 'loaded' : 'none'}</span>
                   </div>
                 </div>
                 <span style={s.badge(matched)}>{matched ? 'MATCHED' : 'UNMATCHED'}</span>
               </div>
+
+              <GameModelPanel model={model} />
 
               <div style={s.markets}>
                 <MarketBox label="Moneyline" market={moneyline} />
