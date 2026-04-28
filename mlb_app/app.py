@@ -64,7 +64,7 @@ from .db_utils import (
     get_batter_multi_season,
 )
 from .scoring import compute_win_probability, score_individual_matchup, get_park_factor
-from .statcast_utils import fetch_pitch_arsenal_leaderboard, fetch_statcast_pitcher_data
+from .statcast_utils import fetch_pitch_arsenal_leaderboard, fetch_statcast_pitcher_data, fetch_statcast_batter_data
 from .pitcher_profile import compute_pitcher_profile
 from .offense_profile_aggregation import build_projected_lineup_offense_profile
 from .environment_profile import compute_environment_profile
@@ -908,6 +908,148 @@ def create_app():
                 _pitcher_profile_input(away_pitcher_detail, away_pitcher_id)
             )
 
+            def _safe_series_average(values):
+                nums = []
+                for value in values:
+                    try:
+                        if value is None:
+                            continue
+                        numeric = float(value)
+                        if numeric == numeric:
+                            nums.append(numeric)
+                    except (TypeError, ValueError):
+                        continue
+                return sum(nums) / len(nums) if nums else None
+
+            def _derive_batter_live_statcast(player_id):
+                if not player_id:
+                    return None
+
+                start_date = datetime.date(season, 1, 1)
+                end_date = datetime.date.today()
+                try:
+                    df = fetch_statcast_batter_data(
+                        player_id,
+                        start_date.isoformat(),
+                        end_date.isoformat(),
+                    )
+                except Exception:
+                    return None
+
+                if df is None or df.empty:
+                    return None
+
+                descriptions = df.get("description")
+                launch_speed = df.get("launch_speed")
+                launch_angle = df.get("launch_angle")
+
+                swing_rate = None
+                contact_rate = None
+                whiff_rate = None
+                chase_rate = None
+
+                if descriptions is not None:
+                    desc = descriptions.fillna("").astype(str).str.lower()
+                    swing_mask = desc.isin([
+                        "swinging_strike",
+                        "swinging_strike_blocked",
+                        "foul",
+                        "foul_tip",
+                        "foul_bunt",
+                        "hit_into_play",
+                        "hit_into_play_no_out",
+                        "hit_into_play_score",
+                    ])
+                    whiff_mask = desc.isin(["swinging_strike", "swinging_strike_blocked"])
+                    swing_count = int(swing_mask.sum())
+                    total_pitches = len(desc)
+                    swing_rate = swing_count / total_pitches if total_pitches else None
+                    whiff_rate = int(whiff_mask.sum()) / swing_count if swing_count else None
+                    contact_rate = 1 - whiff_rate if whiff_rate is not None else None
+
+                if launch_speed is not None:
+                    ev = launch_speed.dropna()
+                    hard_hit_rate = float((ev >= 95).sum() / len(ev)) if len(ev) else None
+                    avg_exit_velocity = float(ev.mean()) if len(ev) else None
+                else:
+                    hard_hit_rate = None
+                    avg_exit_velocity = None
+
+                if launch_angle is not None:
+                    la = launch_angle.dropna()
+                    avg_launch_angle = float(la.mean()) if len(la) else None
+                else:
+                    avg_launch_angle = None
+
+                if launch_speed is not None and launch_angle is not None:
+                    bb = df[["launch_speed", "launch_angle"]].dropna()
+                    barrel_rate = (
+                        float(((bb["launch_speed"] >= 98) & (bb["launch_angle"].between(26, 30))).sum() / len(bb))
+                        if len(bb) else None
+                    )
+                else:
+                    barrel_rate = None
+
+                return {
+                    "whiff_rate": whiff_rate,
+                    "contact_rate": contact_rate,
+                    "swing_rate": swing_rate,
+                    "chase_rate": chase_rate,
+                    "barrel_rate": barrel_rate,
+                    "hard_hit_rate": hard_hit_rate,
+                    "avg_exit_velocity": avg_exit_velocity,
+                    "avg_launch_angle": avg_launch_angle,
+                }
+
+            def _enrich_lineup_offense_profile_with_live_statcast(profile, lineup):
+                player_metrics = [
+                    metrics
+                    for metrics in (_derive_batter_live_statcast(player.get("id")) for player in lineup)
+                    if metrics
+                ]
+                if not player_metrics:
+                    return profile
+
+                enriched = dict(profile)
+                enriched["contact_skill"] = dict(profile.get("contact_skill") or {})
+                enriched["plate_discipline"] = dict(profile.get("plate_discipline") or {})
+                enriched["power"] = dict(profile.get("power") or {})
+                enriched["batted_ball_quality"] = dict(profile.get("batted_ball_quality") or {})
+                enriched["metadata"] = dict(profile.get("metadata") or {})
+
+                live_values = {
+                    "whiff_rate": _safe_series_average(m.get("whiff_rate") for m in player_metrics),
+                    "contact_rate": _safe_series_average(m.get("contact_rate") for m in player_metrics),
+                    "swing_rate": _safe_series_average(m.get("swing_rate") for m in player_metrics),
+                    "chase_rate": _safe_series_average(m.get("chase_rate") for m in player_metrics),
+                    "barrel_rate": _safe_series_average(m.get("barrel_rate") for m in player_metrics),
+                    "hard_hit_rate": _safe_series_average(m.get("hard_hit_rate") for m in player_metrics),
+                    "avg_exit_velocity": _safe_series_average(m.get("avg_exit_velocity") for m in player_metrics),
+                    "avg_launch_angle": _safe_series_average(m.get("avg_launch_angle") for m in player_metrics),
+                }
+
+                for key in ["whiff_rate", "contact_rate"]:
+                    if enriched["contact_skill"].get(key) is None and live_values.get(key) is not None:
+                        enriched["contact_skill"][key] = live_values[key]
+                for key in ["swing_rate", "chase_rate"]:
+                    if enriched["plate_discipline"].get(key) is None and live_values.get(key) is not None:
+                        enriched["plate_discipline"][key] = live_values[key]
+                for key in ["barrel_rate", "hard_hit_rate"]:
+                    if enriched["power"].get(key) is None and live_values.get(key) is not None:
+                        enriched["power"][key] = live_values[key]
+                for key in ["avg_exit_velocity", "avg_launch_angle"]:
+                    if enriched["batted_ball_quality"].get(key) is None and live_values.get(key) is not None:
+                        enriched["batted_ball_quality"][key] = live_values[key]
+
+                enriched["metadata"].update({
+                    "live_statcast_hitter_players_used": len(player_metrics),
+                    "live_statcast_hitter_fields_available": sorted(
+                        [key for key, value in live_values.items() if value is not None]
+                    ),
+                    "live_statcast_hitter_enrichment": True,
+                })
+                return enriched
+
             home_projected_lineup_offense_profile = build_projected_lineup_offense_profile(
                 lineup=home_lineup,
                 season=season,
@@ -921,6 +1063,15 @@ def create_app():
                 pitcher_hand=home_pitcher_hand,
                 lineup_source="official" if away_lineup else "missing",
                 target_date=datetime.date.fromisoformat(game_date_iso[:10]) if game_date_iso else datetime.date.today(),
+            )
+
+            home_projected_lineup_offense_profile = _enrich_lineup_offense_profile_with_live_statcast(
+                home_projected_lineup_offense_profile,
+                home_lineup,
+            )
+            away_projected_lineup_offense_profile = _enrich_lineup_offense_profile_with_live_statcast(
+                away_projected_lineup_offense_profile,
+                away_lineup,
             )
 
             def _profile_has_useful_offense_metrics(profile):
