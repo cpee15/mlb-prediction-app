@@ -45,11 +45,27 @@ def _build_matchup_index(matchups: List[Dict[str, Any]]) -> Dict[str, Dict[str, 
     return index
 
 
+def _safe_error(error: Exception) -> Dict[str, Any]:
+    return {"type": error.__class__.__name__, "message": str(error)}
+
+
 @router.get("/daily-odds/models")
 def daily_odds_models(date: Optional[str] = None) -> Dict[str, Any]:
     target_date = date or datetime.date.today().isoformat()
-    matchups = generate_matchups_for_date(target_date)
-    odds_payload = fetch_draftkings_events(date=target_date, raw=False)
+    errors: List[Dict[str, Any]] = []
+
+    try:
+        matchups = generate_matchups_for_date(target_date)
+    except Exception as exc:
+        matchups = []
+        errors.append({"stage": "generate_matchups_for_date", "error": _safe_error(exc)})
+
+    try:
+        odds_payload = fetch_draftkings_events(date=target_date, raw=False)
+    except Exception as exc:
+        odds_payload = {"events": []}
+        errors.append({"stage": "fetch_draftkings_events", "error": _safe_error(exc)})
+
     events = odds_payload.get("events", []) if isinstance(odds_payload, dict) else []
     matchup_index = _build_matchup_index(matchups)
 
@@ -60,18 +76,29 @@ def daily_odds_models(date: Optional[str] = None) -> Dict[str, Any]:
         if not matchup:
             outputs.append({
                 "event_id": event.get("event_id"),
+                "away_team": (event.get("away_team") or {}).get("name") if isinstance(event.get("away_team"), dict) else event.get("away_team"),
+                "home_team": (event.get("home_team") or {}).get("name") if isinstance(event.get("home_team"), dict) else event.get("home_team"),
                 "matched": False,
                 "match_key": key,
                 "models": None,
                 "missing_inputs": ["matched_mlb_game"],
             })
             continue
+
+        try:
+            models = build_game_models(matchup, event)
+        except Exception as exc:
+            models = None
+            errors.append({"stage": "build_game_models", "event_id": event.get("event_id"), "match_key": key, "error": _safe_error(exc)})
+
         outputs.append({
             "game_pk": matchup.get("game_pk"),
             "event_id": event.get("event_id"),
+            "away_team": matchup.get("away_team_name") or matchup.get("away_team") or matchup.get("away_name"),
+            "home_team": matchup.get("home_team_name") or matchup.get("home_team") or matchup.get("home_name"),
             "matched": True,
             "match_key": key,
-            "models": build_game_models(matchup, event),
+            "models": models,
         })
 
     return {
@@ -82,17 +109,34 @@ def daily_odds_models(date: Optional[str] = None) -> Dict[str, Any]:
         "odds_status": odds_payload.get("status") if isinstance(odds_payload, dict) else None,
         "last_updated": odds_payload.get("last_updated") if isinstance(odds_payload, dict) else None,
         "models": outputs,
+        "games": outputs,
+        "top_prop_model_candidates": [],
+        "errors": errors,
     }
 
 
 @router.get("/daily-odds/event/{event_id}/prop-models")
 def daily_odds_prop_models(event_id: str, market: Optional[str] = None) -> Dict[str, Any]:
-    payload = fetch_draftkings_event_odds(event_id, props_only=True, raw=False)
+    errors: List[Dict[str, Any]] = []
+    try:
+        payload = fetch_draftkings_event_odds(event_id, props_only=True, raw=False)
+    except Exception as exc:
+        payload = {"markets": []}
+        errors.append({"stage": "fetch_draftkings_event_odds", "error": _safe_error(exc)})
+
     prop_markets = payload.get("markets", []) if isinstance(payload, dict) else []
+    try:
+        models = build_prop_models({}, prop_markets, market_filter=market or "all")
+    except Exception as exc:
+        models = {"top_candidates": [], "candidate_count": 0}
+        errors.append({"stage": "build_prop_models", "error": _safe_error(exc)})
+
     return {
         "event_id": event_id,
         "market_filter": market or "all",
-        "models": build_prop_models({}, prop_markets, market_filter=market or "all"),
+        "models": models,
+        "top_prop_model_candidates": models.get("top_candidates", []) if isinstance(models, dict) else [],
         "odds_status": payload.get("status") if isinstance(payload, dict) else None,
         "last_updated": payload.get("last_updated") if isinstance(payload, dict) else None,
+        "errors": errors,
     }
