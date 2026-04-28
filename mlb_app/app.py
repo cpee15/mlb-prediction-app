@@ -1001,7 +1001,7 @@ def create_app():
                     "avg_launch_angle": avg_launch_angle,
                 }
 
-            def _enrich_lineup_offense_profile_with_live_statcast(profile, lineup):
+            def _enrich_lineup_offense_profile_with_live_statcast(profile, lineup, enrichment_source="official_lineup"):
                 player_metrics = [
                     metrics
                     for metrics in (_derive_batter_live_statcast(player.get("id")) for player in lineup)
@@ -1043,6 +1043,8 @@ def create_app():
 
                 enriched["metadata"].update({
                     "live_statcast_hitter_players_used": len(player_metrics),
+                    "live_statcast_hitter_candidates_used": len(lineup),
+                    "live_statcast_hitter_lineup_source": enrichment_source,
                     "live_statcast_hitter_fields_available": sorted(
                         [key for key, value in live_values.items() if value is not None]
                     ),
@@ -1065,13 +1067,20 @@ def create_app():
                 target_date=datetime.date.fromisoformat(game_date_iso[:10]) if game_date_iso else datetime.date.today(),
             )
 
+            home_live_statcast_candidates = home_lineup or _fetch_roster_as_lineup(home_team_id, season)
+            away_live_statcast_candidates = away_lineup or _fetch_roster_as_lineup(away_team_id, season)
+            home_live_statcast_source = "official_lineup" if home_lineup else "roster_fallback"
+            away_live_statcast_source = "official_lineup" if away_lineup else "roster_fallback"
+
             home_projected_lineup_offense_profile = _enrich_lineup_offense_profile_with_live_statcast(
                 home_projected_lineup_offense_profile,
-                home_lineup,
+                home_live_statcast_candidates,
+                home_live_statcast_source,
             )
             away_projected_lineup_offense_profile = _enrich_lineup_offense_profile_with_live_statcast(
                 away_projected_lineup_offense_profile,
-                away_lineup,
+                away_live_statcast_candidates,
+                away_live_statcast_source,
             )
 
             def _profile_has_useful_offense_metrics(profile):
