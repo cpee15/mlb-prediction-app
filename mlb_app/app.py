@@ -1028,6 +1028,39 @@ def create_app():
                         hits = singles + doubles + triples + homers
                         iso = float((total_bases - hits) / pa_count)
 
+                def _split_iso(split_events):
+                    pa_mask = split_events.isin(terminal_events)
+                    pa_count = int(pa_mask.sum())
+                    if not pa_count:
+                        return None
+                    pa_events = split_events[pa_mask]
+                    singles = int((pa_events == "single").sum())
+                    doubles = int((pa_events == "double").sum())
+                    triples = int((pa_events == "triple").sum())
+                    homers = int((pa_events == "home_run").sum())
+                    total_bases = singles + (2 * doubles) + (3 * triples) + (4 * homers)
+                    hits = singles + doubles + triples + homers
+                    return float((total_bases - hits) / pa_count)
+
+                def _split_woba(split_df):
+                    if "estimated_woba_using_speedangle" not in split_df:
+                        return None
+                    vals = split_df["estimated_woba_using_speedangle"].dropna()
+                    return float(vals.mean()) if len(vals) else None
+
+                vs_lhp_woba = vs_rhp_woba = None
+                vs_lhp_iso = vs_rhp_iso = None
+                if "p_throws" in df and events is not None:
+                    hands = df["p_throws"].fillna("").astype(str).str.upper()
+                    evts_all = events.fillna("").astype(str).str.lower()
+
+                    vs_lhp_df = df[hands == "L"]
+                    vs_rhp_df = df[hands == "R"]
+                    vs_lhp_woba = _split_woba(vs_lhp_df)
+                    vs_rhp_woba = _split_woba(vs_rhp_df)
+                    vs_lhp_iso = _split_iso(evts_all[hands == "L"])
+                    vs_rhp_iso = _split_iso(evts_all[hands == "R"])
+
                 return {
                     "bb_rate": bb_rate,
                     "whiff_rate": whiff_rate,
@@ -1039,6 +1072,10 @@ def create_app():
                     "hard_hit_rate": hard_hit_rate,
                     "avg_exit_velocity": avg_exit_velocity,
                     "avg_launch_angle": avg_launch_angle,
+                    "vs_lhp_woba": vs_lhp_woba,
+                    "vs_rhp_woba": vs_rhp_woba,
+                    "vs_lhp_iso": vs_lhp_iso,
+                    "vs_rhp_iso": vs_rhp_iso,
                 }
 
             def _enrich_lineup_offense_profile_with_live_statcast(profile, lineup, enrichment_source="official_lineup"):
@@ -1055,6 +1092,7 @@ def create_app():
                 enriched["plate_discipline"] = dict(profile.get("plate_discipline") or {})
                 enriched["power"] = dict(profile.get("power") or {})
                 enriched["batted_ball_quality"] = dict(profile.get("batted_ball_quality") or {})
+                enriched["platoon_profile"] = dict(profile.get("platoon_profile") or {})
                 enriched["metadata"] = dict(profile.get("metadata") or {})
 
                 live_values = {
@@ -1068,6 +1106,10 @@ def create_app():
                     "hard_hit_rate": _safe_series_average(m.get("hard_hit_rate") for m in player_metrics),
                     "avg_exit_velocity": _safe_series_average(m.get("avg_exit_velocity") for m in player_metrics),
                     "avg_launch_angle": _safe_series_average(m.get("avg_launch_angle") for m in player_metrics),
+                    "vs_lhp_woba": _safe_series_average(m.get("vs_lhp_woba") for m in player_metrics),
+                    "vs_rhp_woba": _safe_series_average(m.get("vs_rhp_woba") for m in player_metrics),
+                    "vs_lhp_iso": _safe_series_average(m.get("vs_lhp_iso") for m in player_metrics),
+                    "vs_rhp_iso": _safe_series_average(m.get("vs_rhp_iso") for m in player_metrics),
                 }
 
                 for key in ["whiff_rate", "contact_rate"]:
@@ -1082,6 +1124,9 @@ def create_app():
                 for key in ["avg_exit_velocity", "avg_launch_angle"]:
                     if enriched["batted_ball_quality"].get(key) is None and live_values.get(key) is not None:
                         enriched["batted_ball_quality"][key] = live_values[key]
+                for key in ["vs_lhp_woba", "vs_rhp_woba", "vs_lhp_iso", "vs_rhp_iso"]:
+                    if enriched["platoon_profile"].get(key) is None and live_values.get(key) is not None:
+                        enriched["platoon_profile"][key] = live_values[key]
 
                 enriched["metadata"].update({
                     "live_statcast_hitter_players_used": len(player_metrics),
