@@ -117,6 +117,47 @@ TERMINAL_PA_EVENTS = {
 }
 
 
+def _batter_stand(event: Any) -> Optional[str]:
+    value = _get_field(event, "stand")
+    if value is None:
+        return None
+    value = str(value).strip().upper()
+    return value if value in {"L", "R"} else None
+
+
+def _platoon_summary(rows: Iterable[Any], stand: str) -> Dict[str, Optional[float]]:
+    stand_rows = [row for row in rows if _batter_stand(row) == stand]
+    terminal_rows = [
+        row for row in stand_rows
+        if _event_name(row) in TERMINAL_PA_EVENTS
+    ]
+    xwoba_rows = [
+        row for row in stand_rows
+        if _safe_float(_get_field(row, "estimated_woba_using_speedangle")) is not None
+    ]
+
+    pa = len(terminal_rows)
+    k_rate = (
+        sum(1 for row in terminal_rows if _event_name(row) in {"strikeout", "strikeout_double_play"}) / pa
+        if pa else None
+    )
+    bb_rate = (
+        sum(1 for row in terminal_rows if _event_name(row) == "walk") / pa
+        if pa else None
+    )
+    xwoba_allowed = _average(
+        _safe_float(_get_field(row, "estimated_woba_using_speedangle")) for row in xwoba_rows
+    )
+
+    return {
+        "rows": len(stand_rows),
+        "pa": pa,
+        "xwoba_allowed": xwoba_allowed,
+        "k_rate": k_rate,
+        "bb_rate": bb_rate,
+    }
+
+
 def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional[float]]:
     """
     Compute pitcher advanced metrics from stored StatcastEvent rows.
@@ -132,6 +173,12 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
             "barrel_rate_allowed": None,
             "avg_exit_velocity_allowed": None,
             "avg_launch_angle_allowed": None,
+            "vs_lhb_woba_allowed": None,
+            "vs_rhb_woba_allowed": None,
+            "vs_lhb_k_rate": None,
+            "vs_rhb_k_rate": None,
+            "vs_lhb_bb_rate": None,
+            "vs_rhb_bb_rate": None,
             "_debug": {
                 "advanced_event_rows_used": 0,
                 "advanced_zone_rows_used": 0,
@@ -186,6 +233,9 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
         if batted_ball_rows else None
     )
 
+    vs_lhb = _platoon_summary(rows, "L")
+    vs_rhb = _platoon_summary(rows, "R")
+
     metrics = {
         "csw_rate": csw_rate,
         "bb_rate": bb_rate,
@@ -199,6 +249,12 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
             _safe_float(_get_field(row, "launch_angle")) for row in batted_ball_rows
         ),
         "xba_allowed": xba_allowed,
+        "vs_lhb_woba_allowed": vs_lhb["xwoba_allowed"],
+        "vs_rhb_woba_allowed": vs_rhb["xwoba_allowed"],
+        "vs_lhb_k_rate": vs_lhb["k_rate"],
+        "vs_rhb_k_rate": vs_rhb["k_rate"],
+        "vs_lhb_bb_rate": vs_lhb["bb_rate"],
+        "vs_rhb_bb_rate": vs_rhb["bb_rate"],
     }
 
     metrics["_debug"] = {
@@ -207,6 +263,10 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
         "advanced_zone_rows_used": len(zone_known),
         "advanced_first_pitch_rows_used": len(first_pitch_rows),
         "advanced_batted_ball_rows_used": len(batted_ball_rows),
+        "advanced_lhb_rows_used": vs_lhb["rows"],
+        "advanced_rhb_rows_used": vs_rhb["rows"],
+        "advanced_lhb_pa_used": vs_lhb["pa"],
+        "advanced_rhb_pa_used": vs_rhb["pa"],
         "advanced_metrics_available": sorted(
             [key for key, value in metrics.items() if not key.startswith("_") and value is not None]
         ),
