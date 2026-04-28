@@ -990,11 +990,51 @@ def create_app():
                 else:
                     barrel_rate = None
 
+                bb_rate = None
+                iso = None
+                events = df.get("events")
+                if events is not None:
+                    evts = events.fillna("").astype(str).str.lower()
+                    terminal_events = {
+                        "single",
+                        "double",
+                        "triple",
+                        "home_run",
+                        "strikeout",
+                        "strikeout_double_play",
+                        "walk",
+                        "intent_walk",
+                        "hit_by_pitch",
+                        "field_out",
+                        "force_out",
+                        "double_play",
+                        "grounded_into_double_play",
+                        "fielders_choice",
+                        "fielders_choice_out",
+                        "sac_fly",
+                        "sac_bunt",
+                    }
+                    pa_mask = evts.isin(terminal_events)
+                    pa_count = int(pa_mask.sum())
+                    if pa_count:
+                        pa_events = evts[pa_mask]
+                        bb_rate = float((pa_events == "walk").sum() / pa_count)
+
+                        singles = int((pa_events == "single").sum())
+                        doubles = int((pa_events == "double").sum())
+                        triples = int((pa_events == "triple").sum())
+                        homers = int((pa_events == "home_run").sum())
+                        total_bases = singles + (2 * doubles) + (3 * triples) + (4 * homers)
+                        hits = singles + doubles + triples + homers
+                        iso = float((total_bases - hits) / pa_count)
+
                 return {
+                    "bb_rate": bb_rate,
                     "whiff_rate": whiff_rate,
                     "contact_rate": contact_rate,
                     "swing_rate": swing_rate,
                     "chase_rate": chase_rate,
+                    "iso": iso,
                     "barrel_rate": barrel_rate,
                     "hard_hit_rate": hard_hit_rate,
                     "avg_exit_velocity": avg_exit_velocity,
@@ -1018,10 +1058,12 @@ def create_app():
                 enriched["metadata"] = dict(profile.get("metadata") or {})
 
                 live_values = {
+                    "bb_rate": _safe_series_average(m.get("bb_rate") for m in player_metrics),
                     "whiff_rate": _safe_series_average(m.get("whiff_rate") for m in player_metrics),
                     "contact_rate": _safe_series_average(m.get("contact_rate") for m in player_metrics),
                     "swing_rate": _safe_series_average(m.get("swing_rate") for m in player_metrics),
                     "chase_rate": _safe_series_average(m.get("chase_rate") for m in player_metrics),
+                    "iso": _safe_series_average(m.get("iso") for m in player_metrics),
                     "barrel_rate": _safe_series_average(m.get("barrel_rate") for m in player_metrics),
                     "hard_hit_rate": _safe_series_average(m.get("hard_hit_rate") for m in player_metrics),
                     "avg_exit_velocity": _safe_series_average(m.get("avg_exit_velocity") for m in player_metrics),
@@ -1031,10 +1073,10 @@ def create_app():
                 for key in ["whiff_rate", "contact_rate"]:
                     if enriched["contact_skill"].get(key) is None and live_values.get(key) is not None:
                         enriched["contact_skill"][key] = live_values[key]
-                for key in ["swing_rate", "chase_rate"]:
+                for key in ["bb_rate", "swing_rate", "chase_rate"]:
                     if enriched["plate_discipline"].get(key) is None and live_values.get(key) is not None:
                         enriched["plate_discipline"][key] = live_values[key]
-                for key in ["barrel_rate", "hard_hit_rate"]:
+                for key in ["iso", "barrel_rate", "hard_hit_rate"]:
                     if enriched["power"].get(key) is None and live_values.get(key) is not None:
                         enriched["power"][key] = live_values[key]
                 for key in ["avg_exit_velocity", "avg_launch_angle"]:
