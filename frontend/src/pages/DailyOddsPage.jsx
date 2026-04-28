@@ -12,6 +12,7 @@ const s = {
   subtitle: { color: '#8b949e', fontSize: '14px', marginTop: '8px', maxWidth: '640px' },
   controls: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' },
   input: { background: '#0d1117', border: '1px solid #30363d', color: '#e6edf3', borderRadius: '10px', padding: '10px 12px', fontSize: '14px', outline: 'none' },
+  select: { background: '#0d1117', border: '1px solid #30363d', color: '#e6edf3', borderRadius: '10px', padding: '9px 11px', fontSize: '13px', outline: 'none', minWidth: '220px' },
   button: { background: '#238636', border: '1px solid #2ea043', color: '#fff', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', fontWeight: '800', cursor: 'pointer' },
   mutedButton: { background: '#21262d', border: '1px solid #30363d', color: '#58a6ff', borderRadius: '9px', padding: '8px 11px', fontSize: '12px', fontWeight: '800', cursor: 'pointer' },
   stats: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: '10px', marginTop: '18px' },
@@ -33,6 +34,7 @@ const s = {
   oddsLine: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', color: '#e6edf3', fontSize: '13px', marginTop: '6px', padding: '5px 0', borderTop: '1px solid rgba(48,54,61,0.55)' },
   price: { fontWeight: '900', color: '#e6edf3', whiteSpace: 'nowrap' },
   props: { borderTop: '1px solid #30363d', padding: '13px 16px 16px', background: '#111820' },
+  propControls: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '10px' },
   propsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(235px, 1fr))', gap: '9px' },
   propCard: { border: '1px solid #30363d', borderRadius: '10px', padding: '10px', background: '#0d1117' },
   propMarket: { color: '#d29922', fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '6px' },
@@ -75,6 +77,10 @@ function formatTime(iso) {
   }
 }
 
+function cleanMarketName(name) {
+  return String(name || 'Market').replaceAll('_', ' ')
+}
+
 function getMarkets(event) {
   return Array.isArray(event?.markets) ? event.markets : []
 }
@@ -82,6 +88,10 @@ function getMarkets(event) {
 function findMarket(event, keys) {
   const wanted = Array.isArray(keys) ? keys : [keys]
   return getMarkets(event).find(m => wanted.includes(m.market_key) || wanted.includes(m.market_type) || wanted.includes(m.market_name))
+}
+
+function selectionLabel(sel) {
+  return `${sel?.name || sel?.description || '—'}${sel?.line != null ? ` ${sel.line}` : ''}`
 }
 
 function MarketBox({ label, market }) {
@@ -92,7 +102,7 @@ function MarketBox({ label, market }) {
       {selections.length === 0 && <div style={s.oddsLine}><span>Unavailable</span><strong style={s.price}>—</strong></div>}
       {selections.slice(0, 3).map((sel, idx) => (
         <div key={`${label}-${idx}`} style={s.oddsLine}>
-          <span>{sel.name || sel.description || '—'}{sel.line != null ? ` ${sel.line}` : ''}</span>
+          <span>{selectionLabel(sel)}</span>
           <strong style={s.price}>{american(sel.price)}</strong>
         </div>
       ))}
@@ -105,6 +115,7 @@ function PropsPanel({ eventId }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [data, setData] = useState(null)
+  const [selectedMarket, setSelectedMarket] = useState('all')
 
   function toggle() {
     if (open) {
@@ -125,23 +136,36 @@ function PropsPanel({ eventId }) {
   }
 
   const markets = data?.markets || data?.event?.markets || []
-  const props = markets.flatMap(market =>
+  const filteredMarkets = selectedMarket === 'all'
+    ? markets
+    : markets.filter((_, idx) => String(idx) === selectedMarket)
+  const props = filteredMarkets.flatMap(market =>
     (market.selections || []).map(sel => ({ market, sel }))
   )
 
   return (
     <div style={s.props}>
-      <button type="button" style={s.mutedButton} onClick={toggle}>{open ? 'Hide Player Props' : 'Show Player Props'}</button>
+      <div style={s.propControls}>
+        <button type="button" style={s.mutedButton} onClick={toggle}>{open ? 'Hide Player Props' : 'Show Player Props'}</button>
+        {open && markets.length > 0 && (
+          <select value={selectedMarket} onChange={e => setSelectedMarket(e.target.value)} style={s.select}>
+            <option value="all">All prop markets</option>
+            {markets.map((market, idx) => (
+              <option key={`${market.market_key || market.market_name}-${idx}`} value={String(idx)}>{cleanMarketName(market.market_name || market.market_key)}</option>
+            ))}
+          </select>
+        )}
+      </div>
       {open && loading && <div style={{ color: '#8b949e', fontSize: '12px', marginTop: '10px' }}>Loading props…</div>}
       {open && error && <div style={{ color: '#f85149', fontSize: '12px', marginTop: '10px' }}>Props error: {error}</div>}
-      {open && !loading && !error && data && props.length === 0 && <div style={{ color: '#8b949e', fontSize: '12px', marginTop: '10px' }}>No props returned for this event.</div>}
+      {open && !loading && !error && data && props.length === 0 && <div style={{ color: '#8b949e', fontSize: '12px', marginTop: '10px' }}>No props returned for this selection.</div>}
       {open && props.length > 0 && (
         <div style={{ ...s.propsGrid, marginTop: '10px' }}>
-          {props.slice(0, 60).map(({ market, sel }, idx) => (
+          {props.slice(0, 80).map(({ market, sel }, idx) => (
             <div key={`${market.market_key || market.market_name}-${sel.description}-${sel.name}-${idx}`} style={s.propCard}>
-              <div style={s.propMarket}>{String(market.market_name || market.market_key || 'Market').replaceAll('_', ' ')}</div>
+              <div style={s.propMarket}>{cleanMarketName(market.market_name || market.market_key)}</div>
               <div style={s.propName}>{sel.description || sel.name || '—'}</div>
-              <div style={s.propDetail}>{sel.name || '—'} {sel.line != null ? sel.line : ''} · <strong style={{ color: '#e6edf3' }}>{american(sel.price)}</strong></div>
+              <div style={s.propDetail}>{selectionLabel(sel)} · <strong style={{ color: '#e6edf3' }}>{american(sel.price)}</strong></div>
             </div>
           ))}
         </div>
@@ -211,7 +235,7 @@ export default function DailyOddsPage() {
           <div>
             <div style={s.eyebrow}>DraftKings board</div>
             <h1 style={s.title}>Daily Odds</h1>
-            <div style={s.subtitle}>Moneyline, run line, totals, props, event IDs, and MLB game matching in one clean board.</div>
+            <div style={s.subtitle}>Moneyline, run line, totals, prop market selectors, event IDs, and MLB game matching in one clean board.</div>
           </div>
           <div style={s.controls}>
             <input type="date" value={date} onChange={e => setDate(e.target.value)} style={s.input} />
@@ -230,7 +254,7 @@ export default function DailyOddsPage() {
 
       <div style={s.toolbar}>
         <div style={s.toolbarText}>{rows.length} sportsbook events loaded for {date}</div>
-        <div style={s.toolbarText}>Matched by normalized away/home team names</div>
+        <div style={s.toolbarText}>Use each game’s prop selector to choose exactly which player prop market to price.</div>
       </div>
 
       {error && <div style={s.error}>{error}</div>}
