@@ -96,6 +96,27 @@ def _event_name(event: Any) -> Optional[str]:
     return value or None
 
 
+TERMINAL_PA_EVENTS = {
+    "single",
+    "double",
+    "triple",
+    "home_run",
+    "strikeout",
+    "strikeout_double_play",
+    "walk",
+    "intent_walk",
+    "hit_by_pitch",
+    "field_out",
+    "force_out",
+    "double_play",
+    "grounded_into_double_play",
+    "fielders_choice",
+    "fielders_choice_out",
+    "sac_fly",
+    "sac_bunt",
+}
+
+
 def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional[float]]:
     """
     Compute pitcher advanced metrics from stored StatcastEvent rows.
@@ -121,7 +142,10 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
         }
 
     description_rows = [row for row in rows if _description(row) is not None]
-    plate_appearance_rows = [row for row in rows if _event_name(row) is not None]
+    plate_appearance_rows = [
+        row for row in rows
+        if _event_name(row) in TERMINAL_PA_EVENTS
+    ]
     xba_rows = [
         row for row in rows
         if _safe_float(_get_field(row, "estimated_ba_using_speedangle")) is not None
@@ -143,7 +167,7 @@ def derive_pitcher_advanced_metrics(events: Iterable[Any]) -> Dict[str, Optional
         if description_rows else None
     )
     bb_rate = (
-        sum(1 for row in plate_appearance_rows if _event_name(row) in {"walk", "intent_walk"}) / len(plate_appearance_rows)
+        sum(1 for row in plate_appearance_rows if _event_name(row) == "walk") / len(plate_appearance_rows)
         if plate_appearance_rows else None
     )
     xba_allowed = _average(
