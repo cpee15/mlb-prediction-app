@@ -49,7 +49,7 @@ const s = {
   modelCardTitle: { color: '#8b949e', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.9px', fontWeight: '900', marginBottom: '8px' },
   modelPick: { color: '#e6edf3', fontSize: '15px', fontWeight: '900', lineHeight: 1.25 },
   modelDetail: { color: '#8b949e', fontSize: '12px', marginTop: '6px', lineHeight: 1.35 },
-  confidence: score => ({ color: Number(score) >= 65 ? '#3fb950' : '#d29922', fontSize: '20px', fontWeight: '900', marginTop: '7px' }),
+  confidence: score => ({ color: Number(score) >= 0.65 || Number(score) >= 65 ? '#3fb950' : '#d29922', fontSize: '20px', fontWeight: '900', marginTop: '7px' }),
   reasonList: { margin: '8px 0 0', paddingLeft: '18px', color: '#8b949e', fontSize: '12px', lineHeight: 1.45 },
   section: { background: '#161b22', border: '1px solid #30363d', borderRadius: '14px', padding: '16px' },
   sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' },
@@ -90,7 +90,8 @@ function pct(v) {
   if (v == null || v === '') return '—'
   const n = Number(v)
   if (Number.isNaN(n)) return String(v)
-  return `${Math.round(n)}%`
+  const pctValue = n <= 1 ? n * 100 : n
+  return `${Math.round(pctValue)}%`
 }
 
 function formatTime(iso) {
@@ -127,10 +128,6 @@ function firstDefined(...values) {
   return values.find(v => v !== undefined && v !== null && v !== '')
 }
 
-function pickText(value, fallback = '—') {
-  return firstDefined(value, fallback)
-}
-
 function modelGamesFromPayload(payload) {
   if (Array.isArray(payload)) return payload
   if (Array.isArray(payload?.games)) return payload.games
@@ -145,6 +142,26 @@ function propCandidatesFromPayload(payload) {
   if (Array.isArray(payload?.prop_candidates)) return payload.prop_candidates
   if (Array.isArray(payload?.props)) return payload.props
   return []
+}
+
+function modelDetail(model) {
+  if (!model) return ''
+  const probability = firstDefined(model.model_probability, model.probability)
+  const marketProbability = firstDefined(model.market_implied_probability, model.market_probability)
+  const score = firstDefined(model.score)
+  const parts = []
+  if (probability != null) parts.push(`Model probability: ${pct(probability)}`)
+  if (marketProbability != null) parts.push(`Market implied: ${pct(marketProbability)}`)
+  if (score != null) parts.push(`Score: ${score}`)
+  return parts.join(' · ')
+}
+
+function modelReasons(model) {
+  return [
+    ...asArray(model?.drivers),
+    ...asArray(model?.reasons),
+    ...asArray(model?.missing_inputs).slice(0, 2).map(item => `Missing: ${item}`),
+  ]
 }
 
 function ModelCard({ title, pick, confidence, detail, reasons }) {
@@ -174,12 +191,17 @@ function GameModelPanel({ model }) {
     )
   }
 
-  const sidePick = firstDefined(model.side_pick, model.moneyline_pick, model.winner_pick, model.pick)
-  const totalPick = firstDefined(model.total_pick, model.total_model_pick, model.over_under_pick)
-  const runLinePick = firstDefined(model.run_line_pick, model.spread_pick, model.runline_pick)
-  const edge = firstDefined(model.edge, model.edge_score, model.model_edge)
-  const confidence = firstDefined(model.confidence, model.model_confidence, model.score)
-  const reasons = firstDefined(model.reasons, model.model_reasons, model.summary_reasons, [])
+  const modelRoot = model?.models || model
+  const moneylineModel = modelRoot?.moneyline || {}
+  const spreadModel = modelRoot?.spread || modelRoot?.run_line || {}
+  const totalModel = modelRoot?.total || {}
+
+  const sidePick = firstDefined(model.side_pick, model.moneyline_pick, model.winner_pick, model.pick, moneylineModel.pick)
+  const totalPick = firstDefined(model.total_pick, model.total_model_pick, model.over_under_pick, totalModel.pick)
+  const runLinePick = firstDefined(model.run_line_pick, model.spread_pick, model.runline_pick, spreadModel.pick)
+  const edge = firstDefined(model.edge, model.edge_score, model.model_edge, moneylineModel.edge, spreadModel.edge, totalModel.edge)
+  const confidence = firstDefined(model.confidence, model.model_confidence, model.score, moneylineModel.confidence)
+  const reasons = firstDefined(model.reasons, model.model_reasons, model.summary_reasons, moneylineModel.drivers, [])
 
   return (
     <div style={s.modelPanel}>
@@ -195,22 +217,22 @@ function GameModelPanel({ model }) {
           title="Moneyline Model"
           pick={sidePick}
           confidence={confidence}
-          detail={firstDefined(model.moneyline_detail, model.side_detail, model.summary)}
-          reasons={reasons}
+          detail={firstDefined(model.moneyline_detail, model.side_detail, model.summary, modelDetail(moneylineModel))}
+          reasons={firstDefined(reasons, modelReasons(moneylineModel))}
         />
         <ModelCard
           title="Run Line Model"
           pick={runLinePick}
-          confidence={firstDefined(model.run_line_confidence, model.spread_confidence)}
-          detail={firstDefined(model.run_line_detail, model.spread_detail)}
-          reasons={firstDefined(model.run_line_reasons, model.spread_reasons, [])}
+          confidence={firstDefined(model.run_line_confidence, model.spread_confidence, spreadModel.confidence)}
+          detail={firstDefined(model.run_line_detail, model.spread_detail, modelDetail(spreadModel))}
+          reasons={firstDefined(model.run_line_reasons, model.spread_reasons, modelReasons(spreadModel))}
         />
         <ModelCard
           title="Total Model"
           pick={totalPick}
-          confidence={firstDefined(model.total_confidence, model.over_under_confidence)}
-          detail={firstDefined(model.total_detail, model.over_under_detail)}
-          reasons={firstDefined(model.total_reasons, model.over_under_reasons, [])}
+          confidence={firstDefined(model.total_confidence, model.over_under_confidence, totalModel.confidence)}
+          detail={firstDefined(model.total_detail, model.over_under_detail, modelDetail(totalModel))}
+          reasons={firstDefined(model.total_reasons, model.over_under_reasons, modelReasons(totalModel))}
         />
       </div>
     </div>
