@@ -348,22 +348,50 @@ function buildBatterInsights(profile) {
   ]
 }
 
+function envLabel(value) {
+  if (!value) return null
+  const map = {
+    offense_boost: 'Run environment favors offense',
+    slight_offense_boost: 'Run environment slightly favors offense',
+    run_suppression: 'Run environment suppresses scoring',
+    slight_run_suppression: 'Run environment slightly suppresses scoring',
+    neutral: 'Run environment looks neutral',
+    hitter_friendly: 'Park favors run scoring',
+    slight_hitter_friendly: 'Park slightly favors run scoring',
+    pitcher_friendly: 'Park suppresses run scoring',
+    slight_pitcher_friendly: 'Park slightly suppresses run scoring',
+    neutral_or_unknown: 'Neutral or limited weather impact',
+    warm_weather_offense_boost: 'Warm weather boosts offense',
+    cold_weather_offense_suppression: 'Cold weather suppresses offense',
+    hot_air_boosts_carry: 'Hot air boosts carry',
+    warm_air_slight_boost: 'Warm air slightly boosts carry',
+    cold_air_strongly_suppresses_carry: 'Cold air strongly suppresses carry',
+    cold_air_suppresses_carry: 'Cold air suppresses carry',
+    neutral_temperature: 'Temperature impact looks neutral',
+    wind_in_suppresses_carry: 'Wind blowing in suppresses carry',
+    wind_out_boosts_carry: 'Wind blowing out boosts carry',
+    crosswind_may_affect_carry: 'Crosswind may affect carry',
+    wind_may_affect_carry: 'Wind may affect carry',
+    limited_wind_impact: 'Wind impact looks limited',
+  }
+  return map[value] || String(value).replace(/_/g, ' ')
+}
+
 function buildEnvironmentInsights(profile) {
   const runBoost = profile?.run_environment?.run_scoring_index
-  const wind = profile?.weather?.wind_speed_mph
+  const scoringLabel = profile?.run_environment?.scoring_environment_label
+  const weatherImpact = profile?.run_environment?.weather_run_impact
   const readiness = profile?.status?.readiness || profile?.metadata?.readiness
   return [
     {
       label: 'Run Environment',
-      value: runBoost != null
+      value: envLabel(scoringLabel) || (runBoost != null
         ? (runBoost >= 1.05 ? 'Run environment favors offense' : runBoost <= 0.95 ? 'Run environment suppresses scoring' : 'Run environment looks neutral')
-        : 'No run-environment signal yet',
+        : 'No run-environment signal yet'),
     },
     {
       label: 'Weather',
-      value: wind != null
-        ? (wind >= 12 ? 'Weather could meaningfully affect carry' : wind >= 7 ? 'Weather has mild impact potential' : 'Weather impact looks limited')
-        : 'No weather insight yet',
+      value: envLabel(weatherImpact) || 'No weather insight yet',
     },
     {
       label: 'Readiness',
@@ -475,9 +503,12 @@ function displayKey(key) {
     roof_status: 'Roof Status',
     game_time_local: 'Game Time',
     game_status: 'Game Status',
+    run_scoring_index: 'Run Scoring Index',
     scoring_environment_label: 'Scoring Environment',
     weather_run_impact: 'Weather Impact',
     park_run_impact: 'Park Impact',
+    wind_run_impact: 'Wind Impact',
+    temperature_run_impact: 'Temperature Impact',
     rain_delay_risk: 'Rain Delay Risk',
     postponement_risk: 'Postponement Risk',
     extreme_wind_flag: 'Extreme Wind',

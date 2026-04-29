@@ -46,14 +46,92 @@ def compute_environment_profile(raw_context: dict) -> dict:
             return "slight_pitcher_friendly"
         return "neutral"
 
-    def _weather_impact(temp_f, wind_speed):
-        if temp_f is not None and temp_f >= 85:
-            return "warm_weather_offense_boost"
-        if temp_f is not None and temp_f <= 50:
-            return "cold_weather_offense_suppression"
-        if wind_speed is not None and wind_speed >= 12:
+    def _wind_direction_type(wind_direction):
+        text = str(wind_direction or "").lower()
+        if not text:
+            return None
+        if "in from" in text or "blowing in" in text or text.startswith("in "):
+            return "in"
+        if "out to" in text or "blowing out" in text or text.startswith("out "):
+            return "out"
+        if "cross" in text:
+            return "cross"
+        return "unknown"
+
+    def _wind_impact(wind_speed, wind_direction):
+        direction_type = _wind_direction_type(wind_direction)
+        if wind_speed is None:
+            return None
+        if wind_speed >= 10 and direction_type == "in":
+            return "wind_in_suppresses_carry"
+        if wind_speed >= 10 and direction_type == "out":
+            return "wind_out_boosts_carry"
+        if wind_speed >= 12 and direction_type == "cross":
+            return "crosswind_may_affect_carry"
+        if wind_speed >= 12:
             return "wind_may_affect_carry"
-        return "neutral_or_unknown"
+        return "limited_wind_impact"
+
+    def _temperature_impact(temp_f):
+        if temp_f is None:
+            return None
+        if temp_f >= 85:
+            return "hot_air_boosts_carry"
+        if temp_f >= 75:
+            return "warm_air_slight_boost"
+        if temp_f <= 45:
+            return "cold_air_strongly_suppresses_carry"
+        if temp_f <= 55:
+            return "cold_air_suppresses_carry"
+        return "neutral_temperature"
+
+    def _weather_impact(temp_f, wind_speed, wind_direction):
+        wind = _wind_impact(wind_speed, wind_direction)
+        temp = _temperature_impact(temp_f)
+
+        if wind in {"wind_in_suppresses_carry", "wind_out_boosts_carry"}:
+            return wind
+        if temp in {"hot_air_boosts_carry", "cold_air_strongly_suppresses_carry", "cold_air_suppresses_carry"}:
+            return temp
+        if wind:
+            return wind
+        return temp or "neutral_or_unknown"
+
+    def _run_scoring_index(run_factor, temp_f, wind_speed, wind_direction):
+        score = run_factor if run_factor is not None else 1.0
+
+        temp = _temperature_impact(temp_f)
+        if temp == "hot_air_boosts_carry":
+            score += 0.03
+        elif temp == "warm_air_slight_boost":
+            score += 0.01
+        elif temp == "cold_air_strongly_suppresses_carry":
+            score -= 0.04
+        elif temp == "cold_air_suppresses_carry":
+            score -= 0.02
+
+        wind = _wind_impact(wind_speed, wind_direction)
+        if wind == "wind_out_boosts_carry":
+            score += 0.04
+        elif wind == "wind_in_suppresses_carry":
+            score -= 0.04
+        elif wind == "crosswind_may_affect_carry":
+            score -= 0.01
+
+        return round(score, 3)
+
+    def _scoring_label(index):
+        if index is None:
+            return None
+        if index >= 1.08:
+            return "offense_boost"
+        if index >= 1.03:
+            return "slight_offense_boost"
+        if index <= 0.92:
+            return "run_suppression"
+        if index <= 0.97:
+            return "slight_run_suppression"
+        return "neutral"
 
     temperature_f = raw_context.get("temperature_f", weather.get("temp_f"))
     wind_speed_mph = raw_context.get("wind_speed_mph", weather.get("wind_speed_mph"))
@@ -65,6 +143,10 @@ def compute_environment_profile(raw_context: dict) -> dict:
 
     run_factor = raw_context.get("run_factor", raw_context.get("park_factor"))
     run_factor = _safe_float(run_factor)
+    run_scoring_index = raw_context.get(
+        "run_scoring_index",
+        _run_scoring_index(run_factor, temperature_f, wind_speed_mph, wind_direction),
+    )
 
     missing_inputs = []
     if temperature_f is None:
@@ -122,17 +204,26 @@ def compute_environment_profile(raw_context: dict) -> dict:
             "game_status": raw_context.get("game_status", raw_context.get("status")),
         },
         "run_environment": {
+            "run_scoring_index": run_scoring_index,
             "scoring_environment_label": raw_context.get(
                 "scoring_environment_label",
-                _park_label(run_factor),
+                _scoring_label(run_scoring_index),
             ),
             "weather_run_impact": raw_context.get(
                 "weather_run_impact",
-                _weather_impact(temperature_f, wind_speed_mph),
+                _weather_impact(temperature_f, wind_speed_mph, wind_direction),
             ),
             "park_run_impact": raw_context.get(
                 "park_run_impact",
                 _park_label(run_factor),
+            ),
+            "wind_run_impact": raw_context.get(
+                "wind_run_impact",
+                _wind_impact(wind_speed_mph, wind_direction),
+            ),
+            "temperature_run_impact": raw_context.get(
+                "temperature_run_impact",
+                _temperature_impact(temperature_f),
             ),
         },
         "risk_flags": {
