@@ -638,21 +638,12 @@ def _build_competitive_matchup(
 
     pitch_type_matrix: List[Dict[str, Any]] = []
     for pitch in arsenal_list:
-        batter_vs_type = _stored_batter_pitch_type_summary(
+        batter_vs_type = _player_vs_pitch_type_summary(
             session=session,
             batter_id=batter_id,
-            opposing_pitcher_id=opposing_pitcher_id,
             pitch_type=pitch.get("pitch_type"),
+            since_year=max(2024, season - 1),
         )
-
-        if batter_vs_type is None:
-            batter_vs_type = _player_vs_pitch_type_summary(
-                session=session,
-                batter_id=batter_id,
-                pitch_type=pitch.get("pitch_type"),
-                since_year=max(2024, season - 1),
-            )
-            batter_vs_type["source"] = "live_statcast_events_fallback"
 
         pa = batter_vs_type.get("pa") or 0
 

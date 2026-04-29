@@ -13,7 +13,6 @@ from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
-    Boolean,
     Column,
     Date,
     DateTime,
@@ -22,18 +21,31 @@ from sqlalchemy import (
     String,
     create_engine,
     Index,
+    inspect,
+    text,
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker
+
 
 Base = declarative_base()
 
 
 class StatcastEvent(Base):
+    """Pitch-level Statcast event data."""
+
     __tablename__ = "statcast_events"
 
     id: int = Column(Integer, primary_key=True, autoincrement=True)
     game_date: date = Column(Date, nullable=False, index=True)
+    game_pk: Optional[int] = Column(Integer, nullable=True, index=True)
+    at_bat_number: Optional[int] = Column(Integer, nullable=True)
+    pitch_number: Optional[int] = Column(Integer, nullable=True)
+    inning: Optional[int] = Column(Integer, nullable=True)
+    inning_topbot: Optional[str] = Column(String(10), nullable=True)
+    outs_when_up: Optional[int] = Column(Integer, nullable=True)
+    home_team: Optional[str] = Column(String(10), nullable=True)
+    away_team: Optional[str] = Column(String(10), nullable=True)
     pitcher_id: int = Column(Integer, nullable=False, index=True)
     batter_id: int = Column(Integer, nullable=False, index=True)
     pitch_type: Optional[str] = Column(String(5), nullable=True)
@@ -54,70 +66,7 @@ class StatcastEvent(Base):
     __table_args__ = (
         Index("ix_statcast_events_date_pitcher", "game_date", "pitcher_id"),
         Index("ix_statcast_events_date_batter", "game_date", "batter_id"),
-    )
-
-
-class BatterPitchTypeMatchup(Base):
-    """Restored hitter-centered hittingMatchups aggregate.
-
-    One row per batter, opposing pitcher, pitch type, and date window. This
-    mirrors the old hittingMatchups workbook fields used by Batter vs Arsenal.
-    """
-
-    __tablename__ = "batter_pitch_type_matchups"
-
-    id: int = Column(Integer, primary_key=True, autoincrement=True)
-    batter_id: int = Column(Integer, nullable=False, index=True)
-    batter_name: Optional[str] = Column(String(120), nullable=True)
-    batter_team_id: Optional[int] = Column(Integer, nullable=True, index=True)
-    opposing_pitcher_id: int = Column(Integer, nullable=False, index=True)
-    pitch_type: str = Column(String(5), nullable=False, index=True)
-    game_pk: Optional[int] = Column(Integer, nullable=True, index=True)
-    target_date: Optional[date] = Column(Date, nullable=True, index=True)
-    date_start: Optional[date] = Column(Date, nullable=True)
-    date_end: Optional[date] = Column(Date, nullable=True)
-    days_back: Optional[int] = Column(Integer, nullable=True)
-    source: Optional[str] = Column(String(40), nullable=True)
-
-    raw_rows: Optional[int] = Column(Integer, nullable=True)
-    deduped_rows: Optional[int] = Column(Integer, nullable=True)
-    duplicate_rows_removed: Optional[int] = Column(Integer, nullable=True)
-    pitches_seen: Optional[int] = Column(Integer, nullable=True)
-    swings: Optional[int] = Column(Integer, nullable=True)
-    whiffs: Optional[int] = Column(Integer, nullable=True)
-    strikeouts: Optional[int] = Column(Integer, nullable=True)
-    putaway_swings: Optional[int] = Column(Integer, nullable=True)
-    two_strike_pitches: Optional[int] = Column(Integer, nullable=True)
-    pa: Optional[int] = Column(Integer, nullable=True)
-    pa_ended: Optional[int] = Column(Integer, nullable=True)
-    ab: Optional[int] = Column(Integer, nullable=True)
-    hits: Optional[int] = Column(Integer, nullable=True)
-
-    batting_avg: Optional[float] = Column(Float, nullable=True)
-    xwoba: Optional[float] = Column(Float, nullable=True)
-    xba: Optional[float] = Column(Float, nullable=True)
-    avg_ev: Optional[float] = Column(Float, nullable=True)
-    avg_exit_velocity: Optional[float] = Column(Float, nullable=True)
-    avg_la: Optional[float] = Column(Float, nullable=True)
-    avg_launch_angle: Optional[float] = Column(Float, nullable=True)
-    batted_ball_count: Optional[int] = Column(Integer, nullable=True)
-    hard_hit_count: Optional[int] = Column(Integer, nullable=True)
-    whiff_pct: Optional[float] = Column(Float, nullable=True)
-    k_pct: Optional[float] = Column(Float, nullable=True)
-    putaway_pct: Optional[float] = Column(Float, nullable=True)
-    hardhit_pct: Optional[float] = Column(Float, nullable=True)
-    hard_hit_pct: Optional[float] = Column(Float, nullable=True)
-
-    refreshed_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
-
-    __table_args__ = (
-        Index(
-            "ix_batter_pitch_type_matchups_lookup",
-            "batter_id",
-            "opposing_pitcher_id",
-            "pitch_type",
-            "target_date",
-        ),
+        Index("ix_statcast_events_batter_order", "batter_id", "game_date", "game_pk", "at_bat_number", "pitch_number"),
     )
 
 
@@ -245,12 +194,60 @@ class Matchup(Base):
     __table_args__ = (Index("ix_matchups_date_home_away", "game_date", "home_team_id", "away_team_id"),)
 
 
+STATCAST_EVENT_SAFE_COLUMNS = {
+    "game_pk": "INTEGER",
+    "at_bat_number": "INTEGER",
+    "pitch_number": "INTEGER",
+    "inning": "INTEGER",
+    "inning_topbot": "VARCHAR(10)",
+    "outs_when_up": "INTEGER",
+    "home_team": "VARCHAR(10)",
+    "away_team": "VARCHAR(10)",
+}
+
+
+def _ensure_statcast_event_columns(engine) -> None:
+    """Add missing nullable Statcast ordering columns without touching existing data.
+
+    This is intentionally additive only. It never drops tables, deletes rows,
+    rewrites existing values, or changes cron/refresh behavior.
+    """
+    try:
+        inspector = inspect(engine)
+        if "statcast_events" not in inspector.get_table_names():
+            return
+        existing_columns = {col["name"] for col in inspector.get_columns("statcast_events")}
+        missing_columns = {
+            name: sql_type
+            for name, sql_type in STATCAST_EVENT_SAFE_COLUMNS.items()
+            if name not in existing_columns
+        }
+        if not missing_columns:
+            return
+        dialect = engine.dialect.name
+        with engine.begin() as conn:
+            for name, sql_type in missing_columns.items():
+                if dialect == "postgresql":
+                    stmt = text(f"ALTER TABLE statcast_events ADD COLUMN IF NOT EXISTS {name} {sql_type}")
+                else:
+                    stmt = text(f"ALTER TABLE statcast_events ADD COLUMN {name} {sql_type}")
+                try:
+                    conn.execute(stmt)
+                except Exception as exc:
+                    if "duplicate column" in str(exc).lower() or "already exists" in str(exc).lower():
+                        continue
+                    raise
+    except Exception as exc:
+        print(f"[database] Non-fatal statcast_events schema guard skipped: {exc}")
+
+
 def get_engine(database_url: str):
     return create_engine(database_url, echo=False, future=True)
 
 
 def create_tables(engine) -> None:
     Base.metadata.create_all(engine)
+    _ensure_statcast_event_columns(engine)
 
 
 def get_session(engine) -> sessionmaker:
