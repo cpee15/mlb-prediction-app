@@ -793,6 +793,34 @@ def create_app():
                     return sum(simple_values) / len(simple_values)
                 return None
 
+            def _arsenal_pitch_mix_summary(rows, limit=5):
+                cleaned = []
+                for row in rows or []:
+                    pitch_type = row.get("pitch_type")
+                    if not pitch_type:
+                        continue
+                    usage = row.get("usage_pct")
+                    try:
+                        usage = float(usage) if usage is not None else None
+                    except (TypeError, ValueError):
+                        usage = None
+                    if usage is None:
+                        continue
+                    cleaned.append({
+                        "pitch_type": pitch_type,
+                        "pitch_name": row.get("pitch_name"),
+                        "usage_pct": usage,
+                    })
+
+                cleaned.sort(key=lambda r: r.get("usage_pct") or 0, reverse=True)
+                if not cleaned:
+                    return None
+
+                return ", ".join(
+                    f"{row.get('pitch_name') or row.get('pitch_type')} {round((row.get('usage_pct') or 0) * 100)}%"
+                    for row in cleaned[:limit]
+                )
+
             def _pitcher_advanced_metric_input(pitcher_id):
                 if not pitcher_id:
                     return {}
@@ -843,6 +871,9 @@ def create_app():
                     "whiff_rate": _weighted_arsenal_average(arsenal_rows, "whiff_pct"),
                     "hard_hit_pct": _weighted_arsenal_average(arsenal_rows, "hard_hit_pct"),
                     "xwoba": _weighted_arsenal_average(arsenal_rows, "xwoba"),
+                    "pitch_mix": _arsenal_pitch_mix_summary(arsenal_rows),
+                    "avg_velocity": _weighted_arsenal_average(arsenal_rows, "avg_velocity"),
+                    "avg_spin_rate": _weighted_arsenal_average(arsenal_rows, "avg_spin_rate"),
                 }
 
                 for key, value in fallback_values.items():
