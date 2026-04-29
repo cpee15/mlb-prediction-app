@@ -1,0 +1,44 @@
+diff --git a/mlb_app/database.py b/mlb_app/database.py
+--- a/mlb_app/database.py
++++ b/mlb_app/database.py
+@@
+     events: Optional[str] = Column(String(50), nullable=True)
++    description: Optional[str] = Column(String(60), nullable=True)
+     launch_speed: Optional[float] = Column(Float, nullable=True)
+     launch_angle: Optional[float] = Column(Float, nullable=True)
++    estimated_woba_using_speedangle: Optional[float] = Column(Float, nullable=True)
++    estimated_ba_using_speedangle: Optional[float] = Column(Float, nullable=True)
+     stand: Optional[str] = Column(String(1), nullable=True)
+     p_throws: Optional[str] = Column(String(1), nullable=True)
+@@
+     "home_team": "VARCHAR(10)",
+     "away_team": "VARCHAR(10)",
++    "description": "VARCHAR(60)",
++    "estimated_woba_using_speedangle": "FLOAT",
++    "estimated_ba_using_speedangle": "FLOAT",
+ }
+diff --git a/mlb_app/etl.py b/mlb_app/etl.py
+--- a/mlb_app/etl.py
++++ b/mlb_app/etl.py
+@@
+                 strikes=int(row["strikes"]) if pd.notna(row.get("strikes")) else None,
+                 events=str(row.get("events", "") or "")[:50] or None,
++                description=_safe_str(row.get("description"), 60),
+                 launch_speed=_safe_float(row.get("launch_speed")),
+                 launch_angle=_safe_float(row.get("launch_angle")),
++                estimated_woba_using_speedangle=_safe_float(row.get("estimated_woba_using_speedangle")),
++                estimated_ba_using_speedangle=_safe_float(row.get("estimated_ba_using_speedangle")),
+                 stand=str(row.get("stand", "") or "")[:1] or None,
+                 p_throws=str(row.get("p_throws", "") or "")[:1] or None,
+diff --git a/scripts/run_hitting_matchups_refresh.py b/scripts/run_hitting_matchups_refresh.py
+--- a/scripts/run_hitting_matchups_refresh.py
++++ b/scripts/run_hitting_matchups_refresh.py
+@@
+-MAX_BATTERS = int(os.getenv("HITTING_MATCHUPS_MAX_BATTERS", "40"))
++MAX_BATTERS = int(os.getenv("HITTING_MATCHUPS_MAX_BATTERS", "120"))
+diff --git a/scripts/run_refresh_job.py b/scripts/run_refresh_job.py
+--- a/scripts/run_refresh_job.py
++++ b/scripts/run_refresh_job.py
+@@
+-os.environ.setdefault("HITTING_MATCHUPS_MAX_BATTERS", "40")
++os.environ.setdefault("HITTING_MATCHUPS_MAX_BATTERS", "120")
