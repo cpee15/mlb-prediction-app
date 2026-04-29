@@ -966,8 +966,9 @@ class PredictRequest(BaseModel):
     batter_id: int
     season: Optional[int] = None
     pitcher_throws: str = "R"
-    
-    def create_app():
+
+
+def create_app():
     if not _FASTAPI:
         return None
 
