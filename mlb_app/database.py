@@ -2,19 +2,20 @@
 Database models and utilities for the MLB prediction app.
 
 This module defines the SQLAlchemy ORM models used to store raw Statcast
-events, aggregated pitch‑arsenal statistics, platoon splits, rolling/seasonal
-metrics and game‑level matchups.  It also provides helper functions to
+events, aggregated pitch-arsenal statistics, platoon splits, rolling/seasonal
+metrics and game-level matchups.  It also provides helper functions to
 instantiate a database engine and session maker based on a connection URL.
 """
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
     Column,
     Date,
+    DateTime,
     Float,
     Integer,
     String,

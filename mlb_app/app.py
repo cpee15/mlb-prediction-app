@@ -52,7 +52,13 @@ except ImportError:
     Query = None
     _FASTAPI = False
 
-from .database import StatcastEvent, get_engine, create_tables, get_session
+from .database import (
+    StatcastEvent,
+    BatterPitchTypeMatchup,
+    get_engine,
+    create_tables,
+    get_session,
+)
 from .matchup_generator import generate_matchups_for_date
 from .db_utils import (
     get_pitcher_aggregate,
@@ -477,6 +483,78 @@ def _confidence_from_sample(pa: int, usage_pct: Optional[float]) -> float:
     pa_component = min(1.0, pa / 12.0)
     usage_component = min(1.0, max(0.25, usage_pct or 0.0))
     return round(min(1.0, pa_component * usage_component + (0.25 if pa >= 3 else 0.0)), 3)
+
+
+def _stored_batter_pitch_type_summary(
+    session,
+    batter_id: int,
+    opposing_pitcher_id: int,
+    pitch_type: Optional[str],
+    target_date: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Preferred Batter vs Arsenal source from the restored hittingMatchups table."""
+    if not pitch_type:
+        return None
+
+    query = (
+        session.query(BatterPitchTypeMatchup)
+        .filter(
+            BatterPitchTypeMatchup.batter_id == batter_id,
+            BatterPitchTypeMatchup.opposing_pitcher_id == opposing_pitcher_id,
+            BatterPitchTypeMatchup.pitch_type == pitch_type,
+        )
+    )
+
+    if target_date:
+        try:
+            parsed_date = datetime.date.fromisoformat(str(target_date)[:10])
+            query = query.filter(BatterPitchTypeMatchup.target_date == parsed_date)
+        except ValueError:
+            pass
+
+    record = (
+        query.order_by(
+            BatterPitchTypeMatchup.target_date.desc(),
+            BatterPitchTypeMatchup.refreshed_at.desc(),
+        )
+        .first()
+    )
+
+    if not record:
+        return None
+
+    return {
+        "source": "batter_pitch_type_matchups",
+        "date_start": record.date_start.isoformat() if record.date_start else None,
+        "date_end": record.date_end.isoformat() if record.date_end else None,
+        "raw_rows": record.raw_rows,
+        "deduped_rows": record.deduped_rows,
+        "duplicate_rows_removed": record.duplicate_rows_removed,
+        "pitches_seen": record.pitches_seen,
+        "swings": record.swings,
+        "whiffs": record.whiffs,
+        "strikeouts": record.strikeouts,
+        "putaway_swings": record.putaway_swings,
+        "two_strike_pitches": record.two_strike_pitches,
+        "pa": record.pa,
+        "pa_ended": record.pa_ended,
+        "ab": record.ab,
+        "hits": record.hits,
+        "batting_avg": record.batting_avg,
+        "xwoba": record.xwoba,
+        "xba": record.xba,
+        "avg_ev": record.avg_ev,
+        "avg_exit_velocity": record.avg_exit_velocity,
+        "avg_la": record.avg_la,
+        "avg_launch_angle": record.avg_launch_angle,
+        "batted_ball_count": record.batted_ball_count,
+        "hard_hit_count": record.hard_hit_count,
+        "whiff_pct": record.whiff_pct,
+        "k_pct": record.k_pct,
+        "putaway_pct": record.putaway_pct,
+        "hardhit_pct": record.hardhit_pct,
+        "hard_hit_pct": record.hard_hit_pct,
+    }
 
 
 def _player_vs_pitch_type_summary(
