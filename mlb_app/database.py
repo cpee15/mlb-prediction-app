@@ -58,8 +58,11 @@ class StatcastEvent(Base):
     balls: Optional[int] = Column(Integer, nullable=True)
     strikes: Optional[int] = Column(Integer, nullable=True)
     events: Optional[str] = Column(String(50), nullable=True)
+    description: Optional[str] = Column(String(60), nullable=True)
     launch_speed: Optional[float] = Column(Float, nullable=True)
     launch_angle: Optional[float] = Column(Float, nullable=True)
+    estimated_woba_using_speedangle: Optional[float] = Column(Float, nullable=True)
+    estimated_ba_using_speedangle: Optional[float] = Column(Float, nullable=True)
     stand: Optional[str] = Column(String(1), nullable=True)
     p_throws: Optional[str] = Column(String(1), nullable=True)
 
@@ -263,11 +266,14 @@ STATCAST_EVENT_SAFE_COLUMNS = {
     "outs_when_up": "INTEGER",
     "home_team": "VARCHAR(10)",
     "away_team": "VARCHAR(10)",
+    "description": "VARCHAR(60)",
+    "estimated_woba_using_speedangle": "FLOAT",
+    "estimated_ba_using_speedangle": "FLOAT",
 }
 
 
 def _ensure_statcast_event_columns(engine) -> None:
-    """Add missing nullable Statcast ordering columns without touching existing data.
+    """Add missing nullable Statcast ordering and hitter-quality columns without touching existing data.
 
     This is intentionally additive only. It never drops tables, deletes rows,
     rewrites existing values, or changes cron/refresh behavior.
