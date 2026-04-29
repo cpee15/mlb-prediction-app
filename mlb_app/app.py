@@ -821,6 +821,72 @@ def create_app():
                     for row in cleaned[:limit]
                 )
 
+            def _live_pitcher_arsenal_summary(pitcher_id):
+                if not pitcher_id:
+                    return []
+
+                start_date = datetime.date(season, 1, 1)
+                end_date = datetime.date.today()
+                try:
+                    df = fetch_statcast_pitcher_data(
+                        pitcher_id,
+                        start_date.isoformat(),
+                        end_date.isoformat(),
+                    )
+                except Exception:
+                    return []
+
+                if df is None or df.empty or "pitch_type" not in df:
+                    return []
+
+                rows = []
+                total_pitches = len(df)
+                for pitch_type, group in df.dropna(subset=["pitch_type"]).groupby("pitch_type"):
+                    pitch_count = len(group)
+                    usage_pct = pitch_count / total_pitches if total_pitches else None
+
+                    avg_velocity = None
+                    if "release_speed" in group:
+                        vals = group["release_speed"].dropna()
+                        avg_velocity = float(vals.mean()) if len(vals) else None
+
+                    avg_spin_rate = None
+                    if "release_spin_rate" in group:
+                        vals = group["release_spin_rate"].dropna()
+                        avg_spin_rate = float(vals.mean()) if len(vals) else None
+
+                    rows.append({
+                        "pitch_type": pitch_type,
+                        "pitch_name": None,
+                        "usage_pct": usage_pct,
+                        "avg_velocity": avg_velocity,
+                        "avg_spin_rate": avg_spin_rate,
+                    })
+
+                rows.sort(key=lambda r: r.get("usage_pct") or 0, reverse=True)
+                return rows
+
+            def _merge_arsenal_summaries(primary_rows, live_rows):
+                merged = []
+                live_by_type = {row.get("pitch_type"): row for row in live_rows or [] if row.get("pitch_type")}
+
+                for row in primary_rows or []:
+                    pitch_type = row.get("pitch_type")
+                    live = live_by_type.get(pitch_type, {})
+                    merged_row = dict(row)
+                    for key in ["avg_velocity", "avg_spin_rate"]:
+                        if merged_row.get(key) is None and live.get(key) is not None:
+                            merged_row[key] = live[key]
+                    merged.append(merged_row)
+
+                existing_types = {row.get("pitch_type") for row in merged}
+                for row in live_rows or []:
+                    if row.get("pitch_type") and row.get("pitch_type") not in existing_types:
+                        merged.append(row)
+
+                merged.sort(key=lambda r: r.get("usage_pct") or 0, reverse=True)
+                return merged
+
             def _pitcher_advanced_metric_input(pitcher_id):
                 if not pitcher_id:
                     return {}
@@ -865,6 +931,8 @@ def create_app():
             def _pitcher_profile_input(detail, pitcher_id):
                 aggregate = dict(detail.get("aggregate") or {})
                 arsenal_rows = detail.get("arsenal") or {}
+                live_arsenal_rows = _live_pitcher_arsenal_summary(pitcher_id)
+                arsenal_rows = _merge_arsenal_summaries(arsenal_rows, live_arsenal_rows)
 
                 fallback_values = {
                     "k_pct": _weighted_arsenal_average(arsenal_rows, "strikeout_pct"),
