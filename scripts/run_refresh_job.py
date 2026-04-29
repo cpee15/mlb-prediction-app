@@ -7,6 +7,7 @@ never start the web server.
 Behavior:
 - verifies the app imports cleanly
 - runs a guarded Statcast ETL refresh before warming matchup payloads
+- runs a guarded hittingMatchups refresh so batter_pitch_type_matchups is populated
 - refreshes live matchup payloads for today and tomorrow
 - warms matchup snapshots for today and tomorrow
 - does this for both production and sandbox targets
@@ -33,8 +34,11 @@ REQUEST_TIMEOUT_SECONDS = int(os.environ.get("REFRESH_TIMEOUT_SECONDS", "60"))
 WARM_SNAPSHOTS = os.environ.get("WARM_MATCHUP_SNAPSHOTS", "1") == "1"
 REFRESH_MATCHUPS_FIRST = os.environ.get("REFRESH_MATCHUPS_FIRST", "1") == "1"
 RUN_STATCAST_ETL = os.environ.get("RUN_STATCAST_ETL", "1") == "1"
+RUN_HITTING_MATCHUPS_REFRESH = os.environ.get("RUN_HITTING_MATCHUPS_REFRESH", "1") == "1"
 REFRESH_ETL_BACKFILL_DAYS = int(os.environ.get("REFRESH_ETL_BACKFILL_DAYS", "7"))
 os.environ.setdefault("STATCAST_LOOKBACK_DAYS", "365")
+os.environ.setdefault("HITTING_MATCHUPS_DAYS_BACK", "365")
+os.environ.setdefault("HITTING_MATCHUPS_MAX_BATTERS", "40")
 
 
 def _log(message: str) -> None:
@@ -101,8 +105,29 @@ def _run_statcast_etl_refresh() -> None:
         f"statcast_lookback_days={os.environ.get('STATCAST_LOOKBACK_DAYS', '365')}"
     )
     from mlb_app.etl import run_backfill
+
     run_backfill(REFRESH_ETL_BACKFILL_DAYS)
     _log("Statcast ETL refresh completed")
+
+
+def _run_hitting_matchups_refresh() -> None:
+    if not RUN_HITTING_MATCHUPS_REFRESH:
+        _log("Skipping hittingMatchups refresh because RUN_HITTING_MATCHUPS_REFRESH=0")
+        return
+
+    _log(
+        "Starting hittingMatchups refresh: "
+        f"days_back={os.environ.get('HITTING_MATCHUPS_DAYS_BACK', '365')}, "
+        f"max_batters={os.environ.get('HITTING_MATCHUPS_MAX_BATTERS', '40')}"
+    )
+    from scripts.run_hitting_matchups_refresh import run
+
+    result = run()
+    _log(
+        "hittingMatchups refresh completed: "
+        f"targets={result.get('target_count')}, "
+        f"upserted_rows={result.get('upserted_rows')}"
+    )
 
 
 def _load_targets() -> list[tuple[str, str]]:
@@ -155,6 +180,12 @@ def main() -> int:
         _run_statcast_etl_refresh()
     except Exception as exc:
         _log(f"Statcast ETL refresh failed: {exc}")
+        return 1
+
+    try:
+        _run_hitting_matchups_refresh()
+    except Exception as exc:
+        _log(f"hittingMatchups refresh failed: {exc}")
         return 1
 
     try:
