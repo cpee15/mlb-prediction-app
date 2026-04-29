@@ -1004,6 +1004,7 @@ def create_app():
                 else:
                     barrel_rate = None
 
+                k_rate = None
                 bb_rate = None
                 iso = None
                 events = df.get("events")
@@ -1032,6 +1033,7 @@ def create_app():
                     pa_count = int(pa_mask.sum())
                     if pa_count:
                         pa_events = evts[pa_mask]
+                        k_rate = float(pa_events.isin(["strikeout", "strikeout_double_play"]).sum() / pa_count)
                         bb_rate = float((pa_events == "walk").sum() / pa_count)
 
                         singles = int((pa_events == "single").sum())
@@ -1076,6 +1078,7 @@ def create_app():
                     vs_rhp_iso = _split_iso(evts_all[hands == "R"])
 
                 return {
+                    "k_rate": k_rate,
                     "bb_rate": bb_rate,
                     "whiff_rate": whiff_rate,
                     "contact_rate": contact_rate,
@@ -1110,6 +1113,7 @@ def create_app():
                 enriched["metadata"] = dict(profile.get("metadata") or {})
 
                 live_values = {
+                    "k_rate": _safe_series_average(m.get("k_rate") for m in player_metrics),
                     "bb_rate": _safe_series_average(m.get("bb_rate") for m in player_metrics),
                     "whiff_rate": _safe_series_average(m.get("whiff_rate") for m in player_metrics),
                     "contact_rate": _safe_series_average(m.get("contact_rate") for m in player_metrics),
@@ -1126,7 +1130,7 @@ def create_app():
                     "vs_rhp_iso": _safe_series_average(m.get("vs_rhp_iso") for m in player_metrics),
                 }
 
-                for key in ["whiff_rate", "contact_rate"]:
+                for key in ["k_rate", "whiff_rate", "contact_rate"]:
                     if enriched["contact_skill"].get(key) is None and live_values.get(key) is not None:
                         enriched["contact_skill"][key] = live_values[key]
                 for key in ["bb_rate", "swing_rate", "chase_rate"]:
