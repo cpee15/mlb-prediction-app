@@ -950,7 +950,7 @@ def create_app():
 
                 if descriptions is not None:
                     desc = descriptions.fillna("").astype(str).str.lower()
-                    swing_mask = desc.isin([
+                    swing_descriptions = [
                         "swinging_strike",
                         "swinging_strike_blocked",
                         "foul",
@@ -959,13 +959,27 @@ def create_app():
                         "hit_into_play",
                         "hit_into_play_no_out",
                         "hit_into_play_score",
-                    ])
+                    ]
+                    swing_mask = desc.isin(swing_descriptions)
                     whiff_mask = desc.isin(["swinging_strike", "swinging_strike_blocked"])
                     swing_count = int(swing_mask.sum())
                     total_pitches = len(desc)
                     swing_rate = swing_count / total_pitches if total_pitches else None
                     whiff_rate = int(whiff_mask.sum()) / swing_count if swing_count else None
                     contact_rate = 1 - whiff_rate if whiff_rate is not None else None
+
+                    if "plate_x" in df and "plate_z" in df:
+                        plate_x = df["plate_x"]
+                        plate_z = df["plate_z"]
+                        zone_known = plate_x.notna() & plate_z.notna()
+                        out_of_zone = zone_known & ~(
+                            (plate_x.abs() <= 0.83) &
+                            (plate_z >= 1.5) &
+                            (plate_z <= 3.5)
+                        )
+                        out_of_zone_count = int(out_of_zone.sum())
+                        chase_swings = int((out_of_zone & swing_mask).sum())
+                        chase_rate = chase_swings / out_of_zone_count if out_of_zone_count else None
 
                 if launch_speed is not None:
                     ev = launch_speed.dropna()
