@@ -7,12 +7,13 @@ This script is intentionally additive and safe:
 - it reads today's and tomorrow's games from MLB Stats API
 - it finds probable pitchers and likely hitters from lineups or active rosters
 - it builds hitter-vs-pitch-type summaries using mlb_app.hitting_matchups
-- it writes a JSON artifact for inspection and downstream wiring
+- it upserts rows into batter_pitch_type_matchups
+- it also writes a JSON artifact for inspection
 
 Environment controls:
     HITTING_MATCHUPS_DAYS_BACK=365
     HITTING_MATCHUPS_MAX_BATTERS=40
-    HITTING_MATCHUPS_OUTPUT_PATH=/tmp/hitting_matchups_refresh.json
+    HITTING_MATCHUPS_OUTPUT_PATH=hitting_matchups_refresh.json
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
 
@@ -30,7 +31,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from mlb_app.database import create_tables, get_engine, get_session
+from mlb_app.database import BatterPitchTypeMatchup, create_tables, get_engine, get_session
 from mlb_app.db_utils import get_pitch_arsenal_with_fallback
 from mlb_app.hitting_matchups import build_batter_pitch_type_summary
 
@@ -57,6 +58,15 @@ def _request_json(url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str
 def _target_dates() -> List[str]:
     today = dt.date.today()
     return [today.isoformat(), (today + dt.timedelta(days=1)).isoformat()]
+
+
+def _parse_iso_date(value: Optional[str]) -> Optional[dt.date]:
+    if not value:
+        return None
+    try:
+        return dt.date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
 
 
 def _fetch_schedule(date_str: str) -> List[Dict[str, Any]]:
@@ -131,7 +141,7 @@ def _lineup_hitters_from_game(game: Dict[str, Any], side: str) -> List[Dict[str,
 
 def _collect_targets() -> List[Dict[str, Any]]:
     targets: List[Dict[str, Any]] = []
-    seen_pairs: Set[Tuple[int, int]] = set()
+    seen_pairs: Set[Tuple[int, int, str]] = set()
 
     for date_str in _target_dates():
         games = _fetch_schedule(date_str)
@@ -160,7 +170,7 @@ def _collect_targets() -> List[Dict[str, Any]]:
             for hitter in away_hitters:
                 if not home_pitcher_id:
                     continue
-                key = (int(hitter["id"]), int(home_pitcher_id))
+                key = (int(hitter["id"]), int(home_pitcher_id), date_str)
                 if key in seen_pairs:
                     continue
                 seen_pairs.add(key)
@@ -179,7 +189,7 @@ def _collect_targets() -> List[Dict[str, Any]]:
             for hitter in home_hitters:
                 if not away_pitcher_id:
                     continue
-                key = (int(hitter["id"]), int(away_pitcher_id))
+                key = (int(hitter["id"]), int(away_pitcher_id), date_str)
                 if key in seen_pairs:
                     continue
                 seen_pairs.add(key)
@@ -208,6 +218,80 @@ def _pitch_types_for_pitcher(session, pitcher_id: int, season: int) -> List[str]
     return pitch_types
 
 
+def _set_if_present(record: BatterPitchTypeMatchup, field: str, source: Dict[str, Any]) -> None:
+    if field in source:
+        setattr(record, field, source.get(field))
+
+
+def _upsert_matchup_row(session, target: Dict[str, Any], summary: Dict[str, Any]) -> BatterPitchTypeMatchup:
+    target_date = _parse_iso_date(target.get("date"))
+    pitch_type = summary["pitch_type"]
+
+    record = (
+        session.query(BatterPitchTypeMatchup)
+        .filter(
+            BatterPitchTypeMatchup.batter_id == target["batter_id"],
+            BatterPitchTypeMatchup.opposing_pitcher_id == target["opposing_pitcher_id"],
+            BatterPitchTypeMatchup.pitch_type == pitch_type,
+            BatterPitchTypeMatchup.target_date == target_date,
+        )
+        .first()
+    )
+
+    if record is None:
+        record = BatterPitchTypeMatchup(
+            batter_id=target["batter_id"],
+            opposing_pitcher_id=target["opposing_pitcher_id"],
+            pitch_type=pitch_type,
+            target_date=target_date,
+        )
+        session.add(record)
+
+    record.batter_name = target.get("batter_name")
+    record.batter_team_id = target.get("batter_team_id")
+    record.game_pk = target.get("game_pk")
+    record.source = target.get("source")
+    record.days_back = DAYS_BACK
+    record.date_start = _parse_iso_date(summary.get("date_start"))
+    record.date_end = _parse_iso_date(summary.get("date_end"))
+    record.refreshed_at = dt.datetime.utcnow()
+
+    fields = [
+        "raw_rows",
+        "deduped_rows",
+        "duplicate_rows_removed",
+        "pitches_seen",
+        "swings",
+        "whiffs",
+        "strikeouts",
+        "putaway_swings",
+        "two_strike_pitches",
+        "pa",
+        "pa_ended",
+        "ab",
+        "hits",
+        "batting_avg",
+        "xwoba",
+        "xba",
+        "avg_ev",
+        "avg_exit_velocity",
+        "avg_la",
+        "avg_launch_angle",
+        "batted_ball_count",
+        "hard_hit_count",
+        "whiff_pct",
+        "k_pct",
+        "putaway_pct",
+        "hardhit_pct",
+        "hard_hit_pct",
+    ]
+
+    for field in fields:
+        _set_if_present(record, field, summary)
+
+    return record
+
+
 def run() -> Dict[str, Any]:
     engine = get_engine(DATABASE_URL)
     create_tables(engine)
@@ -222,6 +306,7 @@ def run() -> Dict[str, Any]:
         "max_batters": MAX_BATTERS,
         "target_count": len(targets),
         "rows": [],
+        "upserted_rows": 0,
     }
 
     with Session() as session:
@@ -242,12 +327,19 @@ def run() -> Dict[str, Any]:
                     pitch_type=pitch_type,
                     days_back=DAYS_BACK,
                 )
+                _upsert_matchup_row(session, target, summary)
+                output["upserted_rows"] += 1
                 output["rows"].append({**target, **summary})
+
+        session.commit()
 
     output_path = Path(OUTPUT_PATH)
     output_path.parent.mkdir(parents=True, exist_ok=True) if output_path.parent != Path(".") else None
     output_path.write_text(json.dumps(output, indent=2, sort_keys=True), encoding="utf-8")
-    _log(f"Wrote {len(output['rows'])} hittingMatchups rows to {output_path}")
+    _log(
+        f"Upserted {output['upserted_rows']} hittingMatchups rows; "
+        f"wrote JSON artifact to {output_path}"
+    )
 
     return output
 
