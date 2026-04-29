@@ -33,6 +33,27 @@ def compute_environment_profile(raw_context: dict) -> dict:
         except (TypeError, ValueError):
             return None
 
+    calibration = {
+        "environment_calibration_version": "env_calibration_v1",
+        "park_weight": 1.00,
+        "temperature_weight": 1.00,
+        "wind_weight": 1.00,
+        "max_weather_adjustment": 0.075,
+        "max_total_adjustment": 0.150,
+        "neutral_index": 1.000,
+    }
+
+    def _clamp(value, lower, upper):
+        if value is None:
+            return None
+        return max(lower, min(upper, value))
+
+    def _calibrated_index(base_index, adjustment):
+        base = base_index if base_index is not None else calibration["neutral_index"]
+        max_total = calibration["max_total_adjustment"]
+        raw = base + adjustment
+        return round(_clamp(raw, calibration["neutral_index"] - max_total, calibration["neutral_index"] + max_total), 3)
+
     def _park_label(run_factor):
         if run_factor is None:
             return None
@@ -88,9 +109,10 @@ def compute_environment_profile(raw_context: dict) -> dict:
             None: 0.0,
         }.get(direction_type, 0.0)
 
-        hr_adjustment = round(base * 1.50 * direction_multiplier, 3)
-        run_adjustment = round(base * 0.85 * direction_multiplier, 3)
-        hit_adjustment = round(base * 0.25 * direction_multiplier, 3)
+        wind_weight = calibration["wind_weight"]
+        hr_adjustment = round(base * 1.50 * direction_multiplier * wind_weight, 3)
+        run_adjustment = round(base * 0.85 * direction_multiplier * wind_weight, 3)
+        hit_adjustment = round(base * 0.25 * direction_multiplier * wind_weight, 3)
 
         return {
             "wind_direction_type": direction_type,
@@ -144,28 +166,28 @@ def compute_environment_profile(raw_context: dict) -> dict:
             return wind
         return temp or "neutral_or_unknown"
 
-    def _run_scoring_index(run_factor, temp_f, wind_speed, wind_direction):
-        score = run_factor if run_factor is not None else 1.0
-
+    def _temperature_adjustment(temp_f):
         temp = _temperature_impact(temp_f)
+        temperature_weight = calibration["temperature_weight"]
         if temp == "hot_air_boosts_carry":
-            score += 0.03
-        elif temp == "warm_air_slight_boost":
-            score += 0.01
-        elif temp == "cold_air_strongly_suppresses_carry":
-            score -= 0.04
-        elif temp == "cold_air_suppresses_carry":
-            score -= 0.02
+            return 0.03 * temperature_weight
+        if temp == "warm_air_slight_boost":
+            return 0.01 * temperature_weight
+        if temp == "cold_air_strongly_suppresses_carry":
+            return -0.04 * temperature_weight
+        if temp == "cold_air_suppresses_carry":
+            return -0.02 * temperature_weight
+        return 0.0
 
-        wind = _wind_impact(wind_speed, wind_direction)
-        if wind == "wind_out_boosts_carry":
-            score += 0.04
-        elif wind == "wind_in_suppresses_carry":
-            score -= 0.04
-        elif wind == "crosswind_may_affect_carry":
-            score -= 0.01
-
-        return round(score, 3)
+    def _run_scoring_index(run_factor, temp_f, wind_speed, wind_direction):
+        base = run_factor if run_factor is not None else calibration["neutral_index"]
+        weather_adjustment = _temperature_adjustment(temp_f) + _wind_adjustments(wind_speed, wind_direction)["wind_run_adjustment"]
+        weather_adjustment = _clamp(
+            weather_adjustment,
+            -calibration["max_weather_adjustment"],
+            calibration["max_weather_adjustment"],
+        )
+        return _calibrated_index(base, weather_adjustment)
 
     def _scoring_label(index):
         if index is None:
@@ -196,13 +218,14 @@ def compute_environment_profile(raw_context: dict) -> dict:
         "run_scoring_index",
         _run_scoring_index(run_factor, temperature_f, wind_speed_mph, wind_direction),
     )
+    base_index = run_factor if run_factor is not None else calibration["neutral_index"]
     hr_boost_index = raw_context.get(
         "hr_boost_index",
-        round((run_factor if run_factor is not None else 1.0) + wind_adjustments["wind_hr_adjustment"], 3),
+        _calibrated_index(base_index, _temperature_adjustment(temperature_f) + wind_adjustments["wind_hr_adjustment"]),
     )
     hit_boost_index = raw_context.get(
         "hit_boost_index",
-        round((run_factor if run_factor is not None else 1.0) + wind_adjustments["wind_hit_adjustment"], 3),
+        _calibrated_index(base_index, (_temperature_adjustment(temperature_f) * 0.35) + wind_adjustments["wind_hit_adjustment"]),
     )
 
     missing_inputs = []
@@ -235,6 +258,12 @@ def compute_environment_profile(raw_context: dict) -> dict:
                 "medium" if run_factor is not None or weather else "low",
             ),
             "generated_from": raw_context.get("generated_from", "compute_environment_profile"),
+            "environment_calibration_version": calibration["environment_calibration_version"],
+            "park_weight": calibration["park_weight"],
+            "temperature_weight": calibration["temperature_weight"],
+            "wind_weight": calibration["wind_weight"],
+            "max_weather_adjustment": calibration["max_weather_adjustment"],
+            "max_total_adjustment": calibration["max_total_adjustment"],
         },
         "weather": {
             "temperature_f": temperature_f,
