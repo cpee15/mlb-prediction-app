@@ -373,6 +373,8 @@ function envLabel(value) {
     crosswind_may_affect_carry: 'Crosswind may affect carry',
     wind_may_affect_carry: 'Wind may affect carry',
     limited_wind_impact: 'Wind impact looks limited',
+    mild_wind_in_slight_suppression: 'Mild wind blowing in slightly suppresses carry',
+    mild_wind_out_slight_boost: 'Mild wind blowing out slightly boosts carry',
   }
   return map[value] || String(value).replace(/_/g, ' ')
 }
@@ -504,10 +506,17 @@ function displayKey(key) {
     game_time_local: 'Game Time',
     game_status: 'Game Status',
     run_scoring_index: 'Run Scoring Index',
+    hr_boost_index: 'HR Boost Index',
+    hit_boost_index: 'Hit Boost Index',
     scoring_environment_label: 'Scoring Environment',
     weather_run_impact: 'Weather Impact',
     park_run_impact: 'Park Impact',
     wind_run_impact: 'Wind Impact',
+    wind_direction_type: 'Wind Direction Type',
+    wind_speed_tier: 'Wind Speed Tier',
+    wind_run_adjustment: 'Wind Run Adjustment',
+    wind_hr_adjustment: 'Wind HR Adjustment',
+    wind_hit_adjustment: 'Wind Hit Adjustment',
     temperature_run_impact: 'Temperature Impact',
     rain_delay_risk: 'Rain Delay Risk',
     postponement_risk: 'Postponement Risk',

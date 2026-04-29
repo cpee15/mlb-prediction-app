@@ -58,18 +58,65 @@ def compute_environment_profile(raw_context: dict) -> dict:
             return "cross"
         return "unknown"
 
-    def _wind_impact(wind_speed, wind_direction):
-        direction_type = _wind_direction_type(wind_direction)
+    def _wind_speed_tier(wind_speed):
         if wind_speed is None:
             return None
-        if wind_speed >= 10 and direction_type == "in":
+        if wind_speed >= 15:
+            return "strong"
+        if wind_speed >= 10:
+            return "moderate"
+        if wind_speed >= 6:
+            return "mild"
+        return "calm"
+
+    def _wind_adjustments(wind_speed, wind_direction):
+        direction_type = _wind_direction_type(wind_direction)
+        tier = _wind_speed_tier(wind_speed)
+
+        base = {
+            "calm": 0.0,
+            "mild": 0.01,
+            "moderate": 0.025,
+            "strong": 0.04,
+        }.get(tier, 0.0)
+
+        direction_multiplier = {
+            "out": 1.0,
+            "in": -1.0,
+            "cross": -0.25,
+            "unknown": 0.0,
+            None: 0.0,
+        }.get(direction_type, 0.0)
+
+        hr_adjustment = round(base * 1.50 * direction_multiplier, 3)
+        run_adjustment = round(base * 0.85 * direction_multiplier, 3)
+        hit_adjustment = round(base * 0.25 * direction_multiplier, 3)
+
+        return {
+            "wind_direction_type": direction_type,
+            "wind_speed_tier": tier,
+            "wind_hr_adjustment": hr_adjustment,
+            "wind_run_adjustment": run_adjustment,
+            "wind_hit_adjustment": hit_adjustment,
+        }
+
+    def _wind_impact(wind_speed, wind_direction):
+        direction_type = _wind_direction_type(wind_direction)
+        tier = _wind_speed_tier(wind_speed)
+        if wind_speed is None:
+            return None
+        if direction_type == "in" and tier in {"moderate", "strong"}:
             return "wind_in_suppresses_carry"
-        if wind_speed >= 10 and direction_type == "out":
+        if direction_type == "out" and tier in {"moderate", "strong"}:
             return "wind_out_boosts_carry"
-        if wind_speed >= 12 and direction_type == "cross":
+        if direction_type == "cross" and tier in {"moderate", "strong"}:
             return "crosswind_may_affect_carry"
-        if wind_speed >= 12:
+        if tier in {"moderate", "strong"}:
             return "wind_may_affect_carry"
+        if tier == "mild" and direction_type == "in":
+            return "mild_wind_in_slight_suppression"
+        if tier == "mild" and direction_type == "out":
+            return "mild_wind_out_slight_boost"
         return "limited_wind_impact"
 
     def _temperature_impact(temp_f):
@@ -143,9 +190,19 @@ def compute_environment_profile(raw_context: dict) -> dict:
 
     run_factor = raw_context.get("run_factor", raw_context.get("park_factor"))
     run_factor = _safe_float(run_factor)
+    wind_adjustments = _wind_adjustments(wind_speed_mph, wind_direction)
+
     run_scoring_index = raw_context.get(
         "run_scoring_index",
         _run_scoring_index(run_factor, temperature_f, wind_speed_mph, wind_direction),
+    )
+    hr_boost_index = raw_context.get(
+        "hr_boost_index",
+        round((run_factor if run_factor is not None else 1.0) + wind_adjustments["wind_hr_adjustment"], 3),
+    )
+    hit_boost_index = raw_context.get(
+        "hit_boost_index",
+        round((run_factor if run_factor is not None else 1.0) + wind_adjustments["wind_hit_adjustment"], 3),
     )
 
     missing_inputs = []
@@ -205,6 +262,8 @@ def compute_environment_profile(raw_context: dict) -> dict:
         },
         "run_environment": {
             "run_scoring_index": run_scoring_index,
+            "hr_boost_index": hr_boost_index,
+            "hit_boost_index": hit_boost_index,
             "scoring_environment_label": raw_context.get(
                 "scoring_environment_label",
                 _scoring_label(run_scoring_index),
@@ -220,6 +279,26 @@ def compute_environment_profile(raw_context: dict) -> dict:
             "wind_run_impact": raw_context.get(
                 "wind_run_impact",
                 _wind_impact(wind_speed_mph, wind_direction),
+            ),
+            "wind_direction_type": raw_context.get(
+                "wind_direction_type",
+                wind_adjustments["wind_direction_type"],
+            ),
+            "wind_speed_tier": raw_context.get(
+                "wind_speed_tier",
+                wind_adjustments["wind_speed_tier"],
+            ),
+            "wind_run_adjustment": raw_context.get(
+                "wind_run_adjustment",
+                wind_adjustments["wind_run_adjustment"],
+            ),
+            "wind_hr_adjustment": raw_context.get(
+                "wind_hr_adjustment",
+                wind_adjustments["wind_hr_adjustment"],
+            ),
+            "wind_hit_adjustment": raw_context.get(
+                "wind_hit_adjustment",
+                wind_adjustments["wind_hit_adjustment"],
             ),
             "temperature_run_impact": raw_context.get(
                 "temperature_run_impact",
