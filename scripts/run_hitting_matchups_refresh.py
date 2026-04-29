@@ -12,7 +12,7 @@ This script is intentionally additive and safe:
 
 Environment controls:
     HITTING_MATCHUPS_DAYS_BACK=365
-    HITTING_MATCHUPS_MAX_BATTERS=40
+    HITTING_MATCHUPS_MAX_BATTERS=240
     HITTING_MATCHUPS_OUTPUT_PATH=hitting_matchups_refresh.json
 """
 
@@ -39,7 +39,7 @@ from mlb_app.hitting_matchups import build_batter_pitch_type_summary
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///mlb.db")
 DAYS_BACK = int(os.getenv("HITTING_MATCHUPS_DAYS_BACK", "365"))
-MAX_BATTERS = int(os.getenv("HITTING_MATCHUPS_MAX_BATTERS", "40"))
+MAX_BATTERS = int(os.getenv("HITTING_MATCHUPS_MAX_BATTERS", "240"))
 OUTPUT_PATH = os.getenv("HITTING_MATCHUPS_OUTPUT_PATH", "hitting_matchups_refresh.json")
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("HITTING_MATCHUPS_TIMEOUT_SECONDS", "30"))
 

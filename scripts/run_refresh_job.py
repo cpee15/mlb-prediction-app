@@ -38,7 +38,7 @@ RUN_HITTING_MATCHUPS_REFRESH = os.environ.get("RUN_HITTING_MATCHUPS_REFRESH", "1
 REFRESH_ETL_BACKFILL_DAYS = int(os.environ.get("REFRESH_ETL_BACKFILL_DAYS", "7"))
 os.environ.setdefault("STATCAST_LOOKBACK_DAYS", "365")
 os.environ.setdefault("HITTING_MATCHUPS_DAYS_BACK", "365")
-os.environ.setdefault("HITTING_MATCHUPS_MAX_BATTERS", "40")
+os.environ.setdefault("HITTING_MATCHUPS_MAX_BATTERS", "240")
 
 
 def _log(message: str) -> None:
@@ -118,7 +118,7 @@ def _run_hitting_matchups_refresh() -> None:
     _log(
         "Starting hittingMatchups refresh: "
         f"days_back={os.environ.get('HITTING_MATCHUPS_DAYS_BACK', '365')}, "
-        f"max_batters={os.environ.get('HITTING_MATCHUPS_MAX_BATTERS', '40')}"
+        f"max_batters={os.environ.get('HITTING_MATCHUPS_MAX_BATTERS', '240')}"
     )
     from scripts.run_hitting_matchups_refresh import run
 

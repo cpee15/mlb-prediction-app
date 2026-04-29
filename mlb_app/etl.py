@@ -98,7 +98,6 @@ def _extract_team_ids(games: List[dict]) -> List[int]:
 
 def _fetch_team_split(team_id: int, season: int, split_code: str) -> Optional[dict]:
     url = f"{MLB_STATS_BASE}/teams/{team_id}/stats"
-    # statSplits returns proper vsLHP/vsRHP breakdowns; "season" returns overall only
     params = {"stats": "statSplits", "group": "hitting", "season": season, "sitCodes": split_code}
     try:
         resp = requests.get(url, params=params, timeout=20)
@@ -120,7 +119,6 @@ def _load_team_splits(session, team_ids: List[int], season: int) -> None:
             existing = session.query(TeamSplit).filter_by(
                 team_id=team_id, season=season, split=split_label
             ).first()
-            # Update existing record so stale identical data gets corrected
             if existing:
                 target = existing
             else:
@@ -175,8 +173,6 @@ def _load_statcast_for_pitcher(session, pitcher_id: int, start: str, end: str) -
     if df is None or df.empty:
         return pd.DataFrame()
 
-    # Persist raw events. Ordering fields are nullable so older or partial
-    # Statcast pulls remain compatible while newer pulls support true PA order.
     for _, row in df.iterrows():
         try:
             ev = StatcastEvent(
@@ -201,8 +197,11 @@ def _load_statcast_for_pitcher(session, pitcher_id: int, start: str, end: str) -
                 balls=int(row["balls"]) if pd.notna(row.get("balls")) else None,
                 strikes=int(row["strikes"]) if pd.notna(row.get("strikes")) else None,
                 events=str(row.get("events", "") or "")[:50] or None,
+                description=_safe_str(row.get("description"), 60),
                 launch_speed=_safe_float(row.get("launch_speed")),
                 launch_angle=_safe_float(row.get("launch_angle")),
+                estimated_woba_using_speedangle=_safe_float(row.get("estimated_woba_using_speedangle")),
+                estimated_ba_using_speedangle=_safe_float(row.get("estimated_ba_using_speedangle")),
                 stand=str(row.get("stand", "") or "")[:1] or None,
                 p_throws=str(row.get("p_throws", "") or "")[:1] or None,
             )
@@ -329,10 +328,8 @@ def run_etl_for_date(date_str: str) -> None:
 
         log.info("Found %d pitchers, %d teams", len(pitcher_ids), len(team_ids))
 
-        # Team splits
         _load_team_splits(session, team_ids, season)
 
-        # Try leaderboard arsenal first; fall back to per-pitcher Statcast
         arsenal_loaded = _try_load_arsenal_leaderboard(session, season)
 
         for pitcher_id in pitcher_ids:
@@ -370,7 +367,7 @@ def _ensure_historical_aggregate(session, pitcher_id: int, current_season: int) 
         record = PitcherAggregate(
             pitcher_id=pitcher_id,
             window=str(year),
-            end_date=datetime.date(year, 11, 1),
+            end_date=date(year, 11, 1),
             **{k: v for k, v in metrics.items() if hasattr(PitcherAggregate, k)},
         )
         session.add(record)
