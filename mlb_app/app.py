@@ -32,7 +32,7 @@ import datetime
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests as _req
 
@@ -41,12 +41,15 @@ try:
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel
+
     _FASTAPI = True
 except ImportError:
     FastAPI = None
     HTTPException = Exception
     CORSMiddleware = None
+    StaticFiles = None
     BaseModel = object
+    Query = None
     _FASTAPI = False
 
 from .database import StatcastEvent, get_engine, create_tables, get_session
@@ -71,21 +74,58 @@ from .db_utils import (
 )
 from .scoring import compute_win_probability, score_individual_matchup, get_park_factor
 from .statcast_utils import fetch_pitch_arsenal_leaderboard
-from .odds_provider import fetch_draftkings_odds
+from .odds_provider import (
+    fetch_draftkings_odds,
+    fetch_draftkings_event_odds,
+    fetch_draftkings_events,
+)
+
+from .batter_routes import router as batter_router
+from .daily_odds_routes import router as daily_odds_router
+
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
+MLB_LIVE_FEED_BASE = "https://statsapi.mlb.com/api/v1.1/game"
+
 MATCHUP_SNAPSHOT_CACHE: Dict[str, List[Dict[str, Any]]] = {}
 LIVE_CACHE: Dict[str, Dict[str, Any]] = {}
 
 HIT_EVENTS = {"single", "double", "triple", "home_run"}
+
 OUTCOME_EVENTS = {
-    "single", "double", "triple", "home_run",
-    "strikeout", "strikeout_double_play",
-    "walk", "intent_walk", "hit_by_pitch",
-    "field_out", "force_out", "double_play",
-    "grounded_into_double_play", "fielders_choice",
-    "fielders_choice_out", "sac_fly", "sac_bunt",
+    "single",
+    "double",
+    "triple",
+    "home_run",
+    "strikeout",
+    "strikeout_double_play",
+    "walk",
+    "intent_walk",
+    "hit_by_pitch",
+    "field_out",
+    "force_out",
+    "double_play",
+    "grounded_into_double_play",
+    "fielders_choice",
+    "fielders_choice_out",
+    "sac_fly",
+    "sac_bunt",
+    "catcher_interf",
+    "catcher_interference",
 }
+
+NON_AB_EVENTS = {
+    "walk",
+    "intent_walk",
+    "hit_by_pitch",
+    "sac_bunt",
+    "sac_fly",
+    "catcher_interf",
+    "catcher_interference",
+}
+
+STRIKEOUT_EVENTS = {"strikeout", "strikeout_double_play"}
+WALK_EVENTS = {"walk", "intent_walk", "hit_by_pitch"}
 
 
 def _get_session():
@@ -95,39 +135,6 @@ def _get_session():
     return get_session(engine)
 
 
-def _fetch_team_splits_live(team_id: int, season: int) -> Dict[str, Any]:
-    """Fetch vsL/vsR team hitting splits directly from MLB Stats API (statSplits)."""
-    result = {"vsL": None, "vsR": None}
-    for sit_code, key in [("vl", "vsL"), ("vr", "vsR")]:
-        try:
-            resp = _req.get(
-                f"{MLB_STATS_BASE}/teams/{team_id}/stats",
-                params={"stats": "statSplits", "group": "hitting", "season": season, "sitCodes": sit_code},
-                timeout=15,
-            )
-            resp.raise_for_status()
-            stats = resp.json().get("stats", [])
-            splits = stats[0].get("splits", []) if stats else []
-            if not splits:
-                continue
-            s = splits[0].get("stat", {})
-            pa = s.get("plateAppearances") or 0
-            k = s.get("strikeOuts") or 0
-            bb = s.get("baseOnBalls") or 0
-            result[key] = {
-                "pa": pa,
-                "batting_avg": _safe_float(s.get("avg")),
-                "on_base_pct": _safe_float(s.get("obp")),
-                "slugging_pct": _safe_float(s.get("slg")),
-                "home_runs": s.get("homeRuns"),
-                "k_pct": round(k / pa, 3) if pa > 0 else None,
-                "bb_pct": round(bb / pa, 3) if pa > 0 else None,
-            }
-        except Exception:
-            pass
-    return result
-
-
 def _safe_float(val) -> Optional[float]:
     try:
         return float(val) if val is not None else None
@@ -135,12 +142,11 @@ def _safe_float(val) -> Optional[float]:
         return None
 
 
-def _statcast_batting_avg(events: List[StatcastEvent]) -> Optional[float]:
-    if not events:
+def _safe_int(val) -> Optional[int]:
+    try:
+        return int(val) if val is not None else None
+    except (TypeError, ValueError):
         return None
-    pa = len(events)
-    hits = sum(1 for e in events if e.events in HIT_EVENTS)
-    return round(hits / pa, 3) if pa else None
 
 
 def _average(values: List[Optional[float]], digits: int = 3) -> Optional[float]:
@@ -152,16 +158,6 @@ def _average(values: List[Optional[float]], digits: int = 3) -> Optional[float]:
 
 def _normalize_pitch_label(pitch_type: Optional[str], pitch_name: Optional[str]) -> str:
     return pitch_name or pitch_type or "Unknown"
-
-
-def _extract_weather(game: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    w = game.get("weather") or {}
-    condition = w.get("condition")
-    temp = w.get("temp")
-    wind = w.get("wind")
-    if condition is None and temp is None and wind is None:
-        return None
-    return {"condition": condition, "temp_f": temp, "wind": wind}
 
 
 def _normalize_rate(value: Optional[float]) -> Optional[float]:
@@ -181,26 +177,108 @@ def _build_date_window() -> Dict[str, str]:
     }
 
 
-def _fetch_live_pitch_arsenal(pitcher_id: int, current_season: int) -> tuple[list[dict], Optional[int]]:
+def _extract_weather(game: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    weather = game.get("weather") or {}
+    condition = weather.get("condition")
+    temp = weather.get("temp")
+    wind = weather.get("wind")
+
+    if condition is None and temp is None and wind is None:
+        return None
+
+    return {
+        "condition": condition,
+        "temp_f": temp,
+        "wind": wind,
+    }
+
+
+def _live_cache_get(key: str) -> Optional[Any]:
+    entry = LIVE_CACHE.get(key)
+    if entry and time.time() < entry["expires_at"]:
+        return entry["data"]
+    return None
+
+
+def _live_cache_set(key: str, data: Any, ttl: int = 30) -> None:
+    LIVE_CACHE[key] = {
+        "data": data,
+        "expires_at": time.time() + ttl,
+    }
+
+
+def _request_json(url: str, params: Optional[Dict[str, Any]] = None, timeout: int = 20) -> Dict[str, Any]:
+    resp = _req.get(url, params=params, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _fetch_team_splits_live(team_id: int, season: int) -> Dict[str, Any]:
+    """Fetch vsL/vsR team hitting splits directly from MLB Stats API."""
+    result = {"vsL": None, "vsR": None}
+
+    for sit_code, key in [("vl", "vsL"), ("vr", "vsR")]:
+        try:
+            data = _request_json(
+                f"{MLB_STATS_BASE}/teams/{team_id}/stats",
+                params={
+                    "stats": "statSplits",
+                    "group": "hitting",
+                    "season": season,
+                    "sitCodes": sit_code,
+                },
+                timeout=15,
+            )
+            stats = data.get("stats", [])
+            splits = stats[0].get("splits", []) if stats else []
+            if not splits:
+                continue
+
+            stat = splits[0].get("stat", {})
+            pa = stat.get("plateAppearances") or 0
+            k = stat.get("strikeOuts") or 0
+            bb = stat.get("baseOnBalls") or 0
+
+            result[key] = {
+                "pa": pa,
+                "batting_avg": _safe_float(stat.get("avg")),
+                "on_base_pct": _safe_float(stat.get("obp")),
+                "slugging_pct": _safe_float(stat.get("slg")),
+                "home_runs": stat.get("homeRuns"),
+                "k_pct": round(k / pa, 3) if pa > 0 else None,
+                "bb_pct": round(bb / pa, 3) if pa > 0 else None,
+            }
+        except Exception:
+            continue
+
+    return result
+
+
+def _fetch_live_pitch_arsenal(pitcher_id: int, current_season: int) -> Tuple[List[Dict[str, Any]], Optional[int]]:
     """Fallback arsenal from Savant leaderboard if DB does not yet have rows."""
     season_candidates = [current_season, current_season - 1, current_season - 2]
+
     for season in season_candidates:
         try:
             df = fetch_pitch_arsenal_leaderboard(season, min_pitches=1)
             if df is None or df.empty:
                 continue
+
             pid_col = next((c for c in ["pitcher", "player_id", "mlbam_id"] if c in df.columns), None)
             if not pid_col:
                 continue
+
             rows = df[df[pid_col].astype(str) == str(pitcher_id)]
             if rows.empty:
                 continue
-            out = []
+
+            arsenal_rows: List[Dict[str, Any]] = []
             for _, row in rows.iterrows():
                 pitch_type = row.get("pitch_type")
                 if not pitch_type:
                     continue
-                out.append(
+
+                arsenal_rows.append(
                     {
                         "pitch_type": pitch_type,
                         "pitch_name": row.get("pitch_name"),
@@ -212,94 +290,14 @@ def _fetch_live_pitch_arsenal(pitcher_id: int, current_season: int) -> tuple[lis
                         "hard_hit_pct": _normalize_rate(_safe_float(row.get("hard_hit_percent") or row.get("hard_hit_pct"))),
                     }
                 )
-            out = sorted(out, key=lambda r: r.get("usage_pct") or 0, reverse=True)
-            if out:
-                return out, season
+
+            arsenal_rows.sort(key=lambda r: r.get("usage_pct") or 0, reverse=True)
+            if arsenal_rows:
+                return arsenal_rows, season
         except Exception:
             continue
+
     return [], None
-
-
-def _edge_score_from_components(
-    batter_ba: Optional[float],
-    batter_xwoba: Optional[float],
-    pitcher_xwoba: Optional[float],
-    pitcher_hard_hit_pct: Optional[float],
-    usage_pct: Optional[float],
-) -> float:
-    score = 0.0
-    if batter_ba is not None:
-        score += (batter_ba - 0.245) * 4.0
-    if batter_xwoba is not None:
-        score += (batter_xwoba - 0.320) * 5.0
-    if pitcher_xwoba is not None:
-        score -= (pitcher_xwoba - 0.320) * 5.0
-    if pitcher_hard_hit_pct is not None:
-        score -= (pitcher_hard_hit_pct - 0.35) * 2.0
-    if usage_pct is not None:
-        score *= max(0.35, min(1.0, usage_pct))
-    return round(score, 3)
-
-
-def _confidence_from_sample(pa: int, usage_pct: Optional[float]) -> float:
-    pa_component = min(1.0, pa / 12.0)
-    usage_component = min(1.0, max(0.25, usage_pct or 0.0))
-    return round(min(1.0, pa_component * usage_component + (0.25 if pa >= 3 else 0.0)), 3)
-
-
-def _player_vs_pitch_type_summary(
-    session,
-    batter_id: int,
-    pitch_type: Optional[str],
-    since_year: int = 2024,
-):
-    """How a batter performs vs a pitch type (across all pitchers) since since_year."""
-    events = (
-        session.query(StatcastEvent)
-        .filter(
-            StatcastEvent.batter_id == batter_id,
-            StatcastEvent.pitch_type == pitch_type,
-            StatcastEvent.game_date >= datetime.date(since_year, 1, 1),
-        )
-        .all()
-    )
-    terminal = [e for e in events if e.events and e.events in OUTCOME_EVENTS]
-    pa = len(terminal)
-    if pa == 0:
-        return {"pa": 0, "batting_avg": None, "avg_exit_velocity": None,
-                "avg_launch_angle": None, "hard_hit_pct": None, "xwoba": None}
-    hits = sum(1 for e in terminal if e.events in HIT_EVENTS)
-    ev_vals = [e.launch_speed for e in terminal if e.launch_speed is not None]
-    la_vals = [e.launch_angle for e in terminal if e.launch_angle is not None]
-    hard_hits = sum(1 for v in ev_vals if v >= 95)
-    return {
-        "pa": pa,
-        "batting_avg": round(hits / pa, 3),
-        "avg_exit_velocity": round(sum(ev_vals) / len(ev_vals), 1) if ev_vals else None,
-        "avg_launch_angle": round(sum(la_vals) / len(la_vals), 1) if la_vals else None,
-        "hard_hit_pct": round(hard_hits / len(ev_vals), 3) if ev_vals else None,
-        "xwoba": None,
-    }
-
-
-def _head_to_head_summary(session, batter_id: int, pitcher_id: int, season: int) -> Dict[str, Any]:
-    events = (
-        session.query(StatcastEvent)
-        .filter(
-            StatcastEvent.batter_id == batter_id,
-            StatcastEvent.pitcher_id == pitcher_id,
-            StatcastEvent.game_date >= datetime.date(season, 1, 1),
-        )
-        .all()
-    )
-    terminal = [e for e in events if e.events and e.events in OUTCOME_EVENTS]
-    return {
-        "pa": len(terminal),
-        "batting_avg": _statcast_batting_avg(terminal),
-        "xwoba": None,
-        "avg_exit_velocity": _average([e.launch_speed for e in terminal], 1),
-        "avg_launch_angle": _average([e.launch_angle for e in terminal], 1),
-    }
 
 
 def _normalize_arsenal_to_dicts(raw_arsenal) -> List[Dict[str, Any]]:
@@ -319,6 +317,223 @@ def _normalize_arsenal_to_dicts(raw_arsenal) -> List[Dict[str, Any]]:
     ]
 
 
+def _dedupe_statcast_events(events: List[StatcastEvent]) -> List[StatcastEvent]:
+    """
+    Remove duplicate Statcast pitch rows before any matchup or player stat calculation.
+
+    Primary key uses MLB pitch identity when available:
+        game_pk + at_bat_number + pitch_number + pitcher_id + batter_id + pitch_type
+
+    Fallback key is intentionally conservative for older rows missing game ordering fields.
+    """
+    seen = set()
+    deduped: List[StatcastEvent] = []
+
+    for event in events:
+        if (
+            event.game_pk is not None
+            and event.at_bat_number is not None
+            and event.pitch_number is not None
+        ):
+            key = (
+                event.game_pk,
+                event.at_bat_number,
+                event.pitch_number,
+                event.pitcher_id,
+                event.batter_id,
+                event.pitch_type,
+            )
+        else:
+            key = (
+                event.game_date,
+                event.pitcher_id,
+                event.batter_id,
+                event.pitch_type,
+                event.events,
+                event.release_speed,
+                event.release_spin_rate,
+                event.launch_speed,
+                event.launch_angle,
+                event.balls,
+                event.strikes,
+                event.inning,
+                event.inning_topbot,
+                event.outs_when_up,
+            )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        deduped.append(event)
+
+    return deduped
+
+
+def _terminal_events(events: List[StatcastEvent]) -> List[StatcastEvent]:
+    return [event for event in events if event.events and event.events in OUTCOME_EVENTS]
+
+
+def _official_ab_events(events: List[StatcastEvent]) -> List[StatcastEvent]:
+    return [event for event in events if event.events and event.events not in NON_AB_EVENTS]
+
+
+def _batting_avg_from_terminal_events(events: List[StatcastEvent]) -> Optional[float]:
+    terminal = _terminal_events(_dedupe_statcast_events(events))
+    if not terminal:
+        return None
+
+    ab_events = _official_ab_events(terminal)
+    ab = len(ab_events)
+    if ab == 0:
+        return None
+
+    hits = sum(1 for event in terminal if event.events in HIT_EVENTS)
+    return round(hits / ab, 3)
+
+
+def _statcast_batting_avg(events: List[StatcastEvent]) -> Optional[float]:
+    return _batting_avg_from_terminal_events(events)
+
+
+def _summarize_batter_events(events_raw: List[StatcastEvent]) -> Dict[str, Any]:
+    events = _dedupe_statcast_events(events_raw)
+    terminal = _terminal_events(events)
+
+    pa = len(terminal)
+    ab_events = _official_ab_events(terminal)
+    ab = len(ab_events)
+
+    hits = sum(1 for event in terminal if event.events in HIT_EVENTS)
+    strikeouts = sum(1 for event in terminal if event.events in STRIKEOUT_EVENTS)
+    walks = sum(1 for event in terminal if event.events in WALK_EVENTS)
+    home_runs = sum(1 for event in terminal if event.events == "home_run")
+
+    ev_vals = [event.launch_speed for event in terminal if event.launch_speed is not None]
+    la_vals = [event.launch_angle for event in terminal if event.launch_angle is not None]
+
+    hard_hits = sum(1 for value in ev_vals if value >= 95)
+    barrels = sum(
+        1
+        for event in terminal
+        if event.launch_speed is not None
+        and event.launch_angle is not None
+        and event.launch_speed >= 98
+        and 8 <= event.launch_angle <= 50
+    )
+
+    return {
+        "raw_rows": len(events_raw),
+        "deduped_rows": len(events),
+        "duplicate_rows_removed": max(len(events_raw) - len(events), 0),
+        "pa": pa,
+        "ab": ab,
+        "hits": hits,
+        "strikeouts": strikeouts,
+        "walks": walks,
+        "hr": home_runs,
+        "batting_avg": round(hits / ab, 3) if ab else None,
+        "k_pct": round(strikeouts / pa, 3) if pa else None,
+        "bb_pct": round(walks / pa, 3) if pa else None,
+        "avg_exit_velocity": round(sum(ev_vals) / len(ev_vals), 1) if ev_vals else None,
+        "max_exit_velocity": round(max(ev_vals), 1) if ev_vals else None,
+        "avg_launch_angle": round(sum(la_vals) / len(la_vals), 1) if la_vals else None,
+        "hard_hit_pct": round(hard_hits / len(ev_vals), 3) if ev_vals else None,
+        "barrel_pct": round(barrels / pa, 3) if pa else None,
+        "batted_ball_count": len(ev_vals),
+        "hard_hit_count": hard_hits,
+        "xwoba": None,
+    }
+
+
+def _edge_score_from_components(
+    batter_ba: Optional[float],
+    batter_xwoba: Optional[float],
+    pitcher_xwoba: Optional[float],
+    pitcher_hard_hit_pct: Optional[float],
+    usage_pct: Optional[float],
+) -> float:
+    score = 0.0
+
+    if batter_ba is not None:
+        score += (batter_ba - 0.245) * 4.0
+
+    if batter_xwoba is not None:
+        score += (batter_xwoba - 0.320) * 5.0
+
+    if pitcher_xwoba is not None:
+        score -= (pitcher_xwoba - 0.320) * 5.0
+
+    if pitcher_hard_hit_pct is not None:
+        score -= (pitcher_hard_hit_pct - 0.35) * 2.0
+
+    if usage_pct is not None:
+        score *= max(0.35, min(1.0, usage_pct))
+
+    return round(score, 3)
+
+
+def _confidence_from_sample(pa: int, usage_pct: Optional[float]) -> float:
+    pa_component = min(1.0, pa / 12.0)
+    usage_component = min(1.0, max(0.25, usage_pct or 0.0))
+    return round(min(1.0, pa_component * usage_component + (0.25 if pa >= 3 else 0.0)), 3)
+
+
+def _player_vs_pitch_type_summary(
+    session,
+    batter_id: int,
+    pitch_type: Optional[str],
+    since_year: int = 2024,
+) -> Dict[str, Any]:
+    """How a batter performs vs a pitch type across all pitchers since since_year."""
+    start_date = datetime.date(since_year, 1, 1)
+
+    events_raw = (
+        session.query(StatcastEvent)
+        .filter(
+            StatcastEvent.batter_id == batter_id,
+            StatcastEvent.pitch_type == pitch_type,
+            StatcastEvent.game_date >= start_date,
+        )
+        .all()
+    )
+
+    summary = _summarize_batter_events(events_raw)
+    summary["date_start"] = start_date.isoformat()
+
+    event_dates = [event.game_date for event in _dedupe_statcast_events(events_raw) if event.game_date]
+    summary["date_end"] = max(event_dates).isoformat() if event_dates else None
+
+    return summary
+
+
+def _head_to_head_summary(session, batter_id: int, pitcher_id: int, season: int) -> Dict[str, Any]:
+    events_raw = (
+        session.query(StatcastEvent)
+        .filter(
+            StatcastEvent.batter_id == batter_id,
+            StatcastEvent.pitcher_id == pitcher_id,
+            StatcastEvent.game_date >= datetime.date(season, 1, 1),
+        )
+        .all()
+    )
+
+    summary = _summarize_batter_events(events_raw)
+
+    return {
+        "pa": summary["pa"],
+        "ab": summary["ab"],
+        "hits": summary["hits"],
+        "batting_avg": summary["batting_avg"],
+        "xwoba": summary["xwoba"],
+        "avg_exit_velocity": summary["avg_exit_velocity"],
+        "avg_launch_angle": summary["avg_launch_angle"],
+        "raw_rows": summary["raw_rows"],
+        "deduped_rows": summary["deduped_rows"],
+        "duplicate_rows_removed": summary["duplicate_rows_removed"],
+    }
+
+
 def _build_competitive_matchup(
     session,
     batter_id: int,
@@ -335,6 +550,7 @@ def _build_competitive_matchup(
     else:
         raw_arsenal, arsenal_season = get_pitch_arsenal_with_fallback(session, opposing_pitcher_id, season)
         arsenal_list = _normalize_arsenal_to_dicts(raw_arsenal)
+
         if not arsenal_list:
             live_arsenal, live_season = _fetch_live_pitch_arsenal(opposing_pitcher_id, season)
             arsenal_list = live_arsenal
@@ -342,19 +558,25 @@ def _build_competitive_matchup(
 
     head_to_head = _head_to_head_summary(session, batter_id, opposing_pitcher_id, season)
 
-    pitch_type_matrix = []
+    pitch_type_matrix: List[Dict[str, Any]] = []
     for pitch in arsenal_list:
         batter_vs_type = _player_vs_pitch_type_summary(
-            session, batter_id, pitch.get("pitch_type"), since_year=max(2024, season - 1)
+            session=session,
+            batter_id=batter_id,
+            pitch_type=pitch.get("pitch_type"),
+            since_year=max(2024, season - 1),
         )
-        pa = batter_vs_type["pa"] or 0
+
+        pa = batter_vs_type.get("pa") or 0
+
         edge_score = _edge_score_from_components(
-            batter_ba=batter_vs_type["batting_avg"],
+            batter_ba=batter_vs_type.get("batting_avg"),
             batter_xwoba=batter_vs_type.get("xwoba"),
             pitcher_xwoba=pitch.get("xwoba"),
             pitcher_hard_hit_pct=pitch.get("hard_hit_pct"),
             usage_pct=pitch.get("usage_pct"),
         )
+
         confidence = _confidence_from_sample(pa, pitch.get("usage_pct"))
 
         pitch_type_matrix.append(
@@ -373,9 +595,10 @@ def _build_competitive_matchup(
             }
         )
 
-    pitch_type_matrix.sort(key=lambda x: x["pitcher_usage_pct"], reverse=True)
-    biggest_edge = max(pitch_type_matrix, key=lambda x: x["edge_score"], default=None)
-    biggest_weakness = min(pitch_type_matrix, key=lambda x: x["edge_score"], default=None)
+    pitch_type_matrix.sort(key=lambda row: row["pitcher_usage_pct"], reverse=True)
+
+    biggest_edge = max(pitch_type_matrix, key=lambda row: row["edge_score"], default=None)
+    biggest_weakness = min(pitch_type_matrix, key=lambda row: row["edge_score"], default=None)
 
     return {
         "batter_id": batter_id,
@@ -392,81 +615,116 @@ def _build_competitive_matchup(
         },
     }
 
-
 def _fetch_batter_live_data(player_id: int, season: int) -> Dict[str, Any]:
     """Fetch player info, season stats, vsL/vsR splits, and year-by-year from MLB Stats API."""
-    out: Dict[str, Any] = {"player_info": None, "season_stats": None,
-                           "splits": {"vsL": None, "vsR": None}, "year_by_year": []}
+    out: Dict[str, Any] = {
+        "player_info": None,
+        "season_stats": None,
+        "splits": {"vsL": None, "vsR": None},
+        "year_by_year": [],
+    }
 
     try:
-        r = _req.get(f"{MLB_STATS_BASE}/people/{player_id}",
-                     params={"hydrate": "currentTeam"}, timeout=10)
-        if r.ok:
-            p = (r.json().get("people") or [{}])[0]
+        data = _request_json(
+            f"{MLB_STATS_BASE}/people/{player_id}",
+            params={"hydrate": "currentTeam"},
+            timeout=10,
+        )
+        people = data.get("people") or []
+        if people:
+            player = people[0]
             out["player_info"] = {
-                "name": p.get("fullName"),
-                "position": (p.get("primaryPosition") or {}).get("abbreviation"),
-                "team": (p.get("currentTeam") or {}).get("name"),
-                "bats": (p.get("batSide") or {}).get("code"),
-                "throws": (p.get("pitchHand") or {}).get("code"),
-                "birth_date": p.get("birthDate"),
-                "mlb_debut": p.get("mlbDebutDate"),
+                "name": player.get("fullName"),
+                "position": (player.get("primaryPosition") or {}).get("abbreviation"),
+                "team": (player.get("currentTeam") or {}).get("name"),
+                "bats": (player.get("batSide") or {}).get("code"),
+                "throws": (player.get("pitchHand") or {}).get("code"),
+                "birth_date": player.get("birthDate"),
+                "mlb_debut": player.get("mlbDebutDate"),
             }
     except Exception:
         pass
 
-    def _parse_stat(s: dict) -> Dict[str, Any]:
-        pa = s.get("plateAppearances") or 0
-        k = s.get("strikeOuts") or 0
-        bb = s.get("baseOnBalls") or 0
+    def _parse_stat(stat: Dict[str, Any]) -> Dict[str, Any]:
+        pa = stat.get("plateAppearances") or 0
+        k = stat.get("strikeOuts") or 0
+        bb = stat.get("baseOnBalls") or 0
+
         return {
-            "g": s.get("gamesPlayed"), "ab": s.get("atBats"), "pa": pa,
-            "r": s.get("runs"), "h": s.get("hits"),
-            "doubles": s.get("doubles"), "triples": s.get("triples"),
-            "hr": s.get("homeRuns"), "rbi": s.get("rbi"),
-            "sb": s.get("stolenBases"), "bb": bb, "k": k,
-            "batting_avg": _safe_float(s.get("avg")),
-            "on_base_pct": _safe_float(s.get("obp")),
-            "slugging_pct": _safe_float(s.get("slg")),
-            "ops": _safe_float(s.get("ops")),
+            "g": stat.get("gamesPlayed"),
+            "ab": stat.get("atBats"),
+            "pa": pa,
+            "r": stat.get("runs"),
+            "h": stat.get("hits"),
+            "doubles": stat.get("doubles"),
+            "triples": stat.get("triples"),
+            "hr": stat.get("homeRuns"),
+            "rbi": stat.get("rbi"),
+            "sb": stat.get("stolenBases"),
+            "bb": bb,
+            "k": k,
+            "batting_avg": _safe_float(stat.get("avg")),
+            "on_base_pct": _safe_float(stat.get("obp")),
+            "slugging_pct": _safe_float(stat.get("slg")),
+            "ops": _safe_float(stat.get("ops")),
             "k_pct": round(k / pa, 3) if pa > 0 else None,
             "bb_pct": round(bb / pa, 3) if pa > 0 else None,
-            "home_runs": s.get("homeRuns"),
+            "home_runs": stat.get("homeRuns"),
         }
 
     try:
-        r = _req.get(f"{MLB_STATS_BASE}/people/{player_id}/stats",
-                     params={"stats": "season", "group": "hitting", "season": season}, timeout=10)
-        if r.ok:
-            splits = (r.json().get("stats") or [{}])[0].get("splits", [])
-            if splits:
-                out["season_stats"] = _parse_stat(splits[0].get("stat", {}))
+        data = _request_json(
+            f"{MLB_STATS_BASE}/people/{player_id}/stats",
+            params={
+                "stats": "season",
+                "group": "hitting",
+                "season": season,
+            },
+            timeout=10,
+        )
+        splits = (data.get("stats") or [{}])[0].get("splits", [])
+        if splits:
+            out["season_stats"] = _parse_stat(splits[0].get("stat", {}))
     except Exception:
         pass
 
-    for sit, key in [("vl", "vsL"), ("vr", "vsR")]:
+    for sit_code, key in [("vl", "vsL"), ("vr", "vsR")]:
         try:
-            r = _req.get(f"{MLB_STATS_BASE}/people/{player_id}/stats",
-                         params={"stats": "statSplits", "group": "hitting",
-                                 "season": season, "sitCodes": sit}, timeout=10)
-            if r.ok:
-                splits = (r.json().get("stats") or [{}])[0].get("splits", [])
-                if splits:
-                    out["splits"][key] = _parse_stat(splits[0].get("stat", {}))
+            data = _request_json(
+                f"{MLB_STATS_BASE}/people/{player_id}/stats",
+                params={
+                    "stats": "statSplits",
+                    "group": "hitting",
+                    "season": season,
+                    "sitCodes": sit_code,
+                },
+                timeout=10,
+            )
+            splits = (data.get("stats") or [{}])[0].get("splits", [])
+            if splits:
+                out["splits"][key] = _parse_stat(splits[0].get("stat", {}))
         except Exception:
             pass
 
     try:
-        r = _req.get(f"{MLB_STATS_BASE}/people/{player_id}/stats",
-                     params={"stats": "yearByYear", "group": "hitting"}, timeout=15)
-        if r.ok:
-            for sp in (r.json().get("stats") or [{}])[0].get("splits", []):
-                yr = sp.get("season")
-                if yr:
-                    row = _parse_stat(sp.get("stat", {}))
-                    row["season"] = yr
-                    out["year_by_year"].append(row)
-            out["year_by_year"].sort(key=lambda x: x["season"], reverse=True)
+        data = _request_json(
+            f"{MLB_STATS_BASE}/people/{player_id}/stats",
+            params={
+                "stats": "yearByYear",
+                "group": "hitting",
+            },
+            timeout=15,
+        )
+        splits = (data.get("stats") or [{}])[0].get("splits", [])
+        for split in splits:
+            year = split.get("season")
+            if not year:
+                continue
+            row = _parse_stat(split.get("stat", {}))
+            row["season"] = year
+            out["year_by_year"].append(row)
+
+        out["year_by_year"].sort(key=lambda row: row["season"], reverse=True)
     except Exception:
         pass
 
@@ -474,64 +732,89 @@ def _fetch_batter_live_data(player_id: int, season: int) -> Dict[str, Any]:
 
 
 def _compute_batter_statcast(session, batter_id: int, since_year: int = 2024) -> Optional[Dict[str, Any]]:
-    events = (
+    start_date = datetime.date(since_year, 1, 1)
+
+    events_raw = (
         session.query(StatcastEvent)
-        .filter(StatcastEvent.batter_id == batter_id,
-                StatcastEvent.game_date >= datetime.date(since_year, 1, 1))
+        .filter(
+            StatcastEvent.batter_id == batter_id,
+            StatcastEvent.game_date >= start_date,
+        )
         .all()
     )
-    terminal = [e for e in events if e.events and e.events in OUTCOME_EVENTS]
-    if not terminal:
+
+    summary = _summarize_batter_events(events_raw)
+    if summary["pa"] == 0:
         return None
-    pa = len(terminal)
-    hits = sum(1 for e in terminal if e.events in HIT_EVENTS)
-    k = sum(1 for e in terminal if e.events in {"strikeout", "strikeout_double_play"})
-    bb = sum(1 for e in terminal if e.events in {"walk", "intent_walk", "hit_by_pitch"})
-    hr = sum(1 for e in terminal if e.events == "home_run")
-    ev = [e.launch_speed for e in terminal if e.launch_speed is not None]
-    la = [e.launch_angle for e in terminal if e.launch_angle is not None]
-    hard = sum(1 for v in ev if v >= 95)
-    barrels = sum(
-        1 for e in terminal
-        if e.launch_speed and e.launch_angle
-        and e.launch_speed >= 98 and 8 <= e.launch_angle <= 50
-    )
+
+    event_dates = [event.game_date for event in _dedupe_statcast_events(events_raw) if event.game_date]
+
     return {
-        "pa": pa,
-        "batting_avg": round(hits / pa, 3),
-        "k_pct": round(k / pa, 3) if pa > 0 else None,
-        "bb_pct": round(bb / pa, 3) if pa > 0 else None,
-        "hr": hr,
-        "avg_exit_velocity": round(sum(ev) / len(ev), 1) if ev else None,
-        "max_exit_velocity": round(max(ev), 1) if ev else None,
-        "avg_launch_angle": round(sum(la) / len(la), 1) if la else None,
-        "hard_hit_pct": round(hard / len(ev), 3) if ev else None,
-        "barrel_pct": round(barrels / pa, 3) if pa > 0 else None,
+        "pa": summary["pa"],
+        "ab": summary["ab"],
+        "hits": summary["hits"],
+        "batting_avg": summary["batting_avg"],
+        "k_pct": summary["k_pct"],
+        "bb_pct": summary["bb_pct"],
+        "hr": summary["hr"],
+        "avg_exit_velocity": summary["avg_exit_velocity"],
+        "max_exit_velocity": summary["max_exit_velocity"],
+        "avg_launch_angle": summary["avg_launch_angle"],
+        "hard_hit_pct": summary["hard_hit_pct"],
+        "barrel_pct": summary["barrel_pct"],
+        "batted_ball_count": summary["batted_ball_count"],
+        "hard_hit_count": summary["hard_hit_count"],
+        "raw_rows": summary["raw_rows"],
+        "deduped_rows": summary["deduped_rows"],
+        "duplicate_rows_removed": summary["duplicate_rows_removed"],
         "data_window": f"Since {since_year}",
-        "sample_size": pa,
+        "date_start": start_date.isoformat(),
+        "date_end": max(event_dates).isoformat() if event_dates else None,
+        "sample_size": summary["pa"],
     }
 
 
 def _fetch_roster_as_lineup(team_id: int, season: int) -> List[Dict[str, Any]]:
     try:
-        resp = _req.get(
+        data = _request_json(
             f"{MLB_STATS_BASE}/teams/{team_id}/roster",
-            params={"rosterType": "active", "season": season},
+            params={
+                "rosterType": "active",
+                "season": season,
+            },
             timeout=15,
         )
-        resp.raise_for_status()
-        return [
-            {"id": r["person"]["id"], "fullName": r["person"]["fullName"]}
-            for r in resp.json().get("roster", [])
-            if (r.get("position") or {}).get("type", "").lower() != "pitcher"
-            and r.get("person", {}).get("id")
-        ]
+
+        lineup = []
+        for row in data.get("roster", []):
+            position = row.get("position") or {}
+            person = row.get("person") or {}
+
+            if position.get("type", "").lower() == "pitcher":
+                continue
+
+            player_id = person.get("id")
+            if not player_id:
+                continue
+
+            lineup.append(
+                {
+                    "id": player_id,
+                    "fullName": person.get("fullName"),
+                    "primaryPosition": {
+                        "abbreviation": position.get("abbreviation"),
+                    },
+                }
+            )
+
+        return lineup
     except Exception:
         return []
 
 
 def _game_date_candidates(game_date_iso: str) -> List[str]:
     candidates: List[str] = []
+
     if game_date_iso:
         try:
             utc_dt = datetime.datetime.fromisoformat(game_date_iso.replace("Z", "+00:00"))
@@ -541,19 +824,25 @@ def _game_date_candidates(game_date_iso: str) -> List[str]:
                     candidates.append(candidate)
         except Exception:
             pass
+
     today = datetime.date.today().isoformat()
     if today not in candidates:
         candidates.append(today)
+
     return candidates
 
 
 def _fetch_previous_completed_game_lineup(team_id: int, game_date_iso: str) -> List[Dict[str, Any]]:
     for candidate_date in _game_date_candidates(game_date_iso):
         try:
-            resp = _req.get(
+            start_date = (
+                datetime.date.fromisoformat(candidate_date) - datetime.timedelta(days=7)
+            ).isoformat()
+
+            data = _request_json(
                 f"{MLB_STATS_BASE}/schedule",
                 params={
-                    "startDate": (datetime.date.fromisoformat(candidate_date) - datetime.timedelta(days=7)).isoformat(),
+                    "startDate": start_date,
                     "endDate": candidate_date,
                     "teamId": team_id,
                     "hydrate": "lineups",
@@ -561,39 +850,31 @@ def _fetch_previous_completed_game_lineup(team_id: int, game_date_iso: str) -> L
                 },
                 timeout=15,
             )
-            resp.raise_for_status()
-            dates = resp.json().get("dates", []) or []
-            games: List[Dict[str, Any]] = []
-            for dated in dates:
-                for game in dated.get("games", []) or []:
+
+            completed_games: List[Dict[str, Any]] = []
+            for date_row in data.get("dates", []) or []:
+                for game in date_row.get("games", []) or []:
                     status = (game.get("status") or {}).get("codedGameState")
-                    if status != "F":
-                        continue
-                    games.append(game)
-            games.sort(key=lambda g: g.get("gameDate") or "", reverse=True)
-            for game in games:
+                    if status == "F":
+                        completed_games.append(game)
+
+            completed_games.sort(key=lambda game: game.get("gameDate") or "", reverse=True)
+
+            for game in completed_games:
                 teams = game.get("teams", {})
                 for side in ("home", "away"):
-                    if teams.get(side, {}).get("team", {}).get("id") != team_id:
+                    team = teams.get(side, {}).get("team", {})
+                    if team.get("id") != team_id:
                         continue
-                    key = "homePlayers" if side == "home" else "awayPlayers"
-                    players = game.get("lineups", {}).get(key) or []
+
+                    lineup_key = "homePlayers" if side == "home" else "awayPlayers"
+                    players = (game.get("lineups") or {}).get(lineup_key) or []
                     if players:
                         return players
         except Exception:
             continue
+
     return []
-
-
-def _live_cache_get(key: str) -> Optional[Any]:
-    entry = LIVE_CACHE.get(key)
-    if entry and time.time() < entry["expires_at"]:
-        return entry["data"]
-    return None
-
-
-def _live_cache_set(key: str, data: Any, ttl: int = 30) -> None:
-    LIVE_CACHE[key] = {"data": data, "expires_at": time.time() + ttl}
 
 
 def _fetch_live_feed(game_pk: int) -> Optional[Dict[str, Any]]:
@@ -602,17 +883,82 @@ def _fetch_live_feed(game_pk: int) -> Optional[Dict[str, Any]]:
     cached = _live_cache_get(cache_key)
     if cached is not None:
         return cached
+
     try:
-        resp = _req.get(
-            f"https://statsapi.mlb.com/api/v1.1/game/{game_pk}/feed/live",
+        data = _request_json(
+            f"{MLB_LIVE_FEED_BASE}/{game_pk}/feed/live",
             timeout=15,
         )
-        resp.raise_for_status()
-        data = resp.json()
         _live_cache_set(cache_key, data, ttl=20)
         return data
     except Exception:
         return None
+
+
+def _lineup_player_payload(player: Dict[str, Any], batting_order: Optional[int] = None) -> Dict[str, Any]:
+    payload = {
+        "id": player.get("id"),
+        "name": player.get("fullName"),
+        "position": (player.get("primaryPosition") or {}).get("abbreviation"),
+    }
+
+    if batting_order is not None:
+        payload["batting_order"] = batting_order
+
+    return payload
+
+
+def _extract_lineups_for_game(
+    game: Dict[str, Any],
+    home_team_id: Optional[int],
+    away_team_id: Optional[int],
+    season: int,
+    game_date_iso: str,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Optional[str], Optional[str]]:
+    lineups = game.get("lineups") or {}
+
+    home_lineup_raw = lineups.get("homePlayers", []) or []
+    away_lineup_raw = lineups.get("awayPlayers", []) or []
+
+    home_lineup_source = "official" if home_lineup_raw else None
+    away_lineup_source = "official" if away_lineup_raw else None
+
+    if not home_lineup_raw and home_team_id:
+        previous = _fetch_previous_completed_game_lineup(home_team_id, game_date_iso)
+        if previous:
+            home_lineup_raw = previous
+            home_lineup_source = "projected"
+        else:
+            home_lineup_raw = _fetch_roster_as_lineup(home_team_id, season)
+            home_lineup_source = "roster" if home_lineup_raw else None
+
+    if not away_lineup_raw and away_team_id:
+        previous = _fetch_previous_completed_game_lineup(away_team_id, game_date_iso)
+        if previous:
+            away_lineup_raw = previous
+            away_lineup_source = "projected"
+        else:
+            away_lineup_raw = _fetch_roster_as_lineup(away_team_id, season)
+            away_lineup_source = "roster" if away_lineup_raw else None
+
+    return home_lineup_raw, away_lineup_raw, home_lineup_source, away_lineup_source
+
+
+def _game_from_schedule(game_pk: int, hydrate: str) -> Dict[str, Any]:
+    data = _request_json(
+        f"{MLB_STATS_BASE}/schedule",
+        params={
+            "gamePk": game_pk,
+            "hydrate": hydrate,
+        },
+        timeout=20,
+    )
+
+    dates = data.get("dates", [])
+    if not dates or not dates[0].get("games"):
+        raise HTTPException(status_code=404, detail=f"Game {game_pk} not found")
+
+    return dates[0]["games"][0]
 
 
 class PredictRequest(BaseModel):
@@ -640,30 +986,145 @@ def create_app():
         allow_headers=["*"],
     )
 
+    app.include_router(batter_router)
+    app.include_router(daily_odds_router)
+
     @app.get("/health")
     def health():
         return {"status": "ok", "version": "0.5.2"}
 
     @app.get("/odds/draftkings/pregame")
-    def draftkings_pregame_odds(date: Optional[str] = None) -> Dict[str, Any]:
-        return fetch_draftkings_odds(scope="pregame")
+    def draftkings_pregame_odds(
+        date: Optional[str] = None,
+        raw: bool = False,
+        league: Optional[str] = None,
+        market_types: Optional[str] = None,
+        state: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        parsed_market_types = (
+            [market.strip() for market in market_types.split(",") if market.strip()]
+            if market_types
+            else None
+        )
+
+        return fetch_draftkings_odds(
+            scope="pregame",
+            date=date,
+            raw=raw,
+            league=league,
+            market_types=parsed_market_types,
+            state=state,
+        )
 
     @app.get("/odds/draftkings/live")
-    def draftkings_live_odds() -> Dict[str, Any]:
-        return fetch_draftkings_odds(scope="live")
+    def draftkings_live_odds(
+        raw: bool = False,
+        league: Optional[str] = None,
+        market_types: Optional[str] = None,
+        state: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        parsed_market_types = (
+            [market.strip() for market in market_types.split(",") if market.strip()]
+            if market_types
+            else None
+        )
+
+        return fetch_draftkings_odds(
+            scope="live",
+            raw=raw,
+            league=league,
+            market_types=parsed_market_types,
+            state=state,
+        )
 
     @app.get("/odds/draftkings/game/{game_pk}")
-    def draftkings_game_odds(game_pk: int) -> Dict[str, Any]:
-        return fetch_draftkings_odds(scope="pregame", game_pk=game_pk)
+    def draftkings_game_odds(
+        game_pk: int,
+        date: Optional[str] = None,
+        raw: bool = False,
+    ) -> Dict[str, Any]:
+        return fetch_draftkings_odds(
+            scope="pregame",
+            game_pk=game_pk,
+            date=date,
+            raw=raw,
+        )
 
     @app.get("/odds/draftkings/props/{game_pk}")
-    def draftkings_game_props(game_pk: int) -> Dict[str, Any]:
-        return fetch_draftkings_odds(scope="pregame", game_pk=game_pk, props_only=True)
+    def draftkings_game_props(
+        game_pk: int,
+        date: Optional[str] = None,
+        raw: bool = False,
+    ) -> Dict[str, Any]:
+        return fetch_draftkings_odds(
+            scope="pregame",
+            game_pk=game_pk,
+            props_only=True,
+            date=date,
+            raw=raw,
+        )
+
+    @app.get("/odds/draftkings/events")
+    def draftkings_events(
+        date: Optional[str] = None,
+        raw: bool = False,
+    ) -> Dict[str, Any]:
+        return fetch_draftkings_events(
+            date=date,
+            raw=raw,
+        )
+
+    @app.get("/odds/draftkings/event/{event_id}")
+    def draftkings_event_odds(
+        event_id: str,
+        raw: bool = False,
+    ) -> Dict[str, Any]:
+        return fetch_draftkings_event_odds(
+            event_id=event_id,
+            props_only=False,
+            raw=raw,
+        )
+
+    @app.get("/odds/draftkings/event/{event_id}/props")
+    def draftkings_event_props(
+        event_id: str,
+        raw: bool = False,
+    ) -> Dict[str, Any]:
+        return fetch_draftkings_event_odds(
+            event_id=event_id,
+            props_only=True,
+            raw=raw,
+        )
+
+    @app.get("/odds/draftkings/debug")
+    def draftkings_debug_odds(
+        date: Optional[str] = None,
+        league: Optional[str] = None,
+        market_types: Optional[str] = None,
+        live_only: Optional[bool] = None,
+        state: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        parsed_market_types = (
+            [market.strip() for market in market_types.split(",") if market.strip()]
+            if market_types
+            else None
+        )
+
+        return fetch_draftkings_odds(
+            scope="debug",
+            date=date,
+            raw=True,
+            league=league,
+            market_types=parsed_market_types,
+            live_only=live_only,
+            state=state,
+        )
 
     @app.get("/matchups")
     def list_matchups(date: Optional[str] = None) -> List[Dict[str, Any]]:
         if not date:
             date = datetime.date.today().isoformat()
+
         Session = _get_session()
         with Session() as session:
             try:
@@ -674,36 +1135,47 @@ def create_app():
     @app.get("/matchups/calendar")
     def matchup_calendar() -> Dict[str, Any]:
         dates = _build_date_window()
+
         Session = _get_session()
         with Session() as session:
-            payload = {}
-            for key, d in dates.items():
-                if d not in MATCHUP_SNAPSHOT_CACHE:
-                    MATCHUP_SNAPSHOT_CACHE[d] = generate_matchups_for_date(session, d)
+            payload: Dict[str, Any] = {}
+
+            for key, date_value in dates.items():
+                if date_value not in MATCHUP_SNAPSHOT_CACHE:
+                    MATCHUP_SNAPSHOT_CACHE[date_value] = generate_matchups_for_date(session, date_value)
+
                 payload[key] = {
-                    "date": d,
-                    "count": len(MATCHUP_SNAPSHOT_CACHE[d]),
-                    "games": MATCHUP_SNAPSHOT_CACHE[d],
+                    "date": date_value,
+                    "count": len(MATCHUP_SNAPSHOT_CACHE[date_value]),
+                    "games": MATCHUP_SNAPSHOT_CACHE[date_value],
                 }
+
             return payload
 
     @app.post("/matchups/snapshot/{date_str}")
     def snapshot_matchups(date_str: str) -> Dict[str, Any]:
         Session = _get_session()
+
         with Session() as session:
             try:
                 MATCHUP_SNAPSHOT_CACHE[date_str] = generate_matchups_for_date(session, date_str)
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=str(exc))
-        return {"date": date_str, "games_cached": len(MATCHUP_SNAPSHOT_CACHE[date_str])}
+
+        return {
+            "date": date_str,
+            "games_cached": len(MATCHUP_SNAPSHOT_CACHE[date_str]),
+        }
 
     @app.post("/ai/ask")
     def ai_ask(payload: Dict[str, Any]) -> Dict[str, Any]:
         question = str(payload.get("question", "")).strip()
         if not question:
             raise HTTPException(status_code=400, detail="Question is required")
+
         ql = question.lower()
         dates = _build_date_window()
+
         Session = _get_session()
         with Session() as session:
             if "today" in ql or "matchup" in ql:
@@ -711,122 +1183,122 @@ def create_app():
                 return {
                     "answer": f"There are {len(games)} scheduled games for {dates['today']}.",
                     "sources": ["/matchups", f"/matchups?date={dates['today']}"],
-                    "data": {"date": dates["today"], "games": games[:8]},
+                    "data": {
+                        "date": dates["today"],
+                        "games": games[:8],
+                    },
                 }
+
             if "yesterday" in ql:
-                games = MATCHUP_SNAPSHOT_CACHE.get(dates["yesterday"]) or generate_matchups_for_date(session, dates["yesterday"])
+                games = MATCHUP_SNAPSHOT_CACHE.get(dates["yesterday"]) or generate_matchups_for_date(
+                    session,
+                    dates["yesterday"],
+                )
                 MATCHUP_SNAPSHOT_CACHE[dates["yesterday"]] = games
+
                 return {
                     "answer": f"Loaded {len(games)} games for yesterday ({dates['yesterday']}).",
                     "sources": ["/matchups/calendar", f"/matchups?date={dates['yesterday']}"],
-                    "data": {"date": dates["yesterday"], "games": games[:8]},
+                    "data": {
+                        "date": dates["yesterday"],
+                        "games": games[:8],
+                    },
                 }
+
             if "weather" in ql:
                 games = generate_matchups_for_date(session, dates["today"])
-                weather_games = [g for g in games if g.get("weather")]
+                weather_games = [game for game in games if game.get("weather")]
+
                 return {
                     "answer": f"Found weather data for {len(weather_games)} of {len(games)} games today.",
                     "sources": [f"/matchups?date={dates['today']}"],
                     "data": weather_games[:10],
                 }
+
             team_match = re.search(r"team\s+(\d+)", ql)
             if team_match:
                 team_id = int(team_match.group(1))
                 team = get_team(team_id)
+
                 return {
                     "answer": f"Team {team_id} standing and split profile loaded.",
                     "sources": [f"/team/{team_id}", "/standings"],
                     "data": team,
                 }
+
         return {
-            "answer": "I can currently answer questions about today/yesterday matchups, weather, and team IDs (e.g., 'team 147').",
+            "answer": "I can currently answer questions about today/yesterday matchups, weather, and team IDs.",
             "sources": ["/matchups", "/team/{team_id}", "/standings"],
             "data": None,
         }
 
     @app.get("/matchup/{game_pk}")
     def get_matchup_detail(game_pk: int) -> Dict[str, Any]:
-        url = f"{MLB_STATS_BASE}/schedule"
-        params = {
-            "gamePk": game_pk,
-            "hydrate": "probablePitcher,team,linescore,lineups,decisions,weather",
-        }
         try:
-            resp = _req.get(url, params=params, timeout=20)
-            resp.raise_for_status()
+            game = _game_from_schedule(
+                game_pk,
+                hydrate="probablePitcher,team,linescore,lineups,decisions,weather",
+            )
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"MLB API error: {exc}")
 
-        dates = resp.json().get("dates", [])
-        if not dates or not dates[0].get("games"):
-            raise HTTPException(status_code=404, detail=f"Game {game_pk} not found")
-
-        game = dates[0]["games"][0]
         teams = game.get("teams", {})
         home = teams.get("home", {})
         away = teams.get("away", {})
 
-        home_team_id = home.get("team", {}).get("id")
-        away_team_id = away.get("team", {}).get("id")
-        home_pitcher_id = home.get("probablePitcher", {}).get("id")
-        away_pitcher_id = away.get("probablePitcher", {}).get("id")
+        home_team = home.get("team", {})
+        away_team = away.get("team", {})
+
+        home_team_id = home_team.get("id")
+        away_team_id = away_team.get("id")
+
+        home_pitcher = home.get("probablePitcher", {}) or {}
+        away_pitcher = away.get("probablePitcher", {}) or {}
+
+        home_pitcher_id = home_pitcher.get("id")
+        away_pitcher_id = away_pitcher.get("id")
+
         game_date_iso = game.get("gameDate", "")
-        venue_name = game.get("venue", {}).get("name")
+        venue_name = (game.get("venue") or {}).get("name")
         season = int(game_date_iso[:4]) if game_date_iso else datetime.date.today().year
 
-        home_record = home.get("leagueRecord", {})
-        away_record = away.get("leagueRecord", {})
+        home_lineup_raw, away_lineup_raw, home_lineup_source, away_lineup_source = _extract_lineups_for_game(
+            game=game,
+            home_team_id=home_team_id,
+            away_team_id=away_team_id,
+            season=season,
+            game_date_iso=game_date_iso,
+        )
 
-        lineups = game.get("lineups", {})
-        home_lineup_raw = lineups.get("homePlayers", []) or []
-        away_lineup_raw = lineups.get("awayPlayers", []) or []
-
-        home_lineup_source = "official" if home_lineup_raw else None
-        away_lineup_source = "official" if away_lineup_raw else None
-        if not home_lineup_raw and home_team_id:
-            prev = _fetch_previous_completed_game_lineup(home_team_id, game_date_iso)
-            if prev:
-                home_lineup_raw = prev
-                home_lineup_source = "projected"
-            else:
-                home_lineup_raw = _fetch_roster_as_lineup(home_team_id, season)
-                home_lineup_source = "roster" if home_lineup_raw else None
-        if not away_lineup_raw and away_team_id:
-            prev = _fetch_previous_completed_game_lineup(away_team_id, game_date_iso)
-            if prev:
-                away_lineup_raw = prev
-                away_lineup_source = "projected"
-            else:
-                away_lineup_raw = _fetch_roster_as_lineup(away_team_id, season)
-                away_lineup_source = "roster" if away_lineup_raw else None
+        home_record = home.get("leagueRecord", {}) or {}
+        away_record = away.get("leagueRecord", {}) or {}
 
         Session = _get_session()
         with Session() as session:
 
-            def pitcher_detail(pid):
+            def pitcher_detail(pid: Optional[int]) -> Dict[str, Any]:
                 if not pid:
-                    return {"aggregate": None, "arsenal": [], "game_log": []}
+                    return {
+                        "aggregate": None,
+                        "arsenal": [],
+                        "arsenal_season": None,
+                        "game_log": [],
+                    }
+
                 agg, data_source = get_pitcher_aggregate_with_fallback(session, pid, season)
                 arsenal, arsenal_season = get_pitch_arsenal_with_fallback(session, pid, season)
-                arsenal_rows = [
-                    {
-                        "pitch_type": r.pitch_type,
-                        "pitch_name": r.pitch_name,
-                        "usage_pct": _normalize_rate(r.usage_pct),
-                        "whiff_pct": _normalize_rate(r.whiff_pct),
-                        "strikeout_pct": _normalize_rate(r.strikeout_pct),
-                        "rv_per_100": r.rv_per_100,
-                        "xwoba": r.xwoba,
-                        "hard_hit_pct": _normalize_rate(r.hard_hit_pct),
-                    }
-                    for r in arsenal
-                ]
+
+                arsenal_rows = _normalize_arsenal_to_dicts(arsenal)
                 if not arsenal_rows:
                     live_arsenal, live_season = _fetch_live_pitch_arsenal(pid, season)
                     if live_arsenal:
                         arsenal_rows = live_arsenal
                         arsenal_season = live_season
+
                 game_log = get_pitcher_game_log(session, pid, 5)
+
                 return {
                     "aggregate": {
                         "data_source": data_source,
@@ -845,33 +1317,50 @@ def create_app():
                     "game_log": game_log,
                 }
 
-            def team_splits(tid):
-                vsL = get_team_split(session, tid, season, "vsL")
-                vsR = get_team_split(session, tid, season, "vsR")
+            def team_splits(team_id: Optional[int]) -> Dict[str, Any]:
+                if not team_id:
+                    return {"vsL": None, "vsR": None}
 
-                def sd(s):
-                    if not s:
+                vs_l = get_team_split(session, team_id, season, "vsL")
+                vs_r = get_team_split(session, team_id, season, "vsR")
+
+                def split_dict(split):
+                    if not split:
                         return None
+
                     return {
-                        "pa": s.pa, "batting_avg": s.batting_avg,
-                        "on_base_pct": s.on_base_pct, "slugging_pct": s.slugging_pct,
-                        "k_pct": s.k_pct, "bb_pct": s.bb_pct, "home_runs": s.home_runs,
+                        "pa": split.pa,
+                        "batting_avg": split.batting_avg,
+                        "on_base_pct": split.on_base_pct,
+                        "slugging_pct": split.slugging_pct,
+                        "k_pct": split.k_pct,
+                        "bb_pct": split.bb_pct,
+                        "home_runs": split.home_runs,
                     }
 
-                db_result = {"vsL": sd(vsL), "vsR": sd(vsR)}
+                db_result = {
+                    "vsL": split_dict(vs_l),
+                    "vsR": split_dict(vs_r),
+                }
+
                 both_missing = not db_result["vsL"] and not db_result["vsR"]
                 identical = (
-                    db_result["vsL"] and db_result["vsR"] and
-                    db_result["vsL"].get("batting_avg") == db_result["vsR"].get("batting_avg") and
-                    db_result["vsL"].get("pa") == db_result["vsR"].get("pa")
+                    db_result["vsL"]
+                    and db_result["vsR"]
+                    and db_result["vsL"].get("batting_avg") == db_result["vsR"].get("batting_avg")
+                    and db_result["vsL"].get("pa") == db_result["vsR"].get("pa")
                 )
+
                 if both_missing or identical:
-                    live = _fetch_team_splits_live(tid, season)
+                    live = _fetch_team_splits_live(team_id, season)
                     if live["vsL"] or live["vsR"]:
                         return live
+
                 return db_result
 
-            home_win_prob, away_win_prob = None, None
+            home_win_prob = None
+            away_win_prob = None
+
             if home_pitcher_id and away_pitcher_id and home_team_id and away_team_id:
                 home_win_prob, away_win_prob = compute_win_probability(
                     session,
@@ -886,137 +1375,127 @@ def create_app():
                 "game_pk": game_pk,
                 "game_date": game_date_iso,
                 "venue": venue_name,
-                "status": game.get("status", {}).get("detailedState"),
+                "status": (game.get("status") or {}).get("detailedState"),
                 "weather": _extract_weather(game),
                 "park_factor": get_park_factor(venue_name),
                 "home_win_prob": home_win_prob,
                 "away_win_prob": away_win_prob,
                 "home_team": {
                     "id": home_team_id,
-                    "name": home.get("team", {}).get("name"),
-                    "record": f"{home_record.get('wins',0)}-{home_record.get('losses',0)}" if home_record else None,
+                    "name": home_team.get("name"),
+                    "record": f"{home_record.get('wins', 0)}-{home_record.get('losses', 0)}" if home_record else None,
                     "pitcher_id": home_pitcher_id,
-                    "pitcher_name": home.get("probablePitcher", {}).get("fullName"),
+                    "pitcher_name": home_pitcher.get("fullName"),
                     **pitcher_detail(home_pitcher_id),
                     "splits": team_splits(home_team_id),
                     "lineup_source": home_lineup_source,
                     "lineup": [
-                        {"id": p.get("id"), "name": p.get("fullName"), "position": p.get("primaryPosition", {}).get("abbreviation")}
-                        for p in home_lineup_raw
+                        _lineup_player_payload(player)
+                        for player in home_lineup_raw
                     ],
                 },
                 "away_team": {
                     "id": away_team_id,
-                    "name": away.get("team", {}).get("name"),
-                    "record": f"{away_record.get('wins',0)}-{away_record.get('losses',0)}" if away_record else None,
+                    "name": away_team.get("name"),
+                    "record": f"{away_record.get('wins', 0)}-{away_record.get('losses', 0)}" if away_record else None,
                     "pitcher_id": away_pitcher_id,
-                    "pitcher_name": away.get("probablePitcher", {}).get("fullName"),
+                    "pitcher_name": away_pitcher.get("fullName"),
                     **pitcher_detail(away_pitcher_id),
                     "splits": team_splits(away_team_id),
                     "lineup_source": away_lineup_source,
                     "lineup": [
-                        {"id": p.get("id"), "name": p.get("fullName"), "position": p.get("primaryPosition", {}).get("abbreviation")}
-                        for p in away_lineup_raw
+                        _lineup_player_payload(player)
+                        for player in away_lineup_raw
                     ],
                 },
             }
 
     @app.get("/matchup/{game_pk}/competitive")
     def get_competitive_analysis(game_pk: int) -> Dict[str, Any]:
-        url = f"{MLB_STATS_BASE}/schedule"
-        params = {
-            "gamePk": game_pk,
-            "hydrate": "probablePitcher,team,lineups,weather",
-        }
         try:
-            resp = _req.get(url, params=params, timeout=20)
-            resp.raise_for_status()
+            game = _game_from_schedule(
+                game_pk,
+                hydrate="probablePitcher,team,lineups,weather",
+            )
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"MLB API error: {exc}")
 
-        dates = resp.json().get("dates", [])
-        if not dates or not dates[0].get("games"):
-            raise HTTPException(status_code=404, detail=f"Game {game_pk} not found")
-
-        game = dates[0]["games"][0]
         teams = game.get("teams", {})
         home = teams.get("home", {})
         away = teams.get("away", {})
+
+        home_team = home.get("team", {})
+        away_team = away.get("team", {})
+
+        home_team_id = home_team.get("id")
+        away_team_id = away_team.get("id")
+
+        home_team_name = home_team.get("name")
+        away_team_name = away_team.get("name")
+
+        home_pitcher_id = (home.get("probablePitcher") or {}).get("id")
+        away_pitcher_id = (away.get("probablePitcher") or {}).get("id")
+
         game_date_iso = game.get("gameDate", "")
         season = int(game_date_iso[:4]) if game_date_iso else datetime.date.today().year
 
-        home_team_id = home.get("team", {}).get("id")
-        away_team_id = away.get("team", {}).get("id")
-        home_team_name = home.get("team", {}).get("name")
-        away_team_name = away.get("team", {}).get("name")
-        home_pitcher_id = home.get("probablePitcher", {}).get("id")
-        away_pitcher_id = away.get("probablePitcher", {}).get("id")
-
-        lineups = game.get("lineups", {})
-        home_lineup_raw = lineups.get("homePlayers", []) or []
-        away_lineup_raw = lineups.get("awayPlayers", []) or []
-
-        away_lineup_source = "official" if away_lineup_raw else None
-        home_lineup_source = "official" if home_lineup_raw else None
-        if not away_lineup_raw and away_team_id:
-            prev = _fetch_previous_completed_game_lineup(away_team_id, game_date_iso)
-            if prev:
-                away_lineup_raw = prev
-                away_lineup_source = "projected"
-            else:
-                away_lineup_raw = _fetch_roster_as_lineup(away_team_id, season)
-                away_lineup_source = "roster" if away_lineup_raw else None
-        if not home_lineup_raw and home_team_id:
-            prev = _fetch_previous_completed_game_lineup(home_team_id, game_date_iso)
-            if prev:
-                home_lineup_raw = prev
-                home_lineup_source = "projected"
-            else:
-                home_lineup_raw = _fetch_roster_as_lineup(home_team_id, season)
-                home_lineup_source = "roster" if home_lineup_raw else None
+        home_lineup_raw, away_lineup_raw, home_lineup_source, away_lineup_source = _extract_lineups_for_game(
+            game=game,
+            home_team_id=home_team_id,
+            away_team_id=away_team_id,
+            season=season,
+            game_date_iso=game_date_iso,
+        )
 
         Session = _get_session()
         with Session() as session:
-            def _load_pitcher_arsenal(pitcher_id):
+
+            def load_pitcher_arsenal(pitcher_id: Optional[int]) -> Tuple[List[Dict[str, Any]], Optional[int]]:
                 if not pitcher_id:
                     return [], None
-                raw, s = get_pitch_arsenal_with_fallback(session, pitcher_id, season)
-                lst = _normalize_arsenal_to_dicts(raw)
-                if not lst:
-                    live, ls = _fetch_live_pitch_arsenal(pitcher_id, season)
-                    return live, ls
-                return lst, s
 
-            home_arsenal, home_arsenal_season = _load_pitcher_arsenal(home_pitcher_id)
-            away_arsenal, away_arsenal_season = _load_pitcher_arsenal(away_pitcher_id)
+                raw, arsenal_season = get_pitch_arsenal_with_fallback(session, pitcher_id, season)
+                arsenal_rows = _normalize_arsenal_to_dicts(raw)
+
+                if not arsenal_rows:
+                    live_rows, live_season = _fetch_live_pitch_arsenal(pitcher_id, season)
+                    return live_rows, live_season
+
+                return arsenal_rows, arsenal_season
+
+            home_arsenal, home_arsenal_season = load_pitcher_arsenal(home_pitcher_id)
+            away_arsenal, away_arsenal_season = load_pitcher_arsenal(away_pitcher_id)
 
             away_lineup_matchups = [
                 _build_competitive_matchup(
                     session=session,
-                    batter_id=p.get("id"),
-                    batter_name=p.get("fullName") or f"Batter #{p.get('id')}",
-                    batting_order=i + 1,
+                    batter_id=player.get("id"),
+                    batter_name=player.get("fullName") or f"Batter #{player.get('id')}",
+                    batting_order=index + 1,
                     opposing_pitcher_id=home_pitcher_id,
                     season=season,
                     _preloaded_arsenal=home_arsenal,
                     _preloaded_arsenal_season=home_arsenal_season,
                 )
-                for i, p in enumerate(away_lineup_raw)
-                if p.get("id") and home_pitcher_id
+                for index, player in enumerate(away_lineup_raw)
+                if player.get("id") and home_pitcher_id
             ]
+
             home_lineup_matchups = [
                 _build_competitive_matchup(
                     session=session,
-                    batter_id=p.get("id"),
-                    batter_name=p.get("fullName") or f"Batter #{p.get('id')}",
-                    batting_order=i + 1,
+                    batter_id=player.get("id"),
+                    batter_name=player.get("fullName") or f"Batter #{player.get('id')}",
+                    batting_order=index + 1,
                     opposing_pitcher_id=away_pitcher_id,
                     season=season,
                     _preloaded_arsenal=away_arsenal,
                     _preloaded_arsenal_season=away_arsenal_season,
                 )
-                for i, p in enumerate(home_lineup_raw)
-                if p.get("id") and away_pitcher_id
+                for index, player in enumerate(home_lineup_raw)
+                if player.get("id") and away_pitcher_id
             ]
 
         return {
@@ -1035,44 +1514,37 @@ def create_app():
     @app.get("/pitcher/{player_id}")
     def get_pitcher(player_id: int) -> Dict[str, Any]:
         season = datetime.date.today().year
+
         Session = _get_session()
         with Session() as session:
             agg, data_source = get_pitcher_aggregate_with_fallback(session, player_id, season)
             arsenal, arsenal_season = get_pitch_arsenal_with_fallback(session, player_id, season)
-            arsenal_rows = [
-                {
-                    "pitch_type": r.pitch_type,
-                    "pitch_name": r.pitch_name,
-                    "usage_pct": _normalize_rate(r.usage_pct),
-                    "whiff_pct": _normalize_rate(r.whiff_pct),
-                    "strikeout_pct": _normalize_rate(r.strikeout_pct),
-                    "rv_per_100": r.rv_per_100,
-                    "xwoba": r.xwoba,
-                    "hard_hit_pct": _normalize_rate(r.hard_hit_pct),
-                }
-                for r in arsenal
-            ]
+
+            arsenal_rows = _normalize_arsenal_to_dicts(arsenal)
             if not arsenal_rows:
                 live_arsenal, live_season = _fetch_live_pitch_arsenal(player_id, season)
                 if live_arsenal:
                     arsenal_rows = live_arsenal
                     arsenal_season = live_season
+
             multi = get_pitcher_multi_season(session, player_id, [season, season - 1, season - 2, season - 3])
             game_log = get_pitcher_game_log(session, player_id, 10)
+
             if not agg and not arsenal_rows:
                 player_name = None
+
                 try:
-                    p_resp = _req.get(
+                    data = _request_json(
                         f"{MLB_STATS_BASE}/people/{player_id}",
                         params={"hydrate": "currentTeam"},
                         timeout=10,
                     )
-                    if p_resp.ok:
-                        people = p_resp.json().get("people", [])
-                        if people:
-                            player_name = people[0].get("fullName")
+                    people = data.get("people", [])
+                    if people:
+                        player_name = people[0].get("fullName")
                 except Exception:
                     pass
+
                 return {
                     "player_id": player_id,
                     "player_name": player_name,
@@ -1084,12 +1556,13 @@ def create_app():
                     "game_log": [],
                     "no_data": True,
                 }
+
             return {
                 "player_id": player_id,
                 "data_source": data_source,
                 "aggregate": {
-                    c.name: getattr(agg, c.name)
-                    for c in agg.__table__.columns
+                    column.name: getattr(agg, column.name)
+                    for column in agg.__table__.columns
                 } if agg else None,
                 "arsenal": arsenal_rows,
                 "arsenal_season": arsenal_season,
@@ -1102,60 +1575,78 @@ def create_app():
         player_id: int,
         windows: str = Query("15,30,60,90,120,150"),
     ) -> Dict[str, Any]:
-        sizes = [int(w) for w in windows.split(",") if w.strip().isdigit()]
+        sizes = [int(window) for window in windows.split(",") if window.strip().isdigit()]
+
         Session = _get_session()
         with Session() as session:
             result = []
-            for n in sizes:
-                stats = get_pitcher_rolling_by_games(session, player_id, n)
-                result.append({
-                    "window": f"L{n}G",
-                    "n_requested": n,
-                    "stats": stats,
-                })
-            return {"player_id": player_id, "windows": result}
+            for size in sizes:
+                stats = get_pitcher_rolling_by_games(session, player_id, size)
+                result.append(
+                    {
+                        "window": f"L{size}G",
+                        "n_requested": size,
+                        "stats": stats,
+                    }
+                )
+
+            return {
+                "player_id": player_id,
+                "windows": result,
+            }
 
     @app.get("/pitcher/{player_id}/game-log")
     def pitcher_game_log(player_id: int, n: int = 10) -> Dict[str, Any]:
         Session = _get_session()
         with Session() as session:
-            return {"player_id": player_id, "game_log": get_pitcher_game_log(session, player_id, n)}
+            return {
+                "player_id": player_id,
+                "game_log": get_pitcher_game_log(session, player_id, n),
+            }
 
     @app.get("/batter/{player_id}")
     def get_batter(player_id: int) -> Dict[str, Any]:
         season = datetime.date.today().year
+
         Session = _get_session()
         with Session() as session:
             agg, data_source = get_batter_aggregate_with_fallback(session, player_id, season)
-            split_L = get_player_split(session, player_id, season, "vsL")
-            split_R = get_player_split(session, player_id, season, "vsR")
+            split_l = get_player_split(session, player_id, season, "vsL")
+            split_r = get_player_split(session, player_id, season, "vsR")
             multi = get_batter_multi_season(session, player_id, [season, season - 1, season - 2, season - 3])
             split_seasons = get_player_splits_multi_season(session, player_id, [season, season - 1, season - 2, season - 3])
             statcast = _compute_batter_statcast(session, player_id, since_year=2024)
 
         live = _fetch_batter_live_data(player_id, season)
 
-        def _sd(s):
-            if not s:
+        def split_dict(split):
+            if not split:
                 return None
+
             return {
-                "pa": s.pa, "batting_avg": s.batting_avg,
-                "on_base_pct": s.on_base_pct, "slugging_pct": s.slugging_pct,
-                "iso": s.iso, "k_pct": s.k_pct, "bb_pct": s.bb_pct,
-                "home_runs": s.home_runs,
+                "pa": split.pa,
+                "batting_avg": split.batting_avg,
+                "on_base_pct": split.on_base_pct,
+                "slugging_pct": split.slugging_pct,
+                "iso": split.iso,
+                "k_pct": split.k_pct,
+                "bb_pct": split.bb_pct,
+                "home_runs": split.home_runs,
             }
 
-        db_vsL, db_vsR = _sd(split_L), _sd(split_R)
-        if db_vsL or db_vsR:
-            splits = {"vsL": db_vsL, "vsR": db_vsR}
-        else:
-            splits = live["splits"]
+        db_vs_l = split_dict(split_l)
+        db_vs_r = split_dict(split_r)
+
+        splits = {"vsL": db_vs_l, "vsR": db_vs_r} if db_vs_l or db_vs_r else live["splits"]
 
         return {
             "player_id": player_id,
             "player_info": live["player_info"],
             "data_source": data_source,
-            "aggregate": {c.name: getattr(agg, c.name) for c in agg.__table__.columns} if agg else None,
+            "aggregate": {
+                column.name: getattr(agg, column.name)
+                for column in agg.__table__.columns
+            } if agg else None,
             "statcast": statcast,
             "season_stats": live["season_stats"],
             "splits": splits,
@@ -1170,19 +1661,33 @@ def create_app():
         windows: str = Query("10,25,50,100,200,400,1000"),
         type: str = Query("abs"),
     ) -> Dict[str, Any]:
-        sizes = [int(w) for w in windows.split(",") if w.strip().isdigit()]
+        sizes = [int(window) for window in windows.split(",") if window.strip().isdigit()]
+
         Session = _get_session()
         with Session() as session:
             result = []
-            for n in sizes:
+
+            for size in sizes:
                 if type == "games":
-                    stats = get_batter_rolling_by_games(session, player_id, n)
-                    label = f"L{n}G"
+                    stats = get_batter_rolling_by_games(session, player_id, size)
+                    label = f"L{size}G"
                 else:
-                    stats = get_batter_rolling_by_abs(session, player_id, n)
-                    label = f"L{n}"
-                result.append({"window": label, "n_requested": n, "stats": stats})
-            return {"player_id": player_id, "type": type, "windows": result}
+                    stats = get_batter_rolling_by_abs(session, player_id, size)
+                    label = f"L{size}"
+
+                result.append(
+                    {
+                        "window": label,
+                        "n_requested": size,
+                        "stats": stats,
+                    }
+                )
+
+            return {
+                "player_id": player_id,
+                "type": type,
+                "windows": result,
+            }
 
     @app.get("/batter/{player_id}/at-bats")
     def batter_at_bats(
@@ -1193,6 +1698,7 @@ def create_app():
         Session = _get_session()
         with Session() as session:
             total, rows = get_batter_at_bats(session, player_id, n, offset)
+
             return {
                 "player_id": player_id,
                 "total_abs": total,
@@ -1204,9 +1710,10 @@ def create_app():
     @app.get("/batter/{player_id}/splits")
     def batter_splits(player_id: int) -> Dict[str, Any]:
         season = datetime.date.today().year
+        seasons = [season, season - 1, season - 2, season - 3]
+
         Session = _get_session()
         with Session() as session:
-            seasons = [season, season - 1, season - 2, season - 3]
             return {
                 "player_id": player_id,
                 "seasons": get_player_splits_multi_season(session, player_id, seasons),
@@ -1214,118 +1721,157 @@ def create_app():
 
     @app.get("/players/search")
     def search_players(name: str) -> List[Dict[str, Any]]:
-        url = f"{MLB_STATS_BASE}/people/search"
         try:
-            resp = _req.get(url, params={"sportId": 1, "names": name}, timeout=20)
-            resp.raise_for_status()
+            data = _request_json(
+                f"{MLB_STATS_BASE}/people/search",
+                params={
+                    "sportId": 1,
+                    "names": name,
+                },
+                timeout=20,
+            )
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"MLB API error: {exc}")
-        people = resp.json().get("people", [])
+
         results = []
-        for p in people:
-            pos = (p.get("primaryPosition") or {}).get("type") or ""
-            pos_type = "Pitcher" if pos.lower() == "pitcher" else "Batter"
-            results.append({
-                "id": p.get("id"),
-                "name": p.get("fullName"),
-                "team": (p.get("currentTeam") or {}).get("name"),
-                "position_type": pos_type,
-            })
+        for player in data.get("people", []):
+            position_type = ((player.get("primaryPosition") or {}).get("type") or "").lower()
+            results.append(
+                {
+                    "id": player.get("id"),
+                    "name": player.get("fullName"),
+                    "team": (player.get("currentTeam") or {}).get("name"),
+                    "position_type": "Pitcher" if position_type == "pitcher" else "Batter",
+                }
+            )
+
         return results
 
     @app.get("/players/all")
     def get_all_players(season: Optional[int] = None) -> List[Dict[str, Any]]:
         if not season:
             season = datetime.date.today().year
-        url = f"{MLB_STATS_BASE}/sports/1/players"
+
         try:
-            resp = _req.get(url, params={"season": season}, timeout=30)
-            resp.raise_for_status()
+            data = _request_json(
+                f"{MLB_STATS_BASE}/sports/1/players",
+                params={"season": season},
+                timeout=30,
+            )
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"MLB API error: {exc}")
-        people = resp.json().get("people", [])
-        out = []
-        for p in people:
-            pos = (p.get("primaryPosition") or {}).get("type") or ""
-            out.append({
-                "id": p.get("id"),
-                "name": p.get("fullName"),
-                "position_type": "Pitcher" if pos.lower() == "pitcher" else "Batter",
-                "position": (p.get("primaryPosition") or {}).get("abbreviation"),
-                "team": (p.get("currentTeam") or {}).get("name"),
-                "active": p.get("active"),
-            })
-        return out
+
+        players = []
+        for player in data.get("people", []):
+            position = player.get("primaryPosition") or {}
+            position_type = (position.get("type") or "").lower()
+
+            players.append(
+                {
+                    "id": player.get("id"),
+                    "name": player.get("fullName"),
+                    "position_type": "Pitcher" if position_type == "pitcher" else "Batter",
+                    "position": position.get("abbreviation"),
+                    "team": (player.get("currentTeam") or {}).get("name"),
+                    "active": player.get("active"),
+                }
+            )
+
+        return players
 
     @app.get("/team/{team_id}/roster")
     def get_team_roster(team_id: int, season: Optional[int] = None) -> Dict[str, Any]:
         if not season:
             season = datetime.date.today().year
-        url = f"{MLB_STATS_BASE}/teams/{team_id}/roster"
+
         try:
-            resp = _req.get(url, params={"rosterType": "active", "season": season}, timeout=20)
-            resp.raise_for_status()
+            data = _request_json(
+                f"{MLB_STATS_BASE}/teams/{team_id}/roster",
+                params={
+                    "rosterType": "active",
+                    "season": season,
+                },
+                timeout=20,
+            )
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"MLB API error: {exc}")
-        roster = resp.json().get("roster", [])
+
+        roster = []
+        for row in data.get("roster", []):
+            person = row.get("person") or {}
+            position = row.get("position") or {}
+            status = row.get("status") or {}
+
+            roster.append(
+                {
+                    "id": person.get("id"),
+                    "name": person.get("fullName"),
+                    "position": position.get("abbreviation"),
+                    "status": status.get("description"),
+                }
+            )
+
         return {
             "team_id": team_id,
             "season": season,
-            "roster": [
-                {
-                    "id": r.get("person", {}).get("id"),
-                    "name": r.get("person", {}).get("fullName"),
-                    "position": (r.get("position") or {}).get("abbreviation"),
-                    "status": (r.get("status") or {}).get("description"),
-                }
-                for r in roster
-            ],
+            "roster": roster,
         }
 
     @app.get("/standings")
     def get_standings(season: Optional[int] = None) -> List[Dict[str, Any]]:
         if not season:
             season = datetime.date.today().year
-        url = f"{MLB_STATS_BASE}/standings"
-        params = {
-            "leagueId": "103,104",
-            "season": season,
-            "standingsTypes": "regularSeason",
-            "hydrate": "team,division,league,record",
-        }
+
         try:
-            resp = _req.get(url, params=params, timeout=20)
-            resp.raise_for_status()
+            data = _request_json(
+                f"{MLB_STATS_BASE}/standings",
+                params={
+                    "leagueId": "103,104",
+                    "season": season,
+                    "standingsTypes": "regularSeason",
+                    "hydrate": "team,division,league,record",
+                },
+                timeout=20,
+            )
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"MLB API error: {exc}")
-        return resp.json().get("records", [])
+
+        return data.get("records", [])
 
     @app.get("/lineup/{team_id}")
     def get_team_lineup(team_id: int, date: Optional[str] = None) -> Dict[str, Any]:
         if not date:
             date = datetime.date.today().isoformat()
-        url = f"{MLB_STATS_BASE}/schedule"
-        params = {
-            "sportId": 1,
-            "date": date,
-            "teamId": team_id,
-            "hydrate": "lineups,probablePitcher,team",
-        }
+
         try:
-            resp = _req.get(url, params=params, timeout=20)
-            resp.raise_for_status()
+            data = _request_json(
+                f"{MLB_STATS_BASE}/schedule",
+                params={
+                    "sportId": 1,
+                    "date": date,
+                    "teamId": team_id,
+                    "hydrate": "lineups,probablePitcher,team",
+                },
+                timeout=20,
+            )
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"MLB API error: {exc}")
 
-        dates = resp.json().get("dates", [])
+        dates = data.get("dates", [])
         if not dates or not dates[0].get("games"):
-            return {"team_id": team_id, "date": date, "lineup": [], "probable_pitcher": None}
+            return {
+                "team_id": team_id,
+                "date": date,
+                "lineup": [],
+                "probable_pitcher": None,
+            }
 
         game = dates[0]["games"][0]
         teams = game.get("teams", {})
+
         side = "home" if teams.get("home", {}).get("team", {}).get("id") == team_id else "away"
-        lineup_raw = game.get("lineups", {}).get(f"{side}Players", [])
-        pitcher = teams.get(side, {}).get("probablePitcher", {})
+        lineup_raw = (game.get("lineups") or {}).get(f"{side}Players", []) or []
+        pitcher = teams.get(side, {}).get("probablePitcher", {}) or {}
 
         return {
             "team_id": team_id,
@@ -1334,10 +1880,14 @@ def create_app():
             "probable_pitcher": {
                 "id": pitcher.get("id"),
                 "name": pitcher.get("fullName"),
-            } if pitcher else None,
+            } if pitcher.get("id") else None,
             "lineup": [
-                {"batting_order": i + 1, "id": p.get("id"), "name": p.get("fullName")}
-                for i, p in enumerate(lineup_raw)
+                {
+                    "batting_order": index + 1,
+                    "id": player.get("id"),
+                    "name": player.get("fullName"),
+                }
+                for index, player in enumerate(lineup_raw)
             ],
         }
 
@@ -1345,56 +1895,72 @@ def create_app():
     def get_team(team_id: int, season: Optional[int] = None) -> Dict[str, Any]:
         if not season:
             season = datetime.date.today().year
+
         Session = _get_session()
         with Session() as session:
-            vsL = get_team_split(session, team_id, season, "vsL")
-            vsR = get_team_split(session, team_id, season, "vsR")
+            vs_l = get_team_split(session, team_id, season, "vsL")
+            vs_r = get_team_split(session, team_id, season, "vsR")
 
-            def _sd(sp):
-                if not sp:
+            def split_dict(split):
+                if not split:
                     return None
+
                 return {
-                    "pa": sp.pa, "batting_avg": sp.batting_avg,
-                    "on_base_pct": sp.on_base_pct, "slugging_pct": sp.slugging_pct,
-                    "k_pct": sp.k_pct, "bb_pct": sp.bb_pct, "home_runs": sp.home_runs,
+                    "pa": split.pa,
+                    "batting_avg": split.batting_avg,
+                    "on_base_pct": split.on_base_pct,
+                    "slugging_pct": split.slugging_pct,
+                    "k_pct": split.k_pct,
+                    "bb_pct": split.bb_pct,
+                    "home_runs": split.home_runs,
                 }
 
-            db_vsL, db_vsR = _sd(vsL), _sd(vsR)
-            both_missing = not db_vsL and not db_vsR
-            identical = (
-                db_vsL and db_vsR and
-                db_vsL.get("batting_avg") == db_vsR.get("batting_avg") and
-                db_vsL.get("pa") == db_vsR.get("pa")
-            )
-            if both_missing or identical:
-                splits = _fetch_team_splits_live(team_id, season)
-            else:
-                splits = {"vsL": db_vsL, "vsR": db_vsR}
+            db_vs_l = split_dict(vs_l)
+            db_vs_r = split_dict(vs_r)
 
-        standings_url = f"{MLB_STATS_BASE}/standings"
-        standings_params = {
-            "leagueId": "103,104",
-            "season": season,
-            "standingsTypes": "regularSeason",
-            "hydrate": "team,division,record",
-        }
+            both_missing = not db_vs_l and not db_vs_r
+            identical = (
+                db_vs_l
+                and db_vs_r
+                and db_vs_l.get("batting_avg") == db_vs_r.get("batting_avg")
+                and db_vs_l.get("pa") == db_vs_r.get("pa")
+            )
+
+            splits = _fetch_team_splits_live(team_id, season) if both_missing or identical else {
+                "vsL": db_vs_l,
+                "vsR": db_vs_r,
+            }
+
         team_standing = None
         try:
-            s_resp = _req.get(standings_url, params=standings_params, timeout=15)
-            s_resp.raise_for_status()
-            for div_record in s_resp.json().get("records", []):
-                for tr in div_record.get("teamRecords", []):
-                    if tr.get("team", {}).get("id") == team_id:
-                        team_standing = {
-                            "team_name": tr["team"].get("name"),
-                            "wins": tr.get("wins"),
-                            "losses": tr.get("losses"),
-                            "pct": tr.get("winningPercentage"),
-                            "games_back": tr.get("gamesBack"),
-                            "division": div_record.get("division", {}).get("nameShort"),
-                            "streak": tr.get("streak", {}).get("streakCode"),
-                        }
-                        break
+            standings_data = _request_json(
+                f"{MLB_STATS_BASE}/standings",
+                params={
+                    "leagueId": "103,104",
+                    "season": season,
+                    "standingsTypes": "regularSeason",
+                    "hydrate": "team,division,record",
+                },
+                timeout=15,
+            )
+
+            for division_record in standings_data.get("records", []):
+                for team_record in division_record.get("teamRecords", []):
+                    team = team_record.get("team") or {}
+                    if team.get("id") != team_id:
+                        continue
+
+                    team_standing = {
+                        "team_name": team.get("name"),
+                        "wins": team_record.get("wins"),
+                        "losses": team_record.get("losses"),
+                        "pct": team_record.get("winningPercentage"),
+                        "games_back": team_record.get("gamesBack"),
+                        "division": (division_record.get("division") or {}).get("nameShort"),
+                        "streak": (team_record.get("streak") or {}).get("streakCode"),
+                    }
+                    break
+
                 if team_standing:
                     break
         except Exception:
@@ -1410,6 +1976,7 @@ def create_app():
     @app.post("/predict")
     def predict_matchup(req: PredictRequest) -> Dict[str, Any]:
         season = req.season or datetime.date.today().year
+
         Session = _get_session()
         with Session() as session:
             result = score_individual_matchup(
@@ -1419,11 +1986,12 @@ def create_app():
                 season=season,
                 pitcher_throws=req.pitcher_throws,
             )
-        return {"pitcher_id": req.pitcher_id, "batter_id": req.batter_id, **result}
 
-    # ------------------------------------------------------------------
-    # LIVE DATA — 5 endpoints, all backed by MLB Stats API + TTL cache
-    # ------------------------------------------------------------------
+        return {
+            "pitcher_id": req.pitcher_id,
+            "batter_id": req.batter_id,
+            **result,
+        }
 
     @app.get("/live/scoreboard")
     def live_scoreboard(date: Optional[str] = None) -> Dict[str, Any]:
@@ -1431,10 +1999,12 @@ def create_app():
         target_date = date or datetime.date.today().isoformat()
         cache_key = f"scoreboard:{target_date}"
         cached = _live_cache_get(cache_key)
+
         if cached is not None:
             return cached
+
         try:
-            resp = _req.get(
+            data = _request_json(
                 f"{MLB_STATS_BASE}/schedule",
                 params={
                     "sportId": 1,
@@ -1443,61 +2013,89 @@ def create_app():
                 },
                 timeout=15,
             )
-            resp.raise_for_status()
-            raw = resp.json()
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"MLB API error: {exc}")
 
         games = []
-        for date_entry in raw.get("dates", []):
-            for g in date_entry.get("games", []):
-                status = g.get("status", {})
-                teams = g.get("teams", {})
+        for date_entry in data.get("dates", []):
+            for game in date_entry.get("games", []):
+                status = game.get("status", {})
+                teams = game.get("teams", {})
+
                 away = teams.get("away", {})
                 home = teams.get("home", {})
+
                 away_team = away.get("team", {})
                 home_team = home.get("team", {})
-                linescore = g.get("linescore", {})
-                away_prob = away.get("probablePitcher") or {}
-                home_prob = home.get("probablePitcher") or {}
-                decisions = g.get("decisions") or {}
+
+                linescore = game.get("linescore", {})
+
+                away_probable = away.get("probablePitcher") or {}
+                home_probable = home.get("probablePitcher") or {}
+
+                decisions = game.get("decisions") or {}
                 winner = decisions.get("winner") or {}
                 loser = decisions.get("loser") or {}
                 save = decisions.get("save") or {}
-                games.append({
-                    "game_pk": g.get("gamePk"),
-                    "game_datetime": g.get("gameDate"),
-                    "venue": (g.get("venue") or {}).get("name"),
-                    "status_code": status.get("statusCode"),
-                    "status_abstract": status.get("abstractGameState"),
-                    "status_detail": status.get("detailedState"),
-                    "inning": linescore.get("currentInning"),
-                    "inning_state": linescore.get("inningState"),
-                    "outs": linescore.get("outs"),
-                    "away": {
-                        "team_id": away_team.get("id"),
-                        "name": away_team.get("name"),
-                        "abbreviation": away_team.get("abbreviation"),
-                        "score": away.get("score"),
-                        "probable_pitcher": {"id": away_prob.get("id"), "name": away_prob.get("fullName")} if away_prob.get("id") else None,
-                    },
-                    "home": {
-                        "team_id": home_team.get("id"),
-                        "name": home_team.get("name"),
-                        "abbreviation": home_team.get("abbreviation"),
-                        "score": home.get("score"),
-                        "probable_pitcher": {"id": home_prob.get("id"), "name": home_prob.get("fullName")} if home_prob.get("id") else None,
-                    },
-                    "weather": _extract_weather(g),
-                    "decisions": {
-                        "winner": {"id": winner.get("id"), "name": winner.get("fullName")} if winner.get("id") else None,
-                        "loser": {"id": loser.get("id"), "name": loser.get("fullName")} if loser.get("id") else None,
-                        "save": {"id": save.get("id"), "name": save.get("fullName")} if save.get("id") else None,
-                    },
-                })
-        result = {"date": target_date, "game_count": len(games), "games": games}
-        is_live = any(g["status_abstract"] == "Live" for g in games)
+
+                games.append(
+                    {
+                        "game_pk": game.get("gamePk"),
+                        "game_datetime": game.get("gameDate"),
+                        "venue": (game.get("venue") or {}).get("name"),
+                        "status_code": status.get("statusCode"),
+                        "status_abstract": status.get("abstractGameState"),
+                        "status_detail": status.get("detailedState"),
+                        "inning": linescore.get("currentInning"),
+                        "inning_state": linescore.get("inningState"),
+                        "outs": linescore.get("outs"),
+                        "away": {
+                            "team_id": away_team.get("id"),
+                            "name": away_team.get("name"),
+                            "abbreviation": away_team.get("abbreviation"),
+                            "score": away.get("score"),
+                            "probable_pitcher": {
+                                "id": away_probable.get("id"),
+                                "name": away_probable.get("fullName"),
+                            } if away_probable.get("id") else None,
+                        },
+                        "home": {
+                            "team_id": home_team.get("id"),
+                            "name": home_team.get("name"),
+                            "abbreviation": home_team.get("abbreviation"),
+                            "score": home.get("score"),
+                            "probable_pitcher": {
+                                "id": home_probable.get("id"),
+                                "name": home_probable.get("fullName"),
+                            } if home_probable.get("id") else None,
+                        },
+                        "weather": _extract_weather(game),
+                        "decisions": {
+                            "winner": {
+                                "id": winner.get("id"),
+                                "name": winner.get("fullName"),
+                            } if winner.get("id") else None,
+                            "loser": {
+                                "id": loser.get("id"),
+                                "name": loser.get("fullName"),
+                            } if loser.get("id") else None,
+                            "save": {
+                                "id": save.get("id"),
+                                "name": save.get("fullName"),
+                            } if save.get("id") else None,
+                        },
+                    }
+                )
+
+        result = {
+            "date": target_date,
+            "game_count": len(games),
+            "games": games,
+        }
+
+        is_live = any(game["status_abstract"] == "Live" for game in games)
         _live_cache_set(cache_key, result, ttl=20 if is_live else 60)
+
         return result
 
     @app.get("/live/game/{game_pk}")
@@ -1506,253 +2104,284 @@ def create_app():
         feed = _fetch_live_feed(game_pk)
         if feed is None:
             raise HTTPException(status_code=502, detail="Could not fetch live game feed")
+
         game_data = feed.get("gameData", {})
         live_data = feed.get("liveData", {})
+
         status = game_data.get("status", {})
         teams = game_data.get("teams", {})
         linescore = live_data.get("linescore", {})
-        current_play = live_data.get("plays", {}).get("currentPlay") or {}
+
+        current_play = (live_data.get("plays") or {}).get("currentPlay") or {}
         matchup = current_play.get("matchup", {})
+
         batter = matchup.get("batter") or {}
         pitcher = matchup.get("pitcher") or {}
         count = current_play.get("count") or {}
+
         offense = linescore.get("offense") or {}
-        ls_teams = linescore.get("teams") or {}
+        linescore_teams = linescore.get("teams") or {}
 
         pitch_sequence = []
         for event in current_play.get("playEvents", []):
             if not event.get("isPitch"):
                 continue
-            pd = event.get("pitchData") or {}
+
+            pitch_data = event.get("pitchData") or {}
             details = event.get("details") or {}
-            pitch_sequence.append({
-                "pitch_type": (details.get("type") or {}).get("description"),
-                "call": (details.get("call") or {}).get("description"),
-                "speed_mph": pd.get("startSpeed"),
-                "zone": pd.get("zone"),
-                "spin_rate": (pd.get("breaks") or {}).get("spinRate"),
-                "induced_vert_break": (pd.get("breaks") or {}).get("breakVerticalInduced"),
-                "horiz_break": (pd.get("breaks") or {}).get("breakHorizontal"),
-            })
+            breaks = pitch_data.get("breaks") or {}
+
+            pitch_sequence.append(
+                {
+                    "pitch_type": (details.get("type") or {}).get("description"),
+                    "pitch_code": (details.get("type") or {}).get("code"),
+                    "call": (details.get("call") or {}).get("description"),
+                    "speed_mph": pitch_data.get("startSpeed"),
+                    "zone": pitch_data.get("zone"),
+                    "spin_rate": breaks.get("spinRate"),
+                    "induced_vert_break": breaks.get("breakVerticalInduced"),
+                    "horizontal_break": breaks.get("breakHorizontal"),
+                }
+            )
 
         return {
             "game_pk": game_pk,
-            "status": status.get("abstractGameState"),
-            "status_detail": status.get("detailedState"),
+            "status": status.get("detailedState"),
             "inning": linescore.get("currentInning"),
             "inning_state": linescore.get("inningState"),
             "outs": linescore.get("outs"),
+            "balls": count.get("balls"),
+            "strikes": count.get("strikes"),
             "away": {
-                "team_id": (teams.get("away") or {}).get("id"),
+                "id": (teams.get("away") or {}).get("id"),
                 "name": (teams.get("away") or {}).get("name"),
-                "abbreviation": (teams.get("away") or {}).get("abbreviation"),
-                "score": ls_teams.get("away", {}).get("runs"),
+                "runs": ((linescore_teams.get("away") or {}).get("runs")),
+                "hits": ((linescore_teams.get("away") or {}).get("hits")),
+                "errors": ((linescore_teams.get("away") or {}).get("errors")),
             },
             "home": {
-                "team_id": (teams.get("home") or {}).get("id"),
+                "id": (teams.get("home") or {}).get("id"),
                 "name": (teams.get("home") or {}).get("name"),
-                "abbreviation": (teams.get("home") or {}).get("abbreviation"),
-                "score": ls_teams.get("home", {}).get("runs"),
+                "runs": ((linescore_teams.get("home") or {}).get("runs")),
+                "hits": ((linescore_teams.get("home") or {}).get("hits")),
+                "errors": ((linescore_teams.get("home") or {}).get("errors")),
             },
-            "current_batter": {
+            "batter": {
                 "id": batter.get("id"),
                 "name": batter.get("fullName"),
-                "bat_side": (matchup.get("batSide") or {}).get("code"),
-            },
-            "current_pitcher": {
+            } if batter.get("id") else None,
+            "pitcher": {
                 "id": pitcher.get("id"),
                 "name": pitcher.get("fullName"),
-                "pitch_hand": (matchup.get("pitchHand") or {}).get("code"),
-            },
-            "count": {
-                "balls": count.get("balls"),
-                "strikes": count.get("strikes"),
-                "outs": count.get("outs"),
-            },
+            } if pitcher.get("id") else None,
             "runners": {
-                "first": (offense.get("first") or {}).get("fullName"),
-                "second": (offense.get("second") or {}).get("fullName"),
-                "third": (offense.get("third") or {}).get("fullName"),
+                "first": offense.get("first"),
+                "second": offense.get("second"),
+                "third": offense.get("third"),
             },
             "pitch_sequence": pitch_sequence,
         }
 
     @app.get("/live/game/{game_pk}/boxscore")
-    def live_boxscore(game_pk: int) -> Dict[str, Any]:
-        """All pitcher lines (IP/H/ER/BB/K/ERA) and batter lines (AB/H/R/RBI/HR/OPS) for the game."""
+    def live_game_boxscore(game_pk: int) -> Dict[str, Any]:
+        """In-game pitcher lines and batter lines."""
         feed = _fetch_live_feed(game_pk)
         if feed is None:
             raise HTTPException(status_code=502, detail="Could not fetch live game feed")
-        boxscore = feed.get("liveData", {}).get("boxscore", {})
-        bs_teams = boxscore.get("teams", {})
 
-        def parse_pitchers(side: Dict) -> List[Dict]:
-            players = side.get("players") or {}
-            result = []
-            for pid in side.get("pitchers", []):
-                p = players.get(f"ID{pid}") or {}
-                gs = p.get("gameStatus") or {}
-                stats = (p.get("stats") or {}).get("pitching") or {}
-                season = (p.get("seasonStats") or {}).get("pitching") or {}
-                result.append({
-                    "id": pid,
-                    "name": (p.get("person") or {}).get("fullName"),
-                    "innings_pitched": stats.get("inningsPitched"),
-                    "hits": stats.get("hits"),
-                    "runs": stats.get("runs"),
-                    "earned_runs": stats.get("earnedRuns"),
-                    "walks": stats.get("baseOnBalls"),
-                    "strikeouts": stats.get("strikeOuts"),
-                    "home_runs": stats.get("homeRuns"),
-                    "pitch_count": stats.get("pitchesThrown"),
-                    "strikes_thrown": stats.get("strikes"),
-                    "era": season.get("era"),
-                    "is_current_pitcher": gs.get("isCurrentPitcher", False),
-                })
-            return result
+        game_data = feed.get("gameData", {})
+        live_data = feed.get("liveData", {})
 
-        def parse_batters(side: Dict) -> List[Dict]:
-            players = side.get("players") or {}
-            result = []
-            for bid in side.get("batters", []):
-                p = players.get(f"ID{bid}") or {}
-                stats = (p.get("stats") or {}).get("batting") or {}
-                season = (p.get("seasonStats") or {}).get("batting") or {}
-                pos = (p.get("position") or {}).get("abbreviation")
-                result.append({
-                    "id": bid,
-                    "name": (p.get("person") or {}).get("fullName"),
-                    "position": pos,
-                    "batting_order": p.get("battingOrder"),
-                    "at_bats": stats.get("atBats"),
-                    "runs": stats.get("runs"),
-                    "hits": stats.get("hits"),
-                    "rbi": stats.get("rbi"),
-                    "home_runs": stats.get("homeRuns"),
-                    "walks": stats.get("baseOnBalls"),
-                    "strikeouts": stats.get("strikeOuts"),
-                    "left_on_base": stats.get("leftOnBase"),
-                    "season_avg": season.get("avg"),
-                    "season_ops": season.get("ops"),
-                })
-            return result
+        teams = game_data.get("teams", {})
+        boxscore = live_data.get("boxscore", {})
+        boxscore_teams = boxscore.get("teams", {})
+
+        def parse_team(side: str) -> Dict[str, Any]:
+            team = teams.get(side) or {}
+            team_box = boxscore_teams.get(side) or {}
+            players = team_box.get("players") or {}
+
+            batters = []
+            pitchers = []
+
+            for player_key, player_row in players.items():
+                person = player_row.get("person") or {}
+                stats = player_row.get("stats") or {}
+
+                batting = stats.get("batting") or {}
+                pitching = stats.get("pitching") or {}
+
+                if batting:
+                    batters.append(
+                        {
+                            "id": person.get("id"),
+                            "name": person.get("fullName"),
+                            "ab": batting.get("atBats"),
+                            "h": batting.get("hits"),
+                            "r": batting.get("runs"),
+                            "rbi": batting.get("rbi"),
+                            "bb": batting.get("baseOnBalls"),
+                            "k": batting.get("strikeOuts"),
+                            "hr": batting.get("homeRuns"),
+                        }
+                    )
+
+                if pitching:
+                    pitchers.append(
+                        {
+                            "id": person.get("id"),
+                            "name": person.get("fullName"),
+                            "ip": pitching.get("inningsPitched"),
+                            "h": pitching.get("hits"),
+                            "r": pitching.get("runs"),
+                            "er": pitching.get("earnedRuns"),
+                            "bb": pitching.get("baseOnBalls"),
+                            "k": pitching.get("strikeOuts"),
+                            "hr": pitching.get("homeRuns"),
+                            "pitches": pitching.get("pitchesThrown"),
+                            "strikes": pitching.get("strikes"),
+                        }
+                    )
+
+            return {
+                "team_id": team.get("id"),
+                "name": team.get("name"),
+                "batters": batters,
+                "pitchers": pitchers,
+            }
 
         return {
             "game_pk": game_pk,
-            "away": {
-                "pitchers": parse_pitchers(bs_teams.get("away") or {}),
-                "batters": parse_batters(bs_teams.get("away") or {}),
-            },
-            "home": {
-                "pitchers": parse_pitchers(bs_teams.get("home") or {}),
-                "batters": parse_batters(bs_teams.get("home") or {}),
-            },
+            "away": parse_team("away"),
+            "home": parse_team("home"),
         }
 
     @app.get("/live/game/{game_pk}/plays")
-    def live_plays(game_pk: int, limit: int = Query(default=25, le=100)) -> Dict[str, Any]:
-        """Recent play-by-play: event, description, RBI, score change, hit data (exit velo/distance)."""
+    def live_game_plays(game_pk: int, limit: int = Query(25, ge=1, le=100)) -> Dict[str, Any]:
+        """Recent play-by-play with hit data."""
         feed = _fetch_live_feed(game_pk)
         if feed is None:
             raise HTTPException(status_code=502, detail="Could not fetch live game feed")
-        plays_data = feed.get("liveData", {}).get("plays", {})
-        all_plays = plays_data.get("allPlays") or []
-        completed = [p for p in all_plays if (p.get("about") or {}).get("isComplete")]
-        recent = list(reversed(completed[-limit:]))
 
-        result = []
-        for play in recent:
-            about = play.get("about") or {}
-            res = play.get("result") or {}
+        plays = (feed.get("liveData", {}).get("plays") or {}).get("allPlays", [])
+        recent = plays[-limit:]
+
+        out = []
+        for play in reversed(recent):
             matchup = play.get("matchup") or {}
+            result = play.get("result") or {}
+            about = play.get("about") or {}
+            count = play.get("count") or {}
+
             hit_data = None
-            for event in reversed(play.get("playEvents") or []):
-                hd = event.get("hitData")
-                if hd:
+            pitch_data = None
+
+            for event in reversed(play.get("playEvents", []) or []):
+                if hit_data is None and event.get("hitData"):
+                    hd = event.get("hitData") or {}
                     hit_data = {
-                        "exit_velocity": hd.get("launchSpeed"),
+                        "launch_speed": hd.get("launchSpeed"),
                         "launch_angle": hd.get("launchAngle"),
-                        "distance": hd.get("totalDistance"),
+                        "total_distance": hd.get("totalDistance"),
+                        "trajectory": hd.get("trajectory"),
                         "hardness": hd.get("hardness"),
                     }
+
+                if pitch_data is None and event.get("isPitch"):
+                    pd = event.get("pitchData") or {}
+                    details = event.get("details") or {}
+                    pitch_data = {
+                        "pitch_type": (details.get("type") or {}).get("description"),
+                        "pitch_code": (details.get("type") or {}).get("code"),
+                        "call": (details.get("call") or {}).get("description"),
+                        "speed_mph": pd.get("startSpeed"),
+                        "zone": pd.get("zone"),
+                    }
+
+                if hit_data is not None and pitch_data is not None:
                     break
-            result.append({
-                "play_index": about.get("atBatIndex"),
-                "inning": about.get("inning"),
-                "half_inning": about.get("halfInning"),
-                "is_scoring_play": about.get("isScoringPlay", False),
-                "batter": {"id": (matchup.get("batter") or {}).get("id"), "name": (matchup.get("batter") or {}).get("fullName")},
-                "pitcher": {"id": (matchup.get("pitcher") or {}).get("id"), "name": (matchup.get("pitcher") or {}).get("fullName")},
-                "event": res.get("event"),
-                "event_type": res.get("eventType"),
-                "description": res.get("description"),
-                "rbi": res.get("rbi"),
-                "away_score": res.get("awayScore"),
-                "home_score": res.get("homeScore"),
-                "hit_data": hit_data,
-            })
-        return {"game_pk": game_pk, "total_plays": len(all_plays), "plays": result}
 
-    @app.get("/live/game/{game_pk}/linescore")
-    def live_linescore(game_pk: int) -> Dict[str, Any]:
-        """Inning-by-inning runs/hits/errors, totals, outs, and game decisions (W/L/S pitcher)."""
-        feed = _fetch_live_feed(game_pk)
-        if feed is None:
-            raise HTTPException(status_code=502, detail="Could not fetch live game feed")
-        live_data = feed.get("liveData", {})
-        game_data = feed.get("gameData", {})
-        linescore = live_data.get("linescore", {})
-        ls_teams = linescore.get("teams") or {}
-        gd_teams = game_data.get("teams") or {}
-        decisions = live_data.get("decisions") or {}
-        winner = decisions.get("winner") or {}
-        loser = decisions.get("loser") or {}
-        save = decisions.get("save") or {}
-
-        innings = []
-        for inn in linescore.get("innings", []):
-            innings.append({
-                "num": inn.get("num"),
-                "away_runs": (inn.get("away") or {}).get("runs"),
-                "away_hits": (inn.get("away") or {}).get("hits"),
-                "away_errors": (inn.get("away") or {}).get("errors"),
-                "home_runs": (inn.get("home") or {}).get("runs"),
-                "home_hits": (inn.get("home") or {}).get("hits"),
-                "home_errors": (inn.get("home") or {}).get("errors"),
-            })
+            out.append(
+                {
+                    "inning": about.get("inning"),
+                    "half_inning": about.get("halfInning"),
+                    "event": result.get("event"),
+                    "description": result.get("description"),
+                    "rbi": result.get("rbi"),
+                    "is_scoring_play": about.get("isScoringPlay"),
+                    "batter": {
+                        "id": (matchup.get("batter") or {}).get("id"),
+                        "name": (matchup.get("batter") or {}).get("fullName"),
+                    },
+                    "pitcher": {
+                        "id": (matchup.get("pitcher") or {}).get("id"),
+                        "name": (matchup.get("pitcher") or {}).get("fullName"),
+                    },
+                    "count": {
+                        "balls": count.get("balls"),
+                        "strikes": count.get("strikes"),
+                        "outs": count.get("outs"),
+                    },
+                    "pitch": pitch_data,
+                    "hit": hit_data,
+                }
+            )
 
         return {
             "game_pk": game_pk,
-            "away_team": (gd_teams.get("away") or {}).get("abbreviation"),
-            "home_team": (gd_teams.get("home") or {}).get("abbreviation"),
-            "innings": innings,
-            "totals": {
-                "away": {
-                    "runs": ls_teams.get("away", {}).get("runs"),
-                    "hits": ls_teams.get("away", {}).get("hits"),
-                    "errors": ls_teams.get("away", {}).get("errors"),
-                    "left_on_base": ls_teams.get("away", {}).get("leftOnBase"),
-                },
-                "home": {
-                    "runs": ls_teams.get("home", {}).get("runs"),
-                    "hits": ls_teams.get("home", {}).get("hits"),
-                    "errors": ls_teams.get("home", {}).get("errors"),
-                    "left_on_base": ls_teams.get("home", {}).get("leftOnBase"),
-                },
-            },
-            "current_inning": linescore.get("currentInning"),
-            "inning_state": linescore.get("inningState"),
-            "outs": linescore.get("outs"),
-            "decisions": {
-                "winner": {"id": winner.get("id"), "name": winner.get("fullName")} if winner.get("id") else None,
-                "loser": {"id": loser.get("id"), "name": loser.get("fullName")} if loser.get("id") else None,
-                "save": {"id": save.get("id"), "name": save.get("fullName")} if save.get("id") else None,
-            },
+            "count": len(out),
+            "plays": out,
         }
 
-    _dist = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend', 'dist')
-    if os.path.isdir(_dist):
-        app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")
+    @app.get("/live/game/{game_pk}/linescore")
+    def live_game_linescore(game_pk: int) -> Dict[str, Any]:
+        """Inning-by-inning runs/hits/errors and game decisions."""
+        feed = _fetch_live_feed(game_pk)
+        if feed is None:
+            raise HTTPException(status_code=502, detail="Could not fetch live game feed")
+
+        game_data = feed.get("gameData", {})
+        live_data = feed.get("liveData", {})
+
+        teams = game_data.get("teams", {})
+        linescore = live_data.get("linescore", {})
+        decisions = live_data.get("decisions") or {}
+
+        innings = []
+        for inning in linescore.get("innings", []) or []:
+            innings.append(
+                {
+                    "num": inning.get("num"),
+                    "ordinal_num": inning.get("ordinalNum"),
+                    "away": inning.get("away", {}),
+                    "home": inning.get("home", {}),
+                }
+            )
+
+        return {
+            "game_pk": game_pk,
+            "current_inning": linescore.get("currentInning"),
+            "inning_state": linescore.get("inningState"),
+            "scheduled_innings": linescore.get("scheduledInnings"),
+            "teams": {
+                "away": {
+                    "id": (teams.get("away") or {}).get("id"),
+                    "name": (teams.get("away") or {}).get("name"),
+                    **((linescore.get("teams") or {}).get("away") or {}),
+                },
+                "home": {
+                    "id": (teams.get("home") or {}).get("id"),
+                    "name": (teams.get("home") or {}).get("name"),
+                    **((linescore.get("teams") or {}).get("home") or {}),
+                },
+            },
+            "innings": innings,
+            "decisions": {
+                "winner": decisions.get("winner"),
+                "loser": decisions.get("loser"),
+                "save": decisions.get("save"),
+            },
+        }
 
     return app
 
