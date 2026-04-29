@@ -64,11 +64,187 @@ const t = {
   mtd: { padding: '7px 10px', borderBottom: '1px solid #161b22', color: '#e6edf3' },
   mtdR: { textAlign: 'right' },
   noData: { color: '#8b949e', fontSize: '13px', textAlign: 'center', padding: '24px' },
+
+  // ── Pitch widget styles ──────────────────────────────────────────────────
+  pitchWidgetGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+    gap: '12px',
+    marginTop: '12px',
+  },
+  pitchWidget: (edge) => ({
+    background: 'linear-gradient(180deg, #101820 0%, #0d1117 100%)',
+    border: `1px solid ${edge > 0.15 ? '#2ea043' : edge < -0.15 ? '#da3633' : '#30363d'}`,
+    borderRadius: '12px',
+    padding: '14px',
+    boxShadow: edge > 0.15
+      ? '0 0 0 1px rgba(46,160,67,0.08), 0 8px 24px rgba(0,0,0,0.22)'
+      : edge < -0.15
+        ? '0 0 0 1px rgba(218,54,51,0.08), 0 8px 24px rgba(0,0,0,0.22)'
+        : '0 8px 24px rgba(0,0,0,0.18)',
+  }),
+  pitchWidgetTop: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: '10px',
+    marginBottom: '12px',
+  },
+  pitchTypeBig: {
+    fontSize: '18px',
+    fontWeight: '800',
+    color: '#e6edf3',
+    letterSpacing: '0.2px',
+  },
+  pitchNameSmall: {
+    fontSize: '11px',
+    color: '#8b949e',
+    marginTop: '2px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.6px',
+  },
+  sourceBadge: (source) => ({
+    fontSize: '10px',
+    fontWeight: '700',
+    padding: '3px 7px',
+    borderRadius: '999px',
+    whiteSpace: 'nowrap',
+    background: source === 'batter_pitch_type_matchups' ? '#102b1b' : '#21262d',
+    color: source === 'batter_pitch_type_matchups' ? '#3fb950' : '#8b949e',
+    border: `1px solid ${source === 'batter_pitch_type_matchups' ? '#238636' : '#30363d'}`,
+  }),
+  metricPillGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: '8px',
+    marginBottom: '12px',
+  },
+  metricPill: {
+    background: '#0a0f14',
+    border: '1px solid #21262d',
+    borderRadius: '8px',
+    padding: '8px',
+    minHeight: '48px',
+  },
+  metricLabel: {
+    color: '#8b949e',
+    fontSize: '10px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    marginBottom: '4px',
+  },
+  metricValue: {
+    color: '#e6edf3',
+    fontSize: '15px',
+    fontWeight: '800',
+  },
+  sampleStrip: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: '6px',
+    marginBottom: '12px',
+  },
+  sampleCell: {
+    background: '#161b22',
+    border: '1px solid #21262d',
+    borderRadius: '7px',
+    padding: '7px',
+    textAlign: 'center',
+  },
+  sampleNum: {
+    color: '#e6edf3',
+    fontSize: '14px',
+    fontWeight: '800',
+  },
+  sampleLabel: {
+    color: '#8b949e',
+    fontSize: '9px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.4px',
+    marginTop: '2px',
+  },
+  rateStack: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  rateRow: {
+    display: 'grid',
+    gridTemplateColumns: '70px 1fr 44px',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '11px',
+  },
+  rateLabel: {
+    color: '#8b949e',
+    textTransform: 'uppercase',
+    letterSpacing: '0.4px',
+  },
+  rateTrack: {
+    height: '7px',
+    background: '#21262d',
+    borderRadius: '999px',
+    overflow: 'hidden',
+  },
+  rateFill: (value, variant = 'neutral') => ({
+    height: '100%',
+    width: `${Math.max(0, Math.min(100, Number(value || 0) * 100))}%`,
+    background: variant === 'good' ? '#3fb950' : variant === 'bad' ? '#f85149' : '#58a6ff',
+    borderRadius: '999px',
+  }),
+  rateValue: {
+    color: '#e6edf3',
+    textAlign: 'right',
+    fontWeight: '700',
+  },
+  widgetFooter: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '10px',
+    borderTop: '1px solid #21262d',
+    paddingTop: '10px',
+    marginTop: '12px',
+  },
+  confidenceWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    minWidth: '130px',
+  },
 }
 
 const pct = (v, d = 1) => fmtPct(v, d)
 const dec = (v, d = 3) => fmtDec(v, d)
 const mph = v => v != null ? `${Number(v).toFixed(1)}` : '—'
+const intVal = v => v != null && !Number.isNaN(Number(v)) ? Number(v).toLocaleString() : '—'
+
+function pickMetric(obj, keys, fallback = null) {
+  for (const key of keys) {
+    if (obj && obj[key] != null) return obj[key]
+  }
+  return fallback
+}
+
+function confidenceVariant(value) {
+  if (value == null) return 'neutral'
+  if (value >= 0.70) return 'good'
+  if (value <= 0.45) return 'bad'
+  return 'neutral'
+}
+
+function edgeVariant(value) {
+  if (value == null) return 'neutral'
+  if (value > 0.15) return 'good'
+  if (value < -0.15) return 'bad'
+  return 'neutral'
+}
+
+function sourceLabel(source) {
+  if (source === 'batter_pitch_type_matchups') return 'Stored 365'
+  if (source === 'live_statcast_events_fallback') return 'Fallback'
+  return 'Live'
+}
 
 function probColor(p) {
   if (p == null) return '#8b949e'
@@ -221,6 +397,126 @@ function SplitTable({ title, split }) {
   )
 }
 
+// ── New pitch widget components ──────────────────────────────────────────────
+
+function RateBar({ label, value, variant = 'neutral' }) {
+  return (
+    <div style={t.rateRow}>
+      <span style={t.rateLabel}>{label}</span>
+      <div style={t.rateTrack}>
+        <div style={t.rateFill(value, variant)} />
+      </div>
+      <span style={t.rateValue}>{pct(value)}</span>
+    </div>
+  )
+}
+
+function MetricPill({ label, value }) {
+  return (
+    <div style={t.metricPill}>
+      <div style={t.metricLabel}>{label}</div>
+      <div style={t.metricValue}>{value ?? '—'}</div>
+    </div>
+  )
+}
+
+function PitchTypeWidget({ pitch }) {
+  const bvt = pitch.batter_vs_type || {}
+  const edge = pitch.edge_score ?? 0
+  const conf = pitch.confidence ?? 0
+  const source = bvt.source || null
+
+  const pitchesSeenVal = pickMetric(bvt, ['pitches_seen', 'pa']) ?? 0
+  const paEndedVal     = pickMetric(bvt, ['pa_ended', 'pa']) ?? 0
+  const swingsVal      = pickMetric(bvt, ['swings']) ?? 0
+  const whiffsVal      = pickMetric(bvt, ['whiffs']) ?? 0
+
+  const avgVal   = pickMetric(bvt, ['batting_avg'])
+  const xwobaVal = pickMetric(bvt, ['xwoba'])
+  const xbaVal   = pickMetric(bvt, ['xba'])
+  const evVal    = pickMetric(bvt, ['avg_exit_velocity', 'avg_ev'])
+  const laVal    = pickMetric(bvt, ['avg_launch_angle', 'avg_la'])
+
+  const whiffPct   = pickMetric(bvt, ['whiff_pct'])
+  const kPct       = pickMetric(bvt, ['k_pct'])
+  const putawayPct = pickMetric(bvt, ['putaway_pct'])
+  const hardHitPct = pickMetric(bvt, ['hard_hit_pct', 'hardhit_pct'])
+
+  return (
+    <div style={t.pitchWidget(edge)}>
+      {/* Header */}
+      <div style={t.pitchWidgetTop}>
+        <div>
+          <div style={t.pitchTypeBig}>{pitch.pitch_type || '—'}</div>
+          <div style={t.pitchNameSmall}>
+            Usage {pct(pitch.pitcher_usage_pct)}
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+          {source && (
+            <span style={t.sourceBadge(source)}>{sourceLabel(source)}</span>
+          )}
+          <span style={{
+            fontSize: '13px',
+            fontWeight: '800',
+            color: edge > 0.15 ? '#3fb950' : edge < -0.15 ? '#f85149' : '#8b949e',
+          }}>
+            {edge > 0 ? '+' : ''}{Number(edge).toFixed(2)}
+          </span>
+        </div>
+      </div>
+
+      {/* Sample strip */}
+      <div style={t.sampleStrip}>
+        {[
+          { label: 'Pitches', value: intVal(pitchesSeenVal) },
+          { label: 'PA Ended', value: intVal(paEndedVal) },
+          { label: 'Swings', value: intVal(swingsVal) },
+          { label: 'Whiffs', value: intVal(whiffsVal) },
+        ].map(({ label, value }) => (
+          <div key={label} style={t.sampleCell}>
+            <div style={t.sampleNum}>{value}</div>
+            <div style={t.sampleLabel}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Metric pills */}
+      <div style={t.metricPillGrid}>
+        <MetricPill label="AVG"   value={dec(avgVal)} />
+        <MetricPill label="xwOBA" value={dec(xwobaVal)} />
+        <MetricPill label="EV"    value={evVal != null ? `${Number(evVal).toFixed(1)}` : '—'} />
+        <MetricPill label="LA"    value={laVal != null ? `${Number(laVal).toFixed(1)}°` : '—'} />
+      </div>
+
+      {/* Rate bars */}
+      <div style={t.rateStack}>
+        <RateBar label="Whiff%"   value={whiffPct}   variant="good" />
+        <RateBar label="K%"       value={kPct}       variant="good" />
+        <RateBar label="PutAway%" value={putawayPct} variant="good" />
+        <RateBar label="HardHit%" value={hardHitPct} variant={hardHitPct != null && hardHitPct > 0.40 ? 'bad' : 'neutral'} />
+      </div>
+
+      {/* Footer: pitcher xwOBA + confidence bar */}
+      <div style={t.widgetFooter}>
+        <span style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          Pitcher xwOBA {dec(pitch.pitcher_xwoba)}
+        </span>
+        <div style={t.confidenceWrap}>
+          <div style={{ ...t.rateTrack, flex: 1 }}>
+            <div style={t.rateFill(conf, confidenceVariant(conf))} />
+          </div>
+          <span style={{ fontSize: '11px', fontWeight: '700', color: '#8b949e', whiteSpace: 'nowrap' }}>
+            {pct(conf)} conf
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Updated CompetitiveBatterRow uses card grid ──────────────────────────────
+
 function CompetitiveBatterRow({ batter, expanded, onToggle }) {
   const matchup = batter.matchup || {}
   const matrix = matchup.pitch_type_matrix || []
@@ -237,52 +533,45 @@ function CompetitiveBatterRow({ batter, expanded, onToggle }) {
           </Link>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {bestEdge && <span style={t.edgeBadge(bestEdge.edge_score)}>{bestEdge.pitch_type}: {edgeLabel(bestEdge.edge_score)}</span>}
+          {bestEdge && (
+            <span style={t.edgeBadge(bestEdge.edge_score)}>
+              {bestEdge.pitch_type}: {edgeLabel(bestEdge.edge_score)}
+            </span>
+          )}
           <span style={{ color: '#8b949e', fontSize: '12px' }}>{expanded ? '▼' : '▶'}</span>
         </div>
       </div>
 
       {expanded && (
         <div style={{ padding: '0 14px 14px' }}>
-          <div style={{ display: 'flex', gap: '24px', marginBottom: '12px', fontSize: '12px', color: '#8b949e' }}>
-            <span>H2H PA: <span style={{ color: '#e6edf3' }}>{headToHead.pa ?? 0}</span></span>
-            <span>H2H AVG: <span style={{ color: '#e6edf3' }}>{headToHead.batting_avg != null ? dec(headToHead.batting_avg) : '—'}</span></span>
-            <span>Arsenal Season: <span style={{ color: '#e6edf3' }}>{matchup.arsenal_season ?? '—'}</span></span>
+          {/* Head-to-head summary strip */}
+          <div style={{
+            display: 'flex',
+            gap: '20px',
+            marginBottom: '16px',
+            padding: '10px 12px',
+            background: '#0a0f14',
+            borderRadius: '8px',
+            border: '1px solid #21262d',
+            fontSize: '12px',
+            color: '#8b949e',
+            flexWrap: 'wrap',
+          }}>
+            <span>H2H PA: <strong style={{ color: '#e6edf3' }}>{headToHead.pa ?? 0}</strong></span>
+            <span>H2H AVG: <strong style={{ color: '#e6edf3' }}>{headToHead.batting_avg != null ? dec(headToHead.batting_avg) : '—'}</strong></span>
+            <span>H2H xwOBA: <strong style={{ color: '#e6edf3' }}>{headToHead.xwoba != null ? dec(headToHead.xwoba) : '—'}</strong></span>
+            <span>Arsenal Season: <strong style={{ color: '#e6edf3' }}>{matchup.arsenal_season ?? '—'}</strong></span>
           </div>
 
+          {/* Pitch widget cards */}
           {matrix.length === 0 ? (
             <div style={t.noData}>No arsenal matchup data available</div>
           ) : (
-            <table style={t.matchupTable}>
-              <thead>
-                <tr>
-                  <th style={t.mth}>Pitch</th>
-                  <th style={{ ...t.mth, ...t.mtdR }}>Use%</th>
-                  <th style={{ ...t.mth, ...t.mtdR }}>Pitch xwOBA</th>
-                  <th style={{ ...t.mth, ...t.mtdR }}>Batter PA</th>
-                  <th style={{ ...t.mth, ...t.mtdR }}>Batter AVG</th>
-                  <th style={{ ...t.mth, ...t.mtdR }}>EV</th>
-                  <th style={{ ...t.mth, ...t.mtdR }}>HH%</th>
-                  <th style={{ ...t.mth, ...t.mtdR }}>Edge</th>
-                  <th style={{ ...t.mth, ...t.mtdR }}>Conf</th>
-                </tr>
-              </thead>
-              <tbody>
-                {matrix.map((p, idx) => (
-                  <tr key={idx}>
-                    <td style={t.mtd}>{p.pitch_type}</td>
-                    <td style={{ ...t.mtd, ...t.mtdR }}>{pct(p.pitcher_usage_pct)}</td>
-                    <td style={{ ...t.mtd, ...t.mtdR }}>{dec(p.pitcher_xwoba)}</td>
-                    <td style={{ ...t.mtd, ...t.mtdR }}>{p.batter_vs_type?.pa ?? 0}</td>
-                    <td style={{ ...t.mtd, ...t.mtdR }}>{p.batter_vs_type?.batting_avg != null ? dec(p.batter_vs_type.batting_avg) : '—'}</td>
-                    <td style={{ ...t.mtd, ...t.mtdR }}>{p.batter_vs_type?.avg_exit_velocity != null ? mph(p.batter_vs_type.avg_exit_velocity) : '—'}</td>
-                    <td style={{ ...t.mtd, ...t.mtdR }}>{p.batter_vs_type?.hard_hit_pct != null ? pct(p.batter_vs_type.hard_hit_pct) : '—'}</td>
-                    <td style={{ ...t.mtd, ...t.mtdR, color: (p.edge_score ?? 0) > 0 ? '#3fb950' : (p.edge_score ?? 0) < 0 ? '#f85149' : '#8b949e', fontWeight: '600' }}>{edgeLabel(p.edge_score)}</td>
-                    <td style={{ ...t.mtd, ...t.mtdR }}>{pct(p.confidence)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div style={t.pitchWidgetGrid}>
+              {matrix.map((p, idx) => (
+                <PitchTypeWidget key={idx} pitch={p} />
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -337,7 +626,7 @@ export default function MatchupDetailPage() {
   const homeLineupSource = competitive?.home_lineup_source
 
   function lineupSourceBadge(source) {
-    if (source === 'projected') return 'Projected (yesterday\'s lineup)'
+    if (source === 'projected') return "Projected (yesterday's lineup)"
     if (source === 'roster') return 'Lineup TBD — showing full roster'
     return null
   }
@@ -411,48 +700,48 @@ export default function MatchupDetailPage() {
           </div>
 
           <div style={t.section}>
-              <div style={t.sectionTitle}>Starting Lineups</div>
-              <div style={t.lineupGrid}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                    <div style={{ fontSize: '13px', color: '#58a6ff', fontWeight: '600' }}>{away.name}</div>
-                    {away.lineup_source && away.lineup_source !== 'official' && (
-                      <span style={{ fontSize: '11px', color: '#8b949e', background: '#21262d', padding: '2px 7px', borderRadius: '3px' }}>
-                        {lineupSourceBadge(away.lineup_source)}
-                      </span>
-                    )}
-                  </div>
-                  {away.lineup?.length > 0 ? away.lineup.map((p, i) => (
-                    <div key={i} style={t.lineupItem}>
-                      <span style={t.orderNum}>{i + 1}</span>
-                      <Link to={`/batter/${p.id}`} style={{ color: '#e6edf3', textDecoration: 'none', flex: 1 }}>{p.name}</Link>
-                      {p.position && <span style={{ color: '#8b949e', fontSize: '12px' }}>{p.position}</span>}
-                    </div>
-                  )) : (
-                    <div style={{ color: '#8b949e', fontSize: '13px', fontStyle: 'italic', paddingTop: '6px' }}>Lineup not yet posted</div>
+            <div style={t.sectionTitle}>Starting Lineups</div>
+            <div style={t.lineupGrid}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                  <div style={{ fontSize: '13px', color: '#58a6ff', fontWeight: '600' }}>{away.name}</div>
+                  {away.lineup_source && away.lineup_source !== 'official' && (
+                    <span style={{ fontSize: '11px', color: '#8b949e', background: '#21262d', padding: '2px 7px', borderRadius: '3px' }}>
+                      {lineupSourceBadge(away.lineup_source)}
+                    </span>
                   )}
                 </div>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                    <div style={{ fontSize: '13px', color: '#3fb950', fontWeight: '600' }}>{home.name}</div>
-                    {home.lineup_source && home.lineup_source !== 'official' && (
-                      <span style={{ fontSize: '11px', color: '#8b949e', background: '#21262d', padding: '2px 7px', borderRadius: '3px' }}>
-                        {lineupSourceBadge(home.lineup_source)}
-                      </span>
-                    )}
+                {away.lineup?.length > 0 ? away.lineup.map((p, i) => (
+                  <div key={i} style={t.lineupItem}>
+                    <span style={t.orderNum}>{i + 1}</span>
+                    <Link to={`/batter/${p.id}`} style={{ color: '#e6edf3', textDecoration: 'none', flex: 1 }}>{p.name}</Link>
+                    {p.position && <span style={{ color: '#8b949e', fontSize: '12px' }}>{p.position}</span>}
                   </div>
-                  {home.lineup?.length > 0 ? home.lineup.map((p, i) => (
-                    <div key={i} style={t.lineupItem}>
-                      <span style={t.orderNum}>{i + 1}</span>
-                      <Link to={`/batter/${p.id}`} style={{ color: '#e6edf3', textDecoration: 'none', flex: 1 }}>{p.name}</Link>
-                      {p.position && <span style={{ color: '#8b949e', fontSize: '12px' }}>{p.position}</span>}
-                    </div>
-                  )) : (
-                    <div style={{ color: '#8b949e', fontSize: '13px', fontStyle: 'italic', paddingTop: '6px' }}>Lineup not yet posted</div>
+                )) : (
+                  <div style={{ color: '#8b949e', fontSize: '13px', fontStyle: 'italic', paddingTop: '6px' }}>Lineup not yet posted</div>
+                )}
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                  <div style={{ fontSize: '13px', color: '#3fb950', fontWeight: '600' }}>{home.name}</div>
+                  {home.lineup_source && home.lineup_source !== 'official' && (
+                    <span style={{ fontSize: '11px', color: '#8b949e', background: '#21262d', padding: '2px 7px', borderRadius: '3px' }}>
+                      {lineupSourceBadge(home.lineup_source)}
+                    </span>
                   )}
                 </div>
+                {home.lineup?.length > 0 ? home.lineup.map((p, i) => (
+                  <div key={i} style={t.lineupItem}>
+                    <span style={t.orderNum}>{i + 1}</span>
+                    <Link to={`/batter/${p.id}`} style={{ color: '#e6edf3', textDecoration: 'none', flex: 1 }}>{p.name}</Link>
+                    {p.position && <span style={{ color: '#8b949e', fontSize: '12px' }}>{p.position}</span>}
+                  </div>
+                )) : (
+                  <div style={{ color: '#8b949e', fontSize: '13px', fontStyle: 'italic', paddingTop: '6px' }}>Lineup not yet posted</div>
+                )}
               </div>
             </div>
+          </div>
 
           <div style={t.section}>
             <div style={t.sectionTitle}>Team Hitting Splits</div>
@@ -481,7 +770,11 @@ export default function MatchupDetailPage() {
           <div style={{ marginBottom: '24px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
               <div style={{ fontSize: '14px', color: '#58a6ff', fontWeight: '600' }}>{away.name} hitters vs {home.pitcher_name || 'Home Starter'}</div>
-              {awayLineupSource && awayLineupSource !== 'official' && <span style={{ fontSize: '11px', color: '#8b949e', background: '#21262d', padding: '2px 7px', borderRadius: '3px' }}>{lineupSourceBadge(awayLineupSource)}</span>}
+              {awayLineupSource && awayLineupSource !== 'official' && (
+                <span style={{ fontSize: '11px', color: '#8b949e', background: '#21262d', padding: '2px 7px', borderRadius: '3px' }}>
+                  {lineupSourceBadge(awayLineupSource)}
+                </span>
+              )}
             </div>
             {awayLineupMatchups.length === 0 ? (
               <div style={t.noData}>No data available</div>
@@ -498,7 +791,11 @@ export default function MatchupDetailPage() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
               <div style={{ fontSize: '14px', color: '#3fb950', fontWeight: '600' }}>{home.name} hitters vs {away.pitcher_name || 'Away Starter'}</div>
-              {homeLineupSource && homeLineupSource !== 'official' && <span style={{ fontSize: '11px', color: '#8b949e', background: '#21262d', padding: '2px 7px', borderRadius: '3px' }}>{lineupSourceBadge(homeLineupSource)}</span>}
+              {homeLineupSource && homeLineupSource !== 'official' && (
+                <span style={{ fontSize: '11px', color: '#8b949e', background: '#21262d', padding: '2px 7px', borderRadius: '3px' }}>
+                  {lineupSourceBadge(homeLineupSource)}
+                </span>
+              )}
             </div>
             {homeLineupMatchups.length === 0 ? (
               <div style={t.noData}>No data available</div>
