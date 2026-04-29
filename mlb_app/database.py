@@ -70,6 +70,66 @@ class StatcastEvent(Base):
     )
 
 
+class BatterPitchTypeMatchup(Base):
+    """Restored hitter-centered hittingMatchups aggregate for Batter vs Arsenal."""
+
+    __tablename__ = "batter_pitch_type_matchups"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    batter_id: int = Column(Integer, nullable=False, index=True)
+    batter_name: Optional[str] = Column(String(120), nullable=True)
+    batter_team_id: Optional[int] = Column(Integer, nullable=True, index=True)
+    opposing_pitcher_id: int = Column(Integer, nullable=False, index=True)
+    pitch_type: str = Column(String(5), nullable=False, index=True)
+    game_pk: Optional[int] = Column(Integer, nullable=True, index=True)
+    target_date: Optional[date] = Column(Date, nullable=True, index=True)
+    date_start: Optional[date] = Column(Date, nullable=True)
+    date_end: Optional[date] = Column(Date, nullable=True)
+    days_back: Optional[int] = Column(Integer, nullable=True)
+    source: Optional[str] = Column(String(40), nullable=True)
+
+    raw_rows: Optional[int] = Column(Integer, nullable=True)
+    deduped_rows: Optional[int] = Column(Integer, nullable=True)
+    duplicate_rows_removed: Optional[int] = Column(Integer, nullable=True)
+    pitches_seen: Optional[int] = Column(Integer, nullable=True)
+    swings: Optional[int] = Column(Integer, nullable=True)
+    whiffs: Optional[int] = Column(Integer, nullable=True)
+    strikeouts: Optional[int] = Column(Integer, nullable=True)
+    putaway_swings: Optional[int] = Column(Integer, nullable=True)
+    two_strike_pitches: Optional[int] = Column(Integer, nullable=True)
+    pa: Optional[int] = Column(Integer, nullable=True)
+    pa_ended: Optional[int] = Column(Integer, nullable=True)
+    ab: Optional[int] = Column(Integer, nullable=True)
+    hits: Optional[int] = Column(Integer, nullable=True)
+
+    batting_avg: Optional[float] = Column(Float, nullable=True)
+    xwoba: Optional[float] = Column(Float, nullable=True)
+    xba: Optional[float] = Column(Float, nullable=True)
+    avg_ev: Optional[float] = Column(Float, nullable=True)
+    avg_exit_velocity: Optional[float] = Column(Float, nullable=True)
+    avg_la: Optional[float] = Column(Float, nullable=True)
+    avg_launch_angle: Optional[float] = Column(Float, nullable=True)
+    batted_ball_count: Optional[int] = Column(Integer, nullable=True)
+    hard_hit_count: Optional[int] = Column(Integer, nullable=True)
+    whiff_pct: Optional[float] = Column(Float, nullable=True)
+    k_pct: Optional[float] = Column(Float, nullable=True)
+    putaway_pct: Optional[float] = Column(Float, nullable=True)
+    hardhit_pct: Optional[float] = Column(Float, nullable=True)
+    hard_hit_pct: Optional[float] = Column(Float, nullable=True)
+
+    refreshed_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "ix_batter_pitch_type_matchups_lookup",
+            "batter_id",
+            "opposing_pitcher_id",
+            "pitch_type",
+            "target_date",
+        ),
+    )
+
+
 class PitchArsenal(Base):
     __tablename__ = "pitch_arsenal"
 
