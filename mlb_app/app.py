@@ -417,6 +417,16 @@ def _summarize_batter_events(events_raw: List[StatcastEvent]) -> Dict[str, Any]:
 
     ev_vals = [event.launch_speed for event in terminal if event.launch_speed is not None]
     la_vals = [event.launch_angle for event in terminal if event.launch_angle is not None]
+    xwoba_vals = [
+        getattr(event, "estimated_woba_using_speedangle", None)
+        for event in terminal
+        if getattr(event, "estimated_woba_using_speedangle", None) is not None
+    ]
+    xba_vals = [
+        getattr(event, "estimated_ba_using_speedangle", None)
+        for event in terminal
+        if getattr(event, "estimated_ba_using_speedangle", None) is not None
+    ]
 
     hard_hits = sum(1 for value in ev_vals if value >= 95)
     barrels = sum(
@@ -448,7 +458,8 @@ def _summarize_batter_events(events_raw: List[StatcastEvent]) -> Dict[str, Any]:
         "barrel_pct": round(barrels / pa, 3) if pa else None,
         "batted_ball_count": len(ev_vals),
         "hard_hit_count": hard_hits,
-        "xwoba": None,
+        "xwoba": round(sum(xwoba_vals) / len(xwoba_vals), 3) if xwoba_vals else None,
+        "xba": round(sum(xba_vals) / len(xba_vals), 3) if xba_vals else None,
     }
 
 
@@ -492,41 +503,64 @@ def _stored_batter_pitch_type_summary(
     pitch_type: Optional[str],
     target_date: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Preferred Batter vs Arsenal source from the restored hittingMatchups table."""
-    if not pitch_type:
+    """
+    Preferred Batter vs Arsenal source from the restored hittingMatchups table.
+
+    Exact target_date is preferred when present. If the exact target date is
+    missing, this intentionally falls back to the latest row for
+    batter + opposing pitcher + pitch type so the cards do not drop back to
+    tiny live Statcast fallback samples.
+    """
+    if not batter_id or not opposing_pitcher_id or not pitch_type:
         return None
 
-    query = (
-        session.query(BatterPitchTypeMatchup)
-        .filter(
-            BatterPitchTypeMatchup.batter_id == batter_id,
-            BatterPitchTypeMatchup.opposing_pitcher_id == opposing_pitcher_id,
-            BatterPitchTypeMatchup.pitch_type == pitch_type,
-        )
+    base_query = session.query(BatterPitchTypeMatchup).filter(
+        BatterPitchTypeMatchup.batter_id == batter_id,
+        BatterPitchTypeMatchup.opposing_pitcher_id == opposing_pitcher_id,
+        BatterPitchTypeMatchup.pitch_type == pitch_type,
     )
+
+    record = None
 
     if target_date:
         try:
             parsed_date = datetime.date.fromisoformat(str(target_date)[:10])
-            query = query.filter(BatterPitchTypeMatchup.target_date == parsed_date)
-        except ValueError:
-            pass
+            record = (
+                base_query.filter(BatterPitchTypeMatchup.target_date == parsed_date)
+                .order_by(
+                    BatterPitchTypeMatchup.refreshed_at.desc().nullslast(),
+                    BatterPitchTypeMatchup.id.desc(),
+                )
+                .first()
+            )
+        except Exception:
+            record = None
 
-    record = (
-        query.order_by(
-            BatterPitchTypeMatchup.target_date.desc(),
-            BatterPitchTypeMatchup.refreshed_at.desc(),
+    if record is None:
+        record = (
+            base_query.order_by(
+                BatterPitchTypeMatchup.target_date.desc().nullslast(),
+                BatterPitchTypeMatchup.refreshed_at.desc().nullslast(),
+                BatterPitchTypeMatchup.id.desc(),
+            )
+            .first()
         )
-        .first()
-    )
 
     if not record:
         return None
 
+    avg_ev = record.avg_exit_velocity if record.avg_exit_velocity is not None else record.avg_ev
+    avg_la = record.avg_launch_angle if record.avg_launch_angle is not None else record.avg_la
+    hard_hit_pct = record.hard_hit_pct if record.hard_hit_pct is not None else record.hardhit_pct
+
     return {
         "source": "batter_pitch_type_matchups",
+        "row_source": record.source,
+        "target_date": record.target_date.isoformat() if record.target_date else None,
         "date_start": record.date_start.isoformat() if record.date_start else None,
         "date_end": record.date_end.isoformat() if record.date_end else None,
+        "days_back": record.days_back,
+        "refreshed_at": record.refreshed_at.isoformat() if record.refreshed_at else None,
         "raw_rows": record.raw_rows,
         "deduped_rows": record.deduped_rows,
         "duplicate_rows_removed": record.duplicate_rows_removed,
@@ -543,17 +577,18 @@ def _stored_batter_pitch_type_summary(
         "batting_avg": record.batting_avg,
         "xwoba": record.xwoba,
         "xba": record.xba,
-        "avg_ev": record.avg_ev,
-        "avg_exit_velocity": record.avg_exit_velocity,
-        "avg_la": record.avg_la,
-        "avg_launch_angle": record.avg_launch_angle,
+        "avg_ev": avg_ev,
+        "avg_exit_velocity": avg_ev,
+        "avg_la": avg_la,
+        "avg_launch_angle": avg_la,
         "batted_ball_count": record.batted_ball_count,
         "hard_hit_count": record.hard_hit_count,
-        "whiff_pct": record.whiff_pct,
-        "k_pct": record.k_pct,
-        "putaway_pct": record.putaway_pct,
-        "hardhit_pct": record.hardhit_pct,
-        "hard_hit_pct": record.hard_hit_pct,
+        "whiff_pct": _normalize_rate(record.whiff_pct),
+        "k_pct": _normalize_rate(record.k_pct),
+        "putaway_pct": _normalize_rate(record.putaway_pct),
+        "hardhit_pct": _normalize_rate(hard_hit_pct),
+        "hard_hit_pct": _normalize_rate(hard_hit_pct),
+        "sample_size": record.pitches_seen or record.pa_ended or record.pa or 0,
     }
 
 
@@ -604,6 +639,7 @@ def _head_to_head_summary(session, batter_id: int, pitcher_id: int, season: int)
         "hits": summary["hits"],
         "batting_avg": summary["batting_avg"],
         "xwoba": summary["xwoba"],
+        "xba": summary.get("xba"),
         "avg_exit_velocity": summary["avg_exit_velocity"],
         "avg_launch_angle": summary["avg_launch_angle"],
         "raw_rows": summary["raw_rows"],
@@ -621,6 +657,7 @@ def _build_competitive_matchup(
     season: int,
     _preloaded_arsenal: Optional[List[Dict[str, Any]]] = None,
     _preloaded_arsenal_season: Optional[int] = None,
+    target_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     if _preloaded_arsenal is not None:
         arsenal_list = _preloaded_arsenal
@@ -638,14 +675,24 @@ def _build_competitive_matchup(
 
     pitch_type_matrix: List[Dict[str, Any]] = []
     for pitch in arsenal_list:
-        batter_vs_type = _player_vs_pitch_type_summary(
+        batter_vs_type = _stored_batter_pitch_type_summary(
             session=session,
             batter_id=batter_id,
+            opposing_pitcher_id=opposing_pitcher_id,
             pitch_type=pitch.get("pitch_type"),
-            since_year=max(2024, season - 1),
+            target_date=target_date,
         )
 
-        pa = batter_vs_type.get("pa") or 0
+        if batter_vs_type is None:
+            batter_vs_type = _player_vs_pitch_type_summary(
+                session=session,
+                batter_id=batter_id,
+                pitch_type=pitch.get("pitch_type"),
+                since_year=max(2024, season - 1),
+            )
+            batter_vs_type["source"] = "live_statcast_events_fallback"
+
+        pa = batter_vs_type.get("pa_ended") or batter_vs_type.get("pa") or batter_vs_type.get("sample_size") or 0
 
         edge_score = _edge_score_from_components(
             batter_ba=batter_vs_type.get("batting_avg"),
@@ -840,6 +887,8 @@ def _compute_batter_statcast(session, batter_id: int, since_year: int = 2024) ->
         "avg_launch_angle": summary["avg_launch_angle"],
         "hard_hit_pct": summary["hard_hit_pct"],
         "barrel_pct": summary["barrel_pct"],
+        "xwoba": summary.get("xwoba"),
+        "xba": summary.get("xba"),
         "batted_ball_count": summary["batted_ball_count"],
         "hard_hit_count": summary["hard_hit_count"],
         "raw_rows": summary["raw_rows"],
@@ -1546,6 +1595,8 @@ def create_app():
             home_arsenal, home_arsenal_season = load_pitcher_arsenal(home_pitcher_id)
             away_arsenal, away_arsenal_season = load_pitcher_arsenal(away_pitcher_id)
 
+            game_date_str = game_date_iso[:10] if game_date_iso else None
+
             away_lineup_matchups = [
                 _build_competitive_matchup(
                     session=session,
@@ -1556,6 +1607,7 @@ def create_app():
                     season=season,
                     _preloaded_arsenal=home_arsenal,
                     _preloaded_arsenal_season=home_arsenal_season,
+                    target_date=game_date_str,
                 )
                 for index, player in enumerate(away_lineup_raw)
                 if player.get("id") and home_pitcher_id
@@ -1571,6 +1623,7 @@ def create_app():
                     season=season,
                     _preloaded_arsenal=away_arsenal,
                     _preloaded_arsenal_season=away_arsenal_season,
+                    target_date=game_date_str,
                 )
                 for index, player in enumerate(home_lineup_raw)
                 if player.get("id") and away_pitcher_id
