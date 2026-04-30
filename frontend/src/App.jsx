@@ -12,7 +12,7 @@ import CompetitiveAnalysisPage from './pages/CompetitiveAnalysisPage'
 import YesterdayTodayPage from './pages/YesterdayTodayPage'
 import AIPage from './pages/AIPage'
 import LiveScoreboardPage from './pages/LiveScoreboardPage'
-import LiveGamePage from './pages/LiveGamePage'
+import LiveGamePageRestored from './pages/LiveGamePageRestored'
 import DailyOddsPage from './pages/DailyOddsPage'
 
 const styles = {
@@ -89,7 +89,7 @@ export default function App() {
           <Route path="/calendar" element={<YesterdayTodayPage />} />
           <Route path="/ai" element={<AIPage />} />
           <Route path="/live" element={<LiveScoreboardPage />} />
-          <Route path="/live/:game_pk" element={<LiveGamePage />} />
+          <Route path="/live/:game_pk" element={<LiveGamePageRestored />} />
         </Routes>
       </main>
     </BrowserRouter>
