@@ -678,14 +678,23 @@ def _build_competitive_matchup(
     for pitch in arsenal_list:
         pitch_type = pitch.get("pitch_type")
 
-        # Correct hierarchy: compose pitcher arsenal with hitter-vs-pitch-type.
-        # Do not require a batter + opposing_pitcher + pitch_type materialized row.
-        batter_vs_type = _hitter_pitch_type_statcast_summary(
+        batter_vs_type = _stored_batter_pitch_type_summary(
             session=session,
             batter_id=batter_id,
+            opposing_pitcher_id=opposing_pitcher_id,
             pitch_type=pitch_type,
-            days_back=3650,
+            target_date=target_date,
         )
+
+        if batter_vs_type is None:
+            batter_vs_type = _hitter_pitch_type_statcast_summary(
+                session=session,
+                batter_id=batter_id,
+                pitch_type=pitch_type,
+                days_back=3650,
+            )
+            
+        batter_vs_type["source"] = "live_statcast_events_fallback"
 
         pa = batter_vs_type.get("pa_ended") or batter_vs_type.get("pa") or batter_vs_type.get("sample_size") or 0
 
