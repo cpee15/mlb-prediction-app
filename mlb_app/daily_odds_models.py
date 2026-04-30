@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -337,34 +336,118 @@ def build_total_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]],
     return _model_output("total_real_v1", "total", pick, projected_total, model_prob, market_prob, features, missing, drivers)
 
 
-def build_prop_models(matchup: Dict[str, Any], prop_markets: List[Dict[str, Any]], market_filter: Optional[str] = None) -> Dict[str, Any]:
+def _prop_market_family(market_name: str) -> str:
+    name = market_name.lower()
+    if name.startswith("pitcher_"):
+        return "pitcher"
+    if name.startswith("batter_"):
+        return "batter"
+    return "prop"
+
+
+def _prop_baseline_probability(market_name: str, line: Optional[float]) -> float:
+    name = market_name.lower()
+    line_value = line if line is not None else 0.5
+
+    if name == "pitcher_strikeouts":
+        return _clamp(0.58 - max(0.0, line_value - 4.5) * 0.045, 0.34, 0.68)
+    if name == "batter_hits":
+        return _clamp(0.47 - max(0.0, line_value - 0.5) * 0.10, 0.25, 0.58)
+    if name == "batter_total_bases":
+        return _clamp(0.43 - max(0.0, line_value - 1.5) * 0.08, 0.23, 0.55)
+    if name == "batter_home_runs":
+        return _clamp(0.11 - max(0.0, line_value - 0.5) * 0.04, 0.04, 0.18)
+    if name in {"batter_rbis", "batter_runs_scored"}:
+        return _clamp(0.36 - max(0.0, line_value - 0.5) * 0.06, 0.20, 0.48)
+    if name == "batter_hits_runs_rbis":
+        return _clamp(0.42 - max(0.0, line_value - 1.5) * 0.055, 0.24, 0.55)
+    return _clamp(0.40 - max(0.0, line_value - 0.5) * 0.04, 0.18, 0.60)
+
+
+def _prop_model_probability(market_name: str, selection_name: str, line: Optional[float], implied: Optional[float], matchup: Dict[str, Any]) -> tuple[Optional[float], List[str], List[Dict[str, Any]], List[str]]:
+    drivers: List[str] = []
+    features: List[Dict[str, Any]] = []
+    missing: List[str] = []
+
+    baseline = _prop_baseline_probability(market_name, line)
+    features.append({"name": "market_baseline_probability", "value": baseline, "source": "market_type_line_baseline", "transform": "heuristic"})
+    drivers.append("market type baseline")
+
+    home_prob = _safe_float(matchup.get("home_win_prob") or matchup.get("home_win_probability"))
+    away_prob = _safe_float(matchup.get("away_win_prob") or matchup.get("away_win_probability"))
+    if home_prob is not None and away_prob is not None:
+        game_balance = 1.0 - abs(home_prob - away_prob)
+        features.append({"name": "game_competitiveness", "value": game_balance, "source": "matchup.win_probability_gap", "transform": "1_minus_abs_gap"})
+        drivers.append("game competitiveness")
+    else:
+        game_balance = 0.5
+        missing.append("game_competitiveness")
+
+    total_prob_context = _clamp((baseline * 0.70) + (game_balance * 0.08) + 0.11, 0.03, 0.82)
+
+    if implied is not None:
+        model_probability = round(_clamp((total_prob_context * 0.65) + (implied * 0.35), 0.03, 0.85), 4)
+        features.append({"name": "sportsbook_implied_probability", "value": implied, "source": "draftkings.price", "transform": "american_to_implied"})
+        drivers.append("sportsbook implied probability")
+    else:
+        model_probability = round(total_prob_context, 4)
+        missing.append("sportsbook_implied_probability")
+
+    lowered = selection_name.lower()
+    if lowered.startswith("under"):
+        model_probability = round(_clamp(1.0 - model_probability, 0.03, 0.85), 4)
+        drivers.append("under selection inversion")
+
+    return model_probability, drivers, features, missing
+
+
+def build_prop_models(matchup: Dict[str, Any], prop_markets: List[Dict[str, Any]], market_filter: Optional[str] = None, limit: int = 20) -> Dict[str, Any]:
     candidates: List[Dict[str, Any]] = []
     for market in prop_markets or []:
         market_name = str(market.get("market_name") or market.get("market_key") or "prop")
-        if market_filter and market_filter != "all" and market_filter != market_name:
+        market_key = str(market.get("market_key") or market.get("market_type") or market_name)
+        if market_filter and market_filter != "all" and market_filter not in {market_name, market_key}:
             continue
         for sel in market.get("selections", []) or []:
             implied = _american_to_implied(sel.get("price"))
             line = _safe_float(sel.get("line"))
-            score = (1 - implied) if implied is not None else 0.0
+            selection = _selection_label(sel)
+            model_probability, drivers, model_features, missing = _prop_model_probability(market_key, selection, line, implied, matchup)
+            edge = round(model_probability - implied, 4) if model_probability is not None and implied is not None else None
+            confidence = 0.55
+            if implied is not None:
+                confidence += 0.12
+            if matchup:
+                confidence += 0.08
             if line is not None:
-                score += min(0.25, abs(line) / 20.0)
+                confidence += 0.05
+            confidence = round(_clamp(confidence, 0.10, 0.82), 3)
+            score = abs(edge) if edge is not None else model_probability or 0.0
+
+            features_used = [
+                {"name": "prop_price", "value": sel.get("price"), "source": "draftkings.props.price", "transform": "american"},
+                {"name": "prop_line", "value": line, "source": "draftkings.props.line", "transform": "raw"},
+                *model_features,
+            ]
             candidates.append({
-                "model": "prop_real_v1",
-                "market": market_name,
-                "pick": _selection_label(sel),
+                "model": "prop_pregame_candidates_v2",
+                "market": market_key,
+                "market_name": market_name,
+                "market_family": _prop_market_family(market_key),
+                "pick": selection,
+                "player_name": sel.get("description") or sel.get("name"),
+                "selection": sel.get("name"),
+                "line": line,
+                "price": sel.get("price"),
                 "score": round(score, 4),
-                "model_probability": None,
+                "model_probability": model_probability,
                 "market_implied_probability": implied,
-                "edge": None,
-                "confidence": 0.35 if implied is not None else 0.1,
-                "features_used": [
-                    {"name": "prop_price", "value": sel.get("price"), "source": "draftkings.props.price", "transform": "american"},
-                    {"name": "prop_line", "value": line, "source": "draftkings.props.line", "transform": "raw"},
-                ],
-                "missing_inputs": ["player_statcast_context", "opponent_matchup_context", "lineup_role_context"],
-                "drivers": ["market price", "prop line"],
+                "edge": edge,
+                "confidence": confidence,
+                "features_used": features_used,
+                "missing_inputs": missing,
+                "drivers": drivers,
                 "available": implied is not None,
             })
-    candidates.sort(key=lambda row: row.get("score") or 0, reverse=True)
-    return {"top_candidates": candidates[:3], "candidate_count": len(candidates)}
+    candidates.sort(key=lambda row: ((abs(row.get("edge") or 0.0) * 10.0) + (row.get("confidence") or 0.0) + (row.get("score") or 0.0)), reverse=True)
+    return {"top_candidates": candidates[:limit], "candidate_count": len(candidates)}
