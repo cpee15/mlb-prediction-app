@@ -180,9 +180,30 @@ def build_pa_outcome_probabilities(
         "out": out_rate,
     })
 
+    summary = {
+        "hit_probability": round(
+            probabilities["single"] + probabilities["double"] + probabilities["triple"] + probabilities["hr"],
+            4,
+        ),
+        "on_base_probability": round(
+            probabilities["bb"] + probabilities["single"] + probabilities["double"] + probabilities["triple"] + probabilities["hr"],
+            4,
+        ),
+        "extra_base_hit_probability": round(
+            probabilities["double"] + probabilities["triple"] + probabilities["hr"],
+            4,
+        ),
+        "total_out_probability": round(
+            probabilities["k"] + probabilities["out"],
+            4,
+        ),
+        "contact_out_probability": probabilities["out"],
+    }
+
     return {
         "model_version": "pa_outcome_v1",
         "probabilities": probabilities,
+        "summary": summary,
         "inputs_used": {
             "batter_k_rate": batter_k,
             "batter_bb_rate": batter_bb,
