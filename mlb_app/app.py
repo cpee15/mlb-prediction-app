@@ -687,13 +687,32 @@ def _build_competitive_matchup(
         )
 
         if batter_vs_type is None:
-            batter_vs_type = _hitter_pitch_type_statcast_summary(
-                session=session,
-                batter_id=batter_id,
-                pitch_type=pitch_type,
-                days_back=3650,
-            )
-            batter_vs_type["source"] = "live_statcast_events_fallback"
+            batter_vs_type = {
+                "source": "missing_batter_pitch_type_matchups",
+                "aggregation_source": "raw_statcast_events",
+                "lookup_level": None,
+                "requested_opposing_pitcher_id": opposing_pitcher_id,
+                "stored_opposing_pitcher_id": None,
+                "pitch_type": pitch_type,
+                "pitches_seen": 0,
+                "swings": 0,
+                "whiffs": 0,
+                "strikeouts": 0,
+                "pa": 0,
+                "pa_ended": 0,
+                "ab": 0,
+                "hits": 0,
+                "batting_avg": None,
+                "xwoba": None,
+                "xba": None,
+                "avg_exit_velocity": None,
+                "avg_launch_angle": None,
+                "whiff_pct": None,
+                "k_pct": None,
+                "putaway_pct": None,
+                "hard_hit_pct": None,
+                "sample_size": 0,
+            }
 
         pa = batter_vs_type.get("pa_ended") or batter_vs_type.get("pa") or batter_vs_type.get("sample_size") or 0
 
