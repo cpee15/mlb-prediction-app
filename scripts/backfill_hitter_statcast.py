@@ -13,7 +13,7 @@ new swing/xwOBA fields required by the UI.
 
 Default controls:
     HITTER_STATCAST_START_DATE=2023-03-01
-    HITTER_STATCAST_MAX_PLAYERS=150
+    HITTER_STATCAST_MAX_PLAYERS=1000
     HITTER_STATCAST_OUTPUT_PATH=hitter_statcast_backfill.json
     HITTER_STATCAST_SKIP_COMPLETED=1
     HITTER_STATCAST_FORCE_REFRESH=0
@@ -44,22 +44,11 @@ from mlb_app.statcast_utils import fetch_statcast_batter_data
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///mlb.db")
 DEFAULT_START_DATE = os.getenv("HITTER_STATCAST_START_DATE", "2023-03-01")
-DEFAULT_MAX_PLAYERS = int(os.getenv("HITTER_STATCAST_MAX_PLAYERS", "150"))
+DEFAULT_MAX_PLAYERS = int(os.getenv("HITTER_STATCAST_MAX_PLAYERS", "1000"))
 OUTPUT_PATH = os.getenv("HITTER_STATCAST_OUTPUT_PATH", "hitter_statcast_backfill.json")
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("HITTER_STATCAST_TIMEOUT_SECONDS", "30"))
 SKIP_COMPLETED = os.getenv("HITTER_STATCAST_SKIP_COMPLETED", "1") == "1"
 FORCE_REFRESH = os.getenv("HITTER_STATCAST_FORCE_REFRESH", "0") == "1"
-
-
-IDENTITY_COLUMNS = (
-    "game_pk",
-    "at_bat_number",
-    "pitch_number",
-    "pitcher_id",
-    "batter_id",
-    "pitch_type",
-)
-
 CHECKPOINT_TABLE = "hitter_statcast_backfill_checkpoints"
 
 
@@ -115,11 +104,7 @@ def _target_dates() -> List[str]:
 def _fetch_schedule(date_str: str) -> List[Dict[str, Any]]:
     data = _request_json(
         f"{MLB_STATS_BASE}/schedule",
-        params={
-            "sportId": 1,
-            "date": date_str,
-            "hydrate": "probablePitcher,team,lineups",
-        },
+        params={"sportId": 1, "date": date_str, "hydrate": "probablePitcher,team,lineups"},
     )
     games: List[Dict[str, Any]] = []
     for day in data.get("dates", []) or []:
@@ -138,7 +123,6 @@ def _game_date_candidates(game_date_iso: str) -> List[str]:
                     candidates.append(candidate)
         except Exception:
             pass
-
     today = dt.date.today().isoformat()
     if today not in candidates:
         candidates.append(today)
@@ -160,16 +144,12 @@ def _fetch_previous_completed_game_lineup(team_id: int, game_date_iso: str) -> L
                     "sportId": 1,
                 },
             )
-
             completed_games: List[Dict[str, Any]] = []
             for date_row in data.get("dates", []) or []:
                 for game in date_row.get("games", []) or []:
-                    status = (game.get("status") or {}).get("codedGameState")
-                    if status == "F":
+                    if (game.get("status") or {}).get("codedGameState") == "F":
                         completed_games.append(game)
-
             completed_games.sort(key=lambda game: game.get("gameDate") or "", reverse=True)
-
             for game in completed_games:
                 teams = game.get("teams") or {}
                 for side in ("home", "away"):
@@ -182,7 +162,6 @@ def _fetch_previous_completed_game_lineup(team_id: int, game_date_iso: str) -> L
                         return players[:9]
         except Exception as exc:
             _log(f"Previous lineup fetch failed team={team_id} candidate={candidate_date}: {exc}")
-            continue
     return []
 
 
@@ -193,41 +172,28 @@ def _lineup_players_for_game(game: Dict[str, Any], side: str) -> Tuple[List[Dict
     lineups = game.get("lineups") or {}
     lineup_key = "homePlayers" if side == "home" else "awayPlayers"
     players = (lineups.get(lineup_key) or [])[:9]
-
     if players:
         return players, "official_lineup"
-
     if team_id:
         previous = _fetch_previous_completed_game_lineup(int(team_id), game.get("gameDate") or "")
         if previous:
             return previous[:9], "projected_previous_completed_game"
-
     return [], "missing_lineup"
 
 
 def collect_daily_lineup_hitters(max_players: int) -> List[Dict[str, Any]]:
-    """Collect up to max_players lineup hitters from today and tomorrow.
-
-    With 15 games, this targets 30 teams x 9 hitters = 270 possible hitters.
-    The default cap of 150 covers a normal full slate without pulling every
-    projected bench/roster player.
-    """
+    """Collect up to max_players lineup hitters from today and tomorrow."""
     players: List[Dict[str, Any]] = []
     seen_ids: Set[int] = set()
-
     for date_str in _target_dates():
         games = _fetch_schedule(date_str)
         _log(f"Loaded {len(games)} games for hitter Statcast date={date_str}")
-
         for game in games:
             game_pk = game.get("gamePk")
             teams = game.get("teams") or {}
             for side in ("away", "home"):
                 team = (((teams.get(side) or {}).get("team")) or {})
-                team_id = team.get("id")
-                team_name = team.get("name")
                 lineup, source = _lineup_players_for_game(game, side)
-
                 for order, player in enumerate(lineup[:9], start=1):
                     player_id = player.get("id")
                     if not player_id:
@@ -240,8 +206,8 @@ def collect_daily_lineup_hitters(max_players: int) -> List[Dict[str, Any]]:
                         {
                             "player_id": player_id,
                             "player_name": player.get("fullName"),
-                            "team_id": team_id,
-                            "team_name": team_name,
+                            "team_id": team.get("id"),
+                            "team_name": team.get("name"),
                             "game_pk": game_pk,
                             "target_date": date_str,
                             "side": side,
@@ -251,48 +217,28 @@ def collect_daily_lineup_hitters(max_players: int) -> List[Dict[str, Any]]:
                     )
                     if len(players) >= max_players:
                         return players
-
     return players
 
 
 def _ensure_checkpoint_table(engine) -> None:
     with engine.begin() as conn:
-        if engine.dialect.name == "postgresql":
-            conn.execute(
-                text(
-                    f"""
-                    CREATE TABLE IF NOT EXISTS {CHECKPOINT_TABLE} (
-                        batter_id INTEGER NOT NULL,
-                        start_date DATE NOT NULL,
-                        end_date DATE NOT NULL,
-                        player_name VARCHAR(120),
-                        fetched_rows INTEGER DEFAULT 0,
-                        inserted_rows INTEGER DEFAULT 0,
-                        updated_rows INTEGER DEFAULT 0,
-                        completed_at TIMESTAMP NOT NULL,
-                        PRIMARY KEY (batter_id, start_date, end_date)
-                    )
-                    """
+        conn.execute(
+            text(
+                f"""
+                CREATE TABLE IF NOT EXISTS {CHECKPOINT_TABLE} (
+                    batter_id INTEGER NOT NULL,
+                    start_date DATE NOT NULL,
+                    end_date DATE NOT NULL,
+                    player_name VARCHAR(120),
+                    fetched_rows INTEGER DEFAULT 0,
+                    inserted_rows INTEGER DEFAULT 0,
+                    updated_rows INTEGER DEFAULT 0,
+                    completed_at TIMESTAMP NOT NULL,
+                    PRIMARY KEY (batter_id, start_date, end_date)
                 )
+                """
             )
-        else:
-            conn.execute(
-                text(
-                    f"""
-                    CREATE TABLE IF NOT EXISTS {CHECKPOINT_TABLE} (
-                        batter_id INTEGER NOT NULL,
-                        start_date DATE NOT NULL,
-                        end_date DATE NOT NULL,
-                        player_name VARCHAR(120),
-                        fetched_rows INTEGER DEFAULT 0,
-                        inserted_rows INTEGER DEFAULT 0,
-                        updated_rows INTEGER DEFAULT 0,
-                        completed_at TIMESTAMP NOT NULL,
-                        PRIMARY KEY (batter_id, start_date, end_date)
-                    )
-                    """
-                )
-            )
+        )
 
 
 def _is_completed(session, batter_id: int, start_date: str, end_date: str) -> bool:
@@ -466,25 +412,19 @@ def _insert_or_update_batter_statcast(session, batter: Dict[str, Any], start_dat
             f"Skipping completed hitter Statcast batter={batter_id} "
             f"name={batter.get('player_name')} start_date={start_date} end_date={end_date}"
         )
-        return {
-            **batter,
-            "fetched_rows": 0,
-            "inserted_rows": 0,
-            "updated_rows": 0,
-            "skipped_completed": True,
-        }
+        return {**batter, "fetched_rows": 0, "inserted_rows": 0, "updated_rows": 0, "skipped_completed": True}
 
     try:
         df = fetch_statcast_batter_data(batter_id, start_date, end_date)
     except Exception as exc:
         _log(f"Batter Statcast fetch failed batter={batter_id} name={batter.get('player_name')}: {exc}")
-        return {"player_id": batter_id, "fetched_rows": 0, "inserted_rows": 0, "updated_rows": 0, "error": str(exc)}
+        return {**batter, "fetched_rows": 0, "inserted_rows": 0, "updated_rows": 0, "error": str(exc)}
 
     if df is None or df.empty:
         _log(f"No hitter Statcast rows batter={batter_id} name={batter.get('player_name')}")
         _mark_completed(session, batter_id, batter.get("player_name"), start_date, end_date, 0, 0, 0)
         session.commit()
-        return {"player_id": batter_id, "fetched_rows": 0, "inserted_rows": 0, "updated_rows": 0}
+        return {**batter, "fetched_rows": 0, "inserted_rows": 0, "updated_rows": 0, "skipped_completed": False}
 
     existing = _existing_event_map(session, batter_id, start, end)
     inserted = 0
@@ -517,11 +457,7 @@ def _insert_or_update_batter_statcast(session, batter: Dict[str, Any], start_dat
             before_xwoba = event.estimated_woba_using_speedangle
             before_xba = event.estimated_ba_using_speedangle
             _assign_event_fields(event, row, batter_id)
-            if (
-                before_description != event.description
-                or before_xwoba != event.estimated_woba_using_speedangle
-                or before_xba != event.estimated_ba_using_speedangle
-            ):
+            if before_description != event.description or before_xwoba != event.estimated_woba_using_speedangle or before_xba != event.estimated_ba_using_speedangle:
                 updated += 1
 
     _mark_completed(
@@ -540,7 +476,6 @@ def _insert_or_update_batter_statcast(session, batter: Dict[str, Any], start_dat
         f"Backfilled hitter Statcast batter={batter_id} name={batter.get('player_name')} "
         f"fetched={len(df)} inserted={inserted} updated={updated} skipped_no_identity={skipped_no_identity}"
     )
-
     return {
         **batter,
         "fetched_rows": int(len(df)),
@@ -551,11 +486,7 @@ def _insert_or_update_batter_statcast(session, batter: Dict[str, Any], start_dat
     }
 
 
-def run(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    max_players: Optional[int] = None,
-) -> Dict[str, Any]:
+def run(start_date: Optional[str] = None, end_date: Optional[str] = None, max_players: Optional[int] = None) -> Dict[str, Any]:
     start_date = start_date or DEFAULT_START_DATE
     end_date = end_date or dt.date.today().isoformat()
     max_players = max_players or DEFAULT_MAX_PLAYERS
@@ -599,14 +530,12 @@ def run(
     if output_path.parent != Path("."):
         output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(output, indent=2, sort_keys=True), encoding="utf-8")
-
     _log(
         f"Hitter Statcast backfill completed: targets={output['target_count']}, "
         f"skipped_completed_players={output['skipped_completed_players']}, "
         f"fetched_rows={output['fetched_rows']}, inserted_rows={output['inserted_rows']}, "
         f"updated_rows={output['updated_rows']}; artifact={output_path}"
     )
-
     return output
 
 
