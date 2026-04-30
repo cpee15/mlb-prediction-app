@@ -4,19 +4,25 @@
 This script is intentionally additive and safe:
 - it does not start the API server
 - it does not modify app.py or frontend code
-- it reads today's and tomorrow's games from MLB Stats API
+- it does not fetch Statcast from pybaseball or external Statcast endpoints
+- it reads existing raw statcast_events rows from DATABASE_URL
+- it reads today's/tomorrow's games, or one targeted game, from MLB Stats API
 - it finds probable pitchers and likely hitters from official lineups first
 - it falls back to each team's previous completed-game lineup before active roster
-- it builds hitter-vs-pitch-type summaries using raw statcast_events rows
+- it builds hitter-vs-pitch-type summaries from existing raw statcast_events rows
 - it upserts rows into batter_pitch_type_matchups for Batter vs Arsenal cards
-- it also writes a JSON artifact for inspection
+- it writes a JSON artifact for inspection
 
-Environment controls:
-    HITTING_MATCHUPS_DAYS_BACK=365
-    HITTING_MATCHUPS_MAX_BATTERS=240
-    HITTING_MATCHUPS_OUTPUT_PATH=hitting_matchups_refresh.json
+Targeted recovery mode:
     HITTING_MATCHUPS_TARGET_DATE=YYYY-MM-DD
     HITTING_MATCHUPS_TARGET_GAME_PK=824929
+    HITTING_MATCHUPS_MAX_BATTERS=18
+    python scripts/run_hitting_matchups_refresh.py
+
+Important:
+    DATABASE_URL must point at the same Postgres database used by the backend API.
+    If targeted mode is used with sqlite:///mlb.db, this script fails fast instead
+    of writing rows into the wrong container-local SQLite file.
 """
 
 from __future__ import annotations
@@ -29,12 +35,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
+from sqlalchemy import func
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from mlb_app.database import BatterPitchTypeMatchup, create_tables, get_engine, get_session
+from mlb_app.database import BatterPitchTypeMatchup, StatcastEvent, create_tables, get_engine, get_session
 from mlb_app.db_utils import get_pitch_arsenal_with_fallback
 from mlb_app.hitting_matchups import build_batter_pitch_type_summary
 
@@ -47,11 +54,45 @@ OUTPUT_PATH = os.getenv("HITTING_MATCHUPS_OUTPUT_PATH", "hitting_matchups_refres
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("HITTING_MATCHUPS_TIMEOUT_SECONDS", "30"))
 TARGET_DATE = os.getenv("HITTING_MATCHUPS_TARGET_DATE", "").strip()
 TARGET_GAME_PK = os.getenv("HITTING_MATCHUPS_TARGET_GAME_PK", "").strip()
+TARGETED_MODE = bool(TARGET_DATE or TARGET_GAME_PK)
 
 
 def _log(message: str) -> None:
     timestamp = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
     print(f"[{timestamp}] {message}", flush=True)
+
+
+def _database_label() -> str:
+    if DATABASE_URL.startswith("postgresql"):
+        return "postgresql"
+    if DATABASE_URL.startswith("sqlite"):
+        return DATABASE_URL
+    return DATABASE_URL.split(":", 1)[0] if ":" in DATABASE_URL else "unknown"
+
+
+def _validate_runtime() -> None:
+    _log(
+        "Starting hittingMatchups refresh: "
+        f"targeted_mode={int(TARGETED_MODE)}, "
+        f"target_date={TARGET_DATE or 'auto'}, "
+        f"target_game_pk={TARGET_GAME_PK or 'all'}, "
+        f"max_batters={MAX_BATTERS}, "
+        f"days_back={DAYS_BACK}, "
+        f"database={_database_label()}"
+    )
+
+    if TARGETED_MODE and DATABASE_URL.startswith("sqlite"):
+        raise RuntimeError(
+            "Targeted Batter vs Arsenal refresh was started with a SQLite DATABASE_URL. "
+            "Set the cron/job service DATABASE_URL to the same Postgres DATABASE_URL used by the backend API, "
+            "then rerun this command. This guard prevents writing aggregates to the wrong container-local mlb.db."
+        )
+
+    if TARGET_GAME_PK and not TARGET_DATE:
+        raise RuntimeError(
+            "HITTING_MATCHUPS_TARGET_GAME_PK requires HITTING_MATCHUPS_TARGET_DATE. "
+            "Set both values for a one-game targeted refresh."
+        )
 
 
 def _request_json(url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -91,11 +132,8 @@ def _fetch_schedule(date_str: str) -> List[Dict[str, Any]]:
         games.extend(day.get("games", []) or [])
 
     if TARGET_GAME_PK:
-        try:
-            target_game_pk = int(TARGET_GAME_PK)
-            games = [game for game in games if int(game.get("gamePk") or 0) == target_game_pk]
-        except ValueError:
-            _log(f"Ignoring invalid HITTING_MATCHUPS_TARGET_GAME_PK={TARGET_GAME_PK}")
+        target_game_pk = int(TARGET_GAME_PK)
+        games = [game for game in games if int(game.get("gamePk") or 0) == target_game_pk]
 
     return games
 
@@ -290,14 +328,37 @@ def _collect_targets() -> List[Dict[str, Any]]:
     return targets[:MAX_BATTERS]
 
 
+def _pitch_types_from_raw_statcast(session, pitcher_id: int, days_back: int) -> List[str]:
+    start_date = dt.date.today() - dt.timedelta(days=days_back)
+    rows = (
+        session.query(StatcastEvent.pitch_type, func.count(StatcastEvent.id).label("pitch_count"))
+        .filter(
+            StatcastEvent.pitcher_id == pitcher_id,
+            StatcastEvent.pitch_type.isnot(None),
+            StatcastEvent.game_date >= start_date,
+        )
+        .group_by(StatcastEvent.pitch_type)
+        .order_by(func.count(StatcastEvent.id).desc())
+        .all()
+    )
+    return [row.pitch_type for row in rows if row.pitch_type]
+
+
 def _pitch_types_for_pitcher(session, pitcher_id: int, season: int) -> List[str]:
     arsenal, _ = get_pitch_arsenal_with_fallback(session, pitcher_id, season)
-    pitch_types = []
+    pitch_types: List[str] = []
     for row in arsenal or []:
         pitch_type = getattr(row, "pitch_type", None)
         if pitch_type and pitch_type not in pitch_types:
             pitch_types.append(pitch_type)
-    return pitch_types
+
+    if pitch_types:
+        return pitch_types
+
+    raw_pitch_types = _pitch_types_from_raw_statcast(session, pitcher_id, DAYS_BACK)
+    if raw_pitch_types:
+        _log(f"Using raw statcast_events pitch types for pitcher={pitcher_id}: {raw_pitch_types}")
+    return raw_pitch_types
 
 
 def _set_if_present(record: BatterPitchTypeMatchup, field: str, source: Dict[str, Any]) -> None:
@@ -375,6 +436,7 @@ def _upsert_matchup_row(session, target: Dict[str, Any], summary: Dict[str, Any]
 
 
 def run() -> Dict[str, Any]:
+    _validate_runtime()
     engine = get_engine(DATABASE_URL)
     create_tables(engine)
     Session = get_session(engine)
@@ -384,12 +446,18 @@ def run() -> Dict[str, Any]:
 
     output: Dict[str, Any] = {
         "generated_at": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "database": _database_label(),
+        "targeted_mode": TARGETED_MODE,
+        "target_date": TARGET_DATE or None,
+        "target_game_pk": TARGET_GAME_PK or None,
         "days_back": DAYS_BACK,
         "max_batters": MAX_BATTERS,
         "target_count": len(targets),
         "rows": [],
         "upserted_rows": 0,
         "skipped_no_arsenal": 0,
+        "rows_with_raw_statcast": 0,
+        "rows_without_raw_statcast": 0,
     }
 
     with Session() as session:
@@ -399,7 +467,7 @@ def run() -> Dict[str, Any]:
             if not pitch_types:
                 output["skipped_no_arsenal"] += 1
                 _log(
-                    f"No arsenal found pitcher={target['opposing_pitcher_id']} "
+                    f"No arsenal or raw pitcher pitch types found pitcher={target['opposing_pitcher_id']} "
                     f"batter={target['batter_id']} game_pk={target.get('game_pk')}"
                 )
                 continue
@@ -413,6 +481,10 @@ def run() -> Dict[str, Any]:
                 )
                 record = _upsert_matchup_row(session, target, summary)
                 output["upserted_rows"] += 1
+                if int(summary.get("raw_rows") or 0) > 0:
+                    output["rows_with_raw_statcast"] += 1
+                else:
+                    output["rows_without_raw_statcast"] += 1
                 output["rows"].append({**target, **summary, "aggregate_id": getattr(record, "id", None)})
 
         session.commit()
@@ -422,9 +494,17 @@ def run() -> Dict[str, Any]:
     output_path.write_text(json.dumps(output, indent=2, sort_keys=True), encoding="utf-8")
     _log(
         f"Upserted {output['upserted_rows']} hittingMatchups rows; "
+        f"rows_with_raw_statcast={output['rows_with_raw_statcast']}; "
+        f"rows_without_raw_statcast={output['rows_without_raw_statcast']}; "
         f"skipped_no_arsenal={output['skipped_no_arsenal']}; "
         f"wrote JSON artifact to {output_path}"
     )
+
+    if TARGETED_MODE and output["upserted_rows"] == 0:
+        raise RuntimeError(
+            "Targeted hittingMatchups refresh completed with zero upserted rows. "
+            "Check target date, game_pk, probable pitchers, and pitcher pitch types."
+        )
 
     return output
 
