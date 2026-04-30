@@ -835,6 +835,63 @@ function EnvironmentPanel({ profile }) {
   )
 }
 
+function PAOutcomePanel({ sideLabel, teamName, model }) {
+  if (!model) return <div style={t.noData}>No PA outcome model available yet.</div>
+
+  const probs = model.lineup_average_probabilities || {}
+  const summary = model.lineup_average_summary || {}
+
+  const outcomeRows = [
+    ['K', probs.k],
+    ['BB', probs.bb],
+    ['1B', probs.single],
+    ['2B', probs.double],
+    ['3B', probs.triple],
+    ['HR', probs.hr],
+    ['Contact Out', probs.out],
+  ]
+
+  const summaryRows = [
+    ['Hit Probability', summary.hit_probability],
+    ['On-Base Probability', summary.on_base_probability],
+    ['Extra-Base Hit Probability', summary.extra_base_hit_probability],
+    ['Total Out Probability', summary.total_out_probability],
+    ['Contact Out Probability', summary.contact_out_probability],
+  ]
+
+  return (
+    <div style={t.pitcherCard}>
+      <div style={{ fontSize: '12px', color: '#8b949e', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{sideLabel}</div>
+      <div style={t.pitcherName}>{teamName}</div>
+      <div style={{ color: '#8b949e', fontSize: '12px', marginBottom: '12px' }}>
+        {model.model_version || 'PA outcome model'} · Players used: {model.player_count_used ?? '—'}
+      </div>
+
+      <div style={t.splitsGrid}>
+        <div style={t.splitCard}>
+          <div style={t.splitTitle}>Outcome Probabilities</div>
+          {outcomeRows.map(([label, value]) => (
+            <div key={label} style={t.statRow}>
+              <span style={t.statKey}>{label}</span>
+              <span style={{ ...t.statVal, color: metricSignalColor(label === 'HR' ? 'hr' : 'confidence', value) }}>{pct(value)}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={t.splitCard}>
+          <div style={t.splitTitle}>Derived Summary</div>
+          {summaryRows.map(([label, value]) => (
+            <div key={label} style={t.statRow}>
+              <span style={t.statKey}>{label}</span>
+              <span style={t.statVal}>{pct(value)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function MatchupAnalysisPanel({ sideLabel, teamName, analysis }) {
   if (!analysis) return <div style={t.noData}>No matchup analysis is available for this side yet.</div>
   const pitchRows = analysis.pitchTypeMatchups || []
@@ -1120,6 +1177,12 @@ export default function MatchupDetailPage() {
           <div style={t.pitcherGrid}>
             <MatchupAnalysisPanel sideLabel="Away Offense" teamName={away.name} analysis={matchup.awayMatchupAnalysis} />
             <MatchupAnalysisPanel sideLabel="Home Offense" teamName={home.name} analysis={matchup.homeMatchupAnalysis} />
+          </div>
+
+          <div style={{ ...t.sectionTitle, marginTop: '22px' }}>PA Outcome Model</div>
+          <div style={t.pitcherGrid}>
+            <PAOutcomePanel sideLabel="Away Offense vs Home Starter" teamName={away.name} model={matchup.awayPAOutcomeModel} />
+            <PAOutcomePanel sideLabel="Home Offense vs Away Starter" teamName={home.name} model={matchup.homePAOutcomeModel} />
           </div>
         </div>
       )}
