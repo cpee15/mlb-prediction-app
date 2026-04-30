@@ -85,6 +85,12 @@ def compute_environment_profile(raw_context: dict) -> dict:
             return "slight_pitcher_friendly"
         return "neutral"
 
+    def _park_factor_proxy(run_factor, multiplier, lower, upper):
+        if run_factor is None:
+            return None
+        value = 1.0 + ((run_factor - 1.0) * multiplier)
+        return round(_clamp(value, lower, upper), 3)
+
     def _wind_direction_type(wind_direction):
         text = str(wind_direction or "").lower()
         if not text:
@@ -236,6 +242,24 @@ def compute_environment_profile(raw_context: dict) -> dict:
 
     run_factor = raw_context.get("run_factor", raw_context.get("park_factor"))
     run_factor = _safe_float(run_factor)
+
+    raw_home_run_factor = _safe_float(raw_context.get("home_run_factor"))
+    raw_hit_factor = _safe_float(raw_context.get("hit_factor"))
+
+    home_run_factor = raw_home_run_factor
+    hit_factor = raw_hit_factor
+    park_factor_fallback_used = False
+    park_factor_fallback_source = None
+
+    if home_run_factor is None and run_factor is not None:
+        home_run_factor = _park_factor_proxy(run_factor, multiplier=1.10, lower=0.85, upper=1.15)
+        park_factor_fallback_used = True
+        park_factor_fallback_source = "run_factor_proxy"
+    if hit_factor is None and run_factor is not None:
+        hit_factor = _park_factor_proxy(run_factor, multiplier=0.60, lower=0.90, upper=1.10)
+        park_factor_fallback_used = True
+        park_factor_fallback_source = "run_factor_proxy"
+
     wind_adjustments = _wind_adjustments(wind_speed_mph, wind_direction)
 
     run_scoring_index = raw_context.get(
@@ -290,6 +314,8 @@ def compute_environment_profile(raw_context: dict) -> dict:
             "max_total_adjustment": calibration["max_total_adjustment"],
             "wind_raw": wind_raw,
             "wind_parsed_from_text": parsed_wind_speed is not None or bool(parsed_wind_direction),
+            "park_factor_fallback_used": park_factor_fallback_used,
+            "park_factor_fallback_source": park_factor_fallback_source,
         },
         "weather": {
             "temperature_f": temperature_f,
@@ -304,8 +330,8 @@ def compute_environment_profile(raw_context: dict) -> dict:
         },
         "park_factors": {
             "run_factor": run_factor,
-            "home_run_factor": raw_context.get("home_run_factor"),
-            "hit_factor": raw_context.get("hit_factor"),
+            "home_run_factor": home_run_factor,
+            "hit_factor": hit_factor,
         },
         "game_context": {
             "venue_name": raw_context.get("venue_name"),
