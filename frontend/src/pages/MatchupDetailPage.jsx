@@ -466,6 +466,8 @@ function displayKey(key) {
     wind_weight: 'Wind Weight',
     max_weather_adjustment: 'Max Weather Adjustment',
     max_total_adjustment: 'Max Total Adjustment',
+    wind_raw: 'Raw Wind',
+    wind_parsed_from_text: 'Wind Parsed From Text',
     profile_granularity: 'Granularity',
     is_projected_lineup_derived: 'Lineup Derived',
     lineup_source: 'Lineup Source',

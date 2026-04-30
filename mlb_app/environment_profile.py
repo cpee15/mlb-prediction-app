@@ -5,6 +5,8 @@ This module defines a game-level environment profile structure that can later
 be populated with real weather, park factor, and contextual inputs.
 """
 
+import re
+
 
 def compute_environment_profile(raw_context: dict) -> dict:
     """
@@ -32,6 +34,22 @@ def compute_environment_profile(raw_context: dict) -> dict:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    def _parse_wind_text(value):
+        text = str(value or "").strip()
+        if not text:
+            return None, None
+
+        speed = None
+        speed_match = re.search(r"(\\d+(?:\\.\\d+)?)\\s*mph", text, re.IGNORECASE)
+        if speed_match:
+            speed = _safe_float(speed_match.group(1))
+
+        direction = text
+        direction = re.sub(r"^\\s*\\d+(?:\\.\\d+)?\\s*mph\\s*,?\\s*", "", direction, flags=re.IGNORECASE)
+        direction = direction.strip(" ,") or None
+
+        return speed, direction
 
     calibration = {
         "environment_calibration_version": "env_calibration_v1",
@@ -75,7 +93,7 @@ def compute_environment_profile(raw_context: dict) -> dict:
             return "in"
         if "out to" in text or "blowing out" in text or text.startswith("out "):
             return "out"
-        if "cross" in text:
+        if "cross" in text or "r to l" in text or "l to r" in text or "right to left" in text or "left to right" in text:
             return "cross"
         return "unknown"
 
@@ -203,12 +221,18 @@ def compute_environment_profile(raw_context: dict) -> dict:
         return "neutral"
 
     temperature_f = raw_context.get("temperature_f", weather.get("temp_f"))
+    wind_raw = raw_context.get("wind_direction", weather.get("wind_direction") or weather.get("wind"))
     wind_speed_mph = raw_context.get("wind_speed_mph", weather.get("wind_speed_mph"))
-    wind_direction = raw_context.get("wind_direction", weather.get("wind_direction") or weather.get("wind"))
+    wind_direction = wind_raw
+    parsed_wind_speed, parsed_wind_direction = _parse_wind_text(wind_raw)
     condition = raw_context.get("condition", weather.get("condition"))
 
     temperature_f = _safe_float(temperature_f)
     wind_speed_mph = _safe_float(wind_speed_mph)
+    if wind_speed_mph is None and parsed_wind_speed is not None:
+        wind_speed_mph = parsed_wind_speed
+    if parsed_wind_direction:
+        wind_direction = parsed_wind_direction
 
     run_factor = raw_context.get("run_factor", raw_context.get("park_factor"))
     run_factor = _safe_float(run_factor)
@@ -264,6 +288,8 @@ def compute_environment_profile(raw_context: dict) -> dict:
             "wind_weight": calibration["wind_weight"],
             "max_weather_adjustment": calibration["max_weather_adjustment"],
             "max_total_adjustment": calibration["max_total_adjustment"],
+            "wind_raw": wind_raw,
+            "wind_parsed_from_text": parsed_wind_speed is not None or bool(parsed_wind_direction),
         },
         "weather": {
             "temperature_f": temperature_f,
