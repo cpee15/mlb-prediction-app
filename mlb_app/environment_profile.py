@@ -41,12 +41,12 @@ def compute_environment_profile(raw_context: dict) -> dict:
             return None, None
 
         speed = None
-        speed_match = re.search(r"(\\d+(?:\\.\\d+)?)\\s*mph", text, re.IGNORECASE)
+        speed_match = re.search(r"(\d+(?:\.\d+)?)\s*mph", text, re.IGNORECASE)
         if speed_match:
             speed = _safe_float(speed_match.group(1))
 
         direction = text
-        direction = re.sub(r"^\\s*\\d+(?:\\.\\d+)?\\s*mph\\s*,?\\s*", "", direction, flags=re.IGNORECASE)
+        direction = re.sub(r"^\s*\d+(?:\.\d+)?\s*mph\s*,?\s*", "", direction, flags=re.IGNORECASE)
         direction = direction.strip(" ,") or None
 
         return speed, direction
