@@ -6,6 +6,15 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+try:
+    from .apify_draftkings_provider import (
+        fetch_apify_draftkings_event_odds,
+        fetch_apify_draftkings_events,
+    )
+except Exception:
+    fetch_apify_draftkings_event_odds = None
+    fetch_apify_draftkings_events = None
+
 _CACHE: Dict[str, Dict[str, Any]] = {}
 _ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 _ODDS_API_SPORT = "baseball_mlb"
@@ -45,6 +54,14 @@ def _cache_get(key: str):
 
 def _cache_set(key: str, data: Any, ttl: int = 300):
     _CACHE[key] = {"data": data, "expires_at": time.time() + ttl}
+
+
+def _should_use_apify_first() -> bool:
+    return os.getenv("DRAFTKINGS_ODDS_PROVIDER", "").lower() in {"apify", "draftkings_apify"}
+
+
+def _has_apify_config() -> bool:
+    return bool(os.getenv("APIFY_TOKEN") and os.getenv("DRAFTKINGS_ODDS_ACTOR_ID") and fetch_apify_draftkings_events)
 
 
 def _provider_not_configured(scope: str, game_pk: Optional[Any] = None, message: str = "ODDS_API_KEY is not configured.") -> Dict[str, Any]:
@@ -318,6 +335,49 @@ def build_draftkings_run_input(
     return request
 
 
+def _attach_fallback(primary: Dict[str, Any], fallback: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if fallback:
+        primary["fallback_provider"] = {
+            "provider": fallback.get("provider"),
+            "status": fallback.get("status"),
+            "raw_count": fallback.get("raw_count"),
+            "event_count": fallback.get("event_count"),
+            "market_count": fallback.get("market_count"),
+            "errors": fallback.get("errors", []),
+            "message": fallback.get("message"),
+        }
+    return primary
+
+
+def _use_fallback_if_needed(primary: Dict[str, Any], scope: str, date: Optional[str] = None, event_id: Optional[str] = None, props_only: bool = False, raw: bool = False) -> Dict[str, Any]:
+    if not _has_apify_config():
+        return primary
+    if primary.get("status") == "ok" and primary.get("event_count", 0) > 0:
+        return primary
+    try:
+        if event_id and fetch_apify_draftkings_event_odds:
+            fallback = fetch_apify_draftkings_event_odds(str(event_id), props_only=props_only, raw=raw)
+        elif fetch_apify_draftkings_events:
+            fallback = fetch_apify_draftkings_events(date=date, raw=raw)
+        else:
+            fallback = None
+    except Exception as exc:
+        primary.setdefault("fallback_errors", []).append(str(exc))
+        return primary
+    if fallback and fallback.get("status") == "ok" and fallback.get("event_count", 0) > 0:
+        fallback["primary_provider"] = {
+            "provider": primary.get("provider"),
+            "status": primary.get("status"),
+            "raw_count": primary.get("raw_count"),
+            "event_count": primary.get("event_count"),
+            "market_count": primary.get("market_count"),
+            "errors": primary.get("errors", []),
+            "message": primary.get("message"),
+        }
+        return fallback
+    return _attach_fallback(primary, fallback)
+
+
 def fetch_draftkings_odds(
     scope: str = "pregame",
     game_pk: Optional[Any] = None,
@@ -329,9 +389,12 @@ def fetch_draftkings_odds(
     live_only: Optional[bool] = None,
     state: Optional[str] = None,
 ) -> Dict[str, Any]:
+    if _should_use_apify_first() and _has_apify_config() and game_pk is None:
+        return fetch_apify_draftkings_events(date=date, raw=raw)
     token = _get_token()
     if not token:
-        return _provider_not_configured(scope, game_pk=game_pk)
+        primary = _provider_not_configured(scope, game_pk=game_pk)
+        return _use_fallback_if_needed(primary, scope=scope, date=date, event_id=game_pk, props_only=props_only, raw=raw)
     request_params = build_draftkings_run_input(scope, props_only, date, league, market_types, live_only, state)
     actual_params = dict(request_params)
     actual_params["apiKey"] = token
@@ -347,7 +410,8 @@ def fetch_draftkings_odds(
         events = _filter_events(events, game_pk=game_pk, target_date=date)
         markets = _flatten_markets(events, game_pk=game_pk)
     except Exception as exc:
-        return _provider_error(scope, game_pk, exc, request_params=request_params)
+        primary = _provider_error(scope, game_pk, exc, request_params=request_params)
+        return _use_fallback_if_needed(primary, scope=scope, date=date, event_id=game_pk, props_only=props_only, raw=raw)
     normalized = {
         "provider": "the_odds_api",
         "book": "DraftKings",
@@ -370,7 +434,8 @@ def fetch_draftkings_odds(
     }
     if raw or scope == "debug":
         normalized["raw_items_sample"] = items[:10]
-    ttl = int(os.getenv("ODDS_API_CACHE_TTL_SECONDS", "300"))
+    normalized = _use_fallback_if_needed(normalized, scope=scope, date=date, event_id=game_pk, props_only=props_only, raw=raw)
+    ttl = int(os.getenv("ODDS_API_CACHE_TTL_SECONDS", os.getenv("DRAFTKINGS_ODDS_CACHE_TTL_SECONDS", "300")))
     _cache_set(cache_key, normalized, ttl)
     return normalized
 
@@ -381,9 +446,12 @@ def fetch_draftkings_event_odds(
     raw: bool = False,
     market_types: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
+    if _should_use_apify_first() and _has_apify_config():
+        return fetch_apify_draftkings_event_odds(event_id, props_only=props_only, raw=raw)
     token = _get_token()
     if not token:
-        return _provider_not_configured("event", game_pk=event_id)
+        primary = _provider_not_configured("event", game_pk=event_id)
+        return _use_fallback_if_needed(primary, scope="event", event_id=event_id, props_only=props_only, raw=raw)
     request_params = build_draftkings_run_input(
         scope="event_props" if props_only else "event",
         props_only=props_only,
@@ -403,7 +471,8 @@ def fetch_draftkings_event_odds(
         events = [event] if event else []
         markets = _flatten_markets(events, game_pk=event_id)
     except Exception as exc:
-        return _provider_error("event_props" if props_only else "event", event_id, exc, request_params=request_params)
+        primary = _provider_error("event_props" if props_only else "event", event_id, exc, request_params=request_params)
+        return _use_fallback_if_needed(primary, scope="event_props" if props_only else "event", event_id=event_id, props_only=props_only, raw=raw)
     normalized = {
         "provider": "the_odds_api",
         "book": "DraftKings",
@@ -426,7 +495,8 @@ def fetch_draftkings_event_odds(
     }
     if raw:
         normalized["raw_item"] = item
-    ttl = int(os.getenv("ODDS_API_CACHE_TTL_SECONDS", "300"))
+    normalized = _use_fallback_if_needed(normalized, scope="event_props" if props_only else "event", event_id=event_id, props_only=props_only, raw=raw)
+    ttl = int(os.getenv("ODDS_API_CACHE_TTL_SECONDS", os.getenv("DRAFTKINGS_ODDS_CACHE_TTL_SECONDS", "300")))
     _cache_set(cache_key, normalized, ttl)
     return normalized
 
