@@ -71,6 +71,7 @@ from .environment_profile import compute_environment_profile
 from .matchup_analysis import build_matchup_analysis
 from .pitcher_advanced_metrics import derive_pitcher_advanced_metrics
 from .simulation.pa_outcome_model import build_pa_outcome_probabilities
+from .simulation.inning_simulator import simulate_half_innings
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 MATCHUP_SNAPSHOT_CACHE: Dict[str, List[Dict[str, Any]]] = {}
@@ -1357,6 +1358,29 @@ def create_app():
                     },
                 }
 
+            def _build_half_inning_simulation(pa_model, side_label):
+                probabilities = (pa_model or {}).get("lineup_average_probabilities") or {}
+                if not probabilities:
+                    return {
+                        "model_version": "half_inning_sim_v1",
+                        "side": side_label,
+                        "status": "missing_pa_probabilities",
+                    }
+
+                result = simulate_half_innings(
+                    probabilities=probabilities,
+                    simulations=5000,
+                    seed=42,
+                )
+                result["side"] = side_label
+                result["metadata"] = {
+                    "generated_from": "matchup_detail.half_inning_simulation",
+                    "pa_model_version": (pa_model or {}).get("model_version"),
+                    "simulation_seed": 42,
+                    "simulation_count": 5000,
+                }
+                return result
+
             def _profile_has_useful_offense_metrics(profile):
                 for section in ["contact_skill", "plate_discipline", "power", "platoon_profile"]:
                     values = (profile.get(section) or {}).values()
@@ -1501,6 +1525,15 @@ def create_app():
                 side_label="away_offense",
             )
 
+            home_half_inning_simulation = _build_half_inning_simulation(
+                home_pa_outcome_model,
+                side_label="home_offense",
+            )
+            away_half_inning_simulation = _build_half_inning_simulation(
+                away_pa_outcome_model,
+                side_label="away_offense",
+            )
+
             return {
                 "game_pk": game_pk,
                 "game_date": game_date_iso,
@@ -1519,6 +1552,8 @@ def create_app():
                 "awayMatchupAnalysis": away_matchup_analysis,
                 "homePAOutcomeModel": home_pa_outcome_model,
                 "awayPAOutcomeModel": away_pa_outcome_model,
+                "homeHalfInningSimulation": home_half_inning_simulation,
+                "awayHalfInningSimulation": away_half_inning_simulation,
                 "home_team": {
                     "id": home_team_id,
                     "name": home.get("team", {}).get("name"),
