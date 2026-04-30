@@ -7,6 +7,7 @@ never start the web server.
 Behavior:
 - verifies the app imports cleanly
 - runs a guarded Statcast ETL refresh before warming matchup payloads
+- runs a capped hitter Statcast backfill for today/tomorrow lineup hitters
 - runs a guarded hittingMatchups refresh so batter_pitch_type_matchups is populated
 - refreshes live matchup payloads for today and tomorrow
 - warms matchup snapshots for today and tomorrow
@@ -34,11 +35,14 @@ REQUEST_TIMEOUT_SECONDS = int(os.environ.get("REFRESH_TIMEOUT_SECONDS", "60"))
 WARM_SNAPSHOTS = os.environ.get("WARM_MATCHUP_SNAPSHOTS", "1") == "1"
 REFRESH_MATCHUPS_FIRST = os.environ.get("REFRESH_MATCHUPS_FIRST", "1") == "1"
 RUN_STATCAST_ETL = os.environ.get("RUN_STATCAST_ETL", "1") == "1"
+RUN_HITTER_STATCAST_BACKFILL = os.environ.get("RUN_HITTER_STATCAST_BACKFILL", "1") == "1"
 RUN_HITTING_MATCHUPS_REFRESH = os.environ.get("RUN_HITTING_MATCHUPS_REFRESH", "1") == "1"
 REFRESH_ETL_BACKFILL_DAYS = int(os.environ.get("REFRESH_ETL_BACKFILL_DAYS", "7"))
 os.environ.setdefault("STATCAST_LOOKBACK_DAYS", "365")
 os.environ.setdefault("HITTING_MATCHUPS_DAYS_BACK", "365")
 os.environ.setdefault("HITTING_MATCHUPS_MAX_BATTERS", "240")
+os.environ.setdefault("HITTER_STATCAST_START_DATE", "2023-03-01")
+os.environ.setdefault("HITTER_STATCAST_MAX_PLAYERS", "150")
 
 
 def _log(message: str) -> None:
@@ -108,6 +112,32 @@ def _run_statcast_etl_refresh() -> None:
 
     run_backfill(REFRESH_ETL_BACKFILL_DAYS)
     _log("Statcast ETL refresh completed")
+
+
+def _run_hitter_statcast_backfill() -> None:
+    if not RUN_HITTER_STATCAST_BACKFILL:
+        _log("Skipping hitter Statcast backfill because RUN_HITTER_STATCAST_BACKFILL=0")
+        return
+
+    _log(
+        "Starting hitter Statcast backfill: "
+        f"start_date={os.environ.get('HITTER_STATCAST_START_DATE', '2023-03-01')}, "
+        f"max_players={os.environ.get('HITTER_STATCAST_MAX_PLAYERS', '150')}"
+    )
+    from scripts.backfill_hitter_statcast import run
+
+    result = run(
+        start_date=os.environ.get("HITTER_STATCAST_START_DATE", "2023-03-01"),
+        end_date=dt.date.today().isoformat(),
+        max_players=int(os.environ.get("HITTER_STATCAST_MAX_PLAYERS", "150")),
+    )
+    _log(
+        "Hitter Statcast backfill completed: "
+        f"targets={result.get('target_count')}, "
+        f"fetched_rows={result.get('fetched_rows')}, "
+        f"inserted_rows={result.get('inserted_rows')}, "
+        f"updated_rows={result.get('updated_rows')}"
+    )
 
 
 def _run_hitting_matchups_refresh() -> None:
@@ -180,6 +210,12 @@ def main() -> int:
         _run_statcast_etl_refresh()
     except Exception as exc:
         _log(f"Statcast ETL refresh failed: {exc}")
+        return 1
+
+    try:
+        _run_hitter_statcast_backfill()
+    except Exception as exc:
+        _log(f"Hitter Statcast backfill failed: {exc}")
         return 1
 
     try:
