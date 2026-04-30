@@ -5,15 +5,18 @@ This script is intentionally additive and safe:
 - it does not start the API server
 - it does not modify app.py or frontend code
 - it reads today's and tomorrow's games from MLB Stats API
-- it finds probable pitchers and likely hitters from lineups or active rosters
-- it builds hitter-vs-pitch-type summaries using mlb_app.hitting_matchups
-- it upserts rows into batter_pitch_type_matchups
+- it finds probable pitchers and likely hitters from official lineups first
+- it falls back to each team's previous completed-game lineup before active roster
+- it builds hitter-vs-pitch-type summaries using raw statcast_events rows
+- it upserts rows into batter_pitch_type_matchups for Batter vs Arsenal cards
 - it also writes a JSON artifact for inspection
 
 Environment controls:
     HITTING_MATCHUPS_DAYS_BACK=365
     HITTING_MATCHUPS_MAX_BATTERS=240
     HITTING_MATCHUPS_OUTPUT_PATH=hitting_matchups_refresh.json
+    HITTING_MATCHUPS_TARGET_DATE=YYYY-MM-DD
+    HITTING_MATCHUPS_TARGET_GAME_PK=824929
 """
 
 from __future__ import annotations
@@ -42,6 +45,8 @@ DAYS_BACK = int(os.getenv("HITTING_MATCHUPS_DAYS_BACK", "365"))
 MAX_BATTERS = int(os.getenv("HITTING_MATCHUPS_MAX_BATTERS", "240"))
 OUTPUT_PATH = os.getenv("HITTING_MATCHUPS_OUTPUT_PATH", "hitting_matchups_refresh.json")
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("HITTING_MATCHUPS_TIMEOUT_SECONDS", "30"))
+TARGET_DATE = os.getenv("HITTING_MATCHUPS_TARGET_DATE", "").strip()
+TARGET_GAME_PK = os.getenv("HITTING_MATCHUPS_TARGET_GAME_PK", "").strip()
 
 
 def _log(message: str) -> None:
@@ -56,6 +61,8 @@ def _request_json(url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str
 
 
 def _target_dates() -> List[str]:
+    if TARGET_DATE:
+        return [TARGET_DATE]
     today = dt.date.today()
     return [today.isoformat(), (today + dt.timedelta(days=1)).isoformat()]
 
@@ -82,7 +89,71 @@ def _fetch_schedule(date_str: str) -> List[Dict[str, Any]]:
     games: List[Dict[str, Any]] = []
     for day in data.get("dates", []) or []:
         games.extend(day.get("games", []) or [])
+
+    if TARGET_GAME_PK:
+        try:
+            target_game_pk = int(TARGET_GAME_PK)
+            games = [game for game in games if int(game.get("gamePk") or 0) == target_game_pk]
+        except ValueError:
+            _log(f"Ignoring invalid HITTING_MATCHUPS_TARGET_GAME_PK={TARGET_GAME_PK}")
+
     return games
+
+
+def _game_date_candidates(game_date_iso: str, target_date: str) -> List[str]:
+    candidates: List[str] = []
+    if game_date_iso:
+        try:
+            utc_dt = dt.datetime.fromisoformat(game_date_iso.replace("Z", "+00:00"))
+            for offset_hours in (0, -4, -5, -6, -7, -8):
+                candidate = (utc_dt + dt.timedelta(hours=offset_hours)).date().isoformat()
+                if candidate not in candidates:
+                    candidates.append(candidate)
+        except Exception:
+            pass
+    if target_date and target_date not in candidates:
+        candidates.append(target_date)
+    today = dt.date.today().isoformat()
+    if today not in candidates:
+        candidates.append(today)
+    return candidates
+
+
+def _fetch_previous_completed_game_lineup(team_id: int, game_date_iso: str, target_date: str) -> List[Dict[str, Any]]:
+    """Use the previous completed-game lineup as the projected lineup fallback."""
+    for candidate_date in _game_date_candidates(game_date_iso, target_date):
+        try:
+            end_date = dt.date.fromisoformat(candidate_date)
+            start_date = (end_date - dt.timedelta(days=10)).isoformat()
+            data = _request_json(
+                f"{MLB_STATS_BASE}/schedule",
+                params={
+                    "startDate": start_date,
+                    "endDate": candidate_date,
+                    "teamId": team_id,
+                    "hydrate": "lineups",
+                    "sportId": 1,
+                },
+            )
+            completed_games: List[Dict[str, Any]] = []
+            for date_row in data.get("dates", []) or []:
+                for game in date_row.get("games", []) or []:
+                    if (game.get("status") or {}).get("codedGameState") == "F":
+                        completed_games.append(game)
+            completed_games.sort(key=lambda game: game.get("gameDate") or "", reverse=True)
+            for game in completed_games:
+                teams = game.get("teams") or {}
+                for side in ("home", "away"):
+                    team = ((teams.get(side) or {}).get("team") or {})
+                    if team.get("id") != team_id:
+                        continue
+                    lineup_key = "homePlayers" if side == "home" else "awayPlayers"
+                    players = (game.get("lineups") or {}).get(lineup_key) or []
+                    if players:
+                        return players[:9]
+        except Exception as exc:
+            _log(f"Previous completed-game lineup fetch failed team={team_id} date={candidate_date}: {exc}")
+    return []
 
 
 def _fetch_active_roster_hitters(team_id: int, season: int) -> List[Dict[str, Any]]:
@@ -109,22 +180,30 @@ def _fetch_active_roster_hitters(team_id: int, season: int) -> List[Dict[str, An
                 "id": int(player_id),
                 "name": person.get("fullName"),
                 "team_id": team_id,
-                "source": "active_roster",
+                "source": "active_roster_limited",
             }
         )
-    return hitters
+    return hitters[:9]
 
 
-def _lineup_hitters_from_game(game: Dict[str, Any], side: str) -> List[Dict[str, Any]]:
+def _lineup_hitters_from_game(game: Dict[str, Any], side: str, date_str: str, season: int) -> List[Dict[str, Any]]:
     teams = game.get("teams") or {}
     team = ((teams.get(side) or {}).get("team") or {})
     team_id = team.get("id")
     lineups = game.get("lineups") or {}
     lineup_key = "homePlayers" if side == "home" else "awayPlayers"
-    players = lineups.get(lineup_key) or []
+    players = (lineups.get(lineup_key) or [])[:9]
+    source = "official_lineup"
+
+    if not players and team_id:
+        players = _fetch_previous_completed_game_lineup(int(team_id), game.get("gameDate") or "", date_str)
+        source = "projected_previous_completed_game"
+
+    if not players and team_id:
+        return _fetch_active_roster_hitters(int(team_id), season)
 
     hitters: List[Dict[str, Any]] = []
-    for player in players:
+    for player in players[:9]:
         player_id = player.get("id")
         if not player_id:
             continue
@@ -133,7 +212,7 @@ def _lineup_hitters_from_game(game: Dict[str, Any], side: str) -> List[Dict[str,
                 "id": int(player_id),
                 "name": player.get("fullName"),
                 "team_id": team_id,
-                "source": "official_lineup",
+                "source": source,
             }
         )
     return hitters
@@ -159,13 +238,14 @@ def _collect_targets() -> List[Dict[str, Any]]:
             home_pitcher_id = ((home.get("probablePitcher") or {}).get("id"))
             away_pitcher_id = ((away.get("probablePitcher") or {}).get("id"))
 
-            away_hitters = _lineup_hitters_from_game(game, "away")
-            home_hitters = _lineup_hitters_from_game(game, "home")
+            away_hitters = _lineup_hitters_from_game(game, "away", date_str, season)
+            home_hitters = _lineup_hitters_from_game(game, "home", date_str, season)
 
-            if not away_hitters and away_team_id:
-                away_hitters = _fetch_active_roster_hitters(int(away_team_id), season)
-            if not home_hitters and home_team_id:
-                home_hitters = _fetch_active_roster_hitters(int(home_team_id), season)
+            _log(
+                f"Targets game_pk={game_pk} date={date_str}: "
+                f"away_team={away_team_id} away_hitters={len(away_hitters)} home_pitcher={home_pitcher_id}; "
+                f"home_team={home_team_id} home_hitters={len(home_hitters)} away_pitcher={away_pitcher_id}"
+            )
 
             for hitter in away_hitters:
                 if not home_pitcher_id:
@@ -205,6 +285,8 @@ def _collect_targets() -> List[Dict[str, Any]]:
                     }
                 )
 
+    if len(targets) > MAX_BATTERS:
+        _log(f"Capping targets from {len(targets)} to MAX_BATTERS={MAX_BATTERS}")
     return targets[:MAX_BATTERS]
 
 
@@ -307,6 +389,7 @@ def run() -> Dict[str, Any]:
         "target_count": len(targets),
         "rows": [],
         "upserted_rows": 0,
+        "skipped_no_arsenal": 0,
     }
 
     with Session() as session:
@@ -314,9 +397,10 @@ def run() -> Dict[str, Any]:
             season = int(str(target["date"])[:4])
             pitch_types = _pitch_types_for_pitcher(session, target["opposing_pitcher_id"], season)
             if not pitch_types:
+                output["skipped_no_arsenal"] += 1
                 _log(
                     f"No arsenal found pitcher={target['opposing_pitcher_id']} "
-                    f"batter={target['batter_id']}"
+                    f"batter={target['batter_id']} game_pk={target.get('game_pk')}"
                 )
                 continue
 
@@ -327,9 +411,9 @@ def run() -> Dict[str, Any]:
                     pitch_type=pitch_type,
                     days_back=DAYS_BACK,
                 )
-                _upsert_matchup_row(session, target, summary)
+                record = _upsert_matchup_row(session, target, summary)
                 output["upserted_rows"] += 1
-                output["rows"].append({**target, **summary})
+                output["rows"].append({**target, **summary, "aggregate_id": getattr(record, "id", None)})
 
         session.commit()
 
@@ -338,6 +422,7 @@ def run() -> Dict[str, Any]:
     output_path.write_text(json.dumps(output, indent=2, sort_keys=True), encoding="utf-8")
     _log(
         f"Upserted {output['upserted_rows']} hittingMatchups rows; "
+        f"skipped_no_arsenal={output['skipped_no_arsenal']}; "
         f"wrote JSON artifact to {output_path}"
     )
 
