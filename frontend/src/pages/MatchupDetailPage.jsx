@@ -844,10 +844,12 @@ function PAOutcomePanel({ sideLabel, teamName, model }) {
   const outcomeRows = [
     ['K', probs.k],
     ['BB', probs.bb],
+    ['HBP', probs.hbp],
     ['1B', probs.single],
     ['2B', probs.double],
     ['3B', probs.triple],
     ['HR', probs.hr],
+    ['ROE', probs.reached_on_error],
     ['Contact Out', probs.out],
   ]
 
@@ -856,6 +858,7 @@ function PAOutcomePanel({ sideLabel, teamName, model }) {
     ['On-Base Probability', summary.on_base_probability],
     ['Extra-Base Hit Probability', summary.extra_base_hit_probability],
     ['Total Out Probability', summary.total_out_probability],
+    ['Non-Hit On-Base Probability', summary.non_hit_on_base_probability],
     ['Contact Out Probability', summary.contact_out_probability],
   ]
 
