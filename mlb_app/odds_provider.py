@@ -1,6 +1,8 @@
+import datetime as dt
 import os
 import time
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -30,6 +32,8 @@ _MARKET_TYPE_MAP = {
     "props": "player_props",
     "all": "all",
 }
+_MLB_SLATE_TIMEZONE = ZoneInfo(os.getenv("ODDS_API_SLATE_TIMEZONE", "America/New_York"))
+_UTC = dt.timezone.utc
 
 
 def _cache_get(key: str):
@@ -111,6 +115,38 @@ def _parse_markets(market_types: Optional[List[str]], props_only: bool = False) 
     return mapped or _DEFAULT_MARKETS
 
 
+def _parse_iso_datetime(value: Any) -> Optional[dt.datetime]:
+    if not value:
+        return None
+    try:
+        raw = str(value).replace("Z", "+00:00")
+        parsed = dt.datetime.fromisoformat(raw)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=_UTC)
+        return parsed.astimezone(_UTC)
+    except Exception:
+        return None
+
+
+def _slate_window_utc(target_date: Optional[str]) -> tuple[Optional[dt.datetime], Optional[dt.datetime]]:
+    if not target_date:
+        return None, None
+    try:
+        slate_date = dt.date.fromisoformat(str(target_date)[:10])
+    except ValueError:
+        return None, None
+
+    local_start = dt.datetime.combine(slate_date, dt.time.min, tzinfo=_MLB_SLATE_TIMEZONE)
+    local_end = local_start + dt.timedelta(days=1)
+    return local_start.astimezone(_UTC), local_end.astimezone(_UTC)
+
+
+def _format_api_datetime(value: Optional[dt.datetime]) -> Optional[str]:
+    if value is None:
+        return None
+    return value.astimezone(_UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def _odds_decimal_from_american(price: Optional[float]) -> Optional[float]:
     if price is None:
         return None
@@ -146,7 +182,7 @@ def _normalize_selection(outcome: Dict[str, Any], market: Dict[str, Any]) -> Dic
         "name": outcome.get("name"),
         "description": outcome.get("description"),
         "team": outcome.get("name"),
-        "side": None,
+        "side": outcome.get("name"),
         "line": outcome.get("point") if outcome.get("point") is not None else market.get("point"),
         "odds": {
             "american": price,
@@ -226,13 +262,14 @@ def _flatten_markets(events: List[Dict[str, Any]], game_pk: Optional[Any] = None
 
 
 def _filter_events(events: List[Dict[str, Any]], game_pk: Optional[Any], target_date: Optional[str]) -> List[Dict[str, Any]]:
+    start_utc, end_utc = _slate_window_utc(target_date)
     filtered: List[Dict[str, Any]] = []
     for event in events:
         if game_pk is not None and event.get("event_id") is not None and str(event.get("event_id")) != str(game_pk):
             continue
-        if target_date:
-            start_time = event.get("start_time") or ""
-            if start_time and not str(start_time).startswith(target_date):
+        if start_utc and end_utc:
+            commence = _parse_iso_datetime(event.get("start_time"))
+            if commence is not None and not (start_utc <= commence < end_utc):
                 continue
         filtered.append(event)
     return filtered
@@ -266,17 +303,19 @@ def build_draftkings_run_input(
     state: Optional[str] = None,
 ) -> Dict[str, Any]:
     markets = _parse_markets(market_types, props_only=props_only)
-    return {
+    request = {
         "apiKey": "***",
-        "sport": _ODDS_API_SPORT,
         "regions": os.getenv("ODDS_API_REGIONS", _DEFAULT_REGIONS),
         "markets": ",".join(markets),
         "oddsFormat": os.getenv("ODDS_API_ODDS_FORMAT", "american"),
         "dateFormat": os.getenv("ODDS_API_DATE_FORMAT", "iso"),
         "bookmakers": os.getenv("ODDS_API_BOOKMAKERS", _DEFAULT_BOOKMAKER),
-        "scope": scope,
-        "target_date": date,
     }
+    start_utc, end_utc = _slate_window_utc(date)
+    if start_utc and end_utc:
+        request["commenceTimeFrom"] = _format_api_datetime(start_utc)
+        request["commenceTimeTo"] = _format_api_datetime(end_utc)
+    return request
 
 
 def fetch_draftkings_odds(
@@ -312,7 +351,7 @@ def fetch_draftkings_odds(
     normalized = {
         "provider": "the_odds_api",
         "book": "DraftKings",
-        "status": "ok" if items else "empty",
+        "status": "ok" if events else "empty",
         "scope": scope,
         "sport": _ODDS_API_SPORT,
         "game_pk": game_pk,
