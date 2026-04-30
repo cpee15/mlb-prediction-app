@@ -19,7 +19,7 @@ from collections import Counter
 from typing import Dict, Optional, Any
 
 
-OUTCOMES = ["k", "bb", "single", "double", "triple", "hr", "out"]
+OUTCOMES = ["k", "bb", "hbp", "single", "double", "triple", "hr", "reached_on_error", "out"]
 
 
 def _normalize_probabilities(probabilities: Dict[str, float]) -> Dict[str, float]:
@@ -29,11 +29,13 @@ def _normalize_probabilities(probabilities: Dict[str, float]) -> Dict[str, float
         return {
             "k": 0.225,
             "bb": 0.085,
+            "hbp": 0.011,
             "single": 0.145,
             "double": 0.045,
             "triple": 0.004,
             "hr": 0.030,
-            "out": 0.466,
+            "reached_on_error": 0.007,
+            "out": 0.459,
         }
     return {key: value / total for key, value in cleaned.items()}
 
@@ -66,7 +68,7 @@ def advance_runners(
     if outcome in {"k", "out"}:
         return bases, 0
 
-    if outcome == "bb":
+    if outcome in {"bb", "hbp"}:
         # Force runners only as needed.
         if first and second and third:
             runs += 1
@@ -75,7 +77,7 @@ def advance_runners(
         new_first = True
         return (new_first, new_second, new_third), runs
 
-    if outcome == "single":
+    if outcome in {"single", "reached_on_error"}:
         # Conservative: runner on third scores; runner on second scores;
         # runner on first advances to second.
         runs += int(third) + int(second)

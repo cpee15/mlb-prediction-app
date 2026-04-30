@@ -19,30 +19,36 @@ from typing import Any, Dict, Optional
 BASE_PA_OUTCOMES = {
     "k": 0.225,
     "bb": 0.085,
+    "hbp": 0.011,
     "single": 0.145,
     "double": 0.045,
     "triple": 0.004,
     "hr": 0.030,
-    "out": 0.466,
+    "reached_on_error": 0.007,
+    "out": 0.459,
 }
 
 MIN_OUTCOME = {
     "k": 0.08,
     "bb": 0.03,
+    "hbp": 0.002,
     "single": 0.06,
     "double": 0.015,
     "triple": 0.0005,
     "hr": 0.005,
+    "reached_on_error": 0.001,
     "out": 0.25,
 }
 
 MAX_OUTCOME = {
     "k": 0.42,
     "bb": 0.18,
+    "hbp": 0.025,
     "single": 0.24,
     "double": 0.09,
     "triple": 0.018,
     "hr": 0.085,
+    "reached_on_error": 0.018,
     "out": 0.68,
 }
 
@@ -125,6 +131,11 @@ def build_pa_outcome_probabilities(
     k_rate = _blend([batter_k, pitcher_k], BASE_PA_OUTCOMES["k"])
     bb_rate = _blend([batter_bb, pitcher_bb], BASE_PA_OUTCOMES["bb"])
 
+    # HBP and reached-on-error are included as conservative baseline events in v1.
+    # They can be upgraded later with player/team/defense-specific features.
+    hbp_rate = BASE_PA_OUTCOMES["hbp"]
+    reached_on_error_rate = BASE_PA_OUTCOMES["reached_on_error"]
+
     contact_quality = _blend(
         [
             batter_hard_hit,
@@ -168,15 +179,26 @@ def build_pa_outcome_probabilities(
     double_rate *= env_run_multiplier
     triple_rate *= env_run_multiplier
 
-    out_rate = 1.0 - (k_rate + bb_rate + single_rate + double_rate + triple_rate + hr_rate)
+    out_rate = 1.0 - (
+        k_rate
+        + bb_rate
+        + hbp_rate
+        + single_rate
+        + double_rate
+        + triple_rate
+        + hr_rate
+        + reached_on_error_rate
+    )
 
     probabilities = _normalize({
         "k": k_rate,
         "bb": bb_rate,
+        "hbp": hbp_rate,
         "single": single_rate,
         "double": double_rate,
         "triple": triple_rate,
         "hr": hr_rate,
+        "reached_on_error": reached_on_error_rate,
         "out": out_rate,
     })
 
@@ -186,7 +208,13 @@ def build_pa_outcome_probabilities(
             4,
         ),
         "on_base_probability": round(
-            probabilities["bb"] + probabilities["single"] + probabilities["double"] + probabilities["triple"] + probabilities["hr"],
+            probabilities["bb"]
+            + probabilities["hbp"]
+            + probabilities["single"]
+            + probabilities["double"]
+            + probabilities["triple"]
+            + probabilities["hr"]
+            + probabilities["reached_on_error"],
             4,
         ),
         "extra_base_hit_probability": round(
@@ -195,6 +223,10 @@ def build_pa_outcome_probabilities(
         ),
         "total_out_probability": round(
             probabilities["k"] + probabilities["out"],
+            4,
+        ),
+        "non_hit_on_base_probability": round(
+            probabilities["bb"] + probabilities["hbp"] + probabilities["reached_on_error"],
             4,
         ),
         "contact_out_probability": probabilities["out"],
