@@ -684,7 +684,7 @@ def _build_competitive_matchup(
             session=session,
             batter_id=batter_id,
             pitch_type=pitch_type,
-            days_back=365,
+            days_back=3650,
         )
 
         pa = batter_vs_type.get("pa_ended") or batter_vs_type.get("pa") or batter_vs_type.get("sample_size") or 0
@@ -1143,7 +1143,7 @@ def _hitter_pitch_type_statcast_summary(
     session,
     batter_id: int,
     pitch_type: Optional[str],
-    days_back: int = 365,
+    days_back: int = 3650,
 ) -> Dict[str, Any]:
     """Dynamic hitter-vs-pitch-type summary independent of the opposing pitcher.
 
