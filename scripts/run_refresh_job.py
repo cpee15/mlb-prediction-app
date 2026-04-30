@@ -42,7 +42,7 @@ os.environ.setdefault("STATCAST_LOOKBACK_DAYS", "365")
 os.environ.setdefault("HITTING_MATCHUPS_DAYS_BACK", "365")
 os.environ.setdefault("HITTING_MATCHUPS_MAX_BATTERS", "240")
 os.environ.setdefault("HITTER_STATCAST_START_DATE", "2023-03-01")
-os.environ.setdefault("HITTER_STATCAST_MAX_PLAYERS", "150")
+os.environ.setdefault("HITTER_STATCAST_MAX_PLAYERS", "1000")
 
 
 def _log(message: str) -> None:
@@ -122,14 +122,14 @@ def _run_hitter_statcast_backfill() -> None:
     _log(
         "Starting hitter Statcast backfill: "
         f"start_date={os.environ.get('HITTER_STATCAST_START_DATE', '2023-03-01')}, "
-        f"max_players={os.environ.get('HITTER_STATCAST_MAX_PLAYERS', '150')}"
+        f"max_players={os.environ.get('HITTER_STATCAST_MAX_PLAYERS', '1000')}"
     )
     from scripts.backfill_hitter_statcast import run
 
     result = run(
         start_date=os.environ.get("HITTER_STATCAST_START_DATE", "2023-03-01"),
         end_date=dt.date.today().isoformat(),
-        max_players=int(os.environ.get("HITTER_STATCAST_MAX_PLAYERS", "150")),
+        max_players=int(os.environ.get("HITTER_STATCAST_MAX_PLAYERS", "1000")),
     )
     _log(
         "Hitter Statcast backfill completed: "
