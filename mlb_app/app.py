@@ -693,8 +693,7 @@ def _build_competitive_matchup(
                 pitch_type=pitch_type,
                 days_back=3650,
             )
-            
-        batter_vs_type["source"] = "live_statcast_events_fallback"
+            batter_vs_type["source"] = "live_statcast_events_fallback"
 
         pa = batter_vs_type.get("pa_ended") or batter_vs_type.get("pa") or batter_vs_type.get("sample_size") or 0
 
