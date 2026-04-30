@@ -1304,6 +1304,22 @@ def create_app():
                     return {}
                 return {key: round(value / count, 4) for key, value in sorted(totals.items())}
 
+            def _average_summary_dict(models):
+                totals = {}
+                count = 0
+                for model in models or []:
+                    summary = model.get("summary") or {}
+                    if not summary:
+                        continue
+                    count += 1
+                    for key, value in summary.items():
+                        if value is None:
+                            continue
+                        totals[key] = totals.get(key, 0.0) + float(value)
+                if not count:
+                    return {}
+                return {key: round(value / count, 4) for key, value in sorted(totals.items())}
+
             def _build_lineup_pa_outcome_model(lineup, lineup_profile, opposing_pitcher_profile, environment_profile, side_label):
                 candidates = lineup or []
                 player_models = []
@@ -1321,14 +1337,17 @@ def create_app():
                         "player_id": player.get("id"),
                         "player_name": player.get("name"),
                         "probabilities": model.get("probabilities"),
+                        "summary": model.get("summary"),
                     })
 
                 lineup_average = _average_probability_dict(player_models)
+                lineup_summary = _average_summary_dict(player_models)
                 return {
                     "model_version": "lineup_pa_outcome_v1",
                     "side": side_label,
                     "player_count_used": len(player_models),
                     "lineup_average_probabilities": lineup_average,
+                    "lineup_average_summary": lineup_summary,
                     "player_outcomes": player_models,
                     "metadata": {
                         "generated_from": "matchup_detail.pa_outcome_integration",
