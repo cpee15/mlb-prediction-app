@@ -70,6 +70,7 @@ from .offense_profile_aggregation import build_projected_lineup_offense_profile
 from .environment_profile import compute_environment_profile
 from .matchup_analysis import build_matchup_analysis
 from .pitcher_advanced_metrics import derive_pitcher_advanced_metrics
+from .simulation.pa_outcome_model import build_pa_outcome_probabilities
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 MATCHUP_SNAPSHOT_CACHE: Dict[str, List[Dict[str, Any]]] = {}
@@ -1287,6 +1288,56 @@ def create_app():
                 away_live_statcast_source,
             )
 
+            def _average_probability_dict(models):
+                totals = {}
+                count = 0
+                for model in models or []:
+                    probs = model.get("probabilities") or {}
+                    if not probs:
+                        continue
+                    count += 1
+                    for key, value in probs.items():
+                        if value is None:
+                            continue
+                        totals[key] = totals.get(key, 0.0) + float(value)
+                if not count:
+                    return {}
+                return {key: round(value / count, 4) for key, value in sorted(totals.items())}
+
+            def _build_lineup_pa_outcome_model(lineup, lineup_profile, opposing_pitcher_profile, environment_profile, side_label):
+                candidates = lineup or []
+                player_models = []
+
+                # V1 uses the lineup-level offense profile for each hitter because
+                # the current matchup endpoint exposes team/lineup aggregate profiles.
+                # Later versions can replace this with true player-level profiles.
+                for player in candidates:
+                    model = build_pa_outcome_probabilities(
+                        batter_profile=lineup_profile,
+                        pitcher_profile=opposing_pitcher_profile,
+                        environment_profile=environment_profile,
+                    )
+                    player_models.append({
+                        "player_id": player.get("id"),
+                        "player_name": player.get("name"),
+                        "probabilities": model.get("probabilities"),
+                    })
+
+                lineup_average = _average_probability_dict(player_models)
+                return {
+                    "model_version": "lineup_pa_outcome_v1",
+                    "side": side_label,
+                    "player_count_used": len(player_models),
+                    "lineup_average_probabilities": lineup_average,
+                    "player_outcomes": player_models,
+                    "metadata": {
+                        "generated_from": "matchup_detail.pa_outcome_integration",
+                        "batter_profile_granularity": "lineup_aggregate",
+                        "pitcher_profile_granularity": "starter_profile",
+                        "environment_profile_used": bool(environment_profile),
+                    },
+                }
+
             def _profile_has_useful_offense_metrics(profile):
                 for section in ["contact_skill", "plate_discipline", "power", "platoon_profile"]:
                     values = (profile.get(section) or {}).values()
@@ -1416,6 +1467,21 @@ def create_app():
                 arsenal_rows=home_pitcher_detail.get("arsenal") or [],
             )
 
+            home_pa_outcome_model = _build_lineup_pa_outcome_model(
+                lineup=home_lineup,
+                lineup_profile=home_projected_lineup_offense_profile,
+                opposing_pitcher_profile=away_pitcher_profile,
+                environment_profile=environment_profile,
+                side_label="home_offense",
+            )
+            away_pa_outcome_model = _build_lineup_pa_outcome_model(
+                lineup=away_lineup,
+                lineup_profile=away_projected_lineup_offense_profile,
+                opposing_pitcher_profile=home_pitcher_profile,
+                environment_profile=environment_profile,
+                side_label="away_offense",
+            )
+
             return {
                 "game_pk": game_pk,
                 "game_date": game_date_iso,
@@ -1432,6 +1498,8 @@ def create_app():
                 "environmentProfile": environment_profile,
                 "homeMatchupAnalysis": home_matchup_analysis,
                 "awayMatchupAnalysis": away_matchup_analysis,
+                "homePAOutcomeModel": home_pa_outcome_model,
+                "awayPAOutcomeModel": away_pa_outcome_model,
                 "home_team": {
                     "id": home_team_id,
                     "name": home.get("team", {}).get("name"),
