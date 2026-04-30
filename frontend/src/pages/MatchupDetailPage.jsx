@@ -468,6 +468,8 @@ function displayKey(key) {
     max_total_adjustment: 'Max Total Adjustment',
     wind_raw: 'Raw Wind',
     wind_parsed_from_text: 'Wind Parsed From Text',
+    park_factor_fallback_used: 'Park Factor Fallback Used',
+    park_factor_fallback_source: 'Park Factor Fallback Source',
     profile_granularity: 'Granularity',
     is_projected_lineup_derived: 'Lineup Derived',
     lineup_source: 'Lineup Source',
