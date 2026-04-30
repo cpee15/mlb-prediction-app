@@ -55,6 +55,19 @@ def _safe_error(error: Exception) -> Dict[str, Any]:
     return {"type": error.__class__.__name__, "message": str(error)}
 
 
+def _safe_float(value: Any) -> Optional[float]:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
+    return max(low, min(high, value))
+
+
 def _load_matchups(target_date: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     errors: List[Dict[str, Any]] = []
     try:
@@ -99,7 +112,125 @@ def _candidate_sort_key(candidate: Dict[str, Any]) -> float:
     return edge_component * 10.0 + confidence_component + score_component
 
 
-def _build_global_prop_candidates(events: List[Dict[str, Any]], matchup_index: Dict[str, Dict[str, Any]], limit: int = 20) -> List[Dict[str, Any]]:
+def _fallback_candidates_from_matchups(matchups: List[Dict[str, Any]], limit: int = 20) -> List[Dict[str, Any]]:
+    """Build a populated pre-game candidate board even when the odds provider returns zero events.
+
+    These are internal model candidates, not sportsbook-priced prop edges. They are
+    intentionally marked with market_implied_probability=None and source=no_odds_provider
+    so the UI has useful pre-game targets while still making the missing odds state clear.
+    """
+    candidates: List[Dict[str, Any]] = []
+
+    for matchup in matchups or []:
+        game_pk = matchup.get("game_pk")
+        away_team = matchup.get("away_team_name") or matchup.get("away_team") or matchup.get("away_name") or "Away"
+        home_team = matchup.get("home_team_name") or matchup.get("home_team") or matchup.get("home_name") or "Home"
+        label = f"{away_team} @ {home_team}"
+        home_prob = _safe_float(matchup.get("home_win_prob") or matchup.get("home_win_probability"))
+        away_prob = _safe_float(matchup.get("away_win_prob") or matchup.get("away_win_probability"))
+
+        if home_prob is not None and away_prob is not None:
+            pick_team = home_team if home_prob >= away_prob else away_team
+            model_probability = max(home_prob, away_prob)
+            gap = abs(home_prob - away_prob)
+            confidence = round(_clamp(0.52 + gap, 0.52, 0.85), 3)
+            candidates.append(
+                {
+                    "model": "pregame_internal_moneyline_v1",
+                    "market": "pregame_moneyline",
+                    "market_name": "Pregame Moneyline Candidate",
+                    "market_family": "game",
+                    "pick": pick_team,
+                    "player_name": label,
+                    "selection": pick_team,
+                    "line": None,
+                    "price": None,
+                    "score": round(model_probability + gap, 4),
+                    "model_probability": round(model_probability, 4),
+                    "market_implied_probability": None,
+                    "edge": None,
+                    "confidence": confidence,
+                    "game_pk": game_pk,
+                    "event_id": None,
+                    "away_team": away_team,
+                    "home_team": home_team,
+                    "match_key": _key_from_matchup(matchup),
+                    "matched": True,
+                    "available": True,
+                    "source": "internal_matchups_no_odds_provider",
+                    "features_used": [
+                        {"name": "home_win_prob", "value": home_prob, "source": "matchups.home_win_prob", "transform": "raw"},
+                        {"name": "away_win_prob", "value": away_prob, "source": "matchups.away_win_prob", "transform": "raw"},
+                        {"name": "probability_gap", "value": gap, "source": "matchups.win_probability_gap", "transform": "absolute_difference"},
+                    ],
+                    "missing_inputs": ["sportsbook_event_id", "sportsbook_price", "market_implied_probability"],
+                    "drivers": ["internal win probability", "pregame matchup model", "odds provider returned zero events"],
+                }
+            )
+
+        home_pitcher = matchup.get("home_pitcher_name")
+        away_pitcher = matchup.get("away_pitcher_name")
+        home_features = matchup.get("home_pitcher_features") or {}
+        away_features = matchup.get("away_pitcher_features") or {}
+        for side, pitcher_name, opponent, features in [
+            ("home", home_pitcher, away_team, home_features),
+            ("away", away_pitcher, home_team, away_features),
+        ]:
+            if not pitcher_name:
+                continue
+            k_pct = _safe_float(features.get("k_pct"))
+            xwoba = _safe_float(features.get("xwoba"))
+            hard_hit = _safe_float(features.get("hard_hit_pct"))
+            signal_parts = []
+            if k_pct is not None:
+                signal_parts.append(_clamp(k_pct, 0.0, 0.45))
+            if xwoba is not None:
+                signal_parts.append(_clamp(0.360 - xwoba, -0.10, 0.12) + 0.10)
+            if hard_hit is not None:
+                signal_parts.append(_clamp(0.42 - hard_hit, -0.10, 0.12) + 0.10)
+            if not signal_parts:
+                continue
+            score = round(sum(signal_parts) / len(signal_parts), 4)
+            confidence = round(_clamp(0.50 + score, 0.50, 0.78), 3)
+            candidates.append(
+                {
+                    "model": "pregame_internal_pitcher_prop_watchlist_v1",
+                    "market": "pitcher_strikeouts_watchlist",
+                    "market_name": "Pitcher Strikeouts Watchlist",
+                    "market_family": "pitcher",
+                    "pick": f"{pitcher_name} strikeout lean",
+                    "player_name": pitcher_name,
+                    "selection": "strikeout lean",
+                    "line": None,
+                    "price": None,
+                    "score": score,
+                    "model_probability": None,
+                    "market_implied_probability": None,
+                    "edge": None,
+                    "confidence": confidence,
+                    "game_pk": game_pk,
+                    "event_id": None,
+                    "away_team": away_team,
+                    "home_team": home_team,
+                    "match_key": _key_from_matchup(matchup),
+                    "matched": True,
+                    "available": True,
+                    "source": "internal_matchups_no_odds_provider",
+                    "features_used": [
+                        {"name": "k_pct", "value": k_pct, "source": f"matchups.{side}_pitcher_features.k_pct", "transform": "raw"},
+                        {"name": "xwoba", "value": xwoba, "source": f"matchups.{side}_pitcher_features.xwoba", "transform": "raw"},
+                        {"name": "hard_hit_pct", "value": hard_hit, "source": f"matchups.{side}_pitcher_features.hard_hit_pct", "transform": "raw"},
+                    ],
+                    "missing_inputs": ["sportsbook_event_id", "sportsbook_prop_line", "sportsbook_price"],
+                    "drivers": ["pitcher K profile", "pitcher contact suppression", f"opponent: {opponent}", "odds provider returned zero events"],
+                }
+            )
+
+    candidates.sort(key=_candidate_sort_key, reverse=True)
+    return candidates[:limit]
+
+
+def _build_global_prop_candidates(events: List[Dict[str, Any]], matchup_index: Dict[str, Dict[str, Any]], matchups: List[Dict[str, Any]], limit: int = 20) -> List[Dict[str, Any]]:
     candidates: List[Dict[str, Any]] = []
     for event in events:
         key = _key_from_event(event)
@@ -112,7 +243,7 @@ def _build_global_prop_candidates(events: List[Dict[str, Any]], matchup_index: D
         if not prop_markets:
             continue
 
-        models = build_prop_models(matchup, prop_markets, market_filter="all")
+        models = build_prop_models(matchup, prop_markets, market_filter="all", limit=20)
         for candidate in models.get("top_candidates", []) if isinstance(models, dict) else []:
             enriched = dict(candidate)
             enriched["game_pk"] = matchup.get("game_pk")
@@ -121,10 +252,64 @@ def _build_global_prop_candidates(events: List[Dict[str, Any]], matchup_index: D
             enriched["home_team"] = matchup.get("home_team_name") or _team_name_from_event(event, "home")
             enriched["match_key"] = key
             enriched["matched"] = bool(matchup)
+            enriched["source"] = "sportsbook_props"
             candidates.append(enriched)
+
+    if not candidates:
+        return _fallback_candidates_from_matchups(matchups, limit=limit)
 
     candidates.sort(key=_candidate_sort_key, reverse=True)
     return candidates[:limit]
+
+
+def _models_from_unpriced_matchups(matchups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    outputs: List[Dict[str, Any]] = []
+    for matchup in matchups or []:
+        away_team = matchup.get("away_team_name") or matchup.get("away_team") or matchup.get("away_name")
+        home_team = matchup.get("home_team_name") or matchup.get("home_team") or matchup.get("home_name")
+        home_prob = _safe_float(matchup.get("home_win_prob"))
+        away_prob = _safe_float(matchup.get("away_win_prob"))
+        pick = None
+        confidence = None
+        if home_prob is not None and away_prob is not None:
+            pick = home_team if home_prob >= away_prob else away_team
+            confidence = round(_clamp(max(home_prob, away_prob), 0.50, 0.85), 3)
+        outputs.append(
+            {
+                "game_pk": matchup.get("game_pk"),
+                "event_id": None,
+                "away_team": away_team,
+                "home_team": home_team,
+                "matched": True,
+                "match_key": _key_from_matchup(matchup),
+                "odds_missing": True,
+                "missing_inputs": ["sportsbook_event_id", "sportsbook_markets"],
+                "models": {
+                    "game_pk": matchup.get("game_pk"),
+                    "event_id": None,
+                    "moneyline": {
+                        "model": "moneyline_internal_no_odds_v1",
+                        "market": "moneyline",
+                        "pick": pick or "No pick",
+                        "score": confidence or 0.0,
+                        "model_probability": confidence,
+                        "market_implied_probability": None,
+                        "edge": None,
+                        "confidence": confidence or 0.0,
+                        "features_used": [
+                            {"name": "home_win_prob", "value": home_prob, "source": "matchups.home_win_prob", "transform": "raw"},
+                            {"name": "away_win_prob", "value": away_prob, "source": "matchups.away_win_prob", "transform": "raw"},
+                        ],
+                        "missing_inputs": ["sportsbook_price", "market_implied_probability"],
+                        "drivers": ["internal matchup model", "odds provider returned zero events"],
+                        "available": pick is not None,
+                    },
+                    "spread": None,
+                    "total": None,
+                },
+            }
+        )
+    return outputs
 
 
 @router.get("/daily-odds/models")
@@ -176,7 +361,10 @@ def daily_odds_models(date: Optional[str] = None) -> Dict[str, Any]:
             "models": models,
         })
 
-    top_prop_candidates = _build_global_prop_candidates(events, matchup_index, limit=20)
+    if not outputs and matchups:
+        outputs = _models_from_unpriced_matchups(matchups)
+
+    top_prop_candidates = _build_global_prop_candidates(events, matchup_index, matchups, limit=20)
 
     return {
         "date": target_date,
@@ -185,6 +373,7 @@ def daily_odds_models(date: Optional[str] = None) -> Dict[str, Any]:
         "unmatched_count": sum(1 for row in outputs if not row.get("matched")),
         "odds_status": odds_payload.get("status") if isinstance(odds_payload, dict) else None,
         "last_updated": odds_payload.get("last_updated") if isinstance(odds_payload, dict) else None,
+        "odds_event_count": len(events),
         "models": outputs,
         "games": outputs,
         "top_prop_model_candidates": top_prop_candidates,
@@ -204,7 +393,7 @@ def daily_odds_prop_models(event_id: str, market: Optional[str] = None) -> Dict[
 
     prop_markets = payload.get("markets", []) if isinstance(payload, dict) else []
     try:
-        models = build_prop_models({}, prop_markets, market_filter=market or "all")
+        models = build_prop_models({}, prop_markets, market_filter=market or "all", limit=20)
     except Exception as exc:
         models = {"top_candidates": [], "candidate_count": 0}
         errors.append({"stage": "build_prop_models", "error": _safe_error(exc)})
