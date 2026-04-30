@@ -15,6 +15,8 @@ Default controls:
     HITTER_STATCAST_START_DATE=2023-03-01
     HITTER_STATCAST_MAX_PLAYERS=150
     HITTER_STATCAST_OUTPUT_PATH=hitter_statcast_backfill.json
+    HITTER_STATCAST_SKIP_COMPLETED=1
+    HITTER_STATCAST_FORCE_REFRESH=0
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import pandas as pd
 import requests
+from sqlalchemy import text
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -44,6 +47,8 @@ DEFAULT_START_DATE = os.getenv("HITTER_STATCAST_START_DATE", "2023-03-01")
 DEFAULT_MAX_PLAYERS = int(os.getenv("HITTER_STATCAST_MAX_PLAYERS", "150"))
 OUTPUT_PATH = os.getenv("HITTER_STATCAST_OUTPUT_PATH", "hitter_statcast_backfill.json")
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("HITTER_STATCAST_TIMEOUT_SECONDS", "30"))
+SKIP_COMPLETED = os.getenv("HITTER_STATCAST_SKIP_COMPLETED", "1") == "1"
+FORCE_REFRESH = os.getenv("HITTER_STATCAST_FORCE_REFRESH", "0") == "1"
 
 
 IDENTITY_COLUMNS = (
@@ -54,6 +59,8 @@ IDENTITY_COLUMNS = (
     "batter_id",
     "pitch_type",
 )
+
+CHECKPOINT_TABLE = "hitter_statcast_backfill_checkpoints"
 
 
 def _log(message: str) -> None:
@@ -248,6 +255,116 @@ def collect_daily_lineup_hitters(max_players: int) -> List[Dict[str, Any]]:
     return players
 
 
+def _ensure_checkpoint_table(engine) -> None:
+    with engine.begin() as conn:
+        if engine.dialect.name == "postgresql":
+            conn.execute(
+                text(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {CHECKPOINT_TABLE} (
+                        batter_id INTEGER NOT NULL,
+                        start_date DATE NOT NULL,
+                        end_date DATE NOT NULL,
+                        player_name VARCHAR(120),
+                        fetched_rows INTEGER DEFAULT 0,
+                        inserted_rows INTEGER DEFAULT 0,
+                        updated_rows INTEGER DEFAULT 0,
+                        completed_at TIMESTAMP NOT NULL,
+                        PRIMARY KEY (batter_id, start_date, end_date)
+                    )
+                    """
+                )
+            )
+        else:
+            conn.execute(
+                text(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {CHECKPOINT_TABLE} (
+                        batter_id INTEGER NOT NULL,
+                        start_date DATE NOT NULL,
+                        end_date DATE NOT NULL,
+                        player_name VARCHAR(120),
+                        fetched_rows INTEGER DEFAULT 0,
+                        inserted_rows INTEGER DEFAULT 0,
+                        updated_rows INTEGER DEFAULT 0,
+                        completed_at TIMESTAMP NOT NULL,
+                        PRIMARY KEY (batter_id, start_date, end_date)
+                    )
+                    """
+                )
+            )
+
+
+def _is_completed(session, batter_id: int, start_date: str, end_date: str) -> bool:
+    if FORCE_REFRESH or not SKIP_COMPLETED:
+        return False
+    row = session.execute(
+        text(
+            f"""
+            SELECT batter_id
+            FROM {CHECKPOINT_TABLE}
+            WHERE batter_id = :batter_id
+              AND start_date = :start_date
+              AND end_date = :end_date
+            LIMIT 1
+            """
+        ),
+        {"batter_id": batter_id, "start_date": start_date, "end_date": end_date},
+    ).first()
+    return row is not None
+
+
+def _mark_completed(
+    session,
+    batter_id: int,
+    player_name: Optional[str],
+    start_date: str,
+    end_date: str,
+    fetched_rows: int,
+    inserted_rows: int,
+    updated_rows: int,
+) -> None:
+    completed_at = dt.datetime.utcnow()
+    if session.bind and session.bind.dialect.name == "postgresql":
+        stmt = text(
+            f"""
+            INSERT INTO {CHECKPOINT_TABLE}
+                (batter_id, start_date, end_date, player_name, fetched_rows, inserted_rows, updated_rows, completed_at)
+            VALUES
+                (:batter_id, :start_date, :end_date, :player_name, :fetched_rows, :inserted_rows, :updated_rows, :completed_at)
+            ON CONFLICT (batter_id, start_date, end_date)
+            DO UPDATE SET
+                player_name = EXCLUDED.player_name,
+                fetched_rows = EXCLUDED.fetched_rows,
+                inserted_rows = EXCLUDED.inserted_rows,
+                updated_rows = EXCLUDED.updated_rows,
+                completed_at = EXCLUDED.completed_at
+            """
+        )
+    else:
+        stmt = text(
+            f"""
+            INSERT OR REPLACE INTO {CHECKPOINT_TABLE}
+                (batter_id, start_date, end_date, player_name, fetched_rows, inserted_rows, updated_rows, completed_at)
+            VALUES
+                (:batter_id, :start_date, :end_date, :player_name, :fetched_rows, :inserted_rows, :updated_rows, :completed_at)
+            """
+        )
+    session.execute(
+        stmt,
+        {
+            "batter_id": batter_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "player_name": player_name,
+            "fetched_rows": fetched_rows,
+            "inserted_rows": inserted_rows,
+            "updated_rows": updated_rows,
+            "completed_at": completed_at,
+        },
+    )
+
+
 def _pitch_identity_from_values(
     game_pk: Optional[int],
     at_bat_number: Optional[int],
@@ -344,6 +461,19 @@ def _insert_or_update_batter_statcast(session, batter: Dict[str, Any], start_dat
     start = dt.date.fromisoformat(start_date)
     end = dt.date.fromisoformat(end_date)
 
+    if _is_completed(session, batter_id, start_date, end_date):
+        _log(
+            f"Skipping completed hitter Statcast batter={batter_id} "
+            f"name={batter.get('player_name')} start_date={start_date} end_date={end_date}"
+        )
+        return {
+            **batter,
+            "fetched_rows": 0,
+            "inserted_rows": 0,
+            "updated_rows": 0,
+            "skipped_completed": True,
+        }
+
     try:
         df = fetch_statcast_batter_data(batter_id, start_date, end_date)
     except Exception as exc:
@@ -352,6 +482,8 @@ def _insert_or_update_batter_statcast(session, batter: Dict[str, Any], start_dat
 
     if df is None or df.empty:
         _log(f"No hitter Statcast rows batter={batter_id} name={batter.get('player_name')}")
+        _mark_completed(session, batter_id, batter.get("player_name"), start_date, end_date, 0, 0, 0)
+        session.commit()
         return {"player_id": batter_id, "fetched_rows": 0, "inserted_rows": 0, "updated_rows": 0}
 
     existing = _existing_event_map(session, batter_id, start, end)
@@ -392,6 +524,16 @@ def _insert_or_update_batter_statcast(session, batter: Dict[str, Any], start_dat
             ):
                 updated += 1
 
+    _mark_completed(
+        session,
+        batter_id=batter_id,
+        player_name=batter.get("player_name"),
+        start_date=start_date,
+        end_date=end_date,
+        fetched_rows=int(len(df)),
+        inserted_rows=inserted,
+        updated_rows=updated,
+    )
     session.commit()
 
     _log(
@@ -405,6 +547,7 @@ def _insert_or_update_batter_statcast(session, batter: Dict[str, Any], start_dat
         "inserted_rows": inserted,
         "updated_rows": updated,
         "skipped_no_identity": skipped_no_identity,
+        "skipped_completed": False,
     }
 
 
@@ -419,12 +562,14 @@ def run(
 
     engine = get_engine(DATABASE_URL)
     create_tables(engine)
+    _ensure_checkpoint_table(engine)
     Session = get_session(engine)
 
     hitters = collect_daily_lineup_hitters(max_players=max_players)
     _log(
         f"Collected {len(hitters)} lineup hitters for Statcast backfill, "
-        f"max_players={max_players}, start_date={start_date}, end_date={end_date}"
+        f"max_players={max_players}, start_date={start_date}, end_date={end_date}, "
+        f"skip_completed={int(SKIP_COMPLETED)}, force_refresh={int(FORCE_REFRESH)}"
     )
 
     output: Dict[str, Any] = {
@@ -436,6 +581,7 @@ def run(
         "fetched_rows": 0,
         "inserted_rows": 0,
         "updated_rows": 0,
+        "skipped_completed_players": 0,
         "players": [],
     }
 
@@ -446,6 +592,8 @@ def run(
             output["fetched_rows"] += int(result.get("fetched_rows") or 0)
             output["inserted_rows"] += int(result.get("inserted_rows") or 0)
             output["updated_rows"] += int(result.get("updated_rows") or 0)
+            if result.get("skipped_completed"):
+                output["skipped_completed_players"] += 1
 
     output_path = Path(OUTPUT_PATH)
     if output_path.parent != Path("."):
@@ -454,6 +602,7 @@ def run(
 
     _log(
         f"Hitter Statcast backfill completed: targets={output['target_count']}, "
+        f"skipped_completed_players={output['skipped_completed_players']}, "
         f"fetched_rows={output['fetched_rows']}, inserted_rows={output['inserted_rows']}, "
         f"updated_rows={output['updated_rows']}; artifact={output_path}"
     )
