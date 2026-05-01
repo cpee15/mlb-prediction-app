@@ -174,6 +174,77 @@ def simulate_game(
         },
     }
 
+def _sample_from_distribution(distribution: Dict[int, float], rng: random.Random) -> int:
+    draw = rng.random()
+    cumulative = 0.0
+    for value, probability in sorted(distribution.items()):
+        cumulative += probability
+        if draw <= cumulative:
+            return value
+    return max(distribution.keys())
+
+
+def _starter_exit_distribution(starter_quality: str) -> Dict[int, float]:
+    if starter_quality == "strong":
+        return {4: 0.05, 5: 0.20, 6: 0.45, 7: 0.25, 8: 0.05}
+    if starter_quality == "weak":
+        return {3: 0.08, 4: 0.27, 5: 0.40, 6: 0.20, 7: 0.05}
+    return {4: 0.12, 5: 0.38, 6: 0.35, 7: 0.13, 8: 0.02}
+
+
+def classify_starter_quality(pitcher_profile: Optional[Dict[str, Any]]) -> str:
+    if not pitcher_profile:
+        return "average"
+
+    bat_missing = pitcher_profile.get("bat_missing") or {}
+    command = pitcher_profile.get("command_control") or {}
+    contact = pitcher_profile.get("contact_management") or {}
+
+    k_rate = bat_missing.get("k_rate")
+    bb_rate = command.get("bb_rate")
+    xwoba = contact.get("xwoba_allowed")
+    hard_hit = contact.get("hard_hit_rate_allowed")
+    barrel = contact.get("barrel_rate_allowed")
+
+    score = 0
+
+    if isinstance(k_rate, (int, float)):
+        if k_rate >= 0.27:
+            score += 1
+        elif k_rate <= 0.19:
+            score -= 1
+
+    if isinstance(bb_rate, (int, float)):
+        if bb_rate <= 0.07:
+            score += 1
+        elif bb_rate >= 0.105:
+            score -= 1
+
+    if isinstance(xwoba, (int, float)):
+        if xwoba <= 0.300:
+            score += 1
+        elif xwoba >= 0.345:
+            score -= 1
+
+    if isinstance(hard_hit, (int, float)):
+        if hard_hit <= 0.36:
+            score += 1
+        elif hard_hit >= 0.43:
+            score -= 1
+
+    if isinstance(barrel, (int, float)):
+        if barrel <= 0.065:
+            score += 1
+        elif barrel >= 0.095:
+            score -= 1
+
+    if score >= 2:
+        return "strong"
+    if score <= -2:
+        return "weak"
+    return "average"
+
+
 def simulate_game_with_bullpen(
     away_starter_probabilities: Dict[str, float],
     home_starter_probabilities: Dict[str, float],
@@ -183,6 +254,9 @@ def simulate_game_with_bullpen(
     seed: Optional[int] = None,
     innings: int = 9,
     starter_innings: int = 5,
+    away_starter_quality: str = "average",
+    home_starter_quality: str = "average",
+    dynamic_starter_exit: bool = True,
 ) -> Dict[str, Any]:
     """
     Simulate a game with separate early-inning starter probabilities and
@@ -203,19 +277,38 @@ def simulate_game_with_bullpen(
     home_wins = 0
     ties_after_regulation = 0
 
+    away_exit_distribution = _starter_exit_distribution(away_starter_quality)
+    home_exit_distribution = _starter_exit_distribution(home_starter_quality)
+    away_starter_innings_counter = Counter()
+    home_starter_innings_counter = Counter()
+
     for _ in range(simulations):
         away_runs = 0
         home_runs = 0
 
+        away_starter_innings = (
+            _sample_from_distribution(away_exit_distribution, rng)
+            if dynamic_starter_exit
+            else starter_innings
+        )
+        home_starter_innings = (
+            _sample_from_distribution(home_exit_distribution, rng)
+            if dynamic_starter_exit
+            else starter_innings
+        )
+
+        away_starter_innings_counter[away_starter_innings] += 1
+        home_starter_innings_counter[home_starter_innings] += 1
+
         for inning_index in range(1, innings + 1):
             away_probs = (
                 away_starter_probabilities
-                if inning_index <= starter_innings
+                if inning_index <= home_starter_innings
                 else away_bullpen_probabilities
             )
             home_probs = (
                 home_starter_probabilities
-                if inning_index <= starter_innings
+                if inning_index <= away_starter_innings
                 else home_bullpen_probabilities
             )
 
@@ -265,6 +358,11 @@ def simulate_game_with_bullpen(
         "simulations": simulations,
         "innings": innings,
         "starter_innings": starter_innings,
+        "dynamic_starter_exit": dynamic_starter_exit,
+        "away_starter_quality": away_starter_quality,
+        "home_starter_quality": home_starter_quality,
+        "away_starter_innings_distribution": _distribution(away_starter_innings_counter, simulations),
+        "home_starter_innings_distribution": _distribution(home_starter_innings_counter, simulations),
         "bullpen_innings": max(0, innings - starter_innings),
         "away_expected_runs": away_expected_runs,
         "home_expected_runs": home_expected_runs,
@@ -293,6 +391,11 @@ def simulate_game_with_bullpen(
             "seed": seed,
             "simulation_count": simulations,
             "starter_innings": starter_innings,
+            "dynamic_starter_exit": dynamic_starter_exit,
+            "away_starter_quality": away_starter_quality,
+            "home_starter_quality": home_starter_quality,
+            "away_starter_innings_distribution": _distribution(away_starter_innings_counter, simulations),
+            "home_starter_innings_distribution": _distribution(home_starter_innings_counter, simulations),
             "bullpen_innings": max(0, innings - starter_innings),
             **GAME_SIM_CALIBRATION,
             "calibration_applied_to": ["expected_runs"],

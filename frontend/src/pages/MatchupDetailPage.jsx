@@ -1006,6 +1006,8 @@ function GameSimulationPanel({ simulation, homeName, awayName }) {
     [`${awayName} Win Probability`, simulation.away_win_probability],
     [`${homeName} Win Probability`, simulation.home_win_probability],
     ['Tie After Regulation', simulation.tie_after_regulation_probability],
+    ['Away Starter Quality', simulation.away_starter_quality],
+    ['Home Starter Quality', simulation.home_starter_quality],
   ]
 
   const totalRows = [
@@ -1045,9 +1047,11 @@ function GameSimulationPanel({ simulation, homeName, awayName }) {
             <div key={label} style={t.statRow}>
               <span style={t.statKey}>{label}</span>
               <span style={t.statVal}>
-                {String(label).includes('Probability') || String(label).includes('Tie')
-                  ? pct(value)
-                  : metricValue(value)}
+                {typeof value === 'string'
+                  ? value.replace(/_/g, ' ')
+                  : String(label).includes('Probability') || String(label).includes('Tie')
+                    ? pct(value)
+                    : metricValue(value)}
               </span>
             </div>
           ))}
