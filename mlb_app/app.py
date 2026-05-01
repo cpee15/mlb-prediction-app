@@ -73,7 +73,7 @@ from .matchup_analysis import build_matchup_analysis
 from .pitcher_advanced_metrics import derive_pitcher_advanced_metrics
 from .simulation.pa_outcome_model import build_pa_outcome_probabilities
 from .simulation.inning_simulator import simulate_half_innings
-from .simulation.game_simulator import simulate_game
+from .simulation.game_simulator import simulate_game, simulate_game_with_bullpen
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 MATCHUP_SNAPSHOT_CACHE: Dict[str, List[Dict[str, Any]]] = {}
@@ -1383,6 +1383,25 @@ def create_app():
                 }
                 return result
 
+            def _build_bullpen_pa_outcome_model(lineup_profile, opposing_bullpen_profile, environment_profile, side_label):
+                model = build_pa_outcome_probabilities(
+                    batter_profile=lineup_profile,
+                    pitcher_profile=opposing_bullpen_profile,
+                    environment_profile=environment_profile,
+                )
+                return {
+                    "model_version": "bullpen_pa_outcome_v1",
+                    "side": side_label,
+                    "lineup_average_probabilities": model.get("probabilities"),
+                    "lineup_average_summary": model.get("summary"),
+                    "metadata": {
+                        "generated_from": "matchup_detail.bullpen_pa_outcome_model",
+                        "batter_profile_granularity": "lineup_aggregate",
+                        "pitcher_profile_granularity": "team_bullpen_profile",
+                        "environment_profile_used": bool(environment_profile),
+                    },
+                }
+
             def _build_game_simulation(away_pa_model, home_pa_model):
                 away_probabilities = (away_pa_model or {}).get("lineup_average_probabilities") or {}
                 home_probabilities = (home_pa_model or {}).get("lineup_average_probabilities") or {}
@@ -1407,6 +1426,38 @@ def create_app():
                     "home_pa_model_version": (home_pa_model or {}).get("model_version"),
                     "simulation_seed": 42,
                     "simulation_count": 5000,
+                }
+                return result
+
+            def _build_bullpen_adjusted_game_simulation(away_starter_pa_model, home_starter_pa_model, away_bullpen_pa_model, home_bullpen_pa_model):
+                away_starter_probabilities = (away_starter_pa_model or {}).get("lineup_average_probabilities") or {}
+                home_starter_probabilities = (home_starter_pa_model or {}).get("lineup_average_probabilities") or {}
+                away_bullpen_probabilities = (away_bullpen_pa_model or {}).get("lineup_average_probabilities") or {}
+                home_bullpen_probabilities = (home_bullpen_pa_model or {}).get("lineup_average_probabilities") or {}
+
+                if not away_starter_probabilities or not home_starter_probabilities or not away_bullpen_probabilities or not home_bullpen_probabilities:
+                    return {
+                        "model_version": "full_game_sim_with_bullpen_v1",
+                        "status": "missing_pa_probabilities",
+                    }
+
+                result = simulate_game_with_bullpen(
+                    away_starter_probabilities=away_starter_probabilities,
+                    home_starter_probabilities=home_starter_probabilities,
+                    away_bullpen_probabilities=away_bullpen_probabilities,
+                    home_bullpen_probabilities=home_bullpen_probabilities,
+                    simulations=5000,
+                    seed=42,
+                    innings=9,
+                    starter_innings=5,
+                )
+                result["metadata"] = {
+                    **(result.get("metadata") or {}),
+                    "generated_from": "matchup_detail.bullpen_adjusted_game_simulation",
+                    "away_starter_pa_model_version": (away_starter_pa_model or {}).get("model_version"),
+                    "home_starter_pa_model_version": (home_starter_pa_model or {}).get("model_version"),
+                    "away_bullpen_pa_model_version": (away_bullpen_pa_model or {}).get("model_version"),
+                    "home_bullpen_pa_model_version": (home_bullpen_pa_model or {}).get("model_version"),
                 }
                 return result
 
@@ -1563,11 +1614,6 @@ def create_app():
                 side_label="away_offense",
             )
 
-            game_simulation = _build_game_simulation(
-                away_pa_model=away_pa_outcome_model,
-                home_pa_model=home_pa_outcome_model,
-            )
-
             home_bullpen_profile = build_bullpen_profile(
                 team_id=home.get("id"),
                 team_name=home.get("name"),
@@ -1575,6 +1621,30 @@ def create_app():
             away_bullpen_profile = build_bullpen_profile(
                 team_id=away.get("id"),
                 team_name=away.get("name"),
+            )
+
+            away_vs_home_bullpen_pa_outcome_model = _build_bullpen_pa_outcome_model(
+                lineup_profile=away_projected_lineup_offense_profile,
+                opposing_bullpen_profile=home_bullpen_profile,
+                environment_profile=environment_profile,
+                side_label="away_offense_vs_home_bullpen",
+            )
+            home_vs_away_bullpen_pa_outcome_model = _build_bullpen_pa_outcome_model(
+                lineup_profile=home_projected_lineup_offense_profile,
+                opposing_bullpen_profile=away_bullpen_profile,
+                environment_profile=environment_profile,
+                side_label="home_offense_vs_away_bullpen",
+            )
+
+            game_simulation = _build_game_simulation(
+                away_pa_model=away_pa_outcome_model,
+                home_pa_model=home_pa_outcome_model,
+            )
+            bullpen_adjusted_game_simulation = _build_bullpen_adjusted_game_simulation(
+                away_starter_pa_model=away_pa_outcome_model,
+                home_starter_pa_model=home_pa_outcome_model,
+                away_bullpen_pa_model=away_vs_home_bullpen_pa_outcome_model,
+                home_bullpen_pa_model=home_vs_away_bullpen_pa_outcome_model,
             )
 
             return {
@@ -1598,6 +1668,9 @@ def create_app():
                 "homeHalfInningSimulation": home_half_inning_simulation,
                 "awayHalfInningSimulation": away_half_inning_simulation,
                 "gameSimulation": game_simulation,
+                "bullpenAdjustedGameSimulation": bullpen_adjusted_game_simulation,
+                "awayVsHomeBullpenPAOutcomeModel": away_vs_home_bullpen_pa_outcome_model,
+                "homeVsAwayBullpenPAOutcomeModel": home_vs_away_bullpen_pa_outcome_model,
                 "homeBullpenProfile": home_bullpen_profile,
                 "awayBullpenProfile": away_bullpen_profile,
                 "home_team": {
