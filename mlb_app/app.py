@@ -89,6 +89,7 @@ from .odds_provider import (
 
 from .batter_routes import router as batter_router
 from .daily_odds_routes import router as daily_odds_router
+from .model_projection_routes import router as model_projection_router
 
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
