@@ -143,6 +143,148 @@ def _weather_context(value: Any) -> Dict[str, Any]:
     return {}
 
 
+def _pitcher_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
+    features = team.get("pitcher_features") or {}
+    arsenal = team.get("pitch_arsenal") or {}
+
+    k_rate = safe_float(features.get("k_pct"))
+    bb_rate = safe_float(features.get("bb_pct"))
+    hard_hit = safe_float(features.get("hard_hit_pct"))
+    xwoba = safe_float(features.get("xwoba"))
+    xba = safe_float(features.get("xba"))
+
+    return {
+        "metadata": {
+            "source_type": "model_projection_pitcher_features",
+            "generated_from": "model_projections._pitcher_workspace_profile",
+            "data_confidence": "medium" if features else "low",
+            "pitcher_id": team.get("pitcher_id"),
+            "pitcher_name": team.get("pitcher_name"),
+            "pitch_arsenal_source": team.get("pitch_arsenal_source"),
+            "profile_granularity": "probable_pitcher",
+        },
+        "bat_missing": {
+            "k_rate": k_rate,
+            "whiff_rate": None,
+            "csw_rate": None,
+        },
+        "command_control": {
+            "bb_rate": bb_rate,
+            "zone_rate": None,
+            "first_pitch_strike_rate": None,
+        },
+        "contact_management": {
+            "hard_hit_rate_allowed": hard_hit,
+            "xwoba_allowed": xwoba,
+            "xba_allowed": xba,
+            "avg_exit_velocity_allowed": safe_float(features.get("avg_exit_velocity")),
+            "avg_launch_angle_allowed": safe_float(features.get("avg_launch_angle")),
+        },
+        "arsenal": {
+            "pitch_mix": arsenal,
+            "avg_velocity": safe_float(features.get("avg_velocity")),
+            "avg_spin_rate": safe_float(features.get("avg_spin_rate")),
+        },
+    }
+
+
+def _offense_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
+    inputs = team.get("offense_inputs") or {}
+    return {
+        "metadata": {
+            "source_type": inputs.get("source") or "team_split_or_prior",
+            "generated_from": "model_projections._offense_workspace_profile",
+            "data_confidence": "low",
+            "team_id": team.get("team_id"),
+            "team_name": team.get("team_name"),
+            "lineup_source": inputs.get("lineup_source"),
+            "profile_granularity": "team_offense",
+            "sample_blend": inputs.get("sample_blend"),
+        },
+        "contact_skill": {
+            "k_rate": safe_float(inputs.get("k_pct")),
+            "batting_avg": safe_float(inputs.get("batting_avg")),
+            "contact_rate": None,
+        },
+        "plate_discipline": {
+            "bb_rate": safe_float(inputs.get("bb_pct")),
+            "on_base_pct": safe_float(inputs.get("on_base_pct")),
+        },
+        "power": {
+            "iso": safe_float(inputs.get("iso")),
+            "slugging_pct": safe_float(inputs.get("slugging_pct")),
+            "home_runs": safe_float(inputs.get("home_runs")),
+            "doubles": safe_float(inputs.get("doubles")),
+            "triples": safe_float(inputs.get("triples")),
+        },
+        "run_creation": {
+            "pa": safe_float(inputs.get("pa")),
+            "hits": safe_float(inputs.get("hits")),
+            "walks": safe_float(inputs.get("walks")),
+            "strikeouts": safe_float(inputs.get("strikeouts")),
+        },
+    }
+
+
+def _matchup_workspace_analysis(offense_team: Dict[str, Any], opposing_pitcher: Dict[str, Any]) -> Dict[str, Any]:
+    offense_inputs = offense_team.get("offense_inputs") or {}
+    pitcher_features = opposing_pitcher.get("pitcher_features") or {}
+    arsenal = opposing_pitcher.get("pitch_arsenal") or {}
+
+    offense_k = safe_float(offense_inputs.get("k_pct"))
+    offense_bb = safe_float(offense_inputs.get("bb_pct"))
+    pitcher_k = safe_float(pitcher_features.get("k_pct"))
+    pitcher_bb = safe_float(pitcher_features.get("bb_pct"))
+
+    pitch_edges = []
+    for pitch_type, row in (arsenal or {}).items():
+        if not isinstance(row, dict):
+            continue
+        pitch_edges.append({
+            "pitch_type": pitch_type,
+            "usage_pct": safe_float(row.get("usage_pct")),
+            "whiff_pct": safe_float(row.get("whiff_pct")),
+            "xwoba": safe_float(row.get("xwoba")),
+            "hard_hit_pct": safe_float(row.get("hard_hit_pct")),
+        })
+
+    biggest_edge = None
+    if pitch_edges:
+        biggest_edge = max(
+            pitch_edges,
+            key=lambda row: (row.get("usage_pct") or 0) + (row.get("whiff_pct") or 0),
+        ).get("pitch_type")
+
+    return {
+        "metadata": {
+            "source_type": "model_projection_workspace_matchup",
+            "generated_from": "model_projections._matchup_workspace_analysis",
+            "data_confidence": "medium" if arsenal else "low",
+            "offense_team_id": offense_team.get("team_id"),
+            "offense_team_name": offense_team.get("team_name"),
+            "opposing_pitcher_id": opposing_pitcher.get("pitcher_id"),
+            "opposing_pitcher_name": opposing_pitcher.get("pitcher_name"),
+        },
+        "summary": {
+            "status": "partial",
+            "note": "Model Projections workspace uses production pitcher/team inputs and conservative offense priors.",
+            "biggest_edge": biggest_edge,
+            "confidence": 0.5 if arsenal else 0.25,
+        },
+        "plate_discipline_matchup": {
+            "offense_k_rate": offense_k,
+            "offense_bb_rate": offense_bb,
+            "pitcher_k_rate": pitcher_k,
+            "pitcher_bb_rate": pitcher_bb,
+        },
+        "arsenal_matchup": {
+            "pitch_edges": pitch_edges,
+            "biggest_edge": biggest_edge,
+            "pitch_count_used": len(pitch_edges),
+        },
+    }
+
+
 def _build_projection_simulation_cards(
     matchup: Dict[str, Any],
     away: Dict[str, Any],
@@ -294,9 +436,37 @@ def _build_projection_simulation_cards(
         confidence="low",
     )
 
+    workspace = {
+        "environmentProfile": environment_profile,
+        "awayPitcherProfile": _pitcher_workspace_profile(away),
+        "homePitcherProfile": _pitcher_workspace_profile(home),
+        "awayOffenseProfile": _offense_workspace_profile(away),
+        "homeOffenseProfile": _offense_workspace_profile(home),
+        "awayBullpenProfile": away_bullpen_profile,
+        "homeBullpenProfile": home_bullpen_profile,
+        "awayPAOutcomeModel": away_vs_home_starter_pa,
+        "homePAOutcomeModel": home_vs_away_starter_pa,
+        "awayVsHomeBullpenPAOutcomeModel": away_vs_home_bullpen_pa,
+        "homeVsAwayBullpenPAOutcomeModel": home_vs_away_bullpen_pa,
+        "awayMatchupAnalysis": _matchup_workspace_analysis(away, home),
+        "homeMatchupAnalysis": _matchup_workspace_analysis(home, away),
+        "bullpenAdjustedGameSimulation": sim,
+        "metadata": {
+            "workspace_version": "model_projection_workspace_v1",
+            "generated_from": "model_projections._build_projection_simulation_cards",
+            "data_confidence": "low",
+            "notes": [
+                "Workspace is generated from production model projection inputs.",
+                "Lineup-level detail is not fully wired here yet; team offense priors are used where necessary.",
+                "This object is intended to power the full Model Projections workspace UI.",
+            ],
+        },
+    }
+
     return {
         "away": [away_card, game_total_card],
         "home": [home_card],
+        "workspace": workspace,
     }
 
 
@@ -347,6 +517,7 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
             simulation_cards = _build_projection_simulation_cards(matchup, away, home)
             away["models"].extend(simulation_cards.get("away", []))
             home["models"].extend(simulation_cards.get("home", []))
+            workspace = simulation_cards.get("workspace") or {}
 
             games.append({
                 "game_pk": matchup.get("game_pk"),
@@ -361,6 +532,7 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 "home_pitcher": {"id": home.get("pitcher_id"), "name": home.get("pitcher_name")},
                 "main_matchup_probabilities": {"away_win_prob": safe_float(matchup.get("away_win_prob")), "home_win_prob": safe_float(matchup.get("home_win_prob"))},
                 "teams": {"away": away, "home": home},
+                "workspace": workspace,
             })
         except Exception as exc:
             errors.append({"game_pk": matchup.get("game_pk"), "error": str(exc)})
