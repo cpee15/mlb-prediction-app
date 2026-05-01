@@ -895,6 +895,62 @@ function PAOutcomePanel({ sideLabel, teamName, model }) {
   )
 }
 
+function HalfInningSimulationPanel({ sideLabel, teamName, simulation }) {
+  if (!simulation) return <div style={t.noData}>No half-inning simulation available yet.</div>
+
+  const distribution = simulation.run_distribution || {}
+  const distributionRows = Object.entries(distribution)
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([runs, probability]) => [`${runs} runs`, probability])
+
+  const summaryRows = [
+    ['Expected Runs', simulation.expected_runs],
+    ['Scoreless Probability', simulation.probability_scoreless],
+    ['1+ Runs Probability', simulation.probability_1_plus_runs],
+    ['2+ Runs Probability', simulation.probability_2_plus_runs],
+    ['Avg Plate Appearances', simulation.average_plate_appearances],
+    ['Max PA Guardrail Rate', simulation.ended_by_max_pa_rate],
+  ]
+
+  return (
+    <div style={t.pitcherCard}>
+      <div style={{ fontSize: '12px', color: '#8b949e', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{sideLabel}</div>
+      <div style={t.pitcherName}>{teamName}</div>
+      <div style={{ color: '#8b949e', fontSize: '12px', marginBottom: '12px' }}>
+        {simulation.model_version || 'Half-inning simulation'} · Sims: {simulation.simulations ?? simulation.metadata?.simulation_count ?? '—'}
+      </div>
+
+      <div style={t.splitsGrid}>
+        <div style={t.splitCard}>
+          <div style={t.splitTitle}>Simulation Summary</div>
+          {summaryRows.map(([label, value]) => (
+            <div key={label} style={t.statRow}>
+              <span style={t.statKey}>{label}</span>
+              <span style={t.statVal}>
+                {label === 'Expected Runs' || label === 'Avg Plate Appearances'
+                  ? metricValue(value)
+                  : pct(value)}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div style={t.splitCard}>
+          <div style={t.splitTitle}>Run Distribution</div>
+          {distributionRows.length === 0 ? (
+            <div style={t.noData}>No run distribution available.</div>
+          ) : distributionRows.map(([label, value]) => (
+            <div key={label} style={t.statRow}>
+              <span style={t.statKey}>{label}</span>
+              <span style={t.statVal}>{pct(value)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function MatchupAnalysisPanel({ sideLabel, teamName, analysis }) {
   if (!analysis) return <div style={t.noData}>No matchup analysis is available for this side yet.</div>
   const pitchRows = analysis.pitchTypeMatchups || []
@@ -1186,6 +1242,12 @@ export default function MatchupDetailPage() {
           <div style={t.pitcherGrid}>
             <PAOutcomePanel sideLabel="Away Offense vs Home Starter" teamName={away.name} model={matchup.awayPAOutcomeModel} />
             <PAOutcomePanel sideLabel="Home Offense vs Away Starter" teamName={home.name} model={matchup.homePAOutcomeModel} />
+          </div>
+
+          <div style={{ ...t.sectionTitle, marginTop: '22px' }}>Half-Inning Simulation</div>
+          <div style={t.pitcherGrid}>
+            <HalfInningSimulationPanel sideLabel="Away Offense" teamName={away.name} simulation={matchup.awayHalfInningSimulation} />
+            <HalfInningSimulationPanel sideLabel="Home Offense" teamName={home.name} simulation={matchup.homeHalfInningSimulation} />
           </div>
         </div>
       )}
