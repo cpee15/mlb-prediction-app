@@ -73,7 +73,7 @@ from .matchup_analysis import build_matchup_analysis
 from .pitcher_advanced_metrics import derive_pitcher_advanced_metrics
 from .simulation.pa_outcome_model import build_pa_outcome_probabilities
 from .simulation.inning_simulator import simulate_half_innings
-from .simulation.game_simulator import simulate_game, simulate_game_with_bullpen
+from .simulation.game_simulator import simulate_game, simulate_game_with_bullpen, classify_starter_quality
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 MATCHUP_SNAPSHOT_CACHE: Dict[str, List[Dict[str, Any]]] = {}
@@ -1429,7 +1429,7 @@ def create_app():
                 }
                 return result
 
-            def _build_bullpen_adjusted_game_simulation(away_starter_pa_model, home_starter_pa_model, away_bullpen_pa_model, home_bullpen_pa_model):
+            def _build_bullpen_adjusted_game_simulation(away_starter_pa_model, home_starter_pa_model, away_bullpen_pa_model, home_bullpen_pa_model, away_pitcher_profile, home_pitcher_profile):
                 away_starter_probabilities = (away_starter_pa_model or {}).get("lineup_average_probabilities") or {}
                 home_starter_probabilities = (home_starter_pa_model or {}).get("lineup_average_probabilities") or {}
                 away_bullpen_probabilities = (away_bullpen_pa_model or {}).get("lineup_average_probabilities") or {}
@@ -1441,6 +1441,9 @@ def create_app():
                         "status": "missing_pa_probabilities",
                     }
 
+                away_starter_quality = classify_starter_quality(away_pitcher_profile)
+                home_starter_quality = classify_starter_quality(home_pitcher_profile)
+
                 result = simulate_game_with_bullpen(
                     away_starter_probabilities=away_starter_probabilities,
                     home_starter_probabilities=home_starter_probabilities,
@@ -1450,6 +1453,9 @@ def create_app():
                     seed=42,
                     innings=9,
                     starter_innings=5,
+                    away_starter_quality=away_starter_quality,
+                    home_starter_quality=home_starter_quality,
+                    dynamic_starter_exit=True,
                 )
                 result["metadata"] = {
                     **(result.get("metadata") or {}),
@@ -1458,6 +1464,8 @@ def create_app():
                     "home_starter_pa_model_version": (home_starter_pa_model or {}).get("model_version"),
                     "away_bullpen_pa_model_version": (away_bullpen_pa_model or {}).get("model_version"),
                     "home_bullpen_pa_model_version": (home_bullpen_pa_model or {}).get("model_version"),
+                    "away_starter_quality": away_starter_quality,
+                    "home_starter_quality": home_starter_quality,
                 }
                 return result
 
@@ -1645,6 +1653,8 @@ def create_app():
                 home_starter_pa_model=home_pa_outcome_model,
                 away_bullpen_pa_model=away_vs_home_bullpen_pa_outcome_model,
                 home_bullpen_pa_model=home_vs_away_bullpen_pa_outcome_model,
+                away_pitcher_profile=away_pitcher_profile,
+                home_pitcher_profile=home_pitcher_profile,
             )
 
             return {
