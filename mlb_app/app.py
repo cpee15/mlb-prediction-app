@@ -1418,6 +1418,24 @@ def create_app():
                 }
                 return result
 
+            def _team_id(team):
+                if not isinstance(team, dict):
+                    return None
+                return (
+                    team.get("id")
+                    or team.get("team_id")
+                    or (team.get("team") or {}).get("id")
+                )
+
+            def _team_name(team):
+                if not isinstance(team, dict):
+                    return None
+                return (
+                    team.get("name")
+                    or team.get("team_name")
+                    or (team.get("team") or {}).get("name")
+                )
+
             def _build_bullpen_pa_outcome_model(lineup_profile, opposing_bullpen_profile, environment_profile, side_label):
                 model = build_pa_outcome_probabilities(
                     batter_profile=lineup_profile,
@@ -1639,7 +1657,7 @@ def create_app():
                 opposing_pitcher_profile=away_pitcher_profile,
                 environment_profile=environment_profile,
                 side_label="home_offense",
-                team=home,
+                team=home_team,
             )
             away_pa_outcome_model = _build_lineup_pa_outcome_model(
                 lineup=away_lineup,
@@ -1647,7 +1665,7 @@ def create_app():
                 opposing_pitcher_profile=home_pitcher_profile,
                 environment_profile=environment_profile,
                 side_label="away_offense",
-                team=away,
+                team=away_team,
             )
 
             home_half_inning_simulation = _build_half_inning_simulation(
@@ -1660,21 +1678,21 @@ def create_app():
             )
 
             home_team_offense_prior = build_team_offense_prior(
-                team_id=home.get("id"),
-                team_name=home.get("name"),
+                team_id=_team_id(home_team),
+                team_name=_team_name(home_team),
             )
             away_team_offense_prior = build_team_offense_prior(
-                team_id=away.get("id"),
-                team_name=away.get("name"),
+                team_id=_team_id(away_team),
+                team_name=_team_name(away_team),
             )
 
             home_bullpen_profile = build_bullpen_profile(
-                team_id=home.get("id"),
-                team_name=home.get("name"),
+                team_id=_team_id(home_team),
+                team_name=_team_name(home_team),
             )
             away_bullpen_profile = build_bullpen_profile(
-                team_id=away.get("id"),
-                team_name=away.get("name"),
+                team_id=_team_id(away_team),
+                team_name=_team_name(away_team),
             )
 
             away_vs_home_bullpen_pa_outcome_model = _build_bullpen_pa_outcome_model(
