@@ -968,6 +968,7 @@ function BullpenProfilePanel({ sideLabel, teamName, profile }) {
       <div style={t.pitcherName}>{teamName}</div>
       <div style={{ color: '#8b949e', fontSize: '12px', marginBottom: '12px' }}>
         {profile.metadata?.bullpen_profile_version || 'bullpen profile'} · Confidence: {profile.metadata?.data_confidence || 'unknown'}
+        {profile.metadata?.bullpen_quality_label ? ` · ${String(profile.metadata.bullpen_quality_label).replace(/_/g, ' ')}` : ''}
       </div>
 
       <div style={t.splitsGrid}>
