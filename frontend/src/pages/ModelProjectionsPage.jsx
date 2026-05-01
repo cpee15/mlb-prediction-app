@@ -157,13 +157,79 @@ function isSimulationModel(model) {
   return String(model?.model_name || '').startsWith('Simulation:')
 }
 
-function StatRow({ k, v, format = 'text' }) {
-  const rendered = format === 'pct' ? pct(v) : format === 'num' ? num(v) : label(v)
+function isPresent(v) {
+  return v !== null && v !== undefined && v !== '' && !(typeof v === 'number' && Number.isNaN(v))
+}
+
+function formatStatValue(key, value, format = 'auto') {
+  if (!isPresent(value)) return null
+
+  if (format === 'pct') return pct(value)
+  if (format === 'num') return num(value)
+  if (format === 'decimal') return Number(value).toFixed(3)
+  if (format === 'text') return label(value)
+
+  const keyText = String(key || '').toLowerCase()
+
+  const pctKeys = [
+    'rate', 'pct', 'probability', 'usage', 'whiff', 'csw',
+    'zone', 'strike', 'over ', 'under ', '3+ runs', '4+ runs', '5+ runs'
+  ]
+  const decimalKeys = [
+    'xwoba', 'xba', 'iso', 'slugging', 'on base', 'avg',
+    'index', 'score', 'confidence'
+  ]
+  const countKeys = [
+    'home runs', 'doubles', 'triples', 'hits', 'walks', 'strikeouts',
+    'pa', 'pitch count', 'runs'
+  ]
+
+  if (pctKeys.some(token => keyText.includes(token))) return pct(value)
+
+  if (decimalKeys.some(token => keyText.includes(token))) {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return label(value)
+    return n.toFixed(3)
+  }
+
+  if (countKeys.some(token => keyText.includes(token))) return num(value)
+
+  if (typeof value === 'number') return num(value)
+  return label(value)
+}
+
+function StatRow({ k, v, format = 'auto' }) {
+  const rendered = formatStatValue(k, v, format)
+  if (!isPresent(rendered)) return null
+
   return (
     <div style={s.row}>
       <span style={s.key}>{k}</span>
       <span style={s.val}>{rendered}</span>
     </div>
+  )
+}
+
+function Tag({ children, tone = 'context' }) {
+  const colors = {
+    sim: '#1f6feb',
+    context: '#9e6a03',
+    diagnostic: '#30363d',
+  }
+  return (
+    <span style={{
+      display: 'inline-block',
+      marginLeft: '8px',
+      padding: '2px 8px',
+      borderRadius: '999px',
+      background: colors[tone] || colors.context,
+      color: '#e6edf3',
+      fontSize: '11px',
+      fontWeight: 800,
+      verticalAlign: 'middle',
+    }}>
+      {children}
+    </span>
   )
 }
 
@@ -178,28 +244,39 @@ function MetricCard({ labelText, value, sub, format = 'num' }) {
   )
 }
 
-function GenericPanel({ title, subtitle, children }) {
+function GenericPanel({ title, subtitle, tag, tagTone = 'context', children }) {
   return (
     <div style={s.metricCard}>
-      <div style={s.metricLabel}>{title}</div>
+      <div style={s.metricLabel}>
+        {title}
+        {tag ? <Tag tone={tagTone}>{tag}</Tag> : null}
+      </div>
       {subtitle ? <h3 style={{ margin: '0 0 12px', color: '#e6edf3' }}>{subtitle}</h3> : null}
       {children}
     </div>
   )
 }
 
-function DataSection({ title, data, formatHint = {} }) {
+function DataSection({ title, data, formatHint = {}, tag, tagTone = 'context' }) {
   if (!data || typeof data !== 'object') {
-    return <GenericPanel title={title}><div style={s.noData}>No data available.</div></GenericPanel>
+    return null
   }
 
+  const rows = Object.entries(data)
+    .filter(([, value]) => !(value && typeof value === 'object'))
+    .map(([key, value]) => {
+      const format = formatHint[key] || 'auto'
+      return [key, value, format]
+    })
+    .filter(([key, value, format]) => isPresent(formatStatValue(label(key), value, format)))
+
+  if (!rows.length) return null
+
   return (
-    <GenericPanel title={title}>
-      {Object.entries(data).map(([key, value]) => {
-        if (value && typeof value === 'object') return null
-        const format = formatHint[key] || (typeof value === 'number' && Math.abs(value) <= 1 ? 'pct' : 'text')
-        return <StatRow key={key} k={label(key)} v={value} format={format} />
-      })}
+    <GenericPanel title={title} tag={tag} tagTone={tagTone}>
+      {rows.map(([key, value, format]) => (
+        <StatRow key={key} k={label(key)} v={value} format={format} />
+      ))}
     </GenericPanel>
   )
 }
