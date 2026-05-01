@@ -951,6 +951,90 @@ function HalfInningSimulationPanel({ sideLabel, teamName, simulation }) {
   )
 }
 
+function GameSimulationPanel({ simulation, homeName, awayName }) {
+  if (!simulation) return <div style={t.noData}>No game simulation available yet.</div>
+
+  const totalProbs = simulation.total_probabilities || {}
+  const teamTotals = simulation.team_total_probabilities || {}
+
+  const summaryRows = [
+    ['Total Expected Runs', simulation.total_expected_runs],
+    [`${awayName} Expected Runs`, simulation.away_expected_runs],
+    [`${homeName} Expected Runs`, simulation.home_expected_runs],
+    [`${awayName} Win Probability`, simulation.away_win_probability],
+    [`${homeName} Win Probability`, simulation.home_win_probability],
+    ['Tie After Regulation', simulation.tie_after_regulation_probability],
+  ]
+
+  const totalRows = [
+    ['Over 6.5', totalProbs['over_6.5']],
+    ['Over 7.5', totalProbs['over_7.5']],
+    ['Over 8.5', totalProbs['over_8.5']],
+    ['Over 9.5', totalProbs['over_9.5']],
+    ['Over 10.5', totalProbs['over_10.5']],
+    ['Under 6.5', totalProbs['under_6.5']],
+    ['Under 7.5', totalProbs['under_7.5']],
+    ['Under 8.5', totalProbs['under_8.5']],
+    ['Under 9.5', totalProbs['under_9.5']],
+    ['Under 10.5', totalProbs['under_10.5']],
+  ]
+
+  const teamTotalRows = [
+    [`${awayName} 3+ Runs`, teamTotals.away_3_plus],
+    [`${awayName} 4+ Runs`, teamTotals.away_4_plus],
+    [`${awayName} 5+ Runs`, teamTotals.away_5_plus],
+    [`${homeName} 3+ Runs`, teamTotals.home_3_plus],
+    [`${homeName} 4+ Runs`, teamTotals.home_4_plus],
+    [`${homeName} 5+ Runs`, teamTotals.home_5_plus],
+  ]
+
+  return (
+    <div style={t.pitcherCard}>
+      <div style={{ fontSize: '12px', color: '#8b949e', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Game Simulation</div>
+      <div style={t.pitcherName}>{awayName} vs {homeName}</div>
+      <div style={{ color: '#8b949e', fontSize: '12px', marginBottom: '12px' }}>
+        {simulation.model_version || 'Full-game simulation'} · Sims: {simulation.simulations ?? simulation.metadata?.simulation_count ?? '—'}
+      </div>
+
+      <div style={t.splitsGrid}>
+        <div style={t.splitCard}>
+          <div style={t.splitTitle}>Game Summary</div>
+          {summaryRows.map(([label, value]) => (
+            <div key={label} style={t.statRow}>
+              <span style={t.statKey}>{label}</span>
+              <span style={t.statVal}>
+                {String(label).includes('Probability') || String(label).includes('Tie')
+                  ? pct(value)
+                  : metricValue(value)}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div style={t.splitCard}>
+          <div style={t.splitTitle}>Game Totals</div>
+          {totalRows.map(([label, value]) => (
+            <div key={label} style={t.statRow}>
+              <span style={t.statKey}>{label}</span>
+              <span style={t.statVal}>{pct(value)}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={t.splitCard}>
+          <div style={t.splitTitle}>Team Totals</div>
+          {teamTotalRows.map(([label, value]) => (
+            <div key={label} style={t.statRow}>
+              <span style={t.statKey}>{label}</span>
+              <span style={t.statVal}>{pct(value)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function MatchupAnalysisPanel({ sideLabel, teamName, analysis }) {
   if (!analysis) return <div style={t.noData}>No matchup analysis is available for this side yet.</div>
   const pitchRows = analysis.pitchTypeMatchups || []
@@ -1249,6 +1333,9 @@ export default function MatchupDetailPage() {
             <HalfInningSimulationPanel sideLabel="Away Offense" teamName={away.name} simulation={matchup.awayHalfInningSimulation} />
             <HalfInningSimulationPanel sideLabel="Home Offense" teamName={home.name} simulation={matchup.homeHalfInningSimulation} />
           </div>
+
+          <div style={{ ...t.sectionTitle, marginTop: '22px' }}>Full Game Simulation</div>
+          <GameSimulationPanel simulation={matchup.gameSimulation} awayName={away.name} homeName={home.name} />
         </div>
       )}
 
