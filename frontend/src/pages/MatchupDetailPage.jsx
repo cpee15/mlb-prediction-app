@@ -993,8 +993,10 @@ function BullpenProfilePanel({ sideLabel, teamName, profile }) {
 function GameSimulationPanel({ simulation, homeName, awayName }) {
   if (!simulation) return <div style={t.noData}>No game simulation available yet.</div>
 
-  const totalProbs = simulation.total_probabilities || {}
-  const teamTotals = simulation.team_total_probabilities || {}
+  const totalProbs = simulation.calibrated_total_probabilities || simulation.total_probabilities || {}
+  const rawTotalProbs = simulation.total_probabilities || {}
+  const teamTotals = simulation.calibrated_team_total_probabilities || simulation.team_total_probabilities || {}
+  const rawTeamTotals = simulation.team_total_probabilities || {}
 
   const summaryRows = [
     ['Total Expected Runs', simulation.total_expected_runs],
@@ -1021,6 +1023,8 @@ function GameSimulationPanel({ simulation, homeName, awayName }) {
     ['Under 8.5', totalProbs['under_8.5']],
     ['Under 9.5', totalProbs['under_9.5']],
     ['Under 10.5', totalProbs['under_10.5']],
+    ['Raw Over 8.5', rawTotalProbs['over_8.5']],
+    ['Raw Under 8.5', rawTotalProbs['under_8.5']],
   ]
 
   const teamTotalRows = [
@@ -1030,6 +1034,8 @@ function GameSimulationPanel({ simulation, homeName, awayName }) {
     [`${homeName} 3+ Runs`, teamTotals.home_3_plus],
     [`${homeName} 4+ Runs`, teamTotals.home_4_plus],
     [`${homeName} 5+ Runs`, teamTotals.home_5_plus],
+    [`Raw ${awayName} 4+ Runs`, rawTeamTotals.away_4_plus],
+    [`Raw ${homeName} 4+ Runs`, rawTeamTotals.home_4_plus],
   ]
 
   return (
