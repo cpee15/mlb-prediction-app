@@ -951,6 +951,44 @@ function HalfInningSimulationPanel({ sideLabel, teamName, simulation }) {
   )
 }
 
+function BullpenProfilePanel({ sideLabel, teamName, profile }) {
+  if (!profile) return <div style={t.noData}>No bullpen profile available yet.</div>
+
+  const sections = [
+    ['Bat Missing', profile.bat_missing],
+    ['Command / Control', profile.command_control],
+    ['Contact Management', profile.contact_management],
+    ['Platoon Profile', profile.platoon_profile],
+    ['Arsenal', profile.arsenal],
+  ]
+
+  return (
+    <div style={t.pitcherCard}>
+      <div style={{ fontSize: '12px', color: '#8b949e', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{sideLabel}</div>
+      <div style={t.pitcherName}>{teamName}</div>
+      <div style={{ color: '#8b949e', fontSize: '12px', marginBottom: '12px' }}>
+        {profile.metadata?.bullpen_profile_version || 'bullpen profile'} · Confidence: {profile.metadata?.data_confidence || 'unknown'}
+      </div>
+
+      <div style={t.splitsGrid}>
+        {sections.map(([title, values]) => (
+          <div key={title} style={t.splitCard}>
+            <div style={t.splitTitle}>{title}</div>
+            {values ? Object.entries(values).map(([key, value]) => (
+              <div key={key} style={t.statRow}>
+                <span style={t.statKey}>{displayKey(key)}</span>
+                <span style={t.statVal}>
+                  {typeof value === 'number' && value <= 1 ? pct(value) : metricValue(value)}
+                </span>
+              </div>
+            )) : <div style={t.noData}>No data available.</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function GameSimulationPanel({ simulation, homeName, awayName }) {
   if (!simulation) return <div style={t.noData}>No game simulation available yet.</div>
 
@@ -1335,6 +1373,12 @@ export default function MatchupDetailPage() {
           <div style={t.pitcherGrid}>
             <HalfInningSimulationPanel sideLabel="Away Offense" teamName={away.name} simulation={matchup.awayHalfInningSimulation} />
             <HalfInningSimulationPanel sideLabel="Home Offense" teamName={home.name} simulation={matchup.homeHalfInningSimulation} />
+          </div>
+
+          <div style={{ ...t.sectionTitle, marginTop: '22px' }}>Bullpen Profiles</div>
+          <div style={t.pitcherGrid}>
+            <BullpenProfilePanel sideLabel="Away Bullpen" teamName={away.name} profile={matchup.awayBullpenProfile} />
+            <BullpenProfilePanel sideLabel="Home Bullpen" teamName={home.name} profile={matchup.homeBullpenProfile} />
           </div>
 
           <div style={{ ...t.sectionTitle, marginTop: '22px' }}>Full Game Simulation</div>
