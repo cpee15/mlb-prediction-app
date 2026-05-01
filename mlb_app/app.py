@@ -1657,7 +1657,10 @@ def create_app():
                 opposing_pitcher_profile=away_pitcher_profile,
                 environment_profile=environment_profile,
                 side_label="home_offense",
-                team=home_team,
+                team={
+                    "id": home_team_id,
+                    "name": home.get("team", {}).get("name"),
+                },
             )
             away_pa_outcome_model = _build_lineup_pa_outcome_model(
                 lineup=away_lineup,
@@ -1665,7 +1668,10 @@ def create_app():
                 opposing_pitcher_profile=home_pitcher_profile,
                 environment_profile=environment_profile,
                 side_label="away_offense",
-                team=away_team,
+                team={
+                    "id": away_team_id,
+                    "name": away.get("team", {}).get("name"),
+                },
             )
 
             home_half_inning_simulation = _build_half_inning_simulation(
@@ -1678,21 +1684,21 @@ def create_app():
             )
 
             home_team_offense_prior = build_team_offense_prior(
-                team_id=_team_id(home_team),
-                team_name=_team_name(home_team),
+                team_id=home_team_id,
+                team_name=home.get("team", {}).get("name"),
             )
             away_team_offense_prior = build_team_offense_prior(
-                team_id=_team_id(away_team),
-                team_name=_team_name(away_team),
+                team_id=away_team_id,
+                team_name=away.get("team", {}).get("name"),
             )
 
             home_bullpen_profile = build_bullpen_profile(
-                team_id=_team_id(home_team),
-                team_name=_team_name(home_team),
+                team_id=home_team_id,
+                team_name=home.get("team", {}).get("name"),
             )
             away_bullpen_profile = build_bullpen_profile(
-                team_id=_team_id(away_team),
-                team_name=_team_name(away_team),
+                team_id=away_team_id,
+                team_name=away.get("team", {}).get("name"),
             )
 
             away_vs_home_bullpen_pa_outcome_model = _build_bullpen_pa_outcome_model(
