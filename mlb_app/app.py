@@ -68,6 +68,7 @@ from .statcast_utils import fetch_pitch_arsenal_leaderboard, fetch_statcast_pitc
 from .pitcher_profile import compute_pitcher_profile
 from .offense_profile_aggregation import build_projected_lineup_offense_profile
 from .environment_profile import compute_environment_profile
+from .bullpen_profile import build_bullpen_profile
 from .matchup_analysis import build_matchup_analysis
 from .pitcher_advanced_metrics import derive_pitcher_advanced_metrics
 from .simulation.pa_outcome_model import build_pa_outcome_probabilities
@@ -1567,6 +1568,15 @@ def create_app():
                 home_pa_model=home_pa_outcome_model,
             )
 
+            home_bullpen_profile = build_bullpen_profile(
+                team_id=home.get("id"),
+                team_name=home.get("name"),
+            )
+            away_bullpen_profile = build_bullpen_profile(
+                team_id=away.get("id"),
+                team_name=away.get("name"),
+            )
+
             return {
                 "game_pk": game_pk,
                 "game_date": game_date_iso,
@@ -1588,6 +1598,8 @@ def create_app():
                 "homeHalfInningSimulation": home_half_inning_simulation,
                 "awayHalfInningSimulation": away_half_inning_simulation,
                 "gameSimulation": game_simulation,
+                "homeBullpenProfile": home_bullpen_profile,
+                "awayBullpenProfile": away_bullpen_profile,
                 "home_team": {
                     "id": home_team_id,
                     "name": home.get("team", {}).get("name"),
