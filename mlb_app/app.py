@@ -1314,6 +1314,7 @@ def create_app():
 
     app.include_router(batter_router)
     app.include_router(daily_odds_router)
+    app.include_router(model_projection_router)
 
     @app.get("/health")
     def health():
