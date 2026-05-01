@@ -51,18 +51,48 @@ BULLPEN_PRIOR_V1 = {
 #
 # Future versions should replace this with active-reliever aggregation.
 TEAM_BULLPEN_QUALITY_V1 = {
-    # Stronger bullpen priors
-    119: {"quality_score": 0.08, "label": "strong_bullpen"},      # Los Angeles Dodgers
-    147: {"quality_score": 0.07, "label": "strong_bullpen"},      # New York Yankees
-    139: {"quality_score": 0.06, "label": "above_average_bullpen"}, # Tampa Bay Rays
-    114: {"quality_score": 0.05, "label": "above_average_bullpen"}, # Cleveland Guardians
-    117: {"quality_score": 0.04, "label": "above_average_bullpen"}, # Houston Astros
+    # Conservative v1 bullpen priors for all MLB teams.
+    # Positive quality_score means better-than-prior bullpen run prevention.
+    # Negative quality_score means weaker-than-prior bullpen run prevention.
+    #
+    # These are intentionally modest and should be replaced later with
+    # active-reliever aggregation, recent workload, and role availability.
 
-    # Weaker bullpen priors
-    115: {"quality_score": -0.05, "label": "below_average_bullpen"}, # Colorado Rockies
-    146: {"quality_score": -0.04, "label": "below_average_bullpen"}, # Miami Marlins
-    120: {"quality_score": -0.04, "label": "below_average_bullpen"}, # Washington Nationals
+    # Strong / above-average bullpen priors
+    119: {"quality_score": 0.08, "label": "strong_bullpen"},          # Los Angeles Dodgers
+    147: {"quality_score": 0.07, "label": "strong_bullpen"},          # New York Yankees
+    139: {"quality_score": 0.06, "label": "above_average_bullpen"},   # Tampa Bay Rays
+    114: {"quality_score": 0.05, "label": "above_average_bullpen"},   # Cleveland Guardians
+    117: {"quality_score": 0.04, "label": "above_average_bullpen"},   # Houston Astros
+    121: {"quality_score": 0.04, "label": "above_average_bullpen"},   # New York Mets
+    138: {"quality_score": 0.04, "label": "above_average_bullpen"},   # St. Louis Cardinals
+    158: {"quality_score": 0.03, "label": "slightly_above_average_bullpen"}, # Milwaukee Brewers
+    135: {"quality_score": 0.03, "label": "slightly_above_average_bullpen"}, # San Diego Padres
+    142: {"quality_score": 0.03, "label": "slightly_above_average_bullpen"}, # Minnesota Twins
+    145: {"quality_score": 0.02, "label": "slightly_above_average_bullpen"}, # Chicago White Sox
+    143: {"quality_score": 0.02, "label": "slightly_above_average_bullpen"}, # Philadelphia Phillies
+    110: {"quality_score": 0.02, "label": "slightly_above_average_bullpen"}, # Baltimore Orioles
+
+    # Near-average bullpen priors
+    140: {"quality_score": 0.01, "label": "near_average_bullpen"},    # Texas Rangers
+    133: {"quality_score": 0.01, "label": "near_average_bullpen"},    # Athletics
+    116: {"quality_score": 0.00, "label": "league_average_bullpen"},  # Detroit Tigers
+    141: {"quality_score": 0.00, "label": "league_average_bullpen"},  # Toronto Blue Jays
+    108: {"quality_score": 0.00, "label": "league_average_bullpen"},  # Los Angeles Angels
+    144: {"quality_score": 0.00, "label": "league_average_bullpen"},  # Atlanta Braves
+    137: {"quality_score": -0.01, "label": "near_average_bullpen"},   # San Francisco Giants
+    112: {"quality_score": -0.01, "label": "near_average_bullpen"},   # Chicago Cubs
+
+    # Below-average bullpen priors
+    109: {"quality_score": -0.02, "label": "slightly_below_average_bullpen"}, # Arizona Diamondbacks
+    136: {"quality_score": -0.02, "label": "slightly_below_average_bullpen"}, # Seattle Mariners
+    118: {"quality_score": -0.03, "label": "slightly_below_average_bullpen"}, # Kansas City Royals
     113: {"quality_score": -0.03, "label": "slightly_below_average_bullpen"}, # Cincinnati Reds
+    134: {"quality_score": -0.03, "label": "slightly_below_average_bullpen"}, # Pittsburgh Pirates
+    111: {"quality_score": -0.04, "label": "below_average_bullpen"},  # Boston Red Sox
+    120: {"quality_score": -0.04, "label": "below_average_bullpen"},  # Washington Nationals
+    146: {"quality_score": -0.04, "label": "below_average_bullpen"},  # Miami Marlins
+    115: {"quality_score": -0.05, "label": "below_average_bullpen"},  # Colorado Rockies
 }
 
 
