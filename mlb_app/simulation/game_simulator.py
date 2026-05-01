@@ -28,6 +28,24 @@ def _distribution(counter: Counter, simulations: int) -> Dict[str, float]:
     }
 
 
+def _calibrated_counter_by_mean_shift(counter: Counter, raw_mean: float, calibrated_mean: float) -> Counter:
+    """
+    Shift a discrete run distribution toward the calibrated mean.
+
+    V1 keeps the empirical shape but shifts integer run buckets by the rounded
+    mean difference. This is conservative and transparent, but intentionally
+    not a substitute for historical backtesting.
+    """
+    shift = round(calibrated_mean - raw_mean)
+    if shift == 0:
+        return Counter(counter)
+
+    adjusted = Counter()
+    for value, count in counter.items():
+        adjusted[max(0, value + shift)] += count
+    return adjusted
+
+
 def _prob_greater_than(counter: Counter, threshold: float, simulations: int) -> float:
     return round(
         sum(count for value, count in counter.items() if value > threshold) / simulations,
@@ -126,6 +144,22 @@ def simulate_game(
     home_win_probability = (home_wins + (ties_after_regulation * 0.5)) / simulations
     away_win_probability = (away_wins + (ties_after_regulation * 0.5)) / simulations
 
+    calibrated_total_runs_counter = _calibrated_counter_by_mean_shift(
+        total_runs_counter,
+        raw_mean=raw_total_expected_runs,
+        calibrated_mean=total_expected_runs,
+    )
+    calibrated_away_runs_counter = _calibrated_counter_by_mean_shift(
+        away_runs_counter,
+        raw_mean=raw_away_expected_runs,
+        calibrated_mean=away_expected_runs,
+    )
+    calibrated_home_runs_counter = _calibrated_counter_by_mean_shift(
+        home_runs_counter,
+        raw_mean=raw_home_expected_runs,
+        calibrated_mean=home_expected_runs,
+    )
+
     common_totals = [6.5, 7.5, 8.5, 9.5, 10.5]
     total_probabilities = {
         f"over_{line}": _prob_greater_than(total_runs_counter, line, simulations)
@@ -133,6 +167,14 @@ def simulate_game(
     }
     total_probabilities.update({
         f"under_{line}": _prob_less_than(total_runs_counter, line, simulations)
+        for line in common_totals
+    })
+    calibrated_total_probabilities = {
+        f"over_{line}": _prob_greater_than(calibrated_total_runs_counter, line, simulations)
+        for line in common_totals
+    }
+    calibrated_total_probabilities.update({
+        f"under_{line}": _prob_less_than(calibrated_total_runs_counter, line, simulations)
         for line in common_totals
     })
 
@@ -152,8 +194,12 @@ def simulate_game(
         "away_run_distribution": _distribution(away_runs_counter, simulations),
         "home_run_distribution": _distribution(home_runs_counter, simulations),
         "total_run_distribution": _distribution(total_runs_counter, simulations),
+        "calibrated_total_run_distribution": _distribution(calibrated_total_runs_counter, simulations),
+        "calibrated_away_run_distribution": _distribution(calibrated_away_runs_counter, simulations),
+        "calibrated_home_run_distribution": _distribution(calibrated_home_runs_counter, simulations),
         "home_margin_distribution": _distribution(margin_counter, simulations),
         "total_probabilities": total_probabilities,
+        "calibrated_total_probabilities": calibrated_total_probabilities,
         "team_total_probabilities": {
             "away_3_plus": _prob_at_least(away_runs_counter, 3, simulations),
             "away_4_plus": _prob_at_least(away_runs_counter, 4, simulations),
@@ -161,6 +207,14 @@ def simulate_game(
             "home_3_plus": _prob_at_least(home_runs_counter, 3, simulations),
             "home_4_plus": _prob_at_least(home_runs_counter, 4, simulations),
             "home_5_plus": _prob_at_least(home_runs_counter, 5, simulations),
+        },
+        "calibrated_team_total_probabilities": {
+            "away_3_plus": _prob_at_least(calibrated_away_runs_counter, 3, simulations),
+            "away_4_plus": _prob_at_least(calibrated_away_runs_counter, 4, simulations),
+            "away_5_plus": _prob_at_least(calibrated_away_runs_counter, 5, simulations),
+            "home_3_plus": _prob_at_least(calibrated_home_runs_counter, 3, simulations),
+            "home_4_plus": _prob_at_least(calibrated_home_runs_counter, 4, simulations),
+            "home_5_plus": _prob_at_least(calibrated_home_runs_counter, 5, simulations),
         },
         "metadata": {
             "generated_from": "simulation.game_simulator.simulate_game",
@@ -343,6 +397,22 @@ def simulate_game_with_bullpen(
     home_win_probability = (home_wins + (ties_after_regulation * 0.5)) / simulations
     away_win_probability = (away_wins + (ties_after_regulation * 0.5)) / simulations
 
+    calibrated_total_runs_counter = _calibrated_counter_by_mean_shift(
+        total_runs_counter,
+        raw_mean=raw_total_expected_runs,
+        calibrated_mean=total_expected_runs,
+    )
+    calibrated_away_runs_counter = _calibrated_counter_by_mean_shift(
+        away_runs_counter,
+        raw_mean=raw_away_expected_runs,
+        calibrated_mean=away_expected_runs,
+    )
+    calibrated_home_runs_counter = _calibrated_counter_by_mean_shift(
+        home_runs_counter,
+        raw_mean=raw_home_expected_runs,
+        calibrated_mean=home_expected_runs,
+    )
+
     common_totals = [6.5, 7.5, 8.5, 9.5, 10.5]
     total_probabilities = {
         f"over_{line}": _prob_greater_than(total_runs_counter, line, simulations)
@@ -350,6 +420,14 @@ def simulate_game_with_bullpen(
     }
     total_probabilities.update({
         f"under_{line}": _prob_less_than(total_runs_counter, line, simulations)
+        for line in common_totals
+    })
+    calibrated_total_probabilities = {
+        f"over_{line}": _prob_greater_than(calibrated_total_runs_counter, line, simulations)
+        for line in common_totals
+    }
+    calibrated_total_probabilities.update({
+        f"under_{line}": _prob_less_than(calibrated_total_runs_counter, line, simulations)
         for line in common_totals
     })
 
@@ -376,8 +454,12 @@ def simulate_game_with_bullpen(
         "away_run_distribution": _distribution(away_runs_counter, simulations),
         "home_run_distribution": _distribution(home_runs_counter, simulations),
         "total_run_distribution": _distribution(total_runs_counter, simulations),
+        "calibrated_total_run_distribution": _distribution(calibrated_total_runs_counter, simulations),
+        "calibrated_away_run_distribution": _distribution(calibrated_away_runs_counter, simulations),
+        "calibrated_home_run_distribution": _distribution(calibrated_home_runs_counter, simulations),
         "home_margin_distribution": _distribution(margin_counter, simulations),
         "total_probabilities": total_probabilities,
+        "calibrated_total_probabilities": calibrated_total_probabilities,
         "team_total_probabilities": {
             "away_3_plus": _prob_at_least(away_runs_counter, 3, simulations),
             "away_4_plus": _prob_at_least(away_runs_counter, 4, simulations),
@@ -385,6 +467,14 @@ def simulate_game_with_bullpen(
             "home_3_plus": _prob_at_least(home_runs_counter, 3, simulations),
             "home_4_plus": _prob_at_least(home_runs_counter, 4, simulations),
             "home_5_plus": _prob_at_least(home_runs_counter, 5, simulations),
+        },
+        "calibrated_team_total_probabilities": {
+            "away_3_plus": _prob_at_least(calibrated_away_runs_counter, 3, simulations),
+            "away_4_plus": _prob_at_least(calibrated_away_runs_counter, 4, simulations),
+            "away_5_plus": _prob_at_least(calibrated_away_runs_counter, 5, simulations),
+            "home_3_plus": _prob_at_least(calibrated_home_runs_counter, 3, simulations),
+            "home_4_plus": _prob_at_least(calibrated_home_runs_counter, 4, simulations),
+            "home_5_plus": _prob_at_least(calibrated_home_runs_counter, 5, simulations),
         },
         "metadata": {
             "generated_from": "simulation.game_simulator.simulate_game_with_bullpen",
@@ -398,7 +488,8 @@ def simulate_game_with_bullpen(
             "home_starter_innings_distribution": _distribution(home_starter_innings_counter, simulations),
             "bullpen_innings": max(0, innings - starter_innings),
             **GAME_SIM_CALIBRATION,
-            "calibration_applied_to": ["expected_runs"],
+            "calibration_applied_to": ["expected_runs", "total_probabilities", "team_total_probabilities"],
+            "distribution_calibration_method": "integer_mean_shift_v1",
             "notes": [
                 "V1 uses starter PA probabilities for early innings and bullpen PA probabilities for late innings.",
                 "Ties after regulation are split evenly for win probability.",
