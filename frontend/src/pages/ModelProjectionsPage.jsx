@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react'
 
+const API = import.meta.env.VITE_API_BASE_URL || ''
+
 const card = {
   background: '#161b22',
   border: '1px solid #30363d',
@@ -78,12 +80,26 @@ export default function ModelProjectionsPage() {
 
   useEffect(() => {
     let cancelled = false
+
     async function load() {
       setLoading(true)
       setError(null)
+
       try {
-        const res = await fetch(`/models/projections?date=${date}`)
-        if (!res.ok) throw new Error(`Request failed: ${res.status}`)
+        const url = `${API}/models/projections?date=${date}`
+        const res = await fetch(url)
+        const contentType = res.headers.get('content-type') || ''
+
+        if (!res.ok) {
+          const body = await res.text()
+          throw new Error(`Request failed: ${res.status} ${res.statusText}. URL: ${url}. Response: ${body.slice(0, 300)}`)
+        }
+
+        if (!contentType.includes('application/json')) {
+          const body = await res.text()
+          throw new Error(`Expected JSON but received ${contentType || 'unknown content type'}. URL: ${url}. Response starts with: ${body.slice(0, 120)}`)
+        }
+
         const json = await res.json()
         if (!cancelled) setPayload(json)
       } catch (err) {
@@ -92,6 +108,7 @@ export default function ModelProjectionsPage() {
         if (!cancelled) setLoading(false)
       }
     }
+
     load()
     return () => { cancelled = true }
   }, [date])
