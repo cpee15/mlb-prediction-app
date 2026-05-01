@@ -20,6 +20,7 @@ from .db_utils import (
     get_batter_rolling_splits,
     get_player_splits_multi_season,
 )
+from .model_projection_payload import build_model_projection_payload
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 router = APIRouter()
@@ -155,6 +156,14 @@ def _aggregate_to_dict(agg) -> Optional[Dict[str, Any]]:
         "end_date": agg.end_date.isoformat() if agg.end_date else None,
         "window": agg.window,
     }
+
+
+@router.get("/models/projections")
+def model_projections(date: Optional[str] = None) -> Dict[str, Any]:
+    target_date = date or datetime.date.today().isoformat()
+    Session = _get_session()
+    with Session() as session:
+        return build_model_projection_payload(session, target_date)
 
 
 @router.get("/batter/{id}/profile")
