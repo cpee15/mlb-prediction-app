@@ -238,65 +238,75 @@ def _sample_from_distribution(distribution: Dict[int, float], rng: random.Random
     return max(distribution.keys())
 
 
-def _starter_exit_distribution(starter_quality: str) -> Dict[int, float]:
-    if starter_quality == "strong":
-        return {4: 0.05, 5: 0.20, 6: 0.45, 7: 0.25, 8: 0.05}
-    if starter_quality == "weak":
-        return {3: 0.08, 4: 0.27, 5: 0.40, 6: 0.20, 7: 0.05}
-    return {4: 0.12, 5: 0.38, 6: 0.35, 7: 0.13, 8: 0.02}
+def _blend_distributions(a: Dict[int, float], b: Dict[int, float], b_weight: float) -> Dict[int, float]:
+    b_weight = max(0.0, min(1.0, b_weight))
+    a_weight = 1.0 - b_weight
+    keys = sorted(set(a) | set(b))
+    blended = {
+        key: (a.get(key, 0.0) * a_weight) + (b.get(key, 0.0) * b_weight)
+        for key in keys
+    }
+    total = sum(blended.values())
+    return {key: value / total for key, value in blended.items()} if total else dict(a)
 
 
-def classify_starter_quality(pitcher_profile: Optional[Dict[str, Any]]) -> str:
+def _starter_exit_distribution_from_score(starter_quality_score: float) -> Dict[int, float]:
+    weak = {3: 0.08, 4: 0.27, 5: 0.40, 6: 0.20, 7: 0.05}
+    average = {4: 0.12, 5: 0.38, 6: 0.35, 7: 0.13, 8: 0.02}
+    strong = {4: 0.05, 5: 0.20, 6: 0.45, 7: 0.25, 8: 0.05}
+
+    score = max(-1.0, min(1.0, starter_quality_score or 0.0))
+    if score >= 0:
+        return _blend_distributions(average, strong, score)
+    return _blend_distributions(average, weak, abs(score))
+
+
+def _starter_quality_label(starter_quality_score: float) -> str:
+    score = starter_quality_score or 0.0
+    if score >= 0.55:
+        return "strong"
+    if score >= 0.20:
+        return "above_average"
+    if score <= -0.55:
+        return "weak"
+    if score <= -0.20:
+        return "below_average"
+    return "average"
+
+
+def starter_quality_score(pitcher_profile: Optional[Dict[str, Any]]) -> float:
     if not pitcher_profile:
-        return "average"
+        return 0.0
 
     bat_missing = pitcher_profile.get("bat_missing") or {}
     command = pitcher_profile.get("command_control") or {}
     contact = pitcher_profile.get("contact_management") or {}
 
-    k_rate = bat_missing.get("k_rate")
-    bb_rate = command.get("bb_rate")
-    xwoba = contact.get("xwoba_allowed")
-    hard_hit = contact.get("hard_hit_rate_allowed")
-    barrel = contact.get("barrel_rate_allowed")
+    signals = []
 
-    score = 0
+    def add_signal(value, strong_value, weak_value, higher_is_better=True):
+        if not isinstance(value, (int, float)):
+            return
+        if higher_is_better:
+            raw = (value - weak_value) / (strong_value - weak_value)
+        else:
+            raw = (weak_value - value) / (weak_value - strong_value)
+        signals.append(max(-1.0, min(1.0, (raw * 2.0) - 1.0)))
 
-    if isinstance(k_rate, (int, float)):
-        if k_rate >= 0.27:
-            score += 1
-        elif k_rate <= 0.19:
-            score -= 1
+    add_signal(bat_missing.get("k_rate"), strong_value=0.30, weak_value=0.17, higher_is_better=True)
+    add_signal(command.get("bb_rate"), strong_value=0.055, weak_value=0.12, higher_is_better=False)
+    add_signal(contact.get("xwoba_allowed"), strong_value=0.285, weak_value=0.365, higher_is_better=False)
+    add_signal(contact.get("hard_hit_rate_allowed"), strong_value=0.32, weak_value=0.47, higher_is_better=False)
+    add_signal(contact.get("barrel_rate_allowed"), strong_value=0.045, weak_value=0.105, higher_is_better=False)
 
-    if isinstance(bb_rate, (int, float)):
-        if bb_rate <= 0.07:
-            score += 1
-        elif bb_rate >= 0.105:
-            score -= 1
+    if not signals:
+        return 0.0
 
-    if isinstance(xwoba, (int, float)):
-        if xwoba <= 0.300:
-            score += 1
-        elif xwoba >= 0.345:
-            score -= 1
+    return round(sum(signals) / len(signals), 3)
 
-    if isinstance(hard_hit, (int, float)):
-        if hard_hit <= 0.36:
-            score += 1
-        elif hard_hit >= 0.43:
-            score -= 1
 
-    if isinstance(barrel, (int, float)):
-        if barrel <= 0.065:
-            score += 1
-        elif barrel >= 0.095:
-            score -= 1
-
-    if score >= 2:
-        return "strong"
-    if score <= -2:
-        return "weak"
-    return "average"
+def classify_starter_quality(pitcher_profile: Optional[Dict[str, Any]]) -> str:
+    return _starter_quality_label(starter_quality_score(pitcher_profile))
 
 
 def simulate_game_with_bullpen(
@@ -331,8 +341,21 @@ def simulate_game_with_bullpen(
     home_wins = 0
     ties_after_regulation = 0
 
-    away_exit_distribution = _starter_exit_distribution(away_starter_quality)
-    home_exit_distribution = _starter_exit_distribution(home_starter_quality)
+    away_quality_score = (
+        float(away_starter_quality)
+        if isinstance(away_starter_quality, (int, float))
+        else 0.0
+    )
+    home_quality_score = (
+        float(home_starter_quality)
+        if isinstance(home_starter_quality, (int, float))
+        else 0.0
+    )
+    away_quality_label = _starter_quality_label(away_quality_score)
+    home_quality_label = _starter_quality_label(home_quality_score)
+
+    away_exit_distribution = _starter_exit_distribution_from_score(away_quality_score)
+    home_exit_distribution = _starter_exit_distribution_from_score(home_quality_score)
     away_starter_innings_counter = Counter()
     home_starter_innings_counter = Counter()
 
@@ -437,8 +460,10 @@ def simulate_game_with_bullpen(
         "innings": innings,
         "starter_innings": starter_innings,
         "dynamic_starter_exit": dynamic_starter_exit,
-        "away_starter_quality": away_starter_quality,
-        "home_starter_quality": home_starter_quality,
+        "away_starter_quality": away_quality_label,
+        "home_starter_quality": home_quality_label,
+        "away_starter_quality_score": round(away_quality_score, 3),
+        "home_starter_quality_score": round(home_quality_score, 3),
         "away_starter_innings_distribution": _distribution(away_starter_innings_counter, simulations),
         "home_starter_innings_distribution": _distribution(home_starter_innings_counter, simulations),
         "bullpen_innings": max(0, innings - starter_innings),
@@ -482,8 +507,10 @@ def simulate_game_with_bullpen(
             "simulation_count": simulations,
             "starter_innings": starter_innings,
             "dynamic_starter_exit": dynamic_starter_exit,
-            "away_starter_quality": away_starter_quality,
-            "home_starter_quality": home_starter_quality,
+            "away_starter_quality": away_quality_label,
+            "home_starter_quality": home_quality_label,
+            "away_starter_quality_score": round(away_quality_score, 3),
+            "home_starter_quality_score": round(home_quality_score, 3),
             "away_starter_innings_distribution": _distribution(away_starter_innings_counter, simulations),
             "home_starter_innings_distribution": _distribution(home_starter_innings_counter, simulations),
             "bullpen_innings": max(0, innings - starter_innings),

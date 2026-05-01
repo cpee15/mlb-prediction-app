@@ -1010,7 +1010,9 @@ function GameSimulationPanel({ simulation, homeName, awayName }) {
     [`${homeName} Win Probability`, simulation.home_win_probability],
     ['Tie After Regulation', simulation.tie_after_regulation_probability],
     ['Away Starter Quality', simulation.away_starter_quality],
+    ['Away Starter Quality Score', simulation.away_starter_quality_score],
     ['Home Starter Quality', simulation.home_starter_quality],
+    ['Home Starter Quality Score', simulation.home_starter_quality_score],
   ]
 
   const totalRows = [

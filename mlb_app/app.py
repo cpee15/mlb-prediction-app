@@ -74,7 +74,7 @@ from .matchup_analysis import build_matchup_analysis
 from .pitcher_advanced_metrics import derive_pitcher_advanced_metrics
 from .simulation.pa_outcome_model import build_pa_outcome_probabilities
 from .simulation.inning_simulator import simulate_half_innings
-from .simulation.game_simulator import simulate_game, simulate_game_with_bullpen, classify_starter_quality
+from .simulation.game_simulator import simulate_game, simulate_game_with_bullpen, classify_starter_quality, starter_quality_score
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 MATCHUP_SNAPSHOT_CACHE: Dict[str, List[Dict[str, Any]]] = {}
@@ -1496,6 +1496,8 @@ def create_app():
 
                 away_starter_quality = classify_starter_quality(away_pitcher_profile)
                 home_starter_quality = classify_starter_quality(home_pitcher_profile)
+                away_starter_quality_score = starter_quality_score(away_pitcher_profile)
+                home_starter_quality_score = starter_quality_score(home_pitcher_profile)
 
                 result = simulate_game_with_bullpen(
                     away_starter_probabilities=away_starter_probabilities,
@@ -1506,8 +1508,8 @@ def create_app():
                     seed=42,
                     innings=9,
                     starter_innings=5,
-                    away_starter_quality=away_starter_quality,
-                    home_starter_quality=home_starter_quality,
+                    away_starter_quality=away_starter_quality_score,
+                    home_starter_quality=home_starter_quality_score,
                     dynamic_starter_exit=True,
                 )
                 result["metadata"] = {
@@ -1519,6 +1521,8 @@ def create_app():
                     "home_bullpen_pa_model_version": (home_bullpen_pa_model or {}).get("model_version"),
                     "away_starter_quality": away_starter_quality,
                     "home_starter_quality": home_starter_quality,
+                    "away_starter_quality_score": away_starter_quality_score,
+                    "home_starter_quality_score": home_starter_quality_score,
                 }
                 return result
 
