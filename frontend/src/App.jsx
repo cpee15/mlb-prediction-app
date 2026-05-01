@@ -14,6 +14,7 @@ import AIPage from './pages/AIPage'
 import LiveScoreboardPage from './pages/LiveScoreboardPage'
 import LiveGamePageRestored from './pages/LiveGamePageRestored'
 import DailyOddsPage from './pages/DailyOddsPage'
+import ModelProjectionsPage from './pages/ModelProjectionsPage'
 
 const styles = {
   nav: {
@@ -63,6 +64,7 @@ export default function App() {
         <NavLink to="/" style={styles.brand}>⚾ MLB Predict</NavLink>
         <NavLink to="/" end style={link}>Matchups</NavLink>
         <NavLink to="/daily-odds" style={link}>Daily Odds</NavLink>
+        <NavLink to="/models/projections" style={link}>Model Projections</NavLink>
         <NavLink to="/standings" style={link}>Standings</NavLink>
         <NavLink to="/pitcher" style={link}>Pitcher</NavLink>
         <NavLink to="/batter" style={link}>Batter</NavLink>
@@ -75,6 +77,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/daily-odds" element={<DailyOddsPage />} />
+          <Route path="/models/projections" element={<ModelProjectionsPage />} />
           <Route path="/matchup/:game_pk" element={<MatchupDetailPage />} />
           <Route path="/matchup/:game_pk/competitive" element={<CompetitiveAnalysisPage />} />
           <Route path="/standings" element={<StandingsPage />} />
