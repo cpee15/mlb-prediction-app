@@ -43,6 +43,28 @@ BULLPEN_PRIOR_V1 = {
     },
 }
 
+# V1 team-quality layer.
+#
+# These are conservative profile adjustments, not final measured bullpen stats.
+# Positive quality_score means better-than-prior bullpen run prevention.
+# Negative quality_score means weaker-than-prior bullpen run prevention.
+#
+# Future versions should replace this with active-reliever aggregation.
+TEAM_BULLPEN_QUALITY_V1 = {
+    # Stronger bullpen priors
+    119: {"quality_score": 0.08, "label": "strong_bullpen"},      # Los Angeles Dodgers
+    147: {"quality_score": 0.07, "label": "strong_bullpen"},      # New York Yankees
+    139: {"quality_score": 0.06, "label": "above_average_bullpen"}, # Tampa Bay Rays
+    114: {"quality_score": 0.05, "label": "above_average_bullpen"}, # Cleveland Guardians
+    117: {"quality_score": 0.04, "label": "above_average_bullpen"}, # Houston Astros
+
+    # Weaker bullpen priors
+    115: {"quality_score": -0.05, "label": "below_average_bullpen"}, # Colorado Rockies
+    146: {"quality_score": -0.04, "label": "below_average_bullpen"}, # Miami Marlins
+    120: {"quality_score": -0.04, "label": "below_average_bullpen"}, # Washington Nationals
+    113: {"quality_score": -0.03, "label": "slightly_below_average_bullpen"}, # Cincinnati Reds
+}
+
 
 def _safe_float(value: Any) -> Optional[float]:
     if value is None:
@@ -60,6 +82,44 @@ def _deepcopy_profile(profile: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str,
     }
 
 
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
+
+
+def _apply_team_quality(profile: Dict[str, Dict[str, Any]], quality_score: float) -> None:
+    """
+    Apply conservative team bullpen quality adjustments in-place.
+
+    Better bullpens:
+    - increase K/whiff/CSW
+    - reduce BB
+    - improve zone/FPS
+    - reduce hard contact/xwOBA/xBA
+    """
+    q = _clamp(quality_score, -0.12, 0.12)
+
+    profile["bat_missing"]["k_rate"] = round(_clamp(profile["bat_missing"]["k_rate"] + (q * 0.20), 0.16, 0.32), 3)
+    profile["bat_missing"]["whiff_rate"] = round(_clamp(profile["bat_missing"]["whiff_rate"] + (q * 0.18), 0.18, 0.34), 3)
+    profile["bat_missing"]["csw_rate"] = round(_clamp(profile["bat_missing"]["csw_rate"] + (q * 0.12), 0.23, 0.34), 3)
+
+    profile["command_control"]["bb_rate"] = round(_clamp(profile["command_control"]["bb_rate"] - (q * 0.10), 0.055, 0.13), 3)
+    profile["command_control"]["zone_rate"] = round(_clamp(profile["command_control"]["zone_rate"] + (q * 0.08), 0.43, 0.53), 3)
+    profile["command_control"]["first_pitch_strike_rate"] = round(_clamp(profile["command_control"]["first_pitch_strike_rate"] + (q * 0.10), 0.54, 0.66), 3)
+
+    profile["contact_management"]["hard_hit_rate_allowed"] = round(_clamp(profile["contact_management"]["hard_hit_rate_allowed"] - (q * 0.18), 0.31, 0.47), 3)
+    profile["contact_management"]["barrel_rate_allowed"] = round(_clamp(profile["contact_management"]["barrel_rate_allowed"] - (q * 0.05), 0.045, 0.105), 3)
+    profile["contact_management"]["xwoba_allowed"] = round(_clamp(profile["contact_management"]["xwoba_allowed"] - (q * 0.15), 0.275, 0.365), 3)
+    profile["contact_management"]["xba_allowed"] = round(_clamp(profile["contact_management"]["xba_allowed"] - (q * 0.10), 0.215, 0.285), 3)
+
+    profile["platoon_profile"]["vs_lhb_woba_allowed"] = round(_clamp(profile["platoon_profile"]["vs_lhb_woba_allowed"] - (q * 0.13), 0.28, 0.36), 3)
+    profile["platoon_profile"]["vs_rhb_woba_allowed"] = round(_clamp(profile["platoon_profile"]["vs_rhb_woba_allowed"] - (q * 0.13), 0.28, 0.36), 3)
+    profile["platoon_profile"]["vs_lhb_iso_allowed"] = round(_clamp(profile["platoon_profile"]["vs_lhb_iso_allowed"] - (q * 0.08), 0.12, 0.20), 3)
+    profile["platoon_profile"]["vs_rhb_iso_allowed"] = round(_clamp(profile["platoon_profile"]["vs_rhb_iso_allowed"] - (q * 0.08), 0.12, 0.20), 3)
+
+    profile["arsenal"]["avg_velocity"] = round(_clamp(profile["arsenal"]["avg_velocity"] + (q * 6.0), 91.0, 97.5), 1)
+    profile["arsenal"]["avg_spin_rate"] = round(_clamp(profile["arsenal"]["avg_spin_rate"] + (q * 250.0), 2150.0, 2550.0), 0)
+
+
 def build_bullpen_profile(
     team_id: Optional[int] = None,
     team_name: Optional[str] = None,
@@ -74,6 +134,15 @@ def build_bullpen_profile(
     """
     raw_context = raw_context or {}
     profile = _deepcopy_profile(BULLPEN_PRIOR_V1)
+
+    team_quality = TEAM_BULLPEN_QUALITY_V1.get(team_id, {})
+    quality_score = _safe_float(raw_context.get("quality_score", team_quality.get("quality_score")))
+    quality_label = raw_context.get("quality_label", team_quality.get("label", "league_average_bullpen"))
+
+    if quality_score is not None:
+        _apply_team_quality(profile, quality_score)
+    else:
+        quality_score = 0.0
 
     # Allow explicit overrides when future callers have already-computed team
     # bullpen values. This keeps v1 extensible without changing the response
@@ -96,6 +165,10 @@ def build_bullpen_profile(
         "sample_window": raw_context.get("sample_window", "prior"),
         "sample_size": raw_context.get("sample_size"),
         "bullpen_profile_version": "bullpen_profile_v1",
+        "bullpen_quality_version": "team_bullpen_quality_v1",
+        "bullpen_quality_score": quality_score,
+        "bullpen_quality_label": quality_label,
+        "team_quality_adjustment_applied": quality_score != 0.0,
         "notes": [
             "V1 uses conservative league-average bullpen priors.",
             "Future versions should aggregate active relievers by team and role.",
