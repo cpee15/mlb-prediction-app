@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime
-import sys
 from typing import Any, Dict, Optional
 
 import requests as _req
@@ -21,11 +20,6 @@ from .db_utils import (
     get_batter_rolling_splits,
     get_player_splits_multi_season,
 )
-from .model_projection_routes import router as _model_projection_router
-
-_app_module = sys.modules.get("mlb_app.app") or sys.modules.get("app")
-if _app_module is not None and not hasattr(_app_module, "model_projection_router"):
-    setattr(_app_module, "model_projection_router", _model_projection_router)
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 router = APIRouter()
