@@ -868,6 +868,7 @@ function PAOutcomePanel({ sideLabel, teamName, model }) {
       <div style={t.pitcherName}>{teamName}</div>
       <div style={{ color: '#8b949e', fontSize: '12px', marginBottom: '12px' }}>
         {model.model_version || 'PA outcome model'} · Players used: {model.player_count_used ?? '—'}
+        {model.fallback_used ? ` · Fallback: ${String(model.offense_profile_source || model.fallback_reason || 'team prior').replace(/_/g, ' ')}` : ''}
       </div>
 
       <div style={t.splitsGrid}>

@@ -69,6 +69,7 @@ from .pitcher_profile import compute_pitcher_profile
 from .offense_profile_aggregation import build_projected_lineup_offense_profile
 from .environment_profile import compute_environment_profile
 from .bullpen_profile import build_bullpen_profile
+from .team_offense_prior import build_team_offense_prior
 from .matchup_analysis import build_matchup_analysis
 from .pitcher_advanced_metrics import derive_pitcher_advanced_metrics
 from .simulation.pa_outcome_model import build_pa_outcome_probabilities
@@ -1323,7 +1324,7 @@ def create_app():
                     return {}
                 return {key: round(value / count, 4) for key, value in sorted(totals.items())}
 
-            def _build_lineup_pa_outcome_model(lineup, lineup_profile, opposing_pitcher_profile, environment_profile, side_label):
+            def _build_lineup_pa_outcome_model(lineup, lineup_profile, opposing_pitcher_profile, environment_profile, side_label, team=None):
                 candidates = lineup or []
                 player_models = []
 
@@ -1336,27 +1337,61 @@ def create_app():
                         pitcher_profile=opposing_pitcher_profile,
                         environment_profile=environment_profile,
                     )
+                    probabilities = model.get("probabilities") or {}
+                    if not probabilities:
+                        continue
                     player_models.append({
                         "player_id": player.get("id"),
                         "player_name": player.get("name"),
-                        "probabilities": model.get("probabilities"),
+                        "probabilities": probabilities,
                         "summary": model.get("summary"),
                     })
+
+                fallback_used = False
+                fallback_reason = None
+                offense_profile_source = "lineup_aggregate"
+
+                if not player_models:
+                    fallback_used = True
+                    fallback_reason = "no_lineup_player_models"
+                    offense_profile_source = "team_offense_prior"
+                    team_profile = build_team_offense_prior(
+                        team_id=(team or {}).get("id"),
+                        team_name=(team or {}).get("name"),
+                    )
+                    model = build_pa_outcome_probabilities(
+                        batter_profile=team_profile,
+                        pitcher_profile=opposing_pitcher_profile,
+                        environment_profile=environment_profile,
+                    )
+                    probabilities = model.get("probabilities") or {}
+                    if probabilities:
+                        player_models.append({
+                            "player_id": None,
+                            "player_name": "Team offense prior",
+                            "probabilities": probabilities,
+                            "summary": model.get("summary"),
+                        })
 
                 lineup_average = _average_probability_dict(player_models)
                 lineup_summary = _average_summary_dict(player_models)
                 return {
                     "model_version": "lineup_pa_outcome_v1",
                     "side": side_label,
-                    "player_count_used": len(player_models),
+                    "player_count_used": len([m for m in player_models if m.get("player_id") is not None]),
+                    "model_count_used": len(player_models),
+                    "fallback_used": fallback_used,
+                    "fallback_reason": fallback_reason,
+                    "offense_profile_source": offense_profile_source,
                     "lineup_average_probabilities": lineup_average,
                     "lineup_average_summary": lineup_summary,
                     "player_outcomes": player_models,
                     "metadata": {
-                        "generated_from": "matchup_detail.pa_outcome_integration",
-                        "batter_profile_granularity": "lineup_aggregate",
+                        "generated_from": "matchup_detail.pa_outcome_model",
+                        "batter_profile_granularity": offense_profile_source,
                         "pitcher_profile_granularity": "starter_profile",
                         "environment_profile_used": bool(environment_profile),
+                        "team_offense_prior_used": fallback_used,
                     },
                 }
 
@@ -1604,6 +1639,7 @@ def create_app():
                 opposing_pitcher_profile=away_pitcher_profile,
                 environment_profile=environment_profile,
                 side_label="home_offense",
+                team=home,
             )
             away_pa_outcome_model = _build_lineup_pa_outcome_model(
                 lineup=away_lineup,
@@ -1611,6 +1647,7 @@ def create_app():
                 opposing_pitcher_profile=home_pitcher_profile,
                 environment_profile=environment_profile,
                 side_label="away_offense",
+                team=away,
             )
 
             home_half_inning_simulation = _build_half_inning_simulation(
@@ -1620,6 +1657,15 @@ def create_app():
             away_half_inning_simulation = _build_half_inning_simulation(
                 away_pa_outcome_model,
                 side_label="away_offense",
+            )
+
+            home_team_offense_prior = build_team_offense_prior(
+                team_id=home.get("id"),
+                team_name=home.get("name"),
+            )
+            away_team_offense_prior = build_team_offense_prior(
+                team_id=away.get("id"),
+                team_name=away.get("name"),
             )
 
             home_bullpen_profile = build_bullpen_profile(
@@ -1683,6 +1729,8 @@ def create_app():
                 "homeVsAwayBullpenPAOutcomeModel": home_vs_away_bullpen_pa_outcome_model,
                 "homeBullpenProfile": home_bullpen_profile,
                 "awayBullpenProfile": away_bullpen_profile,
+                "homeTeamOffensePrior": home_team_offense_prior,
+                "awayTeamOffensePrior": away_team_offense_prior,
                 "home_team": {
                     "id": home_team_id,
                     "name": home.get("team", {}).get("name"),
