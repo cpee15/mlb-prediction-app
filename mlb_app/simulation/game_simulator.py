@@ -49,6 +49,28 @@ def _prob_at_least(counter: Counter, threshold: int, simulations: int) -> float:
     )
 
 
+GAME_SIM_CALIBRATION = {
+    "game_sim_calibration_version": "game_sim_calibration_v1",
+    # V1 sim uses starter/lineup-average PA distributions for all 9 innings.
+    # This shrinkage tempers that known inflation until bullpen/lineup-order
+    # state is modeled explicitly.
+    "starter_only_run_shrinkage": 0.92,
+    # Pull extreme team totals modestly toward a neutral MLB-ish scoring level.
+    "team_run_regression_anchor": 4.45,
+    "team_run_regression_weight": 0.12,
+}
+
+
+def _calibrate_expected_runs(raw_runs: float) -> float:
+    shrinkage = GAME_SIM_CALIBRATION["starter_only_run_shrinkage"]
+    anchor = GAME_SIM_CALIBRATION["team_run_regression_anchor"]
+    regression_weight = GAME_SIM_CALIBRATION["team_run_regression_weight"]
+
+    shrunk = raw_runs * shrinkage
+    calibrated = (shrunk * (1.0 - regression_weight)) + (anchor * regression_weight)
+    return round(calibrated, 4)
+
+
 def simulate_game(
     away_probabilities: Dict[str, float],
     home_probabilities: Dict[str, float],
@@ -92,9 +114,13 @@ def simulate_game(
         else:
             ties_after_regulation += 1
 
-    away_expected_runs = sum(runs * count for runs, count in away_runs_counter.items()) / simulations
-    home_expected_runs = sum(runs * count for runs, count in home_runs_counter.items()) / simulations
-    total_expected_runs = sum(runs * count for runs, count in total_runs_counter.items()) / simulations
+    raw_away_expected_runs = sum(runs * count for runs, count in away_runs_counter.items()) / simulations
+    raw_home_expected_runs = sum(runs * count for runs, count in home_runs_counter.items()) / simulations
+    raw_total_expected_runs = sum(runs * count for runs, count in total_runs_counter.items()) / simulations
+
+    away_expected_runs = _calibrate_expected_runs(raw_away_expected_runs)
+    home_expected_runs = _calibrate_expected_runs(raw_home_expected_runs)
+    total_expected_runs = round(away_expected_runs + home_expected_runs, 4)
 
     # V1 has no extras. Split regulation ties evenly for a rough win-probability estimate.
     home_win_probability = (home_wins + (ties_after_regulation * 0.5)) / simulations
@@ -114,9 +140,12 @@ def simulate_game(
         "model_version": "full_game_sim_v1",
         "simulations": simulations,
         "innings": innings,
-        "away_expected_runs": round(away_expected_runs, 4),
-        "home_expected_runs": round(home_expected_runs, 4),
-        "total_expected_runs": round(total_expected_runs, 4),
+        "away_expected_runs": away_expected_runs,
+        "home_expected_runs": home_expected_runs,
+        "total_expected_runs": total_expected_runs,
+        "raw_away_expected_runs": round(raw_away_expected_runs, 4),
+        "raw_home_expected_runs": round(raw_home_expected_runs, 4),
+        "raw_total_expected_runs": round(raw_total_expected_runs, 4),
         "away_win_probability": round(away_win_probability, 4),
         "home_win_probability": round(home_win_probability, 4),
         "tie_after_regulation_probability": round(ties_after_regulation / simulations, 4),
