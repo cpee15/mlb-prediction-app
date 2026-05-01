@@ -1045,6 +1045,7 @@ function GameSimulationPanel({ simulation, homeName, awayName }) {
       <div style={t.pitcherName}>{awayName} vs {homeName}</div>
       <div style={{ color: '#8b949e', fontSize: '12px', marginBottom: '12px' }}>
         {simulation.model_version || 'Full-game simulation'} · Sims: {simulation.simulations ?? simulation.metadata?.simulation_count ?? '—'}
+        {simulation.dynamic_starter_exit ? ' · Dynamic starter exit' : ''}
       </div>
 
       <div style={t.splitsGrid}>
@@ -1394,7 +1395,11 @@ export default function MatchupDetailPage() {
           </div>
 
           <div style={{ ...t.sectionTitle, marginTop: '22px' }}>Full Game Simulation</div>
-          <GameSimulationPanel simulation={matchup.gameSimulation} awayName={away.name} homeName={home.name} />
+          <GameSimulationPanel
+            simulation={matchup.bullpenAdjustedGameSimulation || matchup.gameSimulation}
+            awayName={away.name}
+            homeName={home.name}
+          />
         </div>
       )}
 
