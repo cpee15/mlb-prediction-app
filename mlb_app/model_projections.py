@@ -10,6 +10,12 @@ from .db_utils import get_pitch_arsenal_with_fallback, get_team_split
 from .matchup_generator import generate_matchups_for_date
 from .model_projection_formulas import bullpen_collapse_index, offensive_firepower_score, pitch_identity_disruption_score, pitching_volatility_score, safe_float
 
+from .bullpen_profile import build_bullpen_profile
+from .environment_profile import compute_environment_profile
+from .team_offense_prior import build_team_offense_prior
+from .simulation.pa_outcome_model import build_pa_outcome_probabilities
+from .simulation.game_simulator import simulate_game_with_bullpen
+
 
 def _obj_to_dict(obj: Any, fields: List[str]) -> Dict[str, Any]:
     return {field: getattr(obj, field, None) for field in fields} if obj is not None else {}
@@ -92,6 +98,208 @@ def _bullpen_inputs(session: Session, team_id: Optional[int], team_name: Optiona
         return {"source_table": table, "error": str(exc)}
 
 
+def _probability_model_card(
+    model_name: str,
+    score: Optional[float],
+    inputs: Dict[str, Any],
+    formula: str,
+    steps: List[str],
+    notes: List[str],
+    confidence: str = "low",
+) -> Dict[str, Any]:
+    missing = [key for key, value in inputs.items() if value is None]
+    return {
+        "model_name": model_name,
+        "status": "calculated" if score is not None and not missing else "partial" if score is not None else "missing_inputs",
+        "score": round(float(score), 3) if score is not None else None,
+        "formula": formula,
+        "inputs": inputs,
+        "calculation_steps": steps,
+        "missing_inputs": missing,
+        "data_confidence": confidence,
+        "source_notes": notes,
+    }
+
+
+def _team_offense_prior_pa_model(
+    team_id: Optional[int],
+    team_name: Optional[str],
+    opposing_pitcher_profile: Optional[Dict[str, Any]],
+    environment_profile: Dict[str, Any],
+) -> Dict[str, Any]:
+    offense_profile = build_team_offense_prior(team_id=team_id, team_name=team_name)
+    return build_pa_outcome_probabilities(
+        batter_profile=offense_profile,
+        pitcher_profile=opposing_pitcher_profile or {},
+        environment_profile=environment_profile,
+    )
+
+
+def _weather_context(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        return {"wind": value}
+    return {}
+
+
+def _build_projection_simulation_cards(
+    matchup: Dict[str, Any],
+    away: Dict[str, Any],
+    home: Dict[str, Any],
+) -> Dict[str, List[Dict[str, Any]]]:
+    away_team_id = away.get("team_id")
+    home_team_id = home.get("team_id")
+    away_team_name = away.get("team_name")
+    home_team_name = home.get("team_name")
+
+    environment_profile = compute_environment_profile({
+        "game_pk": matchup.get("game_pk"),
+        "game_date": matchup.get("game_date"),
+        "venue_name": matchup.get("venue"),
+        "weather": _weather_context(matchup.get("weather")),
+        "park_factor": matchup.get("park_factor"),
+        "home_team": home_team_name,
+        "away_team": away_team_name,
+    })
+
+    away_pitcher_profile = {}
+    home_pitcher_profile = {}
+
+    away_bullpen_profile = build_bullpen_profile(team_id=away_team_id, team_name=away_team_name)
+    home_bullpen_profile = build_bullpen_profile(team_id=home_team_id, team_name=home_team_name)
+
+    away_vs_home_starter_pa = _team_offense_prior_pa_model(
+        team_id=away_team_id,
+        team_name=away_team_name,
+        opposing_pitcher_profile=home_pitcher_profile,
+        environment_profile=environment_profile,
+    )
+    home_vs_away_starter_pa = _team_offense_prior_pa_model(
+        team_id=home_team_id,
+        team_name=home_team_name,
+        opposing_pitcher_profile=away_pitcher_profile,
+        environment_profile=environment_profile,
+    )
+    away_vs_home_bullpen_pa = _team_offense_prior_pa_model(
+        team_id=away_team_id,
+        team_name=away_team_name,
+        opposing_pitcher_profile=home_bullpen_profile,
+        environment_profile=environment_profile,
+    )
+    home_vs_away_bullpen_pa = _team_offense_prior_pa_model(
+        team_id=home_team_id,
+        team_name=home_team_name,
+        opposing_pitcher_profile=away_bullpen_profile,
+        environment_profile=environment_profile,
+    )
+
+    sim = simulate_game_with_bullpen(
+        away_starter_probabilities=away_vs_home_starter_pa.get("probabilities") or {},
+        home_starter_probabilities=home_vs_away_starter_pa.get("probabilities") or {},
+        away_bullpen_probabilities=away_vs_home_bullpen_pa.get("probabilities") or {},
+        home_bullpen_probabilities=home_vs_away_bullpen_pa.get("probabilities") or {},
+        simulations=3000,
+        seed=42,
+        innings=9,
+        starter_innings=5,
+        away_starter_quality=0.0,
+        home_starter_quality=0.0,
+        dynamic_starter_exit=True,
+    )
+
+    total_probs = sim.get("calibrated_total_probabilities") or sim.get("total_probabilities") or {}
+    team_total_probs = sim.get("calibrated_team_total_probabilities") or sim.get("team_total_probabilities") or {}
+
+    away_card = _probability_model_card(
+        model_name="Simulation: Away Team Run/Win Projection",
+        score=sim.get("away_expected_runs"),
+        formula="Team offense prior PA probabilities + opponent starter/bullpen profiles + environment + dynamic starter exit",
+        inputs={
+            "expected_runs": sim.get("away_expected_runs"),
+            "raw_expected_runs": sim.get("raw_away_expected_runs"),
+            "win_probability": sim.get("away_win_probability"),
+            "team_3_plus_runs": team_total_probs.get("away_3_plus"),
+            "team_4_plus_runs": team_total_probs.get("away_4_plus"),
+            "team_5_plus_runs": team_total_probs.get("away_5_plus"),
+            "offense_source": "team_offense_prior",
+            "opposing_bullpen_quality": (home_bullpen_profile.get("metadata") or {}).get("bullpen_quality_label"),
+            "run_environment_index": (environment_profile.get("run_environment") or {}).get("run_scoring_index"),
+        },
+        steps=[
+            "Build conservative team offense prior because Model Projections is game-level.",
+            "Convert offense, opponent starter prior, bullpen prior, and environment into PA probabilities.",
+            "Simulate regulation games with starter-to-bullpen transition and calibrated run distribution.",
+        ],
+        notes=[
+            "Uses low-confidence team priors until confirmed lineups and player-level projections are wired into this endpoint.",
+            "Raw and calibrated outputs are both retained in the simulation object; this card displays calibrated probabilities where available.",
+        ],
+        confidence="low",
+    )
+
+    home_card = _probability_model_card(
+        model_name="Simulation: Home Team Run/Win Projection",
+        score=sim.get("home_expected_runs"),
+        formula="Team offense prior PA probabilities + opponent starter/bullpen profiles + environment + dynamic starter exit",
+        inputs={
+            "expected_runs": sim.get("home_expected_runs"),
+            "raw_expected_runs": sim.get("raw_home_expected_runs"),
+            "win_probability": sim.get("home_win_probability"),
+            "team_3_plus_runs": team_total_probs.get("home_3_plus"),
+            "team_4_plus_runs": team_total_probs.get("home_4_plus"),
+            "team_5_plus_runs": team_total_probs.get("home_5_plus"),
+            "offense_source": "team_offense_prior",
+            "opposing_bullpen_quality": (away_bullpen_profile.get("metadata") or {}).get("bullpen_quality_label"),
+            "run_environment_index": (environment_profile.get("run_environment") or {}).get("run_scoring_index"),
+        },
+        steps=[
+            "Build conservative team offense prior because Model Projections is game-level.",
+            "Convert offense, opponent starter prior, bullpen prior, and environment into PA probabilities.",
+            "Simulate regulation games with starter-to-bullpen transition and calibrated run distribution.",
+        ],
+        notes=[
+            "Uses low-confidence team priors until confirmed lineups and player-level projections are wired into this endpoint.",
+            "Raw and calibrated outputs are both retained in the simulation object; this card displays calibrated probabilities where available.",
+        ],
+        confidence="low",
+    )
+
+    game_total_card = _probability_model_card(
+        model_name="Simulation: Game Total Projection",
+        score=sim.get("total_expected_runs"),
+        formula="Monte Carlo total runs from away/home PA distributions, bullpen priors, environment, and calibrated distribution",
+        inputs={
+            "total_expected_runs": sim.get("total_expected_runs"),
+            "raw_total_expected_runs": sim.get("raw_total_expected_runs"),
+            "over_6_5": total_probs.get("over_6.5"),
+            "over_7_5": total_probs.get("over_7.5"),
+            "over_8_5": total_probs.get("over_8.5"),
+            "over_9_5": total_probs.get("over_9.5"),
+            "under_7_5": total_probs.get("under_7.5"),
+            "under_8_5": total_probs.get("under_8.5"),
+            "under_9_5": total_probs.get("under_9.5"),
+            "tie_after_regulation": sim.get("tie_after_regulation_probability"),
+            "environment_label": (environment_profile.get("run_environment") or {}).get("scoring_environment_label"),
+        },
+        steps=[
+            "Generate PA outcome probabilities for each offense against starter and bullpen contexts.",
+            "Run full-game simulation with dynamic starter exit and bullpen transition.",
+            "Apply existing game-simulation calibration to expected runs and probability distribution.",
+        ],
+        notes=[
+            "This is the first Model Projections integration of the sandbox simulation engine.",
+            "Confidence is low until lineup-level and starter-profile inputs are connected directly into this endpoint.",
+        ],
+        confidence="low",
+    )
+
+    return {
+        "away": [away_card, game_total_card],
+        "home": [home_card],
+    }
+
+
 def _side_context(matchup: Dict[str, Any], side: str, session: Session, season: int) -> Dict[str, Any]:
     pitcher_id = matchup.get(f"{side}_pitcher_id")
     arsenal = matchup.get(f"{side}_pitch_arsenal") or {}
@@ -135,6 +343,11 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
         try:
             away = _side_context(matchup, "away", session, date_obj.year)
             home = _side_context(matchup, "home", session, date_obj.year)
+
+            simulation_cards = _build_projection_simulation_cards(matchup, away, home)
+            away["models"].extend(simulation_cards.get("away", []))
+            home["models"].extend(simulation_cards.get("home", []))
+
             games.append({
                 "game_pk": matchup.get("game_pk"),
                 "game_date": matchup.get("game_date") or target_date,
