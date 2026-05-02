@@ -1,0 +1,2339 @@
+{
+    "game_pk": 824686,
+    "game_date": "2026-05-01T18:20:00Z",
+    "venue": "Wrigley Field",
+    "status": "Pre-Game",
+    "weather": {
+        "condition": "Sunny",
+        "temp_f": "46",
+        "wind": "11 mph, In From LF"
+    },
+    "park_factor": 0.99,
+    "home_win_prob": 0.53,
+    "away_win_prob": 0.47,
+    "homePitcherProfile": {
+        "metadata": {
+            "source_type": "statcast_aggregate_with_advanced_derived_metrics",
+            "source_fields_used": [
+                "avg_exit_velocity_allowed",
+                "avg_launch_angle_allowed",
+                "avg_spin_rate",
+                "avg_velocity",
+                "barrel_rate_allowed",
+                "bb_rate",
+                "csw_rate",
+                "first_pitch_strike_rate",
+                "hard_hit_pct",
+                "k_pct",
+                "pitch_mix",
+                "vs_lhb_bb_rate",
+                "vs_lhb_k_rate",
+                "vs_lhb_woba_allowed",
+                "vs_rhb_bb_rate",
+                "vs_rhb_k_rate",
+                "vs_rhb_woba_allowed",
+                "whiff_rate",
+                "xba_allowed",
+                "xwoba",
+                "zone_rate"
+            ],
+            "data_confidence": "medium",
+            "generated_from": "matchup_detail.pitcher_detail",
+            "advanced_event_rows_used": 788,
+            "advanced_zone_rows_used": 788,
+            "advanced_first_pitch_rows_used": 202,
+            "advanced_batted_ball_rows_used": 264,
+            "advanced_metrics_available": [
+                "avg_exit_velocity_allowed",
+                "avg_launch_angle_allowed",
+                "barrel_rate_allowed",
+                "bb_rate",
+                "csw_rate",
+                "first_pitch_strike_rate",
+                "vs_lhb_bb_rate",
+                "vs_lhb_k_rate",
+                "vs_lhb_woba_allowed",
+                "vs_rhb_bb_rate",
+                "vs_rhb_k_rate",
+                "vs_rhb_woba_allowed",
+                "xba_allowed",
+                "zone_rate"
+            ],
+            "sample_window": "blended",
+            "sample_family": "unknown",
+            "sample_description": "Unknown sample window",
+            "sample_days": null,
+            "sample_size": null,
+            "sample_blend_policy": "pitcher_v1_weighted_blend_with_advanced_derived_metrics",
+            "stabilizer_window": "last_365_days"
+        },
+        "arsenal": {
+            "pitch_mix": "4-Seam Fastball 39%, Split-Finger 18%, Slider 13%, Sinker 8%, Cutter 8%",
+            "avg_velocity": 89.55929219315783,
+            "avg_spin_rate": 2028.7307163229943
+        },
+        "bat_missing": {
+            "k_rate": 0.23769340232858996,
+            "whiff_rate": 0.22180500000000003,
+            "csw_rate": 0.2639593908629442
+        },
+        "command_control": {
+            "bb_rate": 0.07425742574257425,
+            "zone_rate": 0.4796954314720812,
+            "first_pitch_strike_rate": 0.5198019801980198
+        },
+        "contact_management": {
+            "hard_hit_rate_allowed": 0.46645400000000004,
+            "barrel_rate_allowed": 0.01893939393939394,
+            "avg_exit_velocity_allowed": 84.9570342205323,
+            "avg_launch_angle_allowed": 16.50378787878788,
+            "xwoba_allowed": 0.339013,
+            "xba_allowed": 0.33019753086419745
+        },
+        "platoon_profile": {
+            "vs_lhb_woba_allowed": 0.33895493150684924,
+            "vs_rhb_woba_allowed": 0.3045925348837209,
+            "vs_lhb_k_rate": 0.18032786885245902,
+            "vs_rhb_k_rate": 0.2625,
+            "vs_lhb_bb_rate": 0.09016393442622951,
+            "vs_rhb_bb_rate": 0.05
+        }
+    },
+    "awayPitcherProfile": {
+        "metadata": {
+            "source_type": "statcast_aggregate_with_advanced_derived_metrics",
+            "source_fields_used": [
+                "avg_exit_velocity_allowed",
+                "avg_launch_angle_allowed",
+                "avg_spin_rate",
+                "avg_velocity",
+                "barrel_rate_allowed",
+                "bb_rate",
+                "csw_rate",
+                "first_pitch_strike_rate",
+                "hard_hit_pct",
+                "k_pct",
+                "pitch_mix",
+                "vs_lhb_bb_rate",
+                "vs_lhb_k_rate",
+                "vs_lhb_woba_allowed",
+                "vs_rhb_bb_rate",
+                "vs_rhb_k_rate",
+                "vs_rhb_woba_allowed",
+                "whiff_rate",
+                "xba_allowed",
+                "xwoba",
+                "zone_rate"
+            ],
+            "data_confidence": "medium",
+            "generated_from": "matchup_detail.pitcher_detail",
+            "advanced_event_rows_used": 665,
+            "advanced_zone_rows_used": 665,
+            "advanced_first_pitch_rows_used": 169,
+            "advanced_batted_ball_rows_used": 243,
+            "advanced_metrics_available": [
+                "avg_exit_velocity_allowed",
+                "avg_launch_angle_allowed",
+                "barrel_rate_allowed",
+                "bb_rate",
+                "csw_rate",
+                "first_pitch_strike_rate",
+                "vs_lhb_bb_rate",
+                "vs_lhb_k_rate",
+                "vs_lhb_woba_allowed",
+                "vs_rhb_bb_rate",
+                "vs_rhb_k_rate",
+                "vs_rhb_woba_allowed",
+                "xba_allowed",
+                "zone_rate"
+            ],
+            "sample_window": "blended",
+            "sample_family": "unknown",
+            "sample_description": "Unknown sample window",
+            "sample_days": null,
+            "sample_size": null,
+            "sample_blend_policy": "pitcher_v1_weighted_blend_with_advanced_derived_metrics",
+            "stabilizer_window": "last_365_days"
+        },
+        "arsenal": {
+            "pitch_mix": "4-Seam Fastball 38%, Slider 25%, KC 20%, Curveball 19%, Changeup 13%",
+            "avg_velocity": 89.38140394637614,
+            "avg_spin_rate": 2239.492508863191
+        },
+        "bat_missing": {
+            "k_rate": 0.1508679245283019,
+            "whiff_rate": 0.17584905660377362,
+            "csw_rate": 0.23609022556390977
+        },
+        "command_control": {
+            "bb_rate": 0.05325443786982249,
+            "zone_rate": 0.4556390977443609,
+            "first_pitch_strike_rate": 0.5443786982248521
+        },
+        "contact_management": {
+            "hard_hit_rate_allowed": 0.457984,
+            "barrel_rate_allowed": 0.01646090534979424,
+            "avg_exit_velocity_allowed": 84.30207468879668,
+            "avg_launch_angle_allowed": 13.448559670781894,
+            "xwoba_allowed": 0.34534099999999995,
+            "xba_allowed": 0.3493297872340427
+        },
+        "platoon_profile": {
+            "vs_lhb_woba_allowed": 0.3735058196721313,
+            "vs_rhb_woba_allowed": 0.3215196551724139,
+            "vs_lhb_k_rate": 0.11764705882352941,
+            "vs_rhb_k_rate": 0.15476190476190477,
+            "vs_lhb_bb_rate": 0.058823529411764705,
+            "vs_rhb_bb_rate": 0.047619047619047616
+        }
+    },
+    "homeProjectedLineupOffenseProfile": {
+        "metadata": {
+            "source_type": "projected_lineup_profile",
+            "source_fields_used": [
+                "player_splits",
+                "compute_hitter_profile",
+                "sample_blending"
+            ],
+            "data_confidence": "low",
+            "generated_from": "aggregate_hitter_profiles",
+            "profile_granularity": "lineup_candidate_group",
+            "is_projected_lineup_derived": true,
+            "lineup_source": "official",
+            "opposing_pitcher_hand": "unknown",
+            "player_count_used": 9,
+            "sample_window": "blended",
+            "sample_family": "blended",
+            "sample_description": "Weighted blend across hitter windows",
+            "sample_days": null,
+            "sample_size": 9,
+            "sample_blend_policy": "hitter_v1_weighted_blend",
+            "stabilizer_window": "current_season",
+            "live_statcast_hitter_players_used": 9,
+            "live_statcast_hitter_candidates_used": 9,
+            "live_statcast_hitter_lineup_source": "official_lineup",
+            "live_statcast_hitter_fields_available": [
+                "avg_exit_velocity",
+                "avg_launch_angle",
+                "barrel_rate",
+                "bb_rate",
+                "chase_rate",
+                "contact_rate",
+                "hard_hit_rate",
+                "iso",
+                "k_rate",
+                "swing_rate",
+                "vs_lhp_iso",
+                "vs_lhp_woba",
+                "vs_rhp_iso",
+                "vs_rhp_woba",
+                "whiff_rate"
+            ],
+            "live_statcast_hitter_enrichment": true
+        },
+        "contact_skill": {
+            "k_rate": 0.20362070126531873,
+            "whiff_rate": 0.21808318868318874,
+            "contact_rate": 0.7819168113168113
+        },
+        "plate_discipline": {
+            "bb_rate": 0.10884524868723888,
+            "chase_rate": 0.25801401684470565,
+            "swing_rate": 0.4444036926663662
+        },
+        "power": {
+            "iso": 0.17637325890422473,
+            "barrel_rate": 0.024515140381108008,
+            "hard_hit_rate": 0.28363465275362665
+        },
+        "batted_ball_quality": {
+            "avg_exit_velocity": 83.78837409492729,
+            "avg_launch_angle": 17.99474064586031
+        },
+        "platoon_profile": {
+            "vs_lhp_woba": 0.36911688400153914,
+            "vs_rhp_woba": 0.3276971798071266,
+            "vs_lhp_iso": 0.1589542055632179,
+            "vs_rhp_iso": 0.17903716932942848
+        }
+    },
+    "awayProjectedLineupOffenseProfile": {
+        "metadata": {
+            "source_type": "projected_lineup_profile",
+            "source_fields_used": [
+                "player_splits",
+                "compute_hitter_profile",
+                "sample_blending"
+            ],
+            "data_confidence": "low",
+            "generated_from": "aggregate_hitter_profiles",
+            "profile_granularity": "lineup_candidate_group",
+            "is_projected_lineup_derived": true,
+            "lineup_source": "official",
+            "opposing_pitcher_hand": "unknown",
+            "player_count_used": 9,
+            "sample_window": "blended",
+            "sample_family": "blended",
+            "sample_description": "Weighted blend across hitter windows",
+            "sample_days": null,
+            "sample_size": 9,
+            "sample_blend_policy": "hitter_v1_weighted_blend",
+            "stabilizer_window": "current_season",
+            "live_statcast_hitter_players_used": 9,
+            "live_statcast_hitter_candidates_used": 9,
+            "live_statcast_hitter_lineup_source": "official_lineup",
+            "live_statcast_hitter_fields_available": [
+                "avg_exit_velocity",
+                "avg_launch_angle",
+                "barrel_rate",
+                "bb_rate",
+                "chase_rate",
+                "contact_rate",
+                "hard_hit_rate",
+                "iso",
+                "k_rate",
+                "swing_rate",
+                "vs_lhp_iso",
+                "vs_lhp_woba",
+                "vs_rhp_iso",
+                "vs_rhp_woba",
+                "whiff_rate"
+            ],
+            "live_statcast_hitter_enrichment": true
+        },
+        "contact_skill": {
+            "k_rate": 0.21406692364382082,
+            "whiff_rate": 0.21616615052559063,
+            "contact_rate": 0.7838338494744094
+        },
+        "plate_discipline": {
+            "bb_rate": 0.07594930556935497,
+            "chase_rate": 0.3056311002832961,
+            "swing_rate": 0.46060936911789724
+        },
+        "power": {
+            "iso": 0.19964922311271077,
+            "barrel_rate": 0.02097659567031568,
+            "hard_hit_rate": 0.254208474373598
+        },
+        "batted_ball_quality": {
+            "avg_exit_velocity": 82.49710454724563,
+            "avg_launch_angle": 16.12495040809837
+        },
+        "platoon_profile": {
+            "vs_lhp_woba": 0.3076396434458899,
+            "vs_rhp_woba": 0.3029783037373221,
+            "vs_lhp_iso": 0.1712053125641817,
+            "vs_rhp_iso": 0.2080121037696761
+        }
+    },
+    "environmentProfile": {
+        "metadata": {
+            "source_type": "matchup_detail_context",
+            "source_fields_used": [
+                "game_pk",
+                "game_date",
+                "venue_name",
+                "weather",
+                "park_factor",
+                "home_team",
+                "away_team"
+            ],
+            "data_confidence": "medium",
+            "generated_from": "compute_environment_profile",
+            "environment_calibration_version": "env_calibration_v1",
+            "park_weight": 1.0,
+            "temperature_weight": 1.0,
+            "wind_weight": 1.0,
+            "max_weather_adjustment": 0.075,
+            "max_total_adjustment": 0.15,
+            "wind_raw": "11 mph, In From LF",
+            "wind_parsed_from_text": true,
+            "park_factor_fallback_used": true,
+            "park_factor_fallback_source": "run_factor_proxy"
+        },
+        "weather": {
+            "temperature_f": 46.0,
+            "condition": "Sunny",
+            "wind_speed_mph": 11.0,
+            "wind_direction": "In From LF",
+            "humidity_pct": null,
+            "precipitation_probability": null
+        },
+        "park_factors": {
+            "run_factor": 0.99,
+            "home_run_factor": 0.989,
+            "hit_factor": 0.994
+        },
+        "game_context": {
+            "venue_name": "Wrigley Field",
+            "roof_status": null,
+            "home_team": "Chicago Cubs",
+            "away_team": "Arizona Diamondbacks",
+            "game_time_local": "2026-05-01T18:20:00Z",
+            "game_status": null
+        },
+        "run_environment": {
+            "run_scoring_index": 0.949,
+            "hr_boost_index": 0.932,
+            "hit_boost_index": 0.977,
+            "scoring_environment_label": "slight_run_suppression",
+            "weather_run_impact": "wind_in_suppresses_carry",
+            "park_run_impact": "neutral",
+            "wind_run_impact": "wind_in_suppresses_carry",
+            "wind_direction_type": "in",
+            "wind_speed_tier": "moderate",
+            "wind_run_adjustment": -0.021,
+            "wind_hr_adjustment": -0.038,
+            "wind_hit_adjustment": -0.006,
+            "temperature_run_impact": "cold_air_suppresses_carry"
+        },
+        "risk_flags": {
+            "rain_delay_risk": false,
+            "postponement_risk": false,
+            "extreme_wind_flag": false,
+            "extreme_temperature_flag": false
+        },
+        "status": {
+            "is_stub": false,
+            "readiness": "ready",
+            "missing_inputs": []
+        }
+    },
+    "homeMatchupAnalysis": {
+        "metadata": {
+            "source_type": "matchup_analysis_real_arsenal_v1",
+            "generated_from": "build_matchup_analysis",
+            "data_confidence": "medium",
+            "arsenal_source": "real_arsenal_rows",
+            "pitcher_id": 668678,
+            "pitcher_name": "Zac Gallen",
+            "pitcher_hand": "unknown",
+            "lineup_source": "official",
+            "lineup_player_count": 9,
+            "sample_window": "current_season",
+            "sample_family": "season",
+            "sample_description": "Current season to date",
+            "sample_days": null,
+            "sample_size": 9,
+            "sample_blend_policy": "single_window_v1",
+            "stabilizer_window": null
+        },
+        "pitchTypeMatchups": [
+            {
+                "pitch_type": "4-Seam Fastball",
+                "raw_pitch_type": "FF",
+                "pitcher_usage_pct": 0.383,
+                "pitcher_whiff_pct": 0.05,
+                "pitcher_strikeout_pct": 0.109,
+                "pitcher_xwoba": 0.362,
+                "pitcher_hard_hit_pct": 0.487,
+                "lineup_estimated_batting_avg": 0.26,
+                "edge_score": -0.162,
+                "confidence": 0.85
+            },
+            {
+                "pitch_type": "Slider",
+                "raw_pitch_type": "SL",
+                "pitcher_usage_pct": 0.248,
+                "pitcher_whiff_pct": 0.339,
+                "pitcher_strikeout_pct": 0.207,
+                "pitcher_xwoba": 0.283,
+                "pitcher_hard_hit_pct": 0.381,
+                "lineup_estimated_batting_avg": 0.26,
+                "edge_score": 0.064,
+                "confidence": 0.71
+            },
+            {
+                "pitch_type": "Curveball",
+                "raw_pitch_type": "CU",
+                "pitcher_usage_pct": 0.194,
+                "pitcher_whiff_pct": 0.205,
+                "pitcher_strikeout_pct": 0.167,
+                "pitcher_xwoba": 0.455,
+                "pitcher_hard_hit_pct": 0.556,
+                "lineup_estimated_batting_avg": 0.26,
+                "edge_score": -0.359,
+                "confidence": 0.71
+            },
+            {
+                "pitch_type": "Changeup",
+                "raw_pitch_type": "CH",
+                "pitcher_usage_pct": 0.129,
+                "pitcher_whiff_pct": 0.192,
+                "pitcher_strikeout_pct": 0.143,
+                "pitcher_xwoba": 0.257,
+                "pitcher_hard_hit_pct": 0.417,
+                "lineup_estimated_batting_avg": 0.26,
+                "edge_score": 0.084,
+                "confidence": 0.57
+            },
+            {
+                "pitch_type": "Sinker",
+                "raw_pitch_type": "SI",
+                "pitcher_usage_pct": 0.046,
+                "pitcher_whiff_pct": null,
+                "pitcher_strikeout_pct": null,
+                "pitcher_xwoba": 0.328,
+                "pitcher_hard_hit_pct": 0.333,
+                "lineup_estimated_batting_avg": 0.26,
+                "edge_score": 0.019,
+                "confidence": 0.45
+            }
+        ],
+        "biggestEdge": {
+            "pitch_type": "Changeup",
+            "raw_pitch_type": "CH",
+            "pitcher_usage_pct": 0.129,
+            "pitcher_whiff_pct": 0.192,
+            "pitcher_strikeout_pct": 0.143,
+            "pitcher_xwoba": 0.257,
+            "pitcher_hard_hit_pct": 0.417,
+            "lineup_estimated_batting_avg": 0.26,
+            "edge_score": 0.084,
+            "confidence": 0.57
+        },
+        "biggestWeakness": {
+            "pitch_type": "Curveball",
+            "raw_pitch_type": "CU",
+            "pitcher_usage_pct": 0.194,
+            "pitcher_whiff_pct": 0.205,
+            "pitcher_strikeout_pct": 0.167,
+            "pitcher_xwoba": 0.455,
+            "pitcher_hard_hit_pct": 0.556,
+            "lineup_estimated_batting_avg": 0.26,
+            "edge_score": -0.359,
+            "confidence": 0.71
+        },
+        "confidence": 0.658,
+        "summary": {
+            "status": "partial",
+            "note": "Real pitch arsenal vs lineup scoring is available."
+        }
+    },
+    "awayMatchupAnalysis": {
+        "metadata": {
+            "source_type": "matchup_analysis_real_arsenal_v1",
+            "generated_from": "build_matchup_analysis",
+            "data_confidence": "medium",
+            "arsenal_source": "real_arsenal_rows",
+            "pitcher_id": 607067,
+            "pitcher_name": "Colin Rea",
+            "pitcher_hand": "unknown",
+            "lineup_source": "official",
+            "lineup_player_count": 9,
+            "sample_window": "current_season",
+            "sample_family": "season",
+            "sample_description": "Current season to date",
+            "sample_days": null,
+            "sample_size": 9,
+            "sample_blend_policy": "single_window_v1",
+            "stabilizer_window": null
+        },
+        "pitchTypeMatchups": [
+            {
+                "pitch_type": "4-Seam Fastball",
+                "raw_pitch_type": "FF",
+                "pitcher_usage_pct": 0.394,
+                "pitcher_whiff_pct": 0.121,
+                "pitcher_strikeout_pct": 0.115,
+                "pitcher_xwoba": 0.362,
+                "pitcher_hard_hit_pct": 0.5,
+                "lineup_estimated_batting_avg": 0.26,
+                "edge_score": -0.177,
+                "confidence": 0.85
+            },
+            {
+                "pitch_type": "Split-Finger",
+                "raw_pitch_type": "FS",
+                "pitcher_usage_pct": 0.183,
+                "pitcher_whiff_pct": 0.324,
+                "pitcher_strikeout_pct": 0.25,
+                "pitcher_xwoba": 0.259,
+                "pitcher_hard_hit_pct": 0.333,
+                "lineup_estimated_batting_avg": 0.26,
+                "edge_score": 0.14,
+                "confidence": 0.71
+            },
+            {
+                "pitch_type": "Slider",
+                "raw_pitch_type": "SL",
+                "pitcher_usage_pct": 0.127,
+                "pitcher_whiff_pct": 0.423,
+                "pitcher_strikeout_pct": 0.526,
+                "pitcher_xwoba": 0.246,
+                "pitcher_hard_hit_pct": 0.75,
+                "lineup_estimated_batting_avg": 0.26,
+                "edge_score": -0.129,
+                "confidence": 0.57
+            },
+            {
+                "pitch_type": "Sinker",
+                "raw_pitch_type": "SI",
+                "pitcher_usage_pct": 0.085,
+                "pitcher_whiff_pct": 0.133,
+                "pitcher_strikeout_pct": null,
+                "pitcher_xwoba": 0.408,
+                "pitcher_hard_hit_pct": 0.429,
+                "lineup_estimated_batting_avg": 0.26,
+                "edge_score": -0.188,
+                "confidence": 0.57
+            },
+            {
+                "pitch_type": "Cutter",
+                "raw_pitch_type": "FC",
+                "pitcher_usage_pct": 0.08,
+                "pitcher_whiff_pct": 0.294,
+                "pitcher_strikeout_pct": null,
+                "pitcher_xwoba": 0.462,
+                "pitcher_hard_hit_pct": 0.4,
+                "lineup_estimated_batting_avg": 0.26,
+                "edge_score": -0.263,
+                "confidence": 0.57
+            },
+            {
+                "pitch_type": "Sweeper",
+                "raw_pitch_type": "ST",
+                "pitcher_usage_pct": 0.069,
+                "pitcher_whiff_pct": 0.231,
+                "pitcher_strikeout_pct": 0.375,
+                "pitcher_xwoba": 0.112,
+                "pitcher_hard_hit_pct": 0.2,
+                "lineup_estimated_batting_avg": 0.26,
+                "edge_score": 0.49,
+                "confidence": 0.57
+            },
+            {
+                "pitch_type": "Curveball",
+                "raw_pitch_type": "CU",
+                "pitcher_usage_pct": 0.062,
+                "pitcher_whiff_pct": 0.167,
+                "pitcher_strikeout_pct": null,
+                "pitcher_xwoba": 0.619,
+                "pitcher_hard_hit_pct": 0.5,
+                "lineup_estimated_batting_avg": 0.26,
+                "edge_score": -0.607,
+                "confidence": 0.57
+            }
+        ],
+        "biggestEdge": {
+            "pitch_type": "Sweeper",
+            "raw_pitch_type": "ST",
+            "pitcher_usage_pct": 0.069,
+            "pitcher_whiff_pct": 0.231,
+            "pitcher_strikeout_pct": 0.375,
+            "pitcher_xwoba": 0.112,
+            "pitcher_hard_hit_pct": 0.2,
+            "lineup_estimated_batting_avg": 0.26,
+            "edge_score": 0.49,
+            "confidence": 0.57
+        },
+        "biggestWeakness": {
+            "pitch_type": "Curveball",
+            "raw_pitch_type": "CU",
+            "pitcher_usage_pct": 0.062,
+            "pitcher_whiff_pct": 0.167,
+            "pitcher_strikeout_pct": null,
+            "pitcher_xwoba": 0.619,
+            "pitcher_hard_hit_pct": 0.5,
+            "lineup_estimated_batting_avg": 0.26,
+            "edge_score": -0.607,
+            "confidence": 0.57
+        },
+        "confidence": 0.63,
+        "summary": {
+            "status": "partial",
+            "note": "Real pitch arsenal vs lineup scoring is available."
+        }
+    },
+    "homePAOutcomeModel": {
+        "model_version": "lineup_pa_outcome_v1",
+        "side": "home_offense",
+        "player_count_used": 9,
+        "model_count_used": 9,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "offense_profile_source": "lineup_aggregate",
+        "lineup_average_probabilities": {
+            "bb": 0.081,
+            "double": 0.0417,
+            "hbp": 0.011,
+            "hr": 0.0258,
+            "k": 0.1772,
+            "out": 0.4859,
+            "reached_on_error": 0.007,
+            "single": 0.1664,
+            "triple": 0.0039
+        },
+        "lineup_average_summary": {
+            "contact_out_probability": 0.4859,
+            "extra_base_hit_probability": 0.0714,
+            "hit_probability": 0.2378,
+            "non_hit_on_base_probability": 0.099,
+            "on_base_probability": 0.3368,
+            "total_out_probability": 0.6631
+        },
+        "player_outcomes": [
+            {
+                "player_id": 663538,
+                "player_name": "Nico Hoerner",
+                "probabilities": {
+                    "k": 0.1772,
+                    "bb": 0.081,
+                    "hbp": 0.011,
+                    "single": 0.1664,
+                    "double": 0.0417,
+                    "triple": 0.0039,
+                    "hr": 0.0258,
+                    "reached_on_error": 0.007,
+                    "out": 0.4859
+                },
+                "summary": {
+                    "hit_probability": 0.2378,
+                    "on_base_probability": 0.3368,
+                    "extra_base_hit_probability": 0.0714,
+                    "total_out_probability": 0.6631,
+                    "non_hit_on_base_probability": 0.099,
+                    "contact_out_probability": 0.4859
+                }
+            },
+            {
+                "player_id": 694208,
+                "player_name": "Mois\u00e9s Ballesteros",
+                "probabilities": {
+                    "k": 0.1772,
+                    "bb": 0.081,
+                    "hbp": 0.011,
+                    "single": 0.1664,
+                    "double": 0.0417,
+                    "triple": 0.0039,
+                    "hr": 0.0258,
+                    "reached_on_error": 0.007,
+                    "out": 0.4859
+                },
+                "summary": {
+                    "hit_probability": 0.2378,
+                    "on_base_probability": 0.3368,
+                    "extra_base_hit_probability": 0.0714,
+                    "total_out_probability": 0.6631,
+                    "non_hit_on_base_probability": 0.099,
+                    "contact_out_probability": 0.4859
+                }
+            },
+            {
+                "player_id": 608324,
+                "player_name": "Alex Bregman",
+                "probabilities": {
+                    "k": 0.1772,
+                    "bb": 0.081,
+                    "hbp": 0.011,
+                    "single": 0.1664,
+                    "double": 0.0417,
+                    "triple": 0.0039,
+                    "hr": 0.0258,
+                    "reached_on_error": 0.007,
+                    "out": 0.4859
+                },
+                "summary": {
+                    "hit_probability": 0.2378,
+                    "on_base_probability": 0.3368,
+                    "extra_base_hit_probability": 0.0714,
+                    "total_out_probability": 0.6631,
+                    "non_hit_on_base_probability": 0.099,
+                    "contact_out_probability": 0.4859
+                }
+            },
+            {
+                "player_id": 664023,
+                "player_name": "Ian Happ",
+                "probabilities": {
+                    "k": 0.1772,
+                    "bb": 0.081,
+                    "hbp": 0.011,
+                    "single": 0.1664,
+                    "double": 0.0417,
+                    "triple": 0.0039,
+                    "hr": 0.0258,
+                    "reached_on_error": 0.007,
+                    "out": 0.4859
+                },
+                "summary": {
+                    "hit_probability": 0.2378,
+                    "on_base_probability": 0.3368,
+                    "extra_base_hit_probability": 0.0714,
+                    "total_out_probability": 0.6631,
+                    "non_hit_on_base_probability": 0.099,
+                    "contact_out_probability": 0.4859
+                }
+            },
+            {
+                "player_id": 673548,
+                "player_name": "Seiya Suzuki",
+                "probabilities": {
+                    "k": 0.1772,
+                    "bb": 0.081,
+                    "hbp": 0.011,
+                    "single": 0.1664,
+                    "double": 0.0417,
+                    "triple": 0.0039,
+                    "hr": 0.0258,
+                    "reached_on_error": 0.007,
+                    "out": 0.4859
+                },
+                "summary": {
+                    "hit_probability": 0.2378,
+                    "on_base_probability": 0.3368,
+                    "extra_base_hit_probability": 0.0714,
+                    "total_out_probability": 0.6631,
+                    "non_hit_on_base_probability": 0.099,
+                    "contact_out_probability": 0.4859
+                }
+            },
+            {
+                "player_id": 683737,
+                "player_name": "Michael Busch",
+                "probabilities": {
+                    "k": 0.1772,
+                    "bb": 0.081,
+                    "hbp": 0.011,
+                    "single": 0.1664,
+                    "double": 0.0417,
+                    "triple": 0.0039,
+                    "hr": 0.0258,
+                    "reached_on_error": 0.007,
+                    "out": 0.4859
+                },
+                "summary": {
+                    "hit_probability": 0.2378,
+                    "on_base_probability": 0.3368,
+                    "extra_base_hit_probability": 0.0714,
+                    "total_out_probability": 0.6631,
+                    "non_hit_on_base_probability": 0.099,
+                    "contact_out_probability": 0.4859
+                }
+            },
+            {
+                "player_id": 608348,
+                "player_name": "Carson Kelly",
+                "probabilities": {
+                    "k": 0.1772,
+                    "bb": 0.081,
+                    "hbp": 0.011,
+                    "single": 0.1664,
+                    "double": 0.0417,
+                    "triple": 0.0039,
+                    "hr": 0.0258,
+                    "reached_on_error": 0.007,
+                    "out": 0.4859
+                },
+                "summary": {
+                    "hit_probability": 0.2378,
+                    "on_base_probability": 0.3368,
+                    "extra_base_hit_probability": 0.0714,
+                    "total_out_probability": 0.6631,
+                    "non_hit_on_base_probability": 0.099,
+                    "contact_out_probability": 0.4859
+                }
+            },
+            {
+                "player_id": 691718,
+                "player_name": "Pete Crow-Armstrong",
+                "probabilities": {
+                    "k": 0.1772,
+                    "bb": 0.081,
+                    "hbp": 0.011,
+                    "single": 0.1664,
+                    "double": 0.0417,
+                    "triple": 0.0039,
+                    "hr": 0.0258,
+                    "reached_on_error": 0.007,
+                    "out": 0.4859
+                },
+                "summary": {
+                    "hit_probability": 0.2378,
+                    "on_base_probability": 0.3368,
+                    "extra_base_hit_probability": 0.0714,
+                    "total_out_probability": 0.6631,
+                    "non_hit_on_base_probability": 0.099,
+                    "contact_out_probability": 0.4859
+                }
+            },
+            {
+                "player_id": 621020,
+                "player_name": "Dansby Swanson",
+                "probabilities": {
+                    "k": 0.1772,
+                    "bb": 0.081,
+                    "hbp": 0.011,
+                    "single": 0.1664,
+                    "double": 0.0417,
+                    "triple": 0.0039,
+                    "hr": 0.0258,
+                    "reached_on_error": 0.007,
+                    "out": 0.4859
+                },
+                "summary": {
+                    "hit_probability": 0.2378,
+                    "on_base_probability": 0.3368,
+                    "extra_base_hit_probability": 0.0714,
+                    "total_out_probability": 0.6631,
+                    "non_hit_on_base_probability": 0.099,
+                    "contact_out_probability": 0.4859
+                }
+            }
+        ],
+        "metadata": {
+            "generated_from": "matchup_detail.pa_outcome_model",
+            "batter_profile_granularity": "lineup_aggregate",
+            "pitcher_profile_granularity": "starter_profile",
+            "environment_profile_used": true,
+            "team_offense_prior_used": false
+        }
+    },
+    "awayPAOutcomeModel": {
+        "model_version": "lineup_pa_outcome_v1",
+        "side": "away_offense",
+        "player_count_used": 9,
+        "model_count_used": 9,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "offense_profile_source": "lineup_aggregate",
+        "lineup_average_probabilities": {
+            "bb": 0.0751,
+            "double": 0.042,
+            "hbp": 0.011,
+            "hr": 0.0262,
+            "k": 0.2259,
+            "out": 0.4433,
+            "reached_on_error": 0.007,
+            "single": 0.1656,
+            "triple": 0.0039
+        },
+        "lineup_average_summary": {
+            "contact_out_probability": 0.4433,
+            "extra_base_hit_probability": 0.0721,
+            "hit_probability": 0.2377,
+            "non_hit_on_base_probability": 0.0931,
+            "on_base_probability": 0.3308,
+            "total_out_probability": 0.6692
+        },
+        "player_outcomes": [
+            {
+                "player_id": 672695,
+                "player_name": "Geraldo Perdomo",
+                "probabilities": {
+                    "k": 0.2259,
+                    "bb": 0.0751,
+                    "hbp": 0.011,
+                    "single": 0.1656,
+                    "double": 0.042,
+                    "triple": 0.0039,
+                    "hr": 0.0262,
+                    "reached_on_error": 0.007,
+                    "out": 0.4433
+                },
+                "summary": {
+                    "hit_probability": 0.2377,
+                    "on_base_probability": 0.3308,
+                    "extra_base_hit_probability": 0.0721,
+                    "total_out_probability": 0.6692,
+                    "non_hit_on_base_probability": 0.0931,
+                    "contact_out_probability": 0.4433
+                }
+            },
+            {
+                "player_id": 545121,
+                "player_name": "Ildemaro Vargas",
+                "probabilities": {
+                    "k": 0.2259,
+                    "bb": 0.0751,
+                    "hbp": 0.011,
+                    "single": 0.1656,
+                    "double": 0.042,
+                    "triple": 0.0039,
+                    "hr": 0.0262,
+                    "reached_on_error": 0.007,
+                    "out": 0.4433
+                },
+                "summary": {
+                    "hit_probability": 0.2377,
+                    "on_base_probability": 0.3308,
+                    "extra_base_hit_probability": 0.0721,
+                    "total_out_probability": 0.6692,
+                    "non_hit_on_base_probability": 0.0931,
+                    "contact_out_probability": 0.4433
+                }
+            },
+            {
+                "player_id": 682998,
+                "player_name": "Corbin Carroll",
+                "probabilities": {
+                    "k": 0.2259,
+                    "bb": 0.0751,
+                    "hbp": 0.011,
+                    "single": 0.1656,
+                    "double": 0.042,
+                    "triple": 0.0039,
+                    "hr": 0.0262,
+                    "reached_on_error": 0.007,
+                    "out": 0.4433
+                },
+                "summary": {
+                    "hit_probability": 0.2377,
+                    "on_base_probability": 0.3308,
+                    "extra_base_hit_probability": 0.0721,
+                    "total_out_probability": 0.6692,
+                    "non_hit_on_base_probability": 0.0931,
+                    "contact_out_probability": 0.4433
+                }
+            },
+            {
+                "player_id": 680728,
+                "player_name": "Adrian Del Castillo",
+                "probabilities": {
+                    "k": 0.2259,
+                    "bb": 0.0751,
+                    "hbp": 0.011,
+                    "single": 0.1656,
+                    "double": 0.042,
+                    "triple": 0.0039,
+                    "hr": 0.0262,
+                    "reached_on_error": 0.007,
+                    "out": 0.4433
+                },
+                "summary": {
+                    "hit_probability": 0.2377,
+                    "on_base_probability": 0.3308,
+                    "extra_base_hit_probability": 0.0721,
+                    "total_out_probability": 0.6692,
+                    "non_hit_on_base_probability": 0.0931,
+                    "contact_out_probability": 0.4433
+                }
+            },
+            {
+                "player_id": 672515,
+                "player_name": "Gabriel Moreno",
+                "probabilities": {
+                    "k": 0.2259,
+                    "bb": 0.0751,
+                    "hbp": 0.011,
+                    "single": 0.1656,
+                    "double": 0.042,
+                    "triple": 0.0039,
+                    "hr": 0.0262,
+                    "reached_on_error": 0.007,
+                    "out": 0.4433
+                },
+                "summary": {
+                    "hit_probability": 0.2377,
+                    "on_base_probability": 0.3308,
+                    "extra_base_hit_probability": 0.0721,
+                    "total_out_probability": 0.6692,
+                    "non_hit_on_base_probability": 0.0931,
+                    "contact_out_probability": 0.4433
+                }
+            },
+            {
+                "player_id": 699912,
+                "player_name": "Jose Fernandez",
+                "probabilities": {
+                    "k": 0.2259,
+                    "bb": 0.0751,
+                    "hbp": 0.011,
+                    "single": 0.1656,
+                    "double": 0.042,
+                    "triple": 0.0039,
+                    "hr": 0.0262,
+                    "reached_on_error": 0.007,
+                    "out": 0.4433
+                },
+                "summary": {
+                    "hit_probability": 0.2377,
+                    "on_base_probability": 0.3308,
+                    "extra_base_hit_probability": 0.0721,
+                    "total_out_probability": 0.6692,
+                    "non_hit_on_base_probability": 0.0931,
+                    "contact_out_probability": 0.4433
+                }
+            },
+            {
+                "player_id": 571448,
+                "player_name": "Nolan Arenado",
+                "probabilities": {
+                    "k": 0.2259,
+                    "bb": 0.0751,
+                    "hbp": 0.011,
+                    "single": 0.1656,
+                    "double": 0.042,
+                    "triple": 0.0039,
+                    "hr": 0.0262,
+                    "reached_on_error": 0.007,
+                    "out": 0.4433
+                },
+                "summary": {
+                    "hit_probability": 0.2377,
+                    "on_base_probability": 0.3308,
+                    "extra_base_hit_probability": 0.0721,
+                    "total_out_probability": 0.6692,
+                    "non_hit_on_base_probability": 0.0931,
+                    "contact_out_probability": 0.4433
+                }
+            },
+            {
+                "player_id": 677950,
+                "player_name": "Alek Thomas",
+                "probabilities": {
+                    "k": 0.2259,
+                    "bb": 0.0751,
+                    "hbp": 0.011,
+                    "single": 0.1656,
+                    "double": 0.042,
+                    "triple": 0.0039,
+                    "hr": 0.0262,
+                    "reached_on_error": 0.007,
+                    "out": 0.4433
+                },
+                "summary": {
+                    "hit_probability": 0.2377,
+                    "on_base_probability": 0.3308,
+                    "extra_base_hit_probability": 0.0721,
+                    "total_out_probability": 0.6692,
+                    "non_hit_on_base_probability": 0.0931,
+                    "contact_out_probability": 0.4433
+                }
+            },
+            {
+                "player_id": 678489,
+                "player_name": "Jorge Barrosa",
+                "probabilities": {
+                    "k": 0.2259,
+                    "bb": 0.0751,
+                    "hbp": 0.011,
+                    "single": 0.1656,
+                    "double": 0.042,
+                    "triple": 0.0039,
+                    "hr": 0.0262,
+                    "reached_on_error": 0.007,
+                    "out": 0.4433
+                },
+                "summary": {
+                    "hit_probability": 0.2377,
+                    "on_base_probability": 0.3308,
+                    "extra_base_hit_probability": 0.0721,
+                    "total_out_probability": 0.6692,
+                    "non_hit_on_base_probability": 0.0931,
+                    "contact_out_probability": 0.4433
+                }
+            }
+        ],
+        "metadata": {
+            "generated_from": "matchup_detail.pa_outcome_model",
+            "batter_profile_granularity": "lineup_aggregate",
+            "pitcher_profile_granularity": "starter_profile",
+            "environment_profile_used": true,
+            "team_offense_prior_used": false
+        }
+    },
+    "homeHalfInningSimulation": {
+        "model_version": "half_inning_sim_v1",
+        "simulations": 5000,
+        "expected_runs": 0.5008,
+        "average_plate_appearances": 4.495,
+        "run_distribution": {
+            "0": 0.745,
+            "1": 0.1202,
+            "2": 0.0704,
+            "3": 0.036,
+            "4": 0.0162,
+            "5": 0.0084,
+            "6": 0.0022,
+            "7": 0.001,
+            "8": 0.0006
+        },
+        "probability_scoreless": 0.745,
+        "probability_1_plus_runs": 0.255,
+        "probability_2_plus_runs": 0.1348,
+        "ended_by_max_pa_rate": 0.0,
+        "side": "home_offense",
+        "metadata": {
+            "generated_from": "matchup_detail.half_inning_simulation",
+            "pa_model_version": "lineup_pa_outcome_v1",
+            "simulation_seed": 42,
+            "simulation_count": 5000
+        }
+    },
+    "awayHalfInningSimulation": {
+        "model_version": "half_inning_sim_v1",
+        "simulations": 5000,
+        "expected_runs": 0.4906,
+        "average_plate_appearances": 4.45,
+        "run_distribution": {
+            "0": 0.7418,
+            "1": 0.1264,
+            "2": 0.0732,
+            "3": 0.0328,
+            "4": 0.016,
+            "5": 0.0068,
+            "6": 0.0014,
+            "7": 0.0006,
+            "8": 0.0004,
+            "9": 0.0004,
+            "10": 0.0002
+        },
+        "probability_scoreless": 0.7418,
+        "probability_1_plus_runs": 0.2582,
+        "probability_2_plus_runs": 0.1318,
+        "ended_by_max_pa_rate": 0.0,
+        "side": "away_offense",
+        "metadata": {
+            "generated_from": "matchup_detail.half_inning_simulation",
+            "pa_model_version": "lineup_pa_outcome_v1",
+            "simulation_seed": 42,
+            "simulation_count": 5000
+        }
+    },
+    "gameSimulation": {
+        "model_version": "full_game_sim_v1",
+        "simulations": 5000,
+        "innings": 9,
+        "away_expected_runs": 4.1346,
+        "home_expected_runs": 4.2366,
+        "total_expected_runs": 8.3712,
+        "raw_away_expected_runs": 4.4474,
+        "raw_home_expected_runs": 4.5734,
+        "raw_total_expected_runs": 9.0208,
+        "away_win_probability": 0.4922,
+        "home_win_probability": 0.5078,
+        "tie_after_regulation_probability": 0.0908,
+        "away_run_distribution": {
+            "0": 0.0678,
+            "1": 0.1096,
+            "2": 0.129,
+            "3": 0.1334,
+            "4": 0.13,
+            "5": 0.1066,
+            "6": 0.0864,
+            "7": 0.0756,
+            "8": 0.052,
+            "9": 0.0414,
+            "10": 0.0256,
+            "11": 0.0156,
+            "12": 0.0106,
+            "13": 0.0076,
+            "14": 0.003,
+            "15": 0.0024,
+            "16": 0.002,
+            "17": 0.0006,
+            "18": 0.0002,
+            "19": 0.0002,
+            "22": 0.0002,
+            "24": 0.0002
+        },
+        "home_run_distribution": {
+            "0": 0.068,
+            "1": 0.1056,
+            "2": 0.1242,
+            "3": 0.1274,
+            "4": 0.1258,
+            "5": 0.117,
+            "6": 0.0922,
+            "7": 0.073,
+            "8": 0.0526,
+            "9": 0.034,
+            "10": 0.0266,
+            "11": 0.018,
+            "12": 0.0118,
+            "13": 0.0082,
+            "14": 0.0054,
+            "15": 0.0044,
+            "16": 0.002,
+            "17": 0.0012,
+            "18": 0.001,
+            "19": 0.0004,
+            "20": 0.0006,
+            "22": 0.0002,
+            "23": 0.0002,
+            "26": 0.0002
+        },
+        "total_run_distribution": {
+            "0": 0.0042,
+            "1": 0.0128,
+            "2": 0.0288,
+            "3": 0.0436,
+            "4": 0.0624,
+            "5": 0.0758,
+            "6": 0.0904,
+            "7": 0.0958,
+            "8": 0.0838,
+            "9": 0.0804,
+            "10": 0.088,
+            "11": 0.0738,
+            "12": 0.0526,
+            "13": 0.0522,
+            "14": 0.0382,
+            "15": 0.0294,
+            "16": 0.024,
+            "17": 0.0204,
+            "18": 0.014,
+            "19": 0.009,
+            "20": 0.0062,
+            "21": 0.004,
+            "22": 0.0044,
+            "23": 0.0018,
+            "24": 0.0016,
+            "25": 0.0004,
+            "26": 0.0006,
+            "27": 0.0002,
+            "28": 0.0004,
+            "29": 0.0002,
+            "30": 0.0002,
+            "35": 0.0002,
+            "36": 0.0002
+        },
+        "calibrated_total_run_distribution": {
+            "0": 0.017,
+            "1": 0.0288,
+            "2": 0.0436,
+            "3": 0.0624,
+            "4": 0.0758,
+            "5": 0.0904,
+            "6": 0.0958,
+            "7": 0.0838,
+            "8": 0.0804,
+            "9": 0.088,
+            "10": 0.0738,
+            "11": 0.0526,
+            "12": 0.0522,
+            "13": 0.0382,
+            "14": 0.0294,
+            "15": 0.024,
+            "16": 0.0204,
+            "17": 0.014,
+            "18": 0.009,
+            "19": 0.0062,
+            "20": 0.004,
+            "21": 0.0044,
+            "22": 0.0018,
+            "23": 0.0016,
+            "24": 0.0004,
+            "25": 0.0006,
+            "26": 0.0002,
+            "27": 0.0004,
+            "28": 0.0002,
+            "29": 0.0002,
+            "34": 0.0002,
+            "35": 0.0002
+        },
+        "calibrated_away_run_distribution": {
+            "0": 0.0678,
+            "1": 0.1096,
+            "2": 0.129,
+            "3": 0.1334,
+            "4": 0.13,
+            "5": 0.1066,
+            "6": 0.0864,
+            "7": 0.0756,
+            "8": 0.052,
+            "9": 0.0414,
+            "10": 0.0256,
+            "11": 0.0156,
+            "12": 0.0106,
+            "13": 0.0076,
+            "14": 0.003,
+            "15": 0.0024,
+            "16": 0.002,
+            "17": 0.0006,
+            "18": 0.0002,
+            "19": 0.0002,
+            "22": 0.0002,
+            "24": 0.0002
+        },
+        "calibrated_home_run_distribution": {
+            "0": 0.068,
+            "1": 0.1056,
+            "2": 0.1242,
+            "3": 0.1274,
+            "4": 0.1258,
+            "5": 0.117,
+            "6": 0.0922,
+            "7": 0.073,
+            "8": 0.0526,
+            "9": 0.034,
+            "10": 0.0266,
+            "11": 0.018,
+            "12": 0.0118,
+            "13": 0.0082,
+            "14": 0.0054,
+            "15": 0.0044,
+            "16": 0.002,
+            "17": 0.0012,
+            "18": 0.001,
+            "19": 0.0004,
+            "20": 0.0006,
+            "22": 0.0002,
+            "23": 0.0002,
+            "26": 0.0002
+        },
+        "home_margin_distribution": {
+            "-20": 0.0002,
+            "-19": 0.0002,
+            "-18": 0.0002,
+            "-16": 0.0002,
+            "-15": 0.0006,
+            "-14": 0.0016,
+            "-13": 0.001,
+            "-12": 0.0022,
+            "-11": 0.0034,
+            "-10": 0.008,
+            "-9": 0.0098,
+            "-8": 0.0162,
+            "-7": 0.0228,
+            "-6": 0.0312,
+            "-5": 0.0472,
+            "-4": 0.058,
+            "-3": 0.072,
+            "-2": 0.082,
+            "-1": 0.09,
+            "0": 0.0908,
+            "1": 0.0916,
+            "2": 0.0844,
+            "3": 0.068,
+            "4": 0.0614,
+            "5": 0.0496,
+            "6": 0.0332,
+            "7": 0.0218,
+            "8": 0.018,
+            "9": 0.0104,
+            "10": 0.0078,
+            "11": 0.0056,
+            "12": 0.0026,
+            "13": 0.004,
+            "14": 0.001,
+            "15": 0.0018,
+            "16": 0.0006,
+            "17": 0.0002,
+            "18": 0.0004
+        },
+        "total_probabilities": {
+            "over_6.5": 0.682,
+            "over_7.5": 0.5862,
+            "over_8.5": 0.5024,
+            "over_9.5": 0.422,
+            "over_10.5": 0.334,
+            "under_6.5": 0.318,
+            "under_7.5": 0.4138,
+            "under_8.5": 0.4976,
+            "under_9.5": 0.578,
+            "under_10.5": 0.666
+        },
+        "calibrated_total_probabilities": {
+            "over_6.5": 0.5862,
+            "over_7.5": 0.5024,
+            "over_8.5": 0.422,
+            "over_9.5": 0.334,
+            "over_10.5": 0.2602,
+            "under_6.5": 0.4138,
+            "under_7.5": 0.4976,
+            "under_8.5": 0.578,
+            "under_9.5": 0.666,
+            "under_10.5": 0.7398
+        },
+        "team_total_probabilities": {
+            "away_3_plus": 0.6936,
+            "away_4_plus": 0.5602,
+            "away_5_plus": 0.4302,
+            "home_3_plus": 0.7022,
+            "home_4_plus": 0.5748,
+            "home_5_plus": 0.449
+        },
+        "calibrated_team_total_probabilities": {
+            "away_3_plus": 0.6936,
+            "away_4_plus": 0.5602,
+            "away_5_plus": 0.4302,
+            "home_3_plus": 0.7022,
+            "home_4_plus": 0.5748,
+            "home_5_plus": 0.449
+        },
+        "metadata": {
+            "generated_from": "matchup_detail.full_game_simulation",
+            "seed": 42,
+            "simulation_count": 5000,
+            "notes": [
+                "V1 uses fixed nine innings for both teams.",
+                "Ties after regulation are split evenly for win probability.",
+                "No bullpen, extras, walk-off shortening, or lineup-order state yet."
+            ],
+            "away_pa_model_version": "lineup_pa_outcome_v1",
+            "home_pa_model_version": "lineup_pa_outcome_v1",
+            "simulation_seed": 42
+        }
+    },
+    "bullpenAdjustedGameSimulation": {
+        "model_version": "full_game_sim_with_bullpen_v1",
+        "simulations": 5000,
+        "innings": 9,
+        "starter_innings": 5,
+        "dynamic_starter_exit": true,
+        "away_starter_quality": "average",
+        "home_starter_quality": "average",
+        "away_starter_innings_distribution": {
+            "4": 0.121,
+            "5": 0.3898,
+            "6": 0.3426,
+            "7": 0.1282,
+            "8": 0.0184
+        },
+        "home_starter_innings_distribution": {
+            "4": 0.1164,
+            "5": 0.3886,
+            "6": 0.3452,
+            "7": 0.1318,
+            "8": 0.018
+        },
+        "bullpen_innings": 4,
+        "away_expected_runs": 4.2248,
+        "home_expected_runs": 4.4071,
+        "total_expected_runs": 8.6319,
+        "raw_away_expected_runs": 4.5588,
+        "raw_home_expected_runs": 4.784,
+        "raw_total_expected_runs": 9.3428,
+        "away_win_probability": 0.4846,
+        "home_win_probability": 0.5154,
+        "tie_after_regulation_probability": 0.0928,
+        "away_run_distribution": {
+            "0": 0.0668,
+            "1": 0.1004,
+            "2": 0.1316,
+            "3": 0.1246,
+            "4": 0.131,
+            "5": 0.106,
+            "6": 0.0942,
+            "7": 0.0752,
+            "8": 0.0566,
+            "9": 0.0362,
+            "10": 0.0274,
+            "11": 0.0196,
+            "12": 0.0114,
+            "13": 0.0072,
+            "14": 0.0052,
+            "15": 0.0042,
+            "16": 0.0012,
+            "17": 0.0006,
+            "18": 0.0002,
+            "20": 0.0002,
+            "22": 0.0002
+        },
+        "home_run_distribution": {
+            "0": 0.0608,
+            "1": 0.0884,
+            "2": 0.12,
+            "3": 0.1334,
+            "4": 0.1234,
+            "5": 0.1166,
+            "6": 0.0878,
+            "7": 0.0816,
+            "8": 0.0596,
+            "9": 0.0438,
+            "10": 0.0254,
+            "11": 0.0204,
+            "12": 0.0154,
+            "13": 0.0076,
+            "14": 0.0058,
+            "15": 0.0034,
+            "16": 0.003,
+            "17": 0.0014,
+            "18": 0.0004,
+            "19": 0.0006,
+            "20": 0.0004,
+            "21": 0.0006,
+            "23": 0.0002
+        },
+        "total_run_distribution": {
+            "0": 0.0048,
+            "1": 0.0118,
+            "2": 0.02,
+            "3": 0.047,
+            "4": 0.0538,
+            "5": 0.0684,
+            "6": 0.0802,
+            "7": 0.09,
+            "8": 0.0828,
+            "9": 0.0966,
+            "10": 0.0836,
+            "11": 0.0746,
+            "12": 0.0638,
+            "13": 0.0456,
+            "14": 0.049,
+            "15": 0.0312,
+            "16": 0.028,
+            "17": 0.017,
+            "18": 0.0154,
+            "19": 0.01,
+            "20": 0.0088,
+            "21": 0.0072,
+            "22": 0.0032,
+            "23": 0.0024,
+            "24": 0.002,
+            "25": 0.0006,
+            "26": 0.0008,
+            "27": 0.0002,
+            "28": 0.0006,
+            "29": 0.0002,
+            "30": 0.0004
+        },
+        "calibrated_total_run_distribution": {
+            "0": 0.0166,
+            "1": 0.02,
+            "2": 0.047,
+            "3": 0.0538,
+            "4": 0.0684,
+            "5": 0.0802,
+            "6": 0.09,
+            "7": 0.0828,
+            "8": 0.0966,
+            "9": 0.0836,
+            "10": 0.0746,
+            "11": 0.0638,
+            "12": 0.0456,
+            "13": 0.049,
+            "14": 0.0312,
+            "15": 0.028,
+            "16": 0.017,
+            "17": 0.0154,
+            "18": 0.01,
+            "19": 0.0088,
+            "20": 0.0072,
+            "21": 0.0032,
+            "22": 0.0024,
+            "23": 0.002,
+            "24": 0.0006,
+            "25": 0.0008,
+            "26": 0.0002,
+            "27": 0.0006,
+            "28": 0.0002,
+            "29": 0.0004
+        },
+        "calibrated_away_run_distribution": {
+            "0": 0.0668,
+            "1": 0.1004,
+            "2": 0.1316,
+            "3": 0.1246,
+            "4": 0.131,
+            "5": 0.106,
+            "6": 0.0942,
+            "7": 0.0752,
+            "8": 0.0566,
+            "9": 0.0362,
+            "10": 0.0274,
+            "11": 0.0196,
+            "12": 0.0114,
+            "13": 0.0072,
+            "14": 0.0052,
+            "15": 0.0042,
+            "16": 0.0012,
+            "17": 0.0006,
+            "18": 0.0002,
+            "20": 0.0002,
+            "22": 0.0002
+        },
+        "calibrated_home_run_distribution": {
+            "0": 0.0608,
+            "1": 0.0884,
+            "2": 0.12,
+            "3": 0.1334,
+            "4": 0.1234,
+            "5": 0.1166,
+            "6": 0.0878,
+            "7": 0.0816,
+            "8": 0.0596,
+            "9": 0.0438,
+            "10": 0.0254,
+            "11": 0.0204,
+            "12": 0.0154,
+            "13": 0.0076,
+            "14": 0.0058,
+            "15": 0.0034,
+            "16": 0.003,
+            "17": 0.0014,
+            "18": 0.0004,
+            "19": 0.0006,
+            "20": 0.0004,
+            "21": 0.0006,
+            "23": 0.0002
+        },
+        "home_margin_distribution": {
+            "-18": 0.0002,
+            "-15": 0.0008,
+            "-14": 0.0008,
+            "-13": 0.0004,
+            "-12": 0.0032,
+            "-11": 0.006,
+            "-10": 0.0092,
+            "-9": 0.0114,
+            "-8": 0.0134,
+            "-7": 0.0206,
+            "-6": 0.0286,
+            "-5": 0.0454,
+            "-4": 0.0556,
+            "-3": 0.0724,
+            "-2": 0.0786,
+            "-1": 0.0916,
+            "0": 0.0928,
+            "1": 0.0864,
+            "2": 0.0838,
+            "3": 0.0786,
+            "4": 0.062,
+            "5": 0.0428,
+            "6": 0.034,
+            "7": 0.0252,
+            "8": 0.017,
+            "9": 0.0128,
+            "10": 0.01,
+            "11": 0.0044,
+            "12": 0.0044,
+            "13": 0.0022,
+            "14": 0.0028,
+            "15": 0.0008,
+            "16": 0.0008,
+            "17": 0.0008,
+            "19": 0.0002
+        },
+        "total_probabilities": {
+            "over_6.5": 0.714,
+            "over_7.5": 0.624,
+            "over_8.5": 0.5412,
+            "over_9.5": 0.4446,
+            "over_10.5": 0.361,
+            "under_6.5": 0.286,
+            "under_7.5": 0.376,
+            "under_8.5": 0.4588,
+            "under_9.5": 0.5554,
+            "under_10.5": 0.639
+        },
+        "calibrated_total_probabilities": {
+            "over_6.5": 0.624,
+            "over_7.5": 0.5412,
+            "over_8.5": 0.4446,
+            "over_9.5": 0.361,
+            "over_10.5": 0.2864,
+            "under_6.5": 0.376,
+            "under_7.5": 0.4588,
+            "under_8.5": 0.5554,
+            "under_9.5": 0.639,
+            "under_10.5": 0.7136
+        },
+        "team_total_probabilities": {
+            "away_3_plus": 0.7012,
+            "away_4_plus": 0.5766,
+            "away_5_plus": 0.4456,
+            "home_3_plus": 0.7308,
+            "home_4_plus": 0.5974,
+            "home_5_plus": 0.474
+        },
+        "calibrated_team_total_probabilities": {
+            "away_3_plus": 0.7012,
+            "away_4_plus": 0.5766,
+            "away_5_plus": 0.4456,
+            "home_3_plus": 0.7308,
+            "home_4_plus": 0.5974,
+            "home_5_plus": 0.474
+        },
+        "metadata": {
+            "generated_from": "matchup_detail.bullpen_adjusted_game_simulation",
+            "seed": 42,
+            "simulation_count": 5000,
+            "starter_innings": 5,
+            "dynamic_starter_exit": true,
+            "away_starter_quality": "average",
+            "home_starter_quality": "average",
+            "away_starter_innings_distribution": {
+                "4": 0.121,
+                "5": 0.3898,
+                "6": 0.3426,
+                "7": 0.1282,
+                "8": 0.0184
+            },
+            "home_starter_innings_distribution": {
+                "4": 0.1164,
+                "5": 0.3886,
+                "6": 0.3452,
+                "7": 0.1318,
+                "8": 0.018
+            },
+            "bullpen_innings": 4,
+            "game_sim_calibration_version": "game_sim_calibration_v1",
+            "starter_only_run_shrinkage": 0.92,
+            "team_run_regression_anchor": 4.45,
+            "team_run_regression_weight": 0.12,
+            "calibration_applied_to": [
+                "expected_runs",
+                "total_probabilities",
+                "team_total_probabilities"
+            ],
+            "distribution_calibration_method": "integer_mean_shift_v1",
+            "notes": [
+                "V1 uses starter PA probabilities for early innings and bullpen PA probabilities for late innings.",
+                "Ties after regulation are split evenly for win probability.",
+                "No extras, walk-off shortening, individual reliever selection, or lineup-order state yet."
+            ],
+            "away_starter_pa_model_version": "lineup_pa_outcome_v1",
+            "home_starter_pa_model_version": "lineup_pa_outcome_v1",
+            "away_bullpen_pa_model_version": "bullpen_pa_outcome_v1",
+            "home_bullpen_pa_model_version": "bullpen_pa_outcome_v1"
+        }
+    },
+    "awayVsHomeBullpenPAOutcomeModel": {
+        "model_version": "bullpen_pa_outcome_v1",
+        "side": "away_offense_vs_home_bullpen",
+        "lineup_average_probabilities": {
+            "k": 0.2235,
+            "bb": 0.0835,
+            "hbp": 0.011,
+            "single": 0.1617,
+            "double": 0.0427,
+            "triple": 0.0039,
+            "hr": 0.0272,
+            "reached_on_error": 0.007,
+            "out": 0.4395
+        },
+        "lineup_average_summary": {
+            "hit_probability": 0.2355,
+            "on_base_probability": 0.337,
+            "extra_base_hit_probability": 0.0738,
+            "total_out_probability": 0.663,
+            "non_hit_on_base_probability": 0.1015,
+            "contact_out_probability": 0.4395
+        },
+        "metadata": {
+            "generated_from": "matchup_detail.bullpen_pa_outcome_model",
+            "batter_profile_granularity": "lineup_aggregate",
+            "pitcher_profile_granularity": "team_bullpen_profile",
+            "environment_profile_used": true
+        }
+    },
+    "homeVsAwayBullpenPAOutcomeModel": {
+        "model_version": "bullpen_pa_outcome_v1",
+        "side": "home_offense_vs_away_bullpen",
+        "lineup_average_probabilities": {
+            "k": 0.2173,
+            "bb": 0.1004,
+            "hbp": 0.011,
+            "single": 0.1621,
+            "double": 0.0425,
+            "triple": 0.0039,
+            "hr": 0.0269,
+            "reached_on_error": 0.007,
+            "out": 0.429
+        },
+        "lineup_average_summary": {
+            "hit_probability": 0.2354,
+            "on_base_probability": 0.3538,
+            "extra_base_hit_probability": 0.0733,
+            "total_out_probability": 0.6463,
+            "non_hit_on_base_probability": 0.1184,
+            "contact_out_probability": 0.429
+        },
+        "metadata": {
+            "generated_from": "matchup_detail.bullpen_pa_outcome_model",
+            "batter_profile_granularity": "lineup_aggregate",
+            "pitcher_profile_granularity": "team_bullpen_profile",
+            "environment_profile_used": true
+        }
+    },
+    "homeBullpenProfile": {
+        "bat_missing": {
+            "k_rate": 0.233,
+            "whiff_rate": 0.253,
+            "csw_rate": 0.284
+        },
+        "command_control": {
+            "bb_rate": 0.091,
+            "zone_rate": 0.484,
+            "first_pitch_strike_rate": 0.599
+        },
+        "contact_management": {
+            "hard_hit_rate_allowed": 0.392,
+            "barrel_rate_allowed": 0.075,
+            "avg_exit_velocity_allowed": 88.5,
+            "avg_launch_angle_allowed": 12.0,
+            "xwoba_allowed": 0.322,
+            "xba_allowed": 0.246
+        },
+        "platoon_profile": {
+            "vs_lhb_woba_allowed": 0.321,
+            "vs_rhb_woba_allowed": 0.321,
+            "vs_lhb_iso_allowed": 0.156,
+            "vs_rhb_iso_allowed": 0.156
+        },
+        "arsenal": {
+            "pitch_mix": "Bullpen prior mix",
+            "avg_velocity": 93.9,
+            "avg_spin_rate": 2348.0
+        },
+        "metadata": {
+            "source_type": "bullpen_prior_v1",
+            "team_id": 112,
+            "team_name": "Chicago Cubs",
+            "data_confidence": "low",
+            "generated_from": "build_bullpen_profile",
+            "profile_granularity": "team_bullpen",
+            "sample_window": "prior",
+            "sample_size": null,
+            "bullpen_profile_version": "bullpen_profile_v1",
+            "bullpen_quality_version": "team_bullpen_quality_v1",
+            "bullpen_quality_score": -0.01,
+            "bullpen_quality_label": "near_average_bullpen",
+            "team_quality_adjustment_applied": true,
+            "notes": [
+                "V1 uses conservative league-average bullpen priors.",
+                "Future versions should aggregate active relievers by team and role.",
+                "Use this profile as a stable contract before bullpen simulation integration."
+            ]
+        }
+    },
+    "awayBullpenProfile": {
+        "bat_missing": {
+            "k_rate": 0.231,
+            "whiff_rate": 0.251,
+            "csw_rate": 0.283
+        },
+        "command_control": {
+            "bb_rate": 0.092,
+            "zone_rate": 0.483,
+            "first_pitch_strike_rate": 0.598
+        },
+        "contact_management": {
+            "hard_hit_rate_allowed": 0.394,
+            "barrel_rate_allowed": 0.076,
+            "avg_exit_velocity_allowed": 88.5,
+            "avg_launch_angle_allowed": 12.0,
+            "xwoba_allowed": 0.323,
+            "xba_allowed": 0.247
+        },
+        "platoon_profile": {
+            "vs_lhb_woba_allowed": 0.323,
+            "vs_rhb_woba_allowed": 0.323,
+            "vs_lhb_iso_allowed": 0.157,
+            "vs_rhb_iso_allowed": 0.157
+        },
+        "arsenal": {
+            "pitch_mix": "Bullpen prior mix",
+            "avg_velocity": 93.9,
+            "avg_spin_rate": 2345.0
+        },
+        "metadata": {
+            "source_type": "bullpen_prior_v1",
+            "team_id": 109,
+            "team_name": "Arizona Diamondbacks",
+            "data_confidence": "low",
+            "generated_from": "build_bullpen_profile",
+            "profile_granularity": "team_bullpen",
+            "sample_window": "prior",
+            "sample_size": null,
+            "bullpen_profile_version": "bullpen_profile_v1",
+            "bullpen_quality_version": "team_bullpen_quality_v1",
+            "bullpen_quality_score": -0.02,
+            "bullpen_quality_label": "slightly_below_average_bullpen",
+            "team_quality_adjustment_applied": true,
+            "notes": [
+                "V1 uses conservative league-average bullpen priors.",
+                "Future versions should aggregate active relievers by team and role.",
+                "Use this profile as a stable contract before bullpen simulation integration."
+            ]
+        }
+    },
+    "homeTeamOffensePrior": {
+        "contact_skill": {
+            "k_rate": 0.225,
+            "whiff_rate": 0.235,
+            "contact_rate": 0.765
+        },
+        "plate_discipline": {
+            "bb_rate": 0.085,
+            "chase_rate": 0.3,
+            "swing_rate": 0.47
+        },
+        "power": {
+            "iso": 0.165,
+            "barrel_rate": 0.075,
+            "hard_hit_rate": 0.395
+        },
+        "batted_ball_quality": {
+            "avg_exit_velocity": 88.5,
+            "avg_launch_angle": 12.5
+        },
+        "platoon_profile": {
+            "vs_lhp_woba": 0.315,
+            "vs_rhp_woba": 0.315,
+            "vs_lhp_iso": 0.16,
+            "vs_rhp_iso": 0.16
+        },
+        "metadata": {
+            "source_type": "team_offense_prior_v1",
+            "team_id": 112,
+            "team_name": "Chicago Cubs",
+            "data_confidence": "low",
+            "generated_from": "build_team_offense_prior",
+            "profile_granularity": "team_offense_prior",
+            "sample_window": "prior",
+            "sample_size": null,
+            "team_offense_prior_version": "team_offense_prior_v1",
+            "team_offense_quality_version": "team_offense_quality_v1",
+            "team_offense_quality_score": 0.0,
+            "team_offense_quality_label": "league_average_offense",
+            "team_quality_adjustment_applied": false,
+            "notes": [
+                "V1 uses conservative team offense priors when lineup data is unavailable.",
+                "Future versions should aggregate projected/active hitters and recent team offense data.",
+                "Use this profile only as a low-confidence fallback for pre-lineup games."
+            ]
+        }
+    },
+    "awayTeamOffensePrior": {
+        "contact_skill": {
+            "k_rate": 0.225,
+            "whiff_rate": 0.235,
+            "contact_rate": 0.765
+        },
+        "plate_discipline": {
+            "bb_rate": 0.085,
+            "chase_rate": 0.3,
+            "swing_rate": 0.47
+        },
+        "power": {
+            "iso": 0.165,
+            "barrel_rate": 0.075,
+            "hard_hit_rate": 0.395
+        },
+        "batted_ball_quality": {
+            "avg_exit_velocity": 88.5,
+            "avg_launch_angle": 12.5
+        },
+        "platoon_profile": {
+            "vs_lhp_woba": 0.315,
+            "vs_rhp_woba": 0.315,
+            "vs_lhp_iso": 0.16,
+            "vs_rhp_iso": 0.16
+        },
+        "metadata": {
+            "source_type": "team_offense_prior_v1",
+            "team_id": 109,
+            "team_name": "Arizona Diamondbacks",
+            "data_confidence": "low",
+            "generated_from": "build_team_offense_prior",
+            "profile_granularity": "team_offense_prior",
+            "sample_window": "prior",
+            "sample_size": null,
+            "team_offense_prior_version": "team_offense_prior_v1",
+            "team_offense_quality_version": "team_offense_quality_v1",
+            "team_offense_quality_score": 0.0,
+            "team_offense_quality_label": "league_average_offense",
+            "team_quality_adjustment_applied": false,
+            "notes": [
+                "V1 uses conservative team offense priors when lineup data is unavailable.",
+                "Future versions should aggregate projected/active hitters and recent team offense data.",
+                "Use this profile only as a low-confidence fallback for pre-lineup games."
+            ]
+        }
+    },
+    "home_team": {
+        "id": 112,
+        "name": "Chicago Cubs",
+        "record": "19-12",
+        "pitcher_id": 607067,
+        "pitcher_name": "Colin Rea",
+        "aggregate": {
+            "data_source": null,
+            "avg_velocity": null,
+            "avg_spin_rate": null,
+            "hard_hit_pct": null,
+            "k_pct": null,
+            "bb_pct": null,
+            "xwoba": null,
+            "xba": null,
+            "avg_horiz_break": null,
+            "avg_vert_break": null
+        },
+        "arsenal": [
+            {
+                "pitch_type": "FF",
+                "pitch_name": "4-Seam Fastball",
+                "usage_pct": 0.394,
+                "whiff_pct": 0.121,
+                "strikeout_pct": 0.115,
+                "rv_per_100": 0.5,
+                "xwoba": 0.362,
+                "hard_hit_pct": 0.5
+            },
+            {
+                "pitch_type": "FS",
+                "pitch_name": "Split-Finger",
+                "usage_pct": 0.183,
+                "whiff_pct": 0.324,
+                "strikeout_pct": 0.25,
+                "rv_per_100": 2.8,
+                "xwoba": 0.259,
+                "hard_hit_pct": 0.333
+            },
+            {
+                "pitch_type": "SL",
+                "pitch_name": "Slider",
+                "usage_pct": 0.127,
+                "whiff_pct": 0.423,
+                "strikeout_pct": 0.526,
+                "rv_per_100": 2.3,
+                "xwoba": 0.246,
+                "hard_hit_pct": 0.75
+            },
+            {
+                "pitch_type": "SI",
+                "pitch_name": "Sinker",
+                "usage_pct": 0.085,
+                "whiff_pct": 0.133,
+                "strikeout_pct": null,
+                "rv_per_100": 1.1,
+                "xwoba": 0.408,
+                "hard_hit_pct": 0.429
+            },
+            {
+                "pitch_type": "FC",
+                "pitch_name": "Cutter",
+                "usage_pct": 0.08,
+                "whiff_pct": 0.294,
+                "strikeout_pct": null,
+                "rv_per_100": -1.7,
+                "xwoba": 0.462,
+                "hard_hit_pct": 0.4
+            },
+            {
+                "pitch_type": "ST",
+                "pitch_name": "Sweeper",
+                "usage_pct": 0.069,
+                "whiff_pct": 0.231,
+                "strikeout_pct": 0.375,
+                "rv_per_100": 3.6,
+                "xwoba": 0.112,
+                "hard_hit_pct": 0.2
+            },
+            {
+                "pitch_type": "CU",
+                "pitch_name": "Curveball",
+                "usage_pct": 0.062,
+                "whiff_pct": 0.167,
+                "strikeout_pct": null,
+                "rv_per_100": -9.6,
+                "xwoba": 0.619,
+                "hard_hit_pct": 0.5
+            }
+        ],
+        "arsenal_season": 2026,
+        "game_log": [],
+        "splits": {
+            "vsL": {
+                "pa": 432,
+                "batting_avg": 0.285,
+                "on_base_pct": 0.38,
+                "slugging_pct": 0.466,
+                "home_runs": 15,
+                "k_pct": 0.215,
+                "bb_pct": 0.12
+            },
+            "vsR": {
+                "pa": 808,
+                "batting_avg": 0.248,
+                "on_base_pct": 0.339,
+                "slugging_pct": 0.407,
+                "home_runs": 27,
+                "k_pct": 0.203,
+                "bb_pct": 0.11
+            }
+        },
+        "lineup": [
+            {
+                "id": 663538,
+                "name": "Nico Hoerner",
+                "position": "2B"
+            },
+            {
+                "id": 694208,
+                "name": "Mois\u00e9s Ballesteros",
+                "position": "DH"
+            },
+            {
+                "id": 608324,
+                "name": "Alex Bregman",
+                "position": "3B"
+            },
+            {
+                "id": 664023,
+                "name": "Ian Happ",
+                "position": "LF"
+            },
+            {
+                "id": 673548,
+                "name": "Seiya Suzuki",
+                "position": "RF"
+            },
+            {
+                "id": 683737,
+                "name": "Michael Busch",
+                "position": "1B"
+            },
+            {
+                "id": 608348,
+                "name": "Carson Kelly",
+                "position": "C"
+            },
+            {
+                "id": 691718,
+                "name": "Pete Crow-Armstrong",
+                "position": "CF"
+            },
+            {
+                "id": 621020,
+                "name": "Dansby Swanson",
+                "position": "SS"
+            }
+        ]
+    },
+    "away_team": {
+        "id": 109,
+        "name": "Arizona Diamondbacks",
+        "record": "16-14",
+        "pitcher_id": 668678,
+        "pitcher_name": "Zac Gallen",
+        "aggregate": {
+            "data_source": null,
+            "avg_velocity": null,
+            "avg_spin_rate": null,
+            "hard_hit_pct": null,
+            "k_pct": null,
+            "bb_pct": null,
+            "xwoba": null,
+            "xba": null,
+            "avg_horiz_break": null,
+            "avg_vert_break": null
+        },
+        "arsenal": [
+            {
+                "pitch_type": "FF",
+                "pitch_name": "4-Seam Fastball",
+                "usage_pct": 0.383,
+                "whiff_pct": 0.05,
+                "strikeout_pct": 0.109,
+                "rv_per_100": 2.3,
+                "xwoba": 0.362,
+                "hard_hit_pct": 0.487
+            },
+            {
+                "pitch_type": "SL",
+                "pitch_name": "Slider",
+                "usage_pct": 0.248,
+                "whiff_pct": 0.339,
+                "strikeout_pct": 0.207,
+                "rv_per_100": 0.8,
+                "xwoba": 0.283,
+                "hard_hit_pct": 0.381
+            },
+            {
+                "pitch_type": "CU",
+                "pitch_name": "Curveball",
+                "usage_pct": 0.194,
+                "whiff_pct": 0.205,
+                "strikeout_pct": 0.167,
+                "rv_per_100": -4.4,
+                "xwoba": 0.455,
+                "hard_hit_pct": 0.556
+            },
+            {
+                "pitch_type": "CH",
+                "pitch_name": "Changeup",
+                "usage_pct": 0.129,
+                "whiff_pct": 0.192,
+                "strikeout_pct": 0.143,
+                "rv_per_100": 2.5,
+                "xwoba": 0.257,
+                "hard_hit_pct": 0.417
+            },
+            {
+                "pitch_type": "SI",
+                "pitch_name": "Sinker",
+                "usage_pct": 0.046,
+                "whiff_pct": null,
+                "strikeout_pct": null,
+                "rv_per_100": -5.1,
+                "xwoba": 0.328,
+                "hard_hit_pct": 0.333
+            }
+        ],
+        "arsenal_season": 2026,
+        "game_log": [],
+        "splits": {
+            "vsL": {
+                "pa": 328,
+                "batting_avg": 0.292,
+                "on_base_pct": 0.346,
+                "slugging_pct": 0.454,
+                "home_runs": 7,
+                "k_pct": 0.186,
+                "bb_pct": 0.073
+            },
+            "vsR": {
+                "pa": 773,
+                "batting_avg": 0.233,
+                "on_base_pct": 0.292,
+                "slugging_pct": 0.403,
+                "home_runs": 24,
+                "k_pct": 0.232,
+                "bb_pct": 0.074
+            }
+        },
+        "lineup": [
+            {
+                "id": 672695,
+                "name": "Geraldo Perdomo",
+                "position": "SS"
+            },
+            {
+                "id": 545121,
+                "name": "Ildemaro Vargas",
+                "position": "2B"
+            },
+            {
+                "id": 682998,
+                "name": "Corbin Carroll",
+                "position": "RF"
+            },
+            {
+                "id": 680728,
+                "name": "Adrian Del Castillo",
+                "position": "DH"
+            },
+            {
+                "id": 672515,
+                "name": "Gabriel Moreno",
+                "position": "C"
+            },
+            {
+                "id": 699912,
+                "name": "Jose Fernandez",
+                "position": "1B"
+            },
+            {
+                "id": 571448,
+                "name": "Nolan Arenado",
+                "position": "3B"
+            },
+            {
+                "id": 677950,
+                "name": "Alek Thomas",
+                "position": "CF"
+            },
+            {
+                "id": 678489,
+                "name": "Jorge Barrosa",
+                "position": "LF"
+            }
+        ]
+    }
+}

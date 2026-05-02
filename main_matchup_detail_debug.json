@@ -1,0 +1,364 @@
+{
+    "game_pk": 824686,
+    "game_date": "2026-05-01T18:20:00Z",
+    "venue": "Wrigley Field",
+    "status": "In Progress",
+    "weather": {
+        "condition": "Partly Cloudy",
+        "temp_f": "44",
+        "wind": "13 mph, In From CF"
+    },
+    "park_factor": 0.99,
+    "home_win_prob": 1.0,
+    "away_win_prob": 0.0,
+    "home_team": {
+        "id": 112,
+        "name": "Chicago Cubs",
+        "record": "19-12",
+        "pitcher_id": 607067,
+        "pitcher_name": "Colin Rea",
+        "aggregate": {
+            "data_source": "Last 90 Days",
+            "avg_velocity": 89.49263959390865,
+            "avg_spin_rate": 2055.6993630573247,
+            "hard_hit_pct": 0.28517110266159695,
+            "k_pct": 0.21182266009852216,
+            "bb_pct": 0.07389162561576355,
+            "xwoba": 0.3262171465517241,
+            "xba": 0.33019753086419756,
+            "avg_horiz_break": -0.30993654822335026,
+            "avg_vert_break": 0.5315228426395939
+        },
+        "arsenal": [
+            {
+                "pitch_type": "FF",
+                "pitch_name": "4-Seam Fastball",
+                "pitch_count": 177,
+                "usage_pct": 0.394,
+                "whiff_pct": 0.121,
+                "strikeout_pct": 0.115,
+                "rv_per_100": 0.5,
+                "xwoba": 0.362,
+                "hard_hit_pct": 0.5
+            }
+        ],
+        "arsenal_season": 2026,
+        "game_log": [
+            {
+                "game_date": "2026-04-25",
+                "pitch_count": 157,
+                "plate_appearances": 20,
+                "strikeouts": 4,
+                "walks": 4,
+                "home_runs": 1,
+                "hard_hit_pct": 0.833,
+                "avg_velocity": 89.2
+            },
+            {
+                "game_date": "2026-04-20",
+                "pitch_count": 248,
+                "plate_appearances": 56,
+                "strikeouts": 10,
+                "walks": 4,
+                "home_runs": 0,
+                "hard_hit_pct": 0.429,
+                "avg_velocity": 88.2
+            },
+            {
+                "game_date": "2026-04-14",
+                "pitch_count": 234,
+                "plate_appearances": 44,
+                "strikeouts": 10,
+                "walks": 0,
+                "home_runs": 2,
+                "hard_hit_pct": 0.529,
+                "avg_velocity": 90.9
+            },
+            {
+                "game_date": "2026-04-08",
+                "pitch_count": 217,
+                "plate_appearances": 40,
+                "strikeouts": 4,
+                "walks": 4,
+                "home_runs": 0,
+                "hard_hit_pct": 0.067,
+                "avg_velocity": 89.3
+            },
+            {
+                "game_date": "2026-04-03",
+                "pitch_count": 149,
+                "plate_appearances": 28,
+                "strikeouts": 8,
+                "walks": 2,
+                "home_runs": 0,
+                "hard_hit_pct": 0.444,
+                "avg_velocity": 89.3
+            }
+        ],
+        "splits": {
+            "vsL": {
+                "pa": 432,
+                "batting_avg": 0.285,
+                "on_base_pct": 0.38,
+                "slugging_pct": 0.466,
+                "k_pct": 0.215,
+                "bb_pct": 0.12,
+                "home_runs": 15
+            },
+            "vsR": {
+                "pa": 808,
+                "batting_avg": 0.248,
+                "on_base_pct": 0.339,
+                "slugging_pct": 0.407,
+                "k_pct": 0.203,
+                "bb_pct": 0.11,
+                "home_runs": 27
+            }
+        },
+        "lineup_source": "official",
+        "lineup": [
+            {
+                "id": 663538,
+                "name": "Nico Hoerner",
+                "position": "2B"
+            },
+            {
+                "id": 694208,
+                "name": "Mois\u00e9s Ballesteros",
+                "position": "DH"
+            },
+            {
+                "id": 608324,
+                "name": "Alex Bregman",
+                "position": "3B"
+            },
+            {
+                "id": 664023,
+                "name": "Ian Happ",
+                "position": "LF"
+            },
+            {
+                "id": 673548,
+                "name": "Seiya Suzuki",
+                "position": "RF"
+            },
+            {
+                "id": 683737,
+                "name": "Michael Busch",
+                "position": "1B"
+            },
+            {
+                "id": 608348,
+                "name": "Carson Kelly",
+                "position": "C"
+            },
+            {
+                "id": 691718,
+                "name": "Pete Crow-Armstrong",
+                "position": "CF"
+            },
+            {
+                "id": 621020,
+                "name": "Dansby Swanson",
+                "position": "SS"
+            }
+        ]
+    },
+    "away_team": {
+        "id": 109,
+        "name": "Arizona Diamondbacks",
+        "record": "16-14",
+        "pitcher_id": 668678,
+        "pitcher_name": "Zac Gallen",
+        "aggregate": {
+            "data_source": "Last 90 Days",
+            "avg_velocity": 89.45248120300751,
+            "avg_spin_rate": 2232.3774436090225,
+            "hard_hit_pct": 0.2821576763485477,
+            "k_pct": 0.13609467455621302,
+            "bb_pct": 0.05325443786982249,
+            "xwoba": 0.34816802521008405,
+            "xba": 0.34932978723404257,
+            "avg_horiz_break": -0.2428721804511278,
+            "avg_vert_break": 0.6098345864661654
+        },
+        "arsenal": [
+            {
+                "pitch_type": "FF",
+                "pitch_name": "FF",
+                "pitch_count": 210,
+                "usage_pct": 0.3977,
+                "whiff_pct": 0.0562,
+                "strikeout_pct": 0.1,
+                "rv_per_100": null,
+                "xwoba": 0.3907591515151515,
+                "hard_hit_pct": 0.3289
+            },
+            {
+                "pitch_type": "SL",
+                "pitch_name": "SL",
+                "pitch_count": 115,
+                "usage_pct": 0.2178,
+                "whiff_pct": 0.3594,
+                "strikeout_pct": 0.1538,
+                "rv_per_100": null,
+                "xwoba": 0.3106026,
+                "hard_hit_pct": 0.1944
+            },
+            {
+                "pitch_type": "KC",
+                "pitch_name": "KC",
+                "pitch_count": 96,
+                "usage_pct": 0.1818,
+                "whiff_pct": 0.1538,
+                "strikeout_pct": 0.1364,
+                "rv_per_100": null,
+                "xwoba": 0.6075368,
+                "hard_hit_pct": 0.2812
+            },
+            {
+                "pitch_type": "CH",
+                "pitch_name": "CH",
+                "pitch_count": 75,
+                "usage_pct": 0.142,
+                "whiff_pct": 0.1905,
+                "strikeout_pct": 0.1154,
+                "rv_per_100": null,
+                "xwoba": 0.2554166666666667,
+                "hard_hit_pct": 0.4138
+            },
+            {
+                "pitch_type": "SI",
+                "pitch_name": "SI",
+                "pitch_count": 32,
+                "usage_pct": 0.0606,
+                "whiff_pct": 0.1667,
+                "strikeout_pct": 0.2,
+                "rv_per_100": null,
+                "xwoba": 0.3063052,
+                "hard_hit_pct": 0.2667
+            }
+        ],
+        "arsenal_season": 2026,
+        "game_log": [
+            {
+                "game_date": "2026-04-25",
+                "pitch_count": 69,
+                "plate_appearances": 10,
+                "strikeouts": 3,
+                "walks": 0,
+                "home_runs": 0,
+                "hard_hit_pct": 0.286,
+                "avg_velocity": 89.8
+            },
+            {
+                "game_date": "2026-04-18",
+                "pitch_count": 218,
+                "plate_appearances": 50,
+                "strikeouts": 6,
+                "walks": 0,
+                "home_runs": 0,
+                "hard_hit_pct": 0.364,
+                "avg_velocity": 87.8
+            },
+            {
+                "game_date": "2026-04-12",
+                "pitch_count": 230,
+                "plate_appearances": 44,
+                "strikeouts": 4,
+                "walks": 2,
+                "home_runs": 2,
+                "hard_hit_pct": 0.789,
+                "avg_velocity": 90.0
+            },
+            {
+                "game_date": "2026-04-07",
+                "pitch_count": 233,
+                "plate_appearances": 46,
+                "strikeouts": 10,
+                "walks": 8,
+                "home_runs": 0,
+                "hard_hit_pct": 0.214,
+                "avg_velocity": 89.4
+            },
+            {
+                "game_date": "2026-04-01",
+                "pitch_count": 224,
+                "plate_appearances": 42,
+                "strikeouts": 4,
+                "walks": 0,
+                "home_runs": 0,
+                "hard_hit_pct": 0.421,
+                "avg_velocity": 88.6
+            }
+        ],
+        "splits": {
+            "vsL": {
+                "pa": 328,
+                "batting_avg": 0.292,
+                "on_base_pct": 0.346,
+                "slugging_pct": 0.454,
+                "k_pct": 0.186,
+                "bb_pct": 0.073,
+                "home_runs": 7
+            },
+            "vsR": {
+                "pa": 773,
+                "batting_avg": 0.233,
+                "on_base_pct": 0.292,
+                "slugging_pct": 0.403,
+                "k_pct": 0.232,
+                "bb_pct": 0.074,
+                "home_runs": 24
+            }
+        },
+        "lineup_source": "official",
+        "lineup": [
+            {
+                "id": 672695,
+                "name": "Geraldo Perdomo",
+                "position": "SS"
+            },
+            {
+                "id": 545121,
+                "name": "Ildemaro Vargas",
+                "position": "2B"
+            },
+            {
+                "id": 682998,
+                "name": "Corbin Carroll",
+                "position": "RF"
+            },
+            {
+                "id": 680728,
+                "name": "Adrian Del Castillo",
+                "position": "DH"
+            },
+            {
+                "id": 672515,
+                "name": "Gabriel Moreno",
+                "position": "C"
+            },
+            {
+                "id": 699912,
+                "name": "Jose Fernandez",
+                "position": "1B"
+            },
+            {
+                "id": 571448,
+                "name": "Nolan Arenado",
+                "position": "3B"
+            },
+            {
+                "id": 677950,
+                "name": "Alek Thomas",
+                "position": "CF"
+            },
+            {
+                "id": 678489,
+                "name": "Jorge Barrosa",
+                "position": "LF"
+            }
+        ]
+    }
+}
