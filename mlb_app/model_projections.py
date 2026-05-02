@@ -540,7 +540,11 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
     errors: List[Dict[str, Any]] = []
     for matchup in matchups:
         try:
-            away = _side_context(matchup, "away", session, date_obj.year)
+            away = _side_context(matchup, "away"
+            # Inject lineup offense for PA model alignment
+            matchup["awayProjectedLineupOffenseProfile"] = away.get("offense_inputs")
+            matchup["homeProjectedLineupOffenseProfile"] = home.get("offense_inputs")
+, session, date_obj.year)
             home = _side_context(matchup, "home", session, date_obj.year)
 
             simulation_cards = _build_projection_simulation_cards(matchup, away, home)
