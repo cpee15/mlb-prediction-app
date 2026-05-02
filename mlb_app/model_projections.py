@@ -451,6 +451,30 @@ def _build_projection_simulation_cards(
         "awayMatchupAnalysis": _matchup_workspace_analysis(away, home),
         "homeMatchupAnalysis": _matchup_workspace_analysis(home, away),
         "bullpenAdjustedGameSimulation": sim,
+        # -----------------------------
+        # Simulation Contract (DEBUG)
+        # -----------------------------
+        "simulationContract": {
+            "source_builder": "model_projections._build_projection_simulation_cards",
+            "game_pk": matchup.get("game_pk"),
+            "simulation_model_version": sim.get("model_version"),
+            "simulation_count": sim.get("simulations") or (sim.get("metadata") or {}).get("simulation_count"),
+            "seed": (sim.get("metadata") or {}).get("seed"),
+            "dynamic_starter_exit": (sim.get("metadata") or {}).get("dynamic_starter_exit"),
+            "away_starter_pa_model_version": (away_vs_home_starter_pa or {}).get("model_version"),
+            "home_starter_pa_model_version": (home_vs_away_starter_pa or {}).get("model_version"),
+            "away_bullpen_pa_model_version": (away_vs_home_bullpen_pa or {}).get("model_version"),
+            "home_bullpen_pa_model_version": (home_vs_away_bullpen_pa or {}).get("model_version"),
+        },
+
+        # -----------------------------
+        # PA Model Snapshots
+        # -----------------------------
+        "awayStarterPAOutcomeModel": away_vs_home_starter_pa,
+        "homeStarterPAOutcomeModel": home_vs_away_starter_pa,
+        "awayBullpenPAOutcomeModel": away_vs_home_bullpen_pa,
+        "homeBullpenPAOutcomeModel": home_vs_away_bullpen_pa,
+
         "metadata": {
             "workspace_version": "model_projection_workspace_v1",
             "generated_from": "model_projections._build_projection_simulation_cards",
