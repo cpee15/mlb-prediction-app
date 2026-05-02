@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from .database import create_tables, get_engine, get_session
 from .model_projections import build_model_projection_payload
+from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 
 router = APIRouter()
 

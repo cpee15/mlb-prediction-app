@@ -98,6 +98,7 @@ from .matchup_workspace_builder import (
     build_game_simulation,
     build_bullpen_adjusted_game_simulation,
 )
+from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 from .daily_odds_routes import router as daily_odds_router
 from .model_projection_routes import router as model_projection_router
 
@@ -1832,6 +1833,28 @@ def create_app():
                 home_bp=home_vs_away_bullpen_pa_outcome_model,
             )
 
+            try:
+                shared_game_simulation = build_shared_game_simulation(
+                    game_pk=game_pk,
+                    config={
+                        "simulation_count": 5000,
+                        "seed": 42,
+                        "starter_exit_enabled": True,
+                        "source_route": "/matchup/{game_pk}",
+                    },
+                )
+            except Exception as shared_sim_exc:
+                shared_game_simulation = {
+                    "status": "error",
+                    "error": str(shared_sim_exc),
+                    "meta": {
+                        "game_pk": game_pk,
+                        "model_version": "shared-simulation-v1",
+                        "source_builder": "mlb_app.simulation.game_simulation_builder",
+                        "source_route": "/matchup/{game_pk}",
+                    },
+                }
+
             return {
                 "game_pk": game_pk,
                 "game_date": game_date_iso,
@@ -1854,6 +1877,7 @@ def create_app():
                 "awayHalfInningSimulation": away_half_inning_simulation,
                 "gameSimulation": game_simulation,
                 "bullpenAdjustedGameSimulation": bullpen_adjusted_game_simulation,
+                "sharedGameSimulation": shared_game_simulation,
                 "awayVsHomeBullpenPAOutcomeModel": away_vs_home_bullpen_pa_outcome_model,
                 "homeVsAwayBullpenPAOutcomeModel": home_vs_away_bullpen_pa_outcome_model,
                 "homeBullpenProfile": home_bullpen_profile,
