@@ -121,18 +121,18 @@ def _probability_model_card(
     }
 
 
-def _team_offense_prior_pa_model(
+def build_pa_outcome_probabilities(
     team_id: Optional[int],
     team_name: Optional[str],
     opposing_pitcher_profile: Optional[Dict[str, Any]],
     environment_profile: Dict[str, Any],
-) -> Dict[str, Any]:
+, model_version="lineup_pa_outcome_v1") -> Dict[str, Any]:
     offense_profile = build_team_offense_prior(team_id=team_id, team_name=team_name)
     return build_pa_outcome_probabilities(
         batter_profile=offense_profile,
         pitcher_profile=opposing_pitcher_profile or {},
         environment_profile=environment_profile,
-    )
+    , model_version="lineup_pa_outcome_v1")
 
 
 def _weather_context(value: Any) -> Dict[str, Any]:
@@ -311,30 +311,30 @@ def _build_projection_simulation_cards(
     away_bullpen_profile = build_bullpen_profile(team_id=away_team_id, team_name=away_team_name)
     home_bullpen_profile = build_bullpen_profile(team_id=home_team_id, team_name=home_team_name)
 
-    away_vs_home_starter_pa = _team_offense_prior_pa_model(
+    away_vs_home_starter_pa = build_pa_outcome_probabilities(
         team_id=away_team_id,
         team_name=away_team_name,
         opposing_pitcher_profile=home_pitcher_profile,
         environment_profile=environment_profile,
-    )
-    home_vs_away_starter_pa = _team_offense_prior_pa_model(
+    , model_version="lineup_pa_outcome_v1")
+    home_vs_away_starter_pa = build_pa_outcome_probabilities(
         team_id=home_team_id,
         team_name=home_team_name,
         opposing_pitcher_profile=away_pitcher_profile,
         environment_profile=environment_profile,
-    )
-    away_vs_home_bullpen_pa = _team_offense_prior_pa_model(
+    , model_version="lineup_pa_outcome_v1")
+    away_vs_home_bullpen_pa = build_pa_outcome_probabilities(
         team_id=away_team_id,
         team_name=away_team_name,
         opposing_pitcher_profile=home_bullpen_profile,
         environment_profile=environment_profile,
-    )
-    home_vs_away_bullpen_pa = _team_offense_prior_pa_model(
+    , model_version="lineup_pa_outcome_v1")
+    home_vs_away_bullpen_pa = build_pa_outcome_probabilities(
         team_id=home_team_id,
         team_name=home_team_name,
         opposing_pitcher_profile=away_bullpen_profile,
         environment_profile=environment_profile,
-    )
+    , model_version="lineup_pa_outcome_v1")
 
     sim = simulate_game_with_bullpen(
         away_starter_probabilities=away_vs_home_starter_pa.get("probabilities") or {},
