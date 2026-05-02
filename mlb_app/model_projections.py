@@ -515,8 +515,10 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
             home = _side_context(matchup, "home", session, date_obj.year)
 
             simulation_cards = _build_projection_simulation_cards(matchup, away, home)
+
             away["models"].extend(simulation_cards.get("away", []))
             home["models"].extend(simulation_cards.get("home", []))
+
             workspace = simulation_cards.get("workspace") or {}
 
             games.append({
