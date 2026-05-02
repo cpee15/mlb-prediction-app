@@ -166,25 +166,36 @@ function formatStatValue(key, value, format = 'auto') {
 
   if (format === 'pct') return pct(value)
   if (format === 'num') return num(value)
-  if (format === 'decimal') return Number(value).toFixed(3)
+  if (format === 'decimal') {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return label(value)
+    return n.toFixed(3)
+  }
   if (format === 'text') return label(value)
 
-  const keyText = String(key || '').toLowerCase()
+  const keyText = String(key || '').toLowerCase().replace(/_/g, ' ')
 
-  const pctKeys = [
-    'rate', 'pct', 'probability', 'usage', 'whiff', 'csw',
-    'zone', 'strike', 'over ', 'under ', '3+ runs', '4+ runs', '5+ runs'
+  const forceNumberKeys = [
+    'spin', 'velocity', 'release', 'movement', 'extension',
+    'pa', 'plate appearances', 'hits', 'walks', 'strikeouts',
+    'home runs', 'doubles', 'triples', 'pitch count', 'count used',
+    'avg spin rate', 'avg velocity'
   ]
+
   const decimalKeys = [
-    'xwoba', 'xba', 'iso', 'slugging', 'on base', 'avg',
+    'xwoba', 'xba', 'iso', 'slugging', 'on base', 'obp',
+    'batting avg', 'batting average', 'avg allowed',
     'index', 'score', 'confidence'
   ]
-  const countKeys = [
-    'home runs', 'doubles', 'triples', 'hits', 'walks', 'strikeouts',
-    'pa', 'pitch count', 'runs'
+
+  const pctKeys = [
+    'k rate', 'bb rate', 'k pct', 'bb pct', 'rate allowed',
+    'hard hit', 'barrel', 'probability', 'usage pct',
+    'usage', 'whiff', 'csw', 'zone', 'strike',
+    'over ', 'under ', '3+ runs', '4+ runs', '5+ runs'
   ]
 
-  if (pctKeys.some(token => keyText.includes(token))) return pct(value)
+  if (forceNumberKeys.some(token => keyText.includes(token))) return num(value)
 
   if (decimalKeys.some(token => keyText.includes(token))) {
     const n = Number(value)
@@ -192,7 +203,7 @@ function formatStatValue(key, value, format = 'auto') {
     return n.toFixed(3)
   }
 
-  if (countKeys.some(token => keyText.includes(token))) return num(value)
+  if (pctKeys.some(token => keyText.includes(token))) return pct(value)
 
   if (typeof value === 'number') return num(value)
   return label(value)
@@ -402,7 +413,12 @@ function PitcherProfilePanel({ labelText, profile }) {
       <div style={s.grid}>
         <DataSection title="Bat Missing" data={profile?.bat_missing} />
         <DataSection title="Command / Control" data={profile?.command_control} />
-        <DataSection title="Contact Management" data={profile?.contact_management} />
+        <DataSection
+          title="Contact Management"
+          data={Object.fromEntries(
+            Object.entries(profile?.contact_management || {}).filter(([key]) => key !== 'xba_allowed')
+          )}
+        />
         <GenericPanel title="Arsenal">
           <StatRow k="Avg Velocity" v={arsenal.avg_velocity} format="num" />
           <StatRow k="Avg Spin Rate" v={arsenal.avg_spin_rate} format="num" />
@@ -443,7 +459,7 @@ function OffenseProfilePanel({ labelText, profile }) {
         <DataSection title="Contact Skill" data={profile?.contact_skill} />
         <DataSection title="Plate Discipline" data={profile?.plate_discipline} />
         <DataSection title="Power" data={profile?.power} />
-        <DataSection title="Run Creation" data={profile?.run_creation} />
+        {/* Run Creation is intentionally hidden in the core Batter tab until count formatting and model usage are finalized. */}
       </div>
     </div>
   )
@@ -545,7 +561,7 @@ function BullpenProfilePanel({ labelText, profile }) {
         <DataSection title="Command / Control" data={profile?.command_control} />
         <DataSection title="Contact Management" data={profile?.contact_management} />
         <DataSection title="Platoon Profile" data={profile?.platoon_profile} />
-        <DataSection title="Arsenal" data={profile?.arsenal} />
+        {/* Bullpen arsenal is hidden in the core tab until active reliever pitch-mix data is available. */}
       </div>
     </div>
   )
