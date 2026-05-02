@@ -548,13 +548,61 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
             away = _side_context(matchup, "away", session, date_obj.year)
             home = _side_context(matchup, "home", session, date_obj.year)
 
-            simulation_cards = _build_projection_simulation_cards(matchup, away, home)
+            # -----------------------------
+            # Unified Simulation (Matchup Engine)
+            # -----------------------------
+            from .matchup_detail import build_matchup_detail
 
-            away["models"].extend(simulation_cards.get("away", []))
-            home["models"].extend(simulation_cards.get("home", []))
+            full_matchup = build_matchup_detail(matchup.get("game_pk"))
 
-            workspace = simulation_cards.get("workspace") or {}
+            sim = (
+                full_matchup.get("bullpenAdjustedGameSimulation")
+                or full_matchup.get("gameSimulation")
+                or {}
+            )
 
+            away_expected = sim.get("away_expected_runs")
+            home_expected = sim.get("home_expected_runs")
+            total_expected = sim.get("total_expected_runs")
+
+            away_win = sim.get("away_win_probability")
+            home_win = sim.get("home_win_probability")
+
+            away["models"].append({
+                "model_name": "Simulation: Away Team Run/Win Projection",
+                "score": away_expected,
+                "status": "calculated",
+                "data_confidence": "high",
+                "inputs": sim,
+            })
+
+            home["models"].append({
+                "model_name": "Simulation: Home Team Run/Win Projection",
+                "score": home_expected,
+                "status": "calculated",
+                "data_confidence": "high",
+                "inputs": sim,
+            })
+
+            away["models"].append({
+                "model_name": "Simulation: Game Total Projection",
+                "score": total_expected,
+                "status": "calculated",
+                "data_confidence": "high",
+                "inputs": sim,
+            })
+
+            workspace = {
+                "simulationContract": {
+                    "source_builder": "matchup_detail",
+                    "game_pk": matchup.get("game_pk"),
+                    "simulation_model_version": sim.get("model_version"),
+                    "engine": "unified_matchup_engine"
+                }
+            }
+
+
+            
             games.append({
                 "game_pk": matchup.get("game_pk"),
                 "game_date": matchup.get("game_date") or target_date,
