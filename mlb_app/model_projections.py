@@ -461,6 +461,11 @@ def _build_projection_simulation_cards(
         # -----------------------------
         "simulationContract": {
             "source_builder": "model_projections._build_projection_simulation_cards",
+            "away_offense_source": ((away.get("offense_inputs") or {}).get("source")),
+            "home_offense_source": ((home.get("offense_inputs") or {}).get("source")),
+            "away_lineup_available": bool(matchup.get("away_lineup") or matchup.get("awayLineup") or matchup.get("away_projected_lineup")),
+            "home_lineup_available": bool(matchup.get("home_lineup") or matchup.get("homeLineup") or matchup.get("home_projected_lineup")),
+            "away_matchup_keys": sorted([k for k in matchup.keys() if "lineup" in str(k).lower() or "offense" in str(k).lower()]),
             "game_pk": matchup.get("game_pk"),
             "simulation_model_version": sim.get("model_version"),
             "simulation_count": sim.get("simulations") or (sim.get("metadata") or {}).get("simulation_count"),
@@ -542,8 +547,6 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
         try:
             away = _side_context(matchup, "away", session, date_obj.year)
             home = _side_context(matchup, "home", session, date_obj.year)
-            matchup["awayProjectedLineupOffenseProfile"] = away.get("offense_inputs")
-            matchup["homeProjectedLineupOffenseProfile"] = home.get("offense_inputs")
 
             simulation_cards = _build_projection_simulation_cards(matchup, away, home)
 
