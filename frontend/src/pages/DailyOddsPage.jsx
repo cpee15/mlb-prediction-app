@@ -29,6 +29,7 @@ const s = {
   metaRow: { display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 },
   chip: { color: '#8b949e', border: '1px solid #30363d', background: '#0d1117', borderRadius: 999, padding: '4px 8px', fontSize: 11, fontWeight: 800 },
   badge: matched => ({ display: 'inline-block', borderRadius: 999, padding: '5px 10px', fontSize: 11, fontWeight: 900, background: matched ? 'rgba(35,134,54,0.18)' : 'rgba(248,81,73,0.14)', border: matched ? '1px solid rgba(63,185,80,0.45)' : '1px solid rgba(248,81,73,0.45)', color: matched ? '#3fb950' : '#f85149' }),
+  lockBadge: { display: 'inline-block', borderRadius: 999, padding: '5px 10px', fontSize: 11, fontWeight: 900, background: 'rgba(210,153,34,0.18)', border: '1px solid rgba(210,153,34,0.55)', color: '#d29922' },
   markets: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, padding: '14px 16px' },
   market: { border: '1px solid #30363d', borderRadius: 12, padding: 12, background: '#0d1117' },
   marketTitle: { color: '#8b949e', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.9, fontWeight: 900, marginBottom: 9 },
@@ -51,6 +52,12 @@ const s = {
   section: { background: '#161b22', border: '1px solid #30363d', borderRadius: 14, padding: 16 },
   sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 },
   sectionTitle: { color: '#e6edf3', fontSize: 18, fontWeight: 900 },
+  recapCard: { border: '1px solid #30363d', borderRadius: 14, background: '#0d1117', overflow: 'hidden' },
+  recapSummary: { cursor: 'pointer', listStyle: 'none', padding: '14px 16px', background: '#111820', borderBottom: '1px solid #30363d' },
+  recapBody: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(245px, 1fr))', gap: 12, padding: 14 },
+  recapPanel: { border: '1px solid #30363d', borderRadius: 12, background: '#161b22', padding: 12 },
+  recapPanelTitle: { color: '#58a6ff', fontSize: 12, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
+  bulletList: { margin: 0, paddingLeft: 18, color: '#c9d1d9', fontSize: 12, lineHeight: 1.55 },
   error: { color: '#f85149', background: '#1f1116', border: '1px solid #3b2222', borderRadius: 12, padding: 14 },
   loader: { color: '#8b949e', textAlign: 'center', padding: 40 },
   empty: { color: '#8b949e', textAlign: 'center', padding: 34, border: '1px solid #30363d', borderRadius: 14, background: '#161b22' },
@@ -61,13 +68,16 @@ function matchupKey(away, home) { return `${normalizeTeamName(away)}@${normalize
 function keyFromMatchup(m) { return matchupKey(m.away_team_name || m.away_team || m.away_name, m.home_team_name || m.home_team || m.home_name) }
 function keyFromEvent(e) { return matchupKey(e?.away_team?.name || e?.away_team || '', e?.home_team?.name || e?.home_team || '') }
 function keyFromModelGame(game) { return matchupKey(game?.away_team || game?.away_team_name || game?.away || '', game?.home_team || game?.home_team_name || game?.home || '') }
-function american(v) { if (v == null || v === '') return '—'; const n = Number(v); if (Number.isNaN(n)) return String(v); return n > 0 ? `+${n}` : `${n}` }
-function pct(v) { if (v == null || v === '') return '—'; const n = Number(v); if (Number.isNaN(n)) return String(v); const pctValue = n <= 1 ? n * 100 : n; return `${Math.round(pctValue)}%` }
-function formatTime(iso) { if (!iso) return '—'; try { return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET' } catch { return '—' } }
+function american(v) { if (v == null || v === '') return 'N/A'; const n = Number(v); if (Number.isNaN(n)) return String(v); return n > 0 ? `+${n}` : `${n}` }
+function pct(v) { if (v == null || v === '') return 'N/A'; const n = Number(v); if (Number.isNaN(n)) return String(v); const pctValue = n <= 1 ? n * 100 : n; return `${Math.round(pctValue)}%` }
+function dec(v, digits = 3) { if (v == null || v === '') return 'N/A'; const n = Number(v); if (!Number.isFinite(n)) return String(v); return n.toFixed(digits) }
+function num(v, digits = 1) { if (v == null || v === '') return 'N/A'; const n = Number(v); if (!Number.isFinite(n)) return String(v); return n.toFixed(digits) }
+function label(v) { if (v == null || v === '') return 'N/A'; return String(v).replaceAll('_', ' ') }
+function formatTime(iso) { if (!iso) return 'N/A'; try { return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET' } catch { return 'N/A' } }
 function cleanMarketName(name) { return String(name || 'Market').replaceAll('_', ' ') }
 function getMarkets(event) { return Array.isArray(event?.markets) ? event.markets : [] }
 function findMarket(event, keys) { const wanted = Array.isArray(keys) ? keys : [keys]; return getMarkets(event).find(m => wanted.includes(m.market_key) || wanted.includes(m.market_type) || wanted.includes(m.market_name)) }
-function selectionLabel(sel) { return `${sel?.name || sel?.description || '—'}${sel?.line != null ? ` ${sel.line}` : ''}` }
+function selectionLabel(sel) { return `${sel?.name || sel?.description || 'N/A'}${sel?.line != null ? ` ${sel.line}` : ''}` }
 function asArray(value) { return Array.isArray(value) ? value : [] }
 function firstDefined(...values) { return values.find(v => v !== undefined && v !== null && v !== '') }
 function modelGamesFromPayload(payload) { if (Array.isArray(payload)) return payload; if (Array.isArray(payload?.games)) return payload.games; if (Array.isArray(payload?.models)) return payload.models; if (Array.isArray(payload?.game_models)) return payload.game_models; return [] }
@@ -91,9 +101,63 @@ function groupMarketsByCategory(markets) {
   }, {})
 }
 
+function getModelRoot(model) { return model?.models || model || {} }
+function getTeamProfile(game, side) { return game?.workspace?.[`${side}OffenseProfile`] || game?.teams?.[side] || {} }
+function getPitcherProfile(game, side) { return game?.workspace?.[`${side}PitcherProfile`] || {} }
+function getSimulation(game) { return game?.workspace?.bullpenAdjustedGameSimulation || {} }
+function getEnvironment(game, matchup) { return game?.workspace?.environmentProfile || matchup?.environment || {} }
+function getRunModel(game, side) { return asArray(game?.teams?.[side]?.models).find(m => String(m?.model_name || '').includes(side === 'away' ? 'Away Team Run/Win Projection' : 'Home Team Run/Win Projection')) || {} }
+function getTotalModel(game) { return [...asArray(game?.teams?.away?.models), ...asArray(game?.teams?.home?.models)].find(m => String(m?.model_name || '').includes('Game Total Projection')) || {} }
+function getPitcherMetric(profile, matchup, side, keys) {
+  const features = matchup?.[`${side}_pitcher_features`] || {}
+  const pools = [profile?.metadata, profile?.run_prevention, profile?.bat_missing, profile?.command_control, profile?.contact_management, features]
+  for (const key of keys) {
+    for (const pool of pools) {
+      if (pool && pool[key] !== undefined && pool[key] !== null && pool[key] !== '') return pool[key]
+    }
+  }
+  return null
+}
+function getOffenseMetric(profile, matchup, side, keys) {
+  const pools = [profile?.metadata, profile?.contact_skill, profile?.plate_discipline, profile?.power, profile?.run_creation, matchup?.[`${side}_team_features`]]
+  for (const key of keys) {
+    for (const pool of pools) {
+      if (pool && pool[key] !== undefined && pool[key] !== null && pool[key] !== '') return pool[key]
+    }
+  }
+  return null
+}
+function getWeatherMetric(environment, matchup, keys) {
+  const weather = environment?.weather || matchup?.weather || {}
+  const run = environment?.run_environment || {}
+  const metadata = environment?.metadata || {}
+  for (const key of keys) {
+    for (const pool of [weather, run, metadata, environment, matchup?.weather]) {
+      if (pool && pool[key] !== undefined && pool[key] !== null && pool[key] !== '') return pool[key]
+    }
+  }
+  return null
+}
+function strongestGameCandidate(model) {
+  const root = getModelRoot(model)
+  return [root.moneyline, root.spread || root.run_line, root.total].filter(Boolean).sort((a, b) => Math.abs(Number(b?.edge) || 0) - Math.abs(Number(a?.edge) || 0))[0] || null
+}
+function candidateScore(candidate) {
+  const edge = Math.abs(Number(candidate?.edge) || 0)
+  const confidence = Number(candidate?.confidence) || Number(candidate?.model_probability) || 0
+  const score = Number(candidate?.score) || 0
+  return edge * 10 + confidence + score
+}
+function findLockKey(rows, topPropCandidates) {
+  const rankedProps = asArray(topPropCandidates).filter(c => c?.match_key).sort((a, b) => candidateScore(b) - candidateScore(a))
+  if (rankedProps[0]?.match_key) return rankedProps[0].match_key
+  const rankedGames = rows.map(row => ({ key: row.key, candidate: strongestGameCandidate(row.model) })).filter(row => row.candidate).sort((a, b) => candidateScore(b.candidate) - candidateScore(a.candidate))
+  return rankedGames[0]?.key || null
+}
+
 function MarketBox({ label, market }) {
   const selections = market?.selections || []
-  return <div style={s.market}><div style={s.marketTitle}>{label}</div>{selections.length === 0 && <div style={s.oddsLine}><span>Unavailable</span><strong style={s.price}>—</strong></div>}{selections.slice(0, 3).map((sel, idx) => <div key={`${label}-${idx}`} style={s.oddsLine}><span>{selectionLabel(sel)}</span><strong style={s.price}>{american(sel.price)}</strong></div>)}</div>
+  return <div style={s.market}><div style={s.marketTitle}>{label}</div>{selections.length === 0 && <div style={s.oddsLine}><span>Unavailable</span><strong style={s.price}>N/A</strong></div>}{selections.slice(0, 3).map((sel, idx) => <div key={`${label}-${idx}`} style={s.oddsLine}><span>{selectionLabel(sel)}</span><strong style={s.price}>{american(sel.price)}</strong></div>)}</div>
 }
 
 function PropsDropdownBoard({ eventId }) {
@@ -162,14 +226,14 @@ function PropsDropdownBoard({ eventId }) {
 
       {activeSelection && <div style={{ ...s.propCard, marginBottom: 12, borderColor: '#58a6ff' }}>
         <div style={s.propMarket}>{activeCategory} · {propOptionLabel(activeMarket)}</div>
-        <div style={s.propName}>{activeSelection.description || activeSelection.name || '—'}</div>
+        <div style={s.propName}>{activeSelection.description || activeSelection.name || 'N/A'}</div>
         <div style={s.propDetail}>{selectionLabel(activeSelection)} · <strong style={{ color: '#e6edf3' }}>{american(activeSelection.price)}</strong> · Implied {pct(activeSelection?.odds?.implied_probability)}</div>
       </div>}
 
       <div style={{ overflowX: 'auto' }}>
         <table style={s.table}>
           <thead><tr><th style={s.th}>Player / Side</th><th style={s.th}>Selection</th><th style={s.th}>Line</th><th style={s.th}>Price</th><th style={s.th}>Implied</th><th style={s.th}>Market</th></tr></thead>
-          <tbody>{selections.map((sel, idx) => <tr key={`${sel.description || sel.name}-${sel.line}-${sel.price}-${idx}`}><td style={s.td}>{sel.description || sel.name || '—'}</td><td style={s.td}>{sel.name || '—'}</td><td style={s.td}>{sel.line ?? '—'}</td><td style={{ ...s.td, fontWeight: 900, color: '#e6edf3' }}>{american(sel.price)}</td><td style={s.td}>{pct(sel?.odds?.implied_probability)}</td><td style={s.td}>{propOptionLabel(activeMarket)}</td></tr>)}</tbody>
+          <tbody>{selections.map((sel, idx) => <tr key={`${sel.description || sel.name}-${sel.line}-${sel.price}-${idx}`}><td style={s.td}>{sel.description || sel.name || 'N/A'}</td><td style={s.td}>{sel.name || 'N/A'}</td><td style={s.td}>{sel.line ?? 'N/A'}</td><td style={{ ...s.td, fontWeight: 900, color: '#e6edf3' }}>{american(sel.price)}</td><td style={s.td}>{pct(sel?.odds?.implied_probability)}</td><td style={s.td}>{propOptionLabel(activeMarket)}</td></tr>)}</tbody>
         </table>
       </div>
     </>}
@@ -178,7 +242,7 @@ function PropsDropdownBoard({ eventId }) {
 
 function ModelSummary({ model }) {
   if (!model) return null
-  const root = model.models || model
+  const root = getModelRoot(model)
   const moneyline = root.moneyline || {}
   const spread = root.spread || root.run_line || {}
   const total = root.total || {}
@@ -188,12 +252,100 @@ function ModelSummary({ model }) {
     ['Total', total],
   ].filter(([, m]) => m && Object.keys(m).length)
   if (!cards.length) return null
-  return <div style={s.modelPanel}><div style={s.modelTitle}>Model Snapshot</div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10, marginTop: 10 }}>{cards.map(([title, m]) => <div key={title} style={s.market}><div style={s.marketTitle}>{title}</div><div style={s.propName}>{m.pick || 'No pick'}</div><div style={s.propDetail}>Model {pct(m.model_probability)} · Market {pct(m.market_implied_probability)} · Edge {m.edge ?? '—'}</div></div>)}</div></div>
+  return <div style={s.modelPanel}><div style={s.modelTitle}>Model Snapshot</div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10, marginTop: 10 }}>{cards.map(([title, m]) => <div key={title} style={s.market}><div style={s.marketTitle}>{title}</div><div style={s.propName}>{m.pick || 'No pick'}</div><div style={s.propDetail}>Model {pct(m.model_probability)} · Market {pct(m.market_implied_probability)} · Edge {m.edge ?? 'N/A'}</div></div>)}</div></div>
 }
 
 function TopPropModelCandidates({ candidates }) {
   const rows = asArray(candidates).slice(0, 20)
-  return <section style={s.section}><div style={s.sectionHeader}><div><div style={s.sectionTitle}>Top Prop Model Candidates</div><div style={s.modelSubtitle}>Ranked output from /daily-odds/models. Actual DraftKings prop menus are inside each game card.</div></div><span style={s.chip}>{rows.length} shown</span></div>{rows.length === 0 ? <div style={s.empty}>No top prop model candidates returned.</div> : <div style={s.propsGrid}>{rows.map((candidate, idx) => <div key={`${candidate.player_name || candidate.pick}-${idx}`} style={s.propCard}><div style={s.propMarket}>{cleanMarketName(candidate.market || candidate.market_name)}</div><div style={s.propName}>{candidate.player_name || candidate.pick || 'Candidate'}</div><div style={s.propDetail}>{candidate.pick || candidate.selection || '—'} · Edge {candidate.edge ?? '—'} · Confidence {pct(candidate.confidence)}</div></div>)}</div>}</section>
+  return <section style={s.section}><div style={s.sectionHeader}><div><div style={s.sectionTitle}>Top Prop Model Candidates</div><div style={s.modelSubtitle}>Ranked output from /daily-odds/models. Actual DraftKings prop menus are inside each game card.</div></div><span style={s.chip}>{rows.length} shown</span></div>{rows.length === 0 ? <div style={s.empty}>No top prop model candidates returned.</div> : <div style={s.propsGrid}>{rows.map((candidate, idx) => <div key={`${candidate.player_name || candidate.pick}-${idx}`} style={s.propCard}><div style={s.propMarket}>{cleanMarketName(candidate.market || candidate.market_name)}</div><div style={s.propName}>{candidate.player_name || candidate.pick || 'Candidate'}</div><div style={s.propDetail}>{candidate.pick || candidate.selection || 'N/A'} · Edge {candidate.edge ?? 'N/A'} · Confidence {pct(candidate.confidence)}</div></div>)}</div>}</section>
+}
+
+function DailyRecap({ rows, topPropCandidates }) {
+  if (!rows.length) return null
+  const lockKey = findLockKey(rows, topPropCandidates)
+  return <section style={s.section}>
+    <div style={s.sectionHeader}>
+      <div>
+        <div style={s.sectionTitle}>Daily Recap</div>
+        <div style={s.modelSubtitle}>Executive readout built from the loaded matchup analyzer, model projection, odds, and weather payloads.</div>
+      </div>
+      <span style={s.chip}>{rows.length} games</span>
+    </div>
+    <div style={s.grid}>{rows.map((row, idx) => <DailyRecapCard key={`${row.key}-${idx}`} row={row} isLock={row.key === lockKey} />)}</div>
+  </section>
+}
+
+function DailyRecapCard({ row, isLock }) {
+  const { event, matchup, model } = row
+  const away = event?.away_team?.name || event?.away_team || matchup?.away_team_name || model?.away_team || 'Away'
+  const home = event?.home_team?.name || event?.home_team || matchup?.home_team_name || model?.home_team || 'Home'
+  const root = getModelRoot(model)
+  const awayPitcher = matchup?.away_pitcher_name || model?.away_pitcher?.name || model?.teams?.away?.pitcher_name || 'Away Pitcher'
+  const homePitcher = matchup?.home_pitcher_name || model?.home_pitcher?.name || model?.teams?.home?.pitcher_name || 'Home Pitcher'
+  const awayPitcherProfile = getPitcherProfile(model, 'away')
+  const homePitcherProfile = getPitcherProfile(model, 'home')
+  const awayOffense = getTeamProfile(model, 'away')
+  const homeOffense = getTeamProfile(model, 'home')
+  const environment = getEnvironment(model, matchup)
+  const sim = getSimulation(model)
+  const awayRunModel = getRunModel(model, 'away')
+  const homeRunModel = getRunModel(model, 'home')
+  const totalModel = getTotalModel(model)
+  const strongest = strongestGameCandidate(model)
+  const awayWin = firstDefined(sim.away_win_probability, awayRunModel?.inputs?.win_probability, matchup?.away_win_prob, root.moneyline?.model_probability)
+  const homeWin = firstDefined(sim.home_win_probability, homeRunModel?.inputs?.win_probability, matchup?.home_win_prob)
+  const winLeader = Number(awayWin) > Number(homeWin) ? `${away} ${pct(awayWin)}` : Number(homeWin) > Number(awayWin) ? `${home} ${pct(homeWin)}` : 'N/A'
+  const totalRuns = firstDefined(sim.total_expected_runs, totalModel?.inputs?.total_expected_runs, totalModel?.score)
+  const runLean = totalRuns ? `Projected total ${num(totalRuns)}` : label(root.total?.pick)
+  const confidence = firstDefined(strongest?.confidence, root.moneyline?.confidence, root.total?.confidence, awayRunModel?.data_confidence, homeRunModel?.data_confidence)
+
+  const pitcherBullets = [
+    `${awayPitcher}: ERA/xERA ${dec(getPitcherMetric(awayPitcherProfile, matchup, 'away', ['era', 'xera', 'x_era']), 2)} | WHIP ${dec(getPitcherMetric(awayPitcherProfile, matchup, 'away', ['whip']), 2)} | K% ${pct(getPitcherMetric(awayPitcherProfile, matchup, 'away', ['k_pct', 'strikeout_pct', 'k_rate']))} | BB% ${pct(getPitcherMetric(awayPitcherProfile, matchup, 'away', ['bb_pct', 'walk_pct', 'bb_rate']))} | Hard Hit/xwOBA ${firstDefined(pct(getPitcherMetric(awayPitcherProfile, matchup, 'away', ['hard_hit_pct', 'hardhit_pct'])), dec(getPitcherMetric(awayPitcherProfile, matchup, 'away', ['xwoba', 'xwoba_allowed']), 3))}`,
+    `${homePitcher}: ERA/xERA ${dec(getPitcherMetric(homePitcherProfile, matchup, 'home', ['era', 'xera', 'x_era']), 2)} | WHIP ${dec(getPitcherMetric(homePitcherProfile, matchup, 'home', ['whip']), 2)} | K% ${pct(getPitcherMetric(homePitcherProfile, matchup, 'home', ['k_pct', 'strikeout_pct', 'k_rate']))} | BB% ${pct(getPitcherMetric(homePitcherProfile, matchup, 'home', ['bb_pct', 'walk_pct', 'bb_rate']))} | Hard Hit/xwOBA ${firstDefined(pct(getPitcherMetric(homePitcherProfile, matchup, 'home', ['hard_hit_pct', 'hardhit_pct'])), dec(getPitcherMetric(homePitcherProfile, matchup, 'home', ['xwoba', 'xwoba_allowed']), 3))}`,
+  ]
+
+  const hitterBullets = [
+    `${away}: wOBA/xwOBA ${dec(getOffenseMetric(awayOffense, matchup, 'away', ['woba', 'xwoba']), 3)} | Hard Hit ${pct(getOffenseMetric(awayOffense, matchup, 'away', ['hard_hit_pct', 'hardhit_pct']))} | Barrel ${pct(getOffenseMetric(awayOffense, matchup, 'away', ['barrel_pct']))} | K% ${pct(getOffenseMetric(awayOffense, matchup, 'away', ['k_pct', 'strikeout_pct', 'k_rate']))} | BB% ${pct(getOffenseMetric(awayOffense, matchup, 'away', ['bb_pct', 'walk_pct', 'bb_rate']))}`,
+    `${home}: wOBA/xwOBA ${dec(getOffenseMetric(homeOffense, matchup, 'home', ['woba', 'xwoba']), 3)} | Hard Hit ${pct(getOffenseMetric(homeOffense, matchup, 'home', ['hard_hit_pct', 'hardhit_pct']))} | Barrel ${pct(getOffenseMetric(homeOffense, matchup, 'home', ['barrel_pct']))} | K% ${pct(getOffenseMetric(homeOffense, matchup, 'home', ['k_pct', 'strikeout_pct', 'k_rate']))} | BB% ${pct(getOffenseMetric(homeOffense, matchup, 'home', ['bb_pct', 'walk_pct', 'bb_rate']))}`,
+  ]
+
+  const environmentBullets = [
+    `Temp: ${firstDefined(getWeatherMetric(environment, matchup, ['temperature_f', 'temp_f', 'temp']), 'N/A')}${firstDefined(getWeatherMetric(environment, matchup, ['temperature_f', 'temp_f', 'temp']), null) !== null ? '°F' : ''}`,
+    `Wind Speed: ${firstDefined(getWeatherMetric(environment, matchup, ['wind_speed_mph']), label(getWeatherMetric(environment, matchup, ['wind'])))}`,
+    `Wind Direction: ${label(getWeatherMetric(environment, matchup, ['wind_direction', 'wind_run_impact']))}`,
+    `Humidity: ${firstDefined(pct(getWeatherMetric(environment, matchup, ['humidity'])), 'N/A')}`,
+    `Park Factor: ${dec(firstDefined(getWeatherMetric(environment, matchup, ['park_factor', 'run_scoring_index']), matchup?.park_factor), 2)} | Weather Risk: ${label(firstDefined(getWeatherMetric(environment, matchup, ['weather_risk', 'scoring_environment_label']), getWeatherMetric(environment, matchup, ['weather_run_impact'])))}`,
+  ]
+
+  const consensusBullets = [
+    `Best projected edge: ${label(strongest?.pick || strongest?.selection || strongest?.market_name || strongest?.market)}`,
+    `Win probability leader: ${winLeader}`,
+    `Run projection lean: ${runLean}`,
+    `Confidence rating: ${typeof confidence === 'number' ? pct(confidence) : label(confidence)}`,
+    `LOCK OF THE DAY: ${isLock ? 'GUARANTEED LOCK OF THE DAY' : 'N/A'}`,
+  ]
+
+  return <details style={s.recapCard} open={isLock || false}>
+    <summary style={s.recapSummary}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div>
+          <div style={s.matchup}>{away} @ {home}</div>
+          <div style={s.metaRow}><span style={s.chip}>Time: {formatTime(matchup?.game_time || event?.start_time || event?.commence_time)}</span><span style={s.chip}>Game PK: {matchup?.game_pk || 'N/A'}</span></div>
+        </div>
+        {isLock && <span style={s.lockBadge}>GUARANTEED LOCK OF THE DAY</span>}
+      </div>
+    </summary>
+    <div style={s.recapBody}>
+      <RecapPanel title="Pitchers" bullets={pitcherBullets} />
+      <RecapPanel title="Hitters" bullets={hitterBullets} />
+      <RecapPanel title="Environment" bullets={environmentBullets} />
+      <RecapPanel title="Consensus" bullets={consensusBullets} />
+    </div>
+  </details>
+}
+
+function RecapPanel({ title, bullets }) {
+  return <div style={s.recapPanel}><div style={s.recapPanelTitle}>{title}</div><ul style={s.bulletList}>{bullets.map((bullet, idx) => <li key={`${title}-${idx}`}>{bullet || 'N/A'}</li>)}</ul></div>
 }
 
 export default function DailyOddsPage() {
@@ -245,7 +397,7 @@ export default function DailyOddsPage() {
         <div style={s.statCard}><div style={s.statLabel}>Matched</div><div style={s.statValue}>{matchedCount}</div></div>
         <div style={s.statCard}><div style={s.statLabel}>Model Games</div><div style={s.statValue}>{modelCount}</div></div>
         <div style={s.statCard}><div style={s.statLabel}>Top Props</div><div style={s.statValue}>{topPropCandidates.length}</div></div>
-        <div style={s.statCard}><div style={s.statLabel}>Last Refreshed</div><div style={{ ...s.statValue, fontSize: 15 }}>{lastRefreshed ? lastRefreshed.toLocaleTimeString() : '—'}</div></div>
+        <div style={s.statCard}><div style={s.statLabel}>Last Refreshed</div><div style={{ ...s.statValue, fontSize: 15 }}>{lastRefreshed ? lastRefreshed.toLocaleTimeString() : 'N/A'}</div></div>
       </div>
     </section>
 
@@ -254,7 +406,9 @@ export default function DailyOddsPage() {
     {modelError && <div style={s.error}>Model panel error: {modelError}</div>}
     {loading && <div style={s.loader}>Loading daily odds...</div>}
     {!loading && !error && rows.length === 0 && <div style={s.empty}>No DraftKings events returned for {date}. Confirm PR #130 is deployed, ODDS_API_KEY is valid, and the provider has events for this slate.</div>}
+
     {!loading && !error && <TopPropModelCandidates candidates={topPropCandidates} />}
+    {!loading && !error && <DailyRecap rows={rows} topPropCandidates={topPropCandidates} />}
 
     <div style={s.grid}>{rows.map(({ event, matchup, model, matched, key }, idx) => {
       const away = event?.away_team?.name || event?.away_team || matchup?.away_team_name || 'Away'
@@ -264,7 +418,7 @@ export default function DailyOddsPage() {
       const total = findMarket(event, 'totals')
       return <article key={`${event.event_id || key || idx}`} style={s.card}>
         <div style={s.cardTop}>
-          <div><div style={s.matchup}>{away} @ {home}</div><div style={s.metaRow}><span style={s.chip}>Time: {formatTime(matchup?.game_time || event?.start_time || event?.commence_time)}</span><span style={s.chip}>MLB: {matchup?.game_pk ? <Link to={`/matchup/${matchup.game_pk}`} style={{ color: '#58a6ff', textDecoration: 'none' }}>{matchup.game_pk}</Link> : '—'}</span><span style={s.chip}>DK: {event.event_id || '—'}</span><span style={s.chip}>Model: {model ? 'loaded' : 'none'}</span></div></div>
+          <div><div style={s.matchup}>{away} @ {home}</div><div style={s.metaRow}><span style={s.chip}>Time: {formatTime(matchup?.game_time || event?.start_time || event?.commence_time)}</span><span style={s.chip}>MLB: {matchup?.game_pk ? <Link to={`/matchup/${matchup.game_pk}`} style={{ color: '#58a6ff', textDecoration: 'none' }}>{matchup.game_pk}</Link> : 'N/A'}</span><span style={s.chip}>DK: {event.event_id || 'N/A'}</span><span style={s.chip}>Model: {model ? 'loaded' : 'none'}</span></div></div>
           <span style={s.badge(matched)}>{matched ? 'MATCHED' : 'UNMATCHED'}</span>
         </div>
         <div style={s.markets}><MarketBox label="Moneyline" market={moneyline} /><MarketBox label="Run Line" market={spread} /><MarketBox label="Total" market={total} /></div>
