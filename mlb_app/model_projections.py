@@ -514,30 +514,11 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
             away = _side_context(matchup, "away", session, date_obj.year)
             home = _side_context(matchup, "home", session, date_obj.year)
 
-            simulation_cards = _build_projection_simulation_cards
+            simulation_cards = _build_projection_simulation_cards(matchup, away, home)
 
-            # -----------------------------
-            # Simulation Debug Contract
-            # -----------------------------
-            simulation_contract = {
-                "source_builder": "model_projections",
-                "game_pk": matchup.get("game_pk"),
-                "simulation_path": "models/projections",
-            }
-
-            workspace = {
-                "simulationContract
-
-            # PA model snapshots (for debugging alignment)
-            workspace["awayStarterPA"] = away.get("starter_pa_model")
-            workspace["homeStarterPA"] = home.get("starter_pa_model")
-            workspace["awayBullpenPA"] = away.get("bullpen_pa_model")
-            workspace["homeBullpenPA"] = home.get("bullpen_pa_model")
-": simulation_contract,
-            }
-(matchup, away, home)
             away["models"].extend(simulation_cards.get("away", []))
             home["models"].extend(simulation_cards.get("home", []))
+
             workspace = simulation_cards.get("workspace") or {}
 
             games.append({
