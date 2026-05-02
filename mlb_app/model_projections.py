@@ -126,8 +126,12 @@ def _team_offense_prior_pa_model(
     team_name: Optional[str],
     opposing_pitcher_profile: Optional[Dict[str, Any]],
     environment_profile: Dict[str, Any],
+    offense_profile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    offense_profile = build_team_offense_prior(team_id=team_id, team_name=team_name)
+    # Use provided offense profile (lineup-based if available)
+    if not offense_profile:
+        offense_profile = build_team_offense_prior(team_id=team_id, team_name=team_name)
+
     return build_pa_outcome_probabilities(
         batter_profile=offense_profile,
         pitcher_profile=opposing_pitcher_profile or {},
@@ -538,6 +542,8 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
         try:
             away = _side_context(matchup, "away", session, date_obj.year)
             home = _side_context(matchup, "home", session, date_obj.year)
+            matchup["awayProjectedLineupOffenseProfile"] = away.get("offense_inputs")
+            matchup["homeProjectedLineupOffenseProfile"] = home.get("offense_inputs")
 
             simulation_cards = _build_projection_simulation_cards(matchup, away, home)
 
