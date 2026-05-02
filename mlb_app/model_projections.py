@@ -451,6 +451,7 @@ def _build_projection_simulation_cards(
         "awayMatchupAnalysis": _matchup_workspace_analysis(away, home),
         "homeMatchupAnalysis": _matchup_workspace_analysis(home, away),
         "bullpenAdjustedGameSimulation": sim,
+        "debug_marker": "SIM_CONTRACT_V1",
         # -----------------------------
         # Simulation Contract (DEBUG)
         # -----------------------------
