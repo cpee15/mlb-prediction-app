@@ -14,7 +14,6 @@ from mlb_app.model_projections import (
 )
 from mlb_app.environment_profile import compute_environment_profile
 from mlb_app.bullpen_profile import build_bullpen_profile
-from mlb_app.simulation.pa_outcome_model import build_pa_outcome_probabilities
 from mlb_app.simulation.inning_simulator import simulate_half_innings
 from mlb_app.simulation.game_simulator import simulate_game, simulate_game_with_bullpen
 
@@ -62,21 +61,165 @@ def _build_pa_model(
     environment_profile: Dict[str, Any],
     side: str,
 ) -> Dict[str, Any]:
-    model = build_pa_outcome_probabilities(
-        batter_profile=offense_profile,
-        pitcher_profile=opposing_pitcher_profile,
-        environment_profile=environment_profile,
-    ) or {}  # ✅ CRITICAL FIX
+    """
+    Transparent PA probability model.
 
-    payload = {
-        "model_version": "shared-pa-outcome-v1",
-        "side": side,
-        "lineup_average_probabilities": model.get("probabilities") or {},
-        "lineup_average_summary": model.get("summary") or {},
-        "source_model": model,
+    Converts offense, opposing pitcher, and environment inputs into normalized
+    plate appearance outcome probabilities used by the game simulator.
+    """
+
+    offense_profile = offense_profile or {}
+    opposing_pitcher_profile = opposing_pitcher_profile or {}
+    environment_profile = environment_profile or {}
+
+    def pick(source: Dict[str, Any], keys, default):
+        for key in keys:
+            value = source.get(key)
+            if value is not None:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return default
+        return default
+
+    def clamp(value: float, low: float, high: float) -> float:
+        return max(low, min(high, value))
+
+    # -------------------------
+    # Direct model inputs
+    # -------------------------
+    off_k = pick(offense_profile, ["k_rate", "k_pct", "strikeout_rate", "strikeout_pct"], 0.22)
+    off_bb = pick(offense_profile, ["bb_rate", "bb_pct", "walk_rate", "walk_pct"], 0.08)
+    off_avg = pick(offense_profile, ["batting_avg", "avg", "hit_rate"], 0.250)
+    off_iso = pick(offense_profile, ["iso", "isolated_power"], 0.170)
+    off_slg = pick(offense_profile, ["slugging_pct", "slg"], 0.410)
+
+    pit_k = pick(opposing_pitcher_profile, ["k_rate", "k_pct", "strikeout_rate", "strikeout_pct"], 0.22)
+    pit_bb = pick(opposing_pitcher_profile, ["bb_rate", "bb_pct", "walk_rate", "walk_pct"], 0.08)
+    pit_xba = pick(opposing_pitcher_profile, ["xba_allowed", "xba", "batting_avg_allowed"], 0.250)
+    pit_xwoba = pick(opposing_pitcher_profile, ["xwoba_allowed", "xwoba"], 0.320)
+    pit_hard_hit = pick(opposing_pitcher_profile, ["hard_hit_rate_allowed", "hard_hit_pct", "hard_hit_rate"], 0.38)
+    pit_hr = pick(opposing_pitcher_profile, ["hr_rate", "home_run_rate", "hr_per_pa"], 0.030)
+
+    run_env = pick(environment_profile, ["run_scoring_index"], 1.0)
+    hr_env = pick(environment_profile, ["hr_boost_index"], 1.0)
+    hit_env = pick(environment_profile, ["hit_boost_index"], 1.0)
+
+    # -------------------------
+    # Probability blends
+    # -------------------------
+    k_prob = clamp((0.50 * off_k) + (0.50 * pit_k), 0.12, 0.36)
+    bb_prob = clamp((0.55 * off_bb) + (0.45 * pit_bb), 0.04, 0.15)
+
+    base_hit_prob = (0.55 * off_avg) + (0.35 * pit_xba) + (0.10 * (pit_xwoba - 0.070))
+    hit_prob = clamp(base_hit_prob * hit_env * (0.98 + 0.02 * run_env), 0.17, 0.36)
+
+    power_index = (
+        (0.45 * off_iso)
+        + (0.25 * max(off_slg - 0.300, 0.0))
+        + (0.20 * pit_hard_hit)
+        + (0.10 * pit_xwoba)
+    )
+
+    hr_prob = clamp(((0.70 * pit_hr) + (0.30 * power_index * 0.12)) * hr_env, 0.010, 0.075)
+    hr_prob = min(hr_prob, hit_prob * 0.35)
+
+    non_hr_hit_prob = max(hit_prob - hr_prob, 0.0)
+
+    single_prob = non_hr_hit_prob * 0.72
+    double_prob = non_hr_hit_prob * 0.24
+    triple_prob = non_hr_hit_prob * 0.04
+
+    hbp_prob = 0.010
+    roe_prob = 0.007
+
+    used = (
+        k_prob
+        + bb_prob
+        + hbp_prob
+        + single_prob
+        + double_prob
+        + triple_prob
+        + hr_prob
+        + roe_prob
+    )
+
+    contact_out_prob = max(0.0, 1.0 - used)
+
+    total = (
+        k_prob
+        + bb_prob
+        + hbp_prob
+        + single_prob
+        + double_prob
+        + triple_prob
+        + hr_prob
+        + roe_prob
+        + contact_out_prob
+    )
+
+    def norm(value: float) -> float:
+        return value / total if total > 0 else 0.0
+
+    probabilities = {
+        "strikeout": norm(k_prob),
+        "walk": norm(bb_prob),
+        "hit_by_pitch": norm(hbp_prob),
+        "single": norm(single_prob),
+        "double": norm(double_prob),
+        "triple": norm(triple_prob),
+        "home_run": norm(hr_prob),
+        "reached_on_error": norm(roe_prob),
+        "out": norm(contact_out_prob),
     }
 
-    return payload
+    summary = {
+        "k_rate": probabilities["strikeout"],
+        "bb_rate": probabilities["walk"],
+        "hit_rate": (
+            probabilities["single"]
+            + probabilities["double"]
+            + probabilities["triple"]
+            + probabilities["home_run"]
+        ),
+        "hr_rate": probabilities["home_run"],
+        "xbh_rate": (
+            probabilities["double"]
+            + probabilities["triple"]
+            + probabilities["home_run"]
+        ),
+        "out_rate": probabilities["out"],
+    }
+
+    return {
+        "model_version": "transparent-pa-model-v1",
+        "side": side,
+        "lineup_average_probabilities": probabilities,
+        "lineup_average_summary": summary,
+        "direct_inputs": {
+            "offense": {
+                "k_rate": off_k,
+                "bb_rate": off_bb,
+                "batting_avg": off_avg,
+                "iso": off_iso,
+                "slugging_pct": off_slg,
+            },
+            "pitcher": {
+                "k_rate": pit_k,
+                "bb_rate": pit_bb,
+                "xba_allowed": pit_xba,
+                "xwoba_allowed": pit_xwoba,
+                "hard_hit_rate_allowed": pit_hard_hit,
+                "hr_rate": pit_hr,
+            },
+            "environment": {
+                "run_scoring_index": run_env,
+                "hr_boost_index": hr_env,
+                "hit_boost_index": hit_env,
+            },
+        },
+    }
+
 
 def _build_half_inning(pa_model: Dict[str, Any], side: str, simulations: int, seed: int) -> Dict[str, Any]:
     try:
@@ -122,21 +265,15 @@ def _build_bullpen_pa_model(
     environment_profile: Dict[str, Any],
     side: str,
 ) -> Dict[str, Any]:
-    model = build_pa_outcome_probabilities(
-        batter_profile=offense_profile,
-        pitcher_profile=opposing_bullpen_profile,
+    payload = _build_pa_model(
+        offense_profile=offense_profile,
+        opposing_pitcher_profile=opposing_bullpen_profile,
         environment_profile=environment_profile,
-    ) or {}
+        side=side,
+    )
 
-    payload = {
-        "model_version": "shared-bullpen-pa-outcome-v1",
-        "side": side,
-        "lineup_average_probabilities": model.get("probabilities") or {},
-        "lineup_average_summary": model.get("summary") or {},
-        "source_model": model,
-    }
-
-    return payload  # ✅ FIXED
+    payload["model_version"] = "transparent-bullpen-pa-model-v1"
+    return payload
 
 
 def _build_bullpen_adjusted_game_sim(
