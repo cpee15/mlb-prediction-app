@@ -100,6 +100,7 @@ from .matchup_workspace_builder import (
 )
 from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 from .daily_odds_routes import router as daily_odds_router
+from .simulation.inning_simulator import simulate_half_innings
 from .model_projection_routes import router as model_projection_router
 
 
@@ -1304,6 +1305,56 @@ class PredictRequest(BaseModel):
     batter_id: int
     season: Optional[int] = None
     pitcher_throws: str = "R"
+
+
+
+def compute_pitcher_profile(aggregate):
+    """
+    Compatibility helper for matchup detail PA outcome modeling.
+
+    The matchup route expects a pitcher profile dict. Some branches referenced
+    compute_pitcher_profile without defining it. This function normalizes the
+    aggregate pitcher stats into the profile shape expected by
+    build_pa_outcome_probabilities.
+    """
+    aggregate = aggregate or {}
+
+    def first(*keys):
+        for key in keys:
+            value = aggregate.get(key)
+            if value is not None:
+                return value
+        return None
+
+    return {
+        "metadata": {
+            "source_type": "pitcher_detail_aggregate",
+            "generated_from": "mlb_app.app.compute_pitcher_profile",
+            "data_confidence": "medium" if aggregate else "low",
+        },
+        "bat_missing": {
+            "k_rate": first("k_rate", "k_pct", "strikeout_rate", "strikeout_pct"),
+            "whiff_rate": first("whiff_rate", "whiff_pct"),
+            "csw_rate": first("csw_rate", "csw_pct"),
+        },
+        "command_control": {
+            "bb_rate": first("bb_rate", "bb_pct", "walk_rate", "walk_pct"),
+            "zone_rate": first("zone_rate", "zone_pct"),
+            "first_pitch_strike_rate": first("first_pitch_strike_rate", "first_pitch_strike_pct"),
+        },
+        "contact_management": {
+            "hard_hit_rate_allowed": first("hard_hit_rate_allowed", "hard_hit_pct", "hard_hit_rate"),
+            "xwoba_allowed": first("xwoba_allowed", "xwoba"),
+            "xba_allowed": first("xba_allowed", "xba"),
+            "avg_exit_velocity_allowed": first("avg_exit_velocity_allowed", "avg_exit_velocity"),
+            "avg_launch_angle_allowed": first("avg_launch_angle_allowed", "avg_launch_angle"),
+        },
+        "arsenal": {
+            "pitch_mix": first("pitch_mix", "arsenal", "pitch_arsenal") or {},
+            "avg_velocity": first("avg_velocity", "velocity"),
+            "avg_spin_rate": first("avg_spin_rate", "spin_rate"),
+        },
+    }
 
 
 def create_app():
