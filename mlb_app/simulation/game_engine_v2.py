@@ -393,6 +393,9 @@ def _build_bullpen_adjusted_game_sim(
     simulations,
     seed,
     starter_innings,
+    away_starter_quality=None,
+    home_starter_quality=None,
+    dynamic_starter_exit=True,
 ):
     # ✅ normalize inside function (NOT in signature)
     away_starter_pa_model = away_starter_pa_model or {}
@@ -409,6 +412,9 @@ def _build_bullpen_adjusted_game_sim(
         seed=seed,
         innings=9,
         starter_innings=starter_innings,
+        away_starter_quality=away_starter_quality,
+        home_starter_quality=home_starter_quality,
+        dynamic_starter_exit=dynamic_starter_exit,
     )
 
 def _source_summary(matchup: Dict[str, Any], environment_profile: Dict[str, Any]) -> Dict[str, Any]:
@@ -661,6 +667,9 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
         simulations=simulations,
         seed=seed,
         starter_innings=starter_innings,
+        away_starter_quality=away_starter_quality.get("score"),
+        home_starter_quality=home_starter_quality.get("score"),
+        dynamic_starter_exit=True,
     )
 
     sources = _source_summary(matchup, environment_profile) or {}
@@ -717,7 +726,7 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
                 "away_expected_starter_innings": away_expected_starter_innings,
                 "home_expected_starter_innings": home_expected_starter_innings,
                 "simulator_starter_innings": starter_innings,
-                "note": "simulate_game_with_bullpen currently accepts one shared starter_innings value; using average of away/home expected innings.",
+                "note": "simulate_game_with_bullpen now receives starter quality scores and samples starter exit innings dynamically per simulation.",
             },
         },
         "meta": {
