@@ -305,6 +305,86 @@ def _build_bullpen_pa_model(
     return payload
 
 
+
+def _starter_quality_score(pitcher_profile: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convert a starter profile into an explainable quality score.
+    Higher score means the starter is expected to cover more innings.
+    """
+    pitcher_profile = pitcher_profile or {}
+
+    def pick(keys, default):
+        for key in keys:
+            value = pitcher_profile.get(key)
+            if value is not None:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return default
+        return default
+
+    def clamp(value, low=0.0, high=1.0):
+        return max(low, min(high, value))
+
+    k_rate = pick(["k_rate", "k_pct", "strikeout_rate", "strikeout_pct"], 0.22)
+    bb_rate = pick(["bb_rate", "bb_pct", "walk_rate", "walk_pct"], 0.08)
+    xwoba = pick(["xwoba_allowed", "xwoba"], 0.320)
+    hard_hit = pick(["hard_hit_rate_allowed", "hard_hit_pct", "hard_hit_rate"], 0.38)
+    xba = pick(["xba_allowed", "xba", "batting_avg_allowed"], 0.250)
+
+    components = {
+        "k_component": clamp((k_rate - 0.18) / (0.32 - 0.18)),
+        "bb_component": clamp((0.12 - bb_rate) / (0.12 - 0.04)),
+        "xwoba_component": clamp((0.380 - xwoba) / (0.380 - 0.260)),
+        "hard_hit_component": clamp((0.460 - hard_hit) / (0.460 - 0.300)),
+        "xba_component": clamp((0.300 - xba) / (0.300 - 0.210)),
+    }
+
+    score = (
+        0.30 * components["k_component"]
+        + 0.18 * components["bb_component"]
+        + 0.27 * components["xwoba_component"]
+        + 0.15 * components["hard_hit_component"]
+        + 0.10 * components["xba_component"]
+    )
+    score = clamp(score)
+
+    if score >= 0.78:
+        label = "elite"
+    elif score >= 0.62:
+        label = "above_average"
+    elif score >= 0.45:
+        label = "average"
+    elif score >= 0.30:
+        label = "below_average"
+    else:
+        label = "low_quality"
+
+    return {
+        "score": round(score, 4),
+        "label": label,
+        "components": components,
+        "inputs": {
+            "k_rate": k_rate,
+            "bb_rate": bb_rate,
+            "xwoba_allowed": xwoba,
+            "hard_hit_rate_allowed": hard_hit,
+            "xba_allowed": xba,
+        },
+    }
+
+
+def _expected_starter_innings(quality: Dict[str, Any]) -> float:
+    """
+    Map starter quality score to expected innings.
+    First version uses a conservative 4.3 to 6.4 inning range.
+    """
+    score = float((quality or {}).get("score") or 0.45)
+    innings = 4.3 + (score * 2.1)
+    innings = max(3.8, min(6.7, innings))
+    return round(innings, 2)
+
+
 def _build_bullpen_adjusted_game_sim(
     away_starter_pa_model,
     home_starter_pa_model,
@@ -401,7 +481,7 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
 
     simulations = int(config.get("simulation_count") or 5000)
     seed = int(config.get("seed") or 42)
-    starter_innings = int(config.get("starter_innings") or 5)
+    starter_innings_override = config.get("starter_innings")
 
     requested_date = config.get("date")
     target_date = str(requested_date or datetime.date.today().isoformat())[:10]
@@ -490,6 +570,27 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
 
     away_pitcher_profile = _pitcher_workspace_profile(away_team) or {}
     home_pitcher_profile = _pitcher_workspace_profile(home_team) or {}
+
+    away_starter_quality = _starter_quality_score(away_pitcher_profile)
+    home_starter_quality = _starter_quality_score(home_pitcher_profile)
+
+    away_expected_starter_innings = (
+        float(starter_innings_override)
+        if starter_innings_override is not None
+        else _expected_starter_innings(away_starter_quality)
+    )
+    home_expected_starter_innings = (
+        float(starter_innings_override)
+        if starter_innings_override is not None
+        else _expected_starter_innings(home_starter_quality)
+    )
+
+    # Current simulator accepts one shared starter_innings value.
+    # Use average until side-specific starter innings are supported.
+    starter_innings = round(
+        (away_expected_starter_innings + home_expected_starter_innings) / 2,
+        2,
+    )
 
     # Away offense faces home pitcher.
     away_starter_pa = _build_pa_model(
@@ -610,6 +711,14 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
             "sources": sources,
             "missing_inputs": [],
             "config": config,
+            "starter_exit_model": {
+                "away_starter_quality": away_starter_quality,
+                "home_starter_quality": home_starter_quality,
+                "away_expected_starter_innings": away_expected_starter_innings,
+                "home_expected_starter_innings": home_expected_starter_innings,
+                "simulator_starter_innings": starter_innings,
+                "note": "simulate_game_with_bullpen currently accepts one shared starter_innings value; using average of away/home expected innings.",
+            },
         },
         "meta": {
             "engine": ENGINE_VERSION,
