@@ -4,7 +4,7 @@ import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .database import BatterAggregate, PitchArsenal, PitcherAggregate, PlayerSplit, StatcastEvent, TeamSplit
@@ -464,46 +464,151 @@ def _dedupe_events(events: List[StatcastEvent]) -> List[StatcastEvent]:
     return out
 
 
+def _pitch_event_identity(e: StatcastEvent) -> Tuple[Any, ...]:
+    if e.game_pk is not None and e.at_bat_number is not None and e.pitch_number is not None:
+        return (
+            e.game_pk,
+            e.at_bat_number,
+            e.pitch_number,
+            e.pitcher_id,
+            e.batter_id,
+            e.pitch_type,
+        )
+
+    return (
+        e.game_date,
+        e.pitcher_id,
+        e.batter_id,
+        e.pitch_type,
+        _clean_event_name(e.events),
+        e.release_speed,
+        e.release_spin_rate,
+        e.launch_speed,
+        e.launch_angle,
+        e.balls,
+        e.strikes,
+        e.inning,
+        e.inning_topbot,
+        e.outs_when_up,
+    )
+
+
+def _dedupe_pitch_events(events: List[StatcastEvent]) -> List[StatcastEvent]:
+    seen = set()
+    out: List[StatcastEvent] = []
+
+    for e in events:
+        key = _pitch_event_identity(e)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(e)
+
+    return out
+
+
+def _terminal_pa_identity(e: StatcastEvent) -> Tuple[Any, ...]:
+    if e.game_pk is not None and e.at_bat_number is not None:
+        return (
+            e.game_pk,
+            e.at_bat_number,
+            e.pitcher_id,
+            e.batter_id,
+        )
+
+    return (
+        e.game_date,
+        e.pitcher_id,
+        e.batter_id,
+        _clean_event_name(e.events),
+        e.inning,
+        e.inning_topbot,
+        e.outs_when_up,
+    )
+
+
+def _dedupe_terminal_pas(events: List[StatcastEvent]) -> List[StatcastEvent]:
+    seen = set()
+    out: List[StatcastEvent] = []
+
+    for e in events:
+        if not _is_terminal_event(e.events):
+            continue
+
+        key = _terminal_pa_identity(e)
+        if key in seen:
+            continue
+
+        seen.add(key)
+        out.append(e)
+
+    return out
+
+
 def get_pitcher_game_log(session: Session, pitcher_id: int, n: int = 10) -> List[Dict[str, Any]]:
-    date_rows = (
-        session.query(StatcastEvent.game_date)
-        .filter(StatcastEvent.pitcher_id == pitcher_id)
-        .distinct()
-        .order_by(StatcastEvent.game_date.desc())
+    game_rows = (
+        session.query(
+            StatcastEvent.game_pk,
+            func.max(StatcastEvent.game_date).label("game_date"),
+        )
+        .filter(
+            StatcastEvent.pitcher_id == pitcher_id,
+            StatcastEvent.game_date.isnot(None),
+        )
+        .group_by(StatcastEvent.game_pk)
+        .order_by(func.max(StatcastEvent.game_date).desc(), StatcastEvent.game_pk.desc().nullslast())
         .limit(n)
         .all()
     )
-    if not date_rows:
+
+    if not game_rows:
         return []
-    date_list = [r[0] for r in date_rows]
-    events = (
-        session.query(StatcastEvent)
-        .filter(StatcastEvent.pitcher_id == pitcher_id, StatcastEvent.game_date.in_(date_list))
-        .all()
-    )
-    by_date: Dict[str, List[StatcastEvent]] = {}
-    for e in _dedupe_events(events):
-        key = e.game_date.isoformat() if e.game_date else "unknown"
-        by_date.setdefault(key, []).append(e)
+
+    game_pks = [row.game_pk for row in game_rows if row.game_pk is not None]
+    date_only_rows = [row.game_date for row in game_rows if row.game_pk is None and row.game_date is not None]
+
+    query = session.query(StatcastEvent).filter(StatcastEvent.pitcher_id == pitcher_id)
+
+    filters = []
+    if game_pks:
+        filters.append(StatcastEvent.game_pk.in_(game_pks))
+    if date_only_rows:
+        filters.append(StatcastEvent.game_date.in_(date_only_rows))
+
+    if not filters:
+        return []
+
+    events = query.filter(or_(*filters)).all()
+
+    by_game: Dict[Tuple[Any, str], List[StatcastEvent]] = {}
+    for e in _dedupe_pitch_events(events):
+        game_date = e.game_date.isoformat() if e.game_date else "unknown"
+        game_key = e.game_pk if e.game_pk is not None else f"date:{game_date}"
+        by_game.setdefault((game_key, game_date), []).append(e)
+
     log = []
-    for d in sorted(by_date, reverse=True):
-        evs = by_date[d]
-        terminal = [e for e in evs if _is_terminal_event(e.events)]
+    for (game_key, game_date), evs in sorted(by_game.items(), key=lambda item: item[0][1], reverse=True):
+        terminal = _dedupe_terminal_pas(evs)
         outcomes = [_clean_event_name(e.events) for e in terminal]
-        ev_vals = [e.launch_speed for e in terminal if e.launch_speed is not None]
+
+        batted_balls = [e for e in terminal if e.launch_speed is not None]
         speeds = [e.release_speed for e in evs if e.release_speed is not None]
-        hard_hits = sum(1 for v in ev_vals if v >= 95)
+        hard_hits = sum(1 for e in batted_balls if e.launch_speed is not None and e.launch_speed >= 95)
+
         log.append({
-            "game_date": d,
+            "game_pk": game_key if not str(game_key).startswith("date:") else None,
+            "game_date": game_date,
             "pitch_count": len(evs),
             "plate_appearances": len(terminal),
-            "strikeouts": outcomes.count("strikeout") + outcomes.count("strikeout_double_play"),
-            "walks": outcomes.count("walk") + outcomes.count("intent_walk"),
-            "home_runs": outcomes.count("home_run"),
-            "hard_hit_pct": round(hard_hits / len(ev_vals), 3) if ev_vals else None,
+            "strikeouts": sum(1 for event in outcomes if event in STRIKEOUT_EVENTS),
+            "walks": sum(1 for event in outcomes if event in WALK_EVENTS or event in HBP_EVENTS),
+            "home_runs": sum(1 for event in outcomes if event == "home_run"),
+            "hard_hit_pct": round(hard_hits / len(batted_balls), 3) if batted_balls else None,
             "avg_velocity": round(sum(speeds) / len(speeds), 1) if speeds else None,
         })
-    return log
+
+    log.sort(key=lambda row: (row.get("game_date") or "", row.get("game_pk") or 0), reverse=True)
+    return log[:n]
 
 
 def get_pitcher_multi_season(session: Session, pitcher_id: int, seasons: List[int]) -> List[Dict[str, Any]]:
