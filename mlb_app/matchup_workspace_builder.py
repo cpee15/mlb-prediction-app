@@ -3,6 +3,7 @@ from typing import Dict, Any, List
 from .simulation.pa_outcome_model import build_pa_outcome_probabilities
 from .simulation.inning_simulator import simulate_half_innings
 from .simulation.game_simulator import simulate_game, simulate_game_with_bullpen
+from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 
 
 def _average_probability_dict(models: List[Dict[str, Any]]) -> Dict[str, float]:

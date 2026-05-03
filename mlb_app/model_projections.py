@@ -15,6 +15,7 @@ from .environment_profile import compute_environment_profile
 from .team_offense_prior import build_team_offense_prior
 from .simulation.pa_outcome_model import build_pa_outcome_probabilities
 from .simulation.game_simulator import simulate_game_with_bullpen
+from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 
 
 def _obj_to_dict(obj: Any, fields: List[str]) -> Dict[str, Any]:
@@ -555,8 +556,34 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
 
             workspace = simulation_cards.get("workspace") or {}
 
+            try:
+                shared_simulation = build_shared_game_simulation(
+                    game_pk=matchup.get("game_pk") or matchup.get("gamePk"),
+                    config={
+                        "date": target_date,
+                        "simulation_count": 3000,
+                        "seed": 42,
+                        "starter_exit_enabled": True,
+                        "source_route": "/models/projections",
+                    },
+                )
+            except Exception as shared_exc:
+                shared_simulation = {
+                    "status": "error",
+                    "error": str(shared_exc),
+                    "meta": {
+                        "game_pk": matchup.get("game_pk") or matchup.get("gamePk"),
+                        "source_route": "/models/projections",
+                    },
+                }
+            shared_outputs = shared_simulation.get("derived_outputs", {}) if isinstance(shared_simulation, dict) else {}
+            shared_game_sim = shared_outputs.get("game_simulation", {}) or {}
+            shared_bullpen_sim = shared_outputs.get("bullpen_adjusted_game_simulation", {}) or {}
+            projection_sim = shared_bullpen_sim or shared_game_sim
+
             games.append({
                 "game_pk": matchup.get("game_pk"),
+                "sharedSimulation": shared_simulation,
                 "game_date": matchup.get("game_date") or target_date,
                 "game_time": matchup.get("game_time"),
                 "status": matchup.get("status"),
@@ -566,7 +593,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 "home_team": {"id": home.get("team_id"), "name": home.get("team_name")},
                 "away_pitcher": {"id": away.get("pitcher_id"), "name": away.get("pitcher_name")},
                 "home_pitcher": {"id": home.get("pitcher_id"), "name": home.get("pitcher_name")},
-                "main_matchup_probabilities": {"away_win_prob": safe_float(matchup.get("away_win_prob")), "home_win_prob": safe_float(matchup.get("home_win_prob"))},
+                "main_matchup_probabilities": {
+                    "away_win_prob": projection_sim.get("away_win_probability"),
+                    "home_win_prob": projection_sim.get("home_win_probability"),
+                    "source": "sharedSimulation.derived_outputs.bullpen_adjusted_game_simulation",
+                    "legacy_away_win_prob": safe_float(matchup.get("away_win_prob")),
+                    "legacy_home_win_prob": safe_float(matchup.get("home_win_prob")),
+                },
                 "teams": {"away": away, "home": home},
                 "workspace": workspace,
             })
