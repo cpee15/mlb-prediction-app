@@ -576,6 +576,10 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                         "source_route": "/models/projections",
                     },
                 }
+            shared_outputs = shared_simulation.get("derived_outputs", {}) if isinstance(shared_simulation, dict) else {}
+            shared_game_sim = shared_outputs.get("game_simulation", {}) or {}
+            shared_bullpen_sim = shared_outputs.get("bullpen_adjusted_game_simulation", {}) or {}
+            projection_sim = shared_bullpen_sim or shared_game_sim
 
             games.append({
                 "game_pk": matchup.get("game_pk"),
@@ -589,7 +593,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 "home_team": {"id": home.get("team_id"), "name": home.get("team_name")},
                 "away_pitcher": {"id": away.get("pitcher_id"), "name": away.get("pitcher_name")},
                 "home_pitcher": {"id": home.get("pitcher_id"), "name": home.get("pitcher_name")},
-                "main_matchup_probabilities": {"away_win_prob": safe_float(matchup.get("away_win_prob")), "home_win_prob": safe_float(matchup.get("home_win_prob"))},
+                "main_matchup_probabilities": {
+                    "away_win_prob": projection_sim.get("away_win_probability"),
+                    "home_win_prob": projection_sim.get("home_win_probability"),
+                    "source": "sharedSimulation.derived_outputs.bullpen_adjusted_game_simulation",
+                    "legacy_away_win_prob": safe_float(matchup.get("away_win_prob")),
+                    "legacy_home_win_prob": safe_float(matchup.get("home_win_prob")),
+                },
                 "teams": {"away": away, "home": home},
                 "workspace": workspace,
             })
