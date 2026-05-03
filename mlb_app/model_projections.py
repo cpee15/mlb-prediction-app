@@ -15,6 +15,7 @@ from .environment_profile import compute_environment_profile
 from .team_offense_prior import build_team_offense_prior
 from .simulation.pa_outcome_model import build_pa_outcome_probabilities
 from .simulation.game_simulator import simulate_game_with_bullpen
+from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 
 
 def _obj_to_dict(obj: Any, fields: List[str]) -> Dict[str, Any]:
@@ -555,8 +556,30 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
 
             workspace = simulation_cards.get("workspace") or {}
 
+            try:
+                shared_simulation = build_shared_game_simulation(
+                    game_pk=matchup.get("game_pk") or matchup.get("gamePk"),
+                    config={
+                        "date": target_date,
+                        "simulation_count": 3000,
+                        "seed": 42,
+                        "starter_exit_enabled": True,
+                        "source_route": "/models/projections",
+                    },
+                )
+            except Exception as shared_exc:
+                shared_simulation = {
+                    "status": "error",
+                    "error": str(shared_exc),
+                    "meta": {
+                        "game_pk": matchup.get("game_pk") or matchup.get("gamePk"),
+                        "source_route": "/models/projections",
+                    },
+                }
+
             games.append({
                 "game_pk": matchup.get("game_pk"),
+                "sharedSimulation": shared_simulation,
                 "game_date": matchup.get("game_date") or target_date,
                 "game_time": matchup.get("game_time"),
                 "status": matchup.get("status"),
