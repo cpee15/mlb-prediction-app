@@ -32,7 +32,7 @@ def _load_sandbox_engine():
             from mlb_app.simulation.game_engine_v2 import ...
     """
     try:
-        import sandbox_matchup_engine_full as engine
+        from mlb_app.simulation.game_engine_v2 import run_full_game_simulation as engine
         return engine
     except Exception as exc:
         raise RuntimeError(
@@ -150,5 +150,5 @@ def build_game_simulation(
     """
 
     engine = _load_sandbox_engine()
-    payload = _call_engine(engine, int(game_pk), config or {})
+    payload = engine(int(game_pk), config or {})
     return _normalize_metadata(payload, game_pk=int(game_pk), config=config or {})
