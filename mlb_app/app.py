@@ -1883,16 +1883,38 @@ def create_app():
                 away_bp=away_vs_home_bullpen_pa_outcome_model,
                 home_bp=home_vs_away_bullpen_pa_outcome_model,
             )
+            shared_matchup_input = {
+                "game_pk": game_pk,
+                "game_date": game_date_iso,
+
+                "away_team_id": away_team_id,
+                "home_team_id": home_team_id,
+
+                "away_team_name": away_team.get("name"),
+                "home_team_name": home_team.get("name"),
+
+                "away_pitcher_id": away_pitcher_id,
+                "home_pitcher_id": home_pitcher_id,
+
+                "away_pitcher_name": away_pitcher.get("fullName"),
+                "home_pitcher_name": home_pitcher.get("fullName"),
+
+                "venue": {"name": venue_name},
+                "weather": game.get("weather") or {},
+            }
 
             try:
                 shared_game_simulation = build_shared_game_simulation(
                     game_pk=game_pk,
                     config={
+                        "matchup": {
+                            "raw": shared_matchup_input,
+                            "game_date": game_date_iso,
+                        },
                         "simulation_count": 5000,
                         "seed": 42,
                         "starter_exit_enabled": True,
-                        "source_route": "/matchup/{game_pk}",
-                    },
+                    }
                 )
             except Exception as shared_sim_exc:
                 shared_game_simulation = {

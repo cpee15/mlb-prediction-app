@@ -139,16 +139,16 @@ def build_game_simulation(
     game_pk: int,
     config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """
-    Single shared simulation builder for production routes.
-
-    Both:
-        /models/projections
-        /matchup/:game_pk
-
-    should call this function.
-    """
+    import traceback
 
     engine = _load_sandbox_engine()
-    payload = engine(int(game_pk), config or {})
-    return _normalize_metadata(payload, game_pk=int(game_pk), config=config or {})
+
+    try:
+        payload = engine(int(game_pk), config or {})
+        return _normalize_metadata(payload, game_pk=int(game_pk), config=config or {})
+    except Exception as exc:
+        return {
+            "status": "error",
+            "error": str(exc),
+            "traceback": traceback.format_exc(),  # 🔥 THIS IS THE KEY
+        }
