@@ -87,12 +87,10 @@ from .odds_provider import (
     fetch_draftkings_events,
 )
 
-from .batter_routes import router as batter_router
-from .offense_profile_aggregation import build_projected_lineup_offense_profile
-from .environment_profile import compute_environment_profile
 from .bullpen_profile import build_bullpen_profile
 from .pitcher_profile import compute_pitcher_profile
 from .matchup_analysis import build_matchup_analysis
+from .simulation.inning_simulator import simulate_half_innings
 from .matchup_workspace_builder import (
     build_lineup_pa_outcome_model,
     build_bullpen_pa_outcome_model,
