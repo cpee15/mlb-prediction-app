@@ -60,6 +60,7 @@ def _build_pa_model(
     opposing_pitcher_profile: Dict[str, Any],
     environment_profile: Dict[str, Any],
     side: str,
+    pitcher_role: str = "starter",
 ) -> Dict[str, Any]:
     """
     Transparent PA probability model.
@@ -105,20 +106,35 @@ def _build_pa_model(
     hr_env = pick(environment_profile, ["hr_boost_index"], 1.0)
     hit_env = pick(environment_profile, ["hit_boost_index"], 1.0)
 
+    role = (pitcher_role or "starter").lower()
+
+    if role == "bullpen":
+        # Bullpen profile is a staff aggregate, so shrink slightly more toward offense/league priors.
+        k_off_w, k_pitch_w = 0.55, 0.45
+        bb_off_w, bb_pitch_w = 0.55, 0.45
+        hit_off_w, hit_pitch_w, xwoba_w = 0.58, 0.32, 0.10
+        power_iso_w, power_slg_w, power_hard_hit_w, power_xwoba_w = 0.46, 0.22, 0.18, 0.14
+    else:
+        # Starter profile is more pitcher-specific, especially for K/contact management.
+        k_off_w, k_pitch_w = 0.45, 0.55
+        bb_off_w, bb_pitch_w = 0.50, 0.50
+        hit_off_w, hit_pitch_w, xwoba_w = 0.50, 0.40, 0.10
+        power_iso_w, power_slg_w, power_hard_hit_w, power_xwoba_w = 0.40, 0.20, 0.25, 0.15
+
     # -------------------------
     # Probability blends
     # -------------------------
-    k_prob = clamp((0.50 * off_k) + (0.50 * pit_k), 0.12, 0.36)
-    bb_prob = clamp((0.55 * off_bb) + (0.45 * pit_bb), 0.04, 0.15)
+    k_prob = clamp((k_off_w * off_k) + (k_pitch_w * pit_k), 0.12, 0.36)
+    bb_prob = clamp((bb_off_w * off_bb) + (bb_pitch_w * pit_bb), 0.04, 0.15)
 
-    base_hit_prob = (0.55 * off_avg) + (0.35 * pit_xba) + (0.10 * (pit_xwoba - 0.070))
+    base_hit_prob = (hit_off_w * off_avg) + (hit_pitch_w * pit_xba) + (xwoba_w * (pit_xwoba - 0.070))
     hit_prob = clamp(base_hit_prob * hit_env * (0.98 + 0.02 * run_env), 0.17, 0.36)
 
     power_index = (
-        (0.45 * off_iso)
-        + (0.25 * max(off_slg - 0.300, 0.0))
-        + (0.20 * pit_hard_hit)
-        + (0.10 * pit_xwoba)
+        (power_iso_w * off_iso)
+        + (power_slg_w * max(off_slg - 0.300, 0.0))
+        + (power_hard_hit_w * pit_hard_hit)
+        + (power_xwoba_w * pit_xwoba)
     )
 
     hr_prob = clamp(((0.70 * pit_hr) + (0.30 * power_index * 0.12)) * hr_env, 0.010, 0.075)
@@ -217,6 +233,18 @@ def _build_pa_model(
                 "hr_boost_index": hr_env,
                 "hit_boost_index": hit_env,
             },
+            "role_weighting": {
+                "pitcher_role": role,
+                "k_weights": {"offense": k_off_w, "pitcher": k_pitch_w},
+                "bb_weights": {"offense": bb_off_w, "pitcher": bb_pitch_w},
+                "hit_weights": {"offense": hit_off_w, "pitcher_xba": hit_pitch_w, "pitcher_xwoba": xwoba_w},
+                "power_weights": {
+                    "offense_iso": power_iso_w,
+                    "offense_slg": power_slg_w,
+                    "pitcher_hard_hit": power_hard_hit_w,
+                    "pitcher_xwoba": power_xwoba_w,
+                },
+            },
         },
     }
 
@@ -270,6 +298,7 @@ def _build_bullpen_pa_model(
         opposing_pitcher_profile=opposing_bullpen_profile,
         environment_profile=environment_profile,
         side=side,
+        pitcher_role="bullpen",
     )
 
     payload["model_version"] = "transparent-bullpen-pa-model-v1"
