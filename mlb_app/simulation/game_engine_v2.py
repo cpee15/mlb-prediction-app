@@ -14,7 +14,6 @@ from mlb_app.model_projections import (
 )
 from mlb_app.environment_profile import compute_environment_profile
 from mlb_app.bullpen_profile import build_bullpen_profile
-from mlb_app.simulation.pa_outcome_model import build_pa_outcome_probabilities
 from mlb_app.simulation.inning_simulator import simulate_half_innings
 from mlb_app.simulation.game_simulator import simulate_game, simulate_game_with_bullpen
 
@@ -266,21 +265,15 @@ def _build_bullpen_pa_model(
     environment_profile: Dict[str, Any],
     side: str,
 ) -> Dict[str, Any]:
-    model = build_pa_outcome_probabilities(
-        batter_profile=offense_profile,
-        pitcher_profile=opposing_bullpen_profile,
+    payload = _build_pa_model(
+        offense_profile=offense_profile,
+        opposing_pitcher_profile=opposing_bullpen_profile,
         environment_profile=environment_profile,
-    ) or {}
+        side=side,
+    )
 
-    payload = {
-        "model_version": "shared-bullpen-pa-outcome-v1",
-        "side": side,
-        "lineup_average_probabilities": model.get("probabilities") or {},
-        "lineup_average_summary": model.get("summary") or {},
-        "source_model": model,
-    }
-
-    return payload  # ✅ FIXED
+    payload["model_version"] = "transparent-bullpen-pa-model-v1"
+    return payload
 
 
 def _build_bullpen_adjusted_game_sim(
