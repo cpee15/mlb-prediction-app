@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react'
 import { fmtPct, fmtDec } from '../utils/formatters'
 import { useParams, Link } from 'react-router-dom'
+import { API_BASE } from '../lib/api'
 
-const API = import.meta.env.VITE_API_BASE_URL || ''
+const API = API_BASE
 
 const PITCH_NAMES = {
   FF: '4-Seam', SI: 'Sinker', FC: 'Cutter', FS: 'Splitter',

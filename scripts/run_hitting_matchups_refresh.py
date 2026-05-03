@@ -435,6 +435,86 @@ def _upsert_matchup_row(session, target: Dict[str, Any], summary: Dict[str, Any]
     return record
 
 
+def _stored_row_needs_gap_fill(session, target: Dict[str, Any], pitch_type: str) -> bool:
+    target_date = _parse_iso_date(target.get("date"))
+
+    record = (
+        session.query(BatterPitchTypeMatchup)
+        .filter(
+            BatterPitchTypeMatchup.batter_id == target["batter_id"],
+            BatterPitchTypeMatchup.opposing_pitcher_id == target["opposing_pitcher_id"],
+            BatterPitchTypeMatchup.pitch_type == pitch_type,
+            BatterPitchTypeMatchup.target_date == target_date,
+            BatterPitchTypeMatchup.days_back == DAYS_BACK,
+        )
+        .first()
+    )
+
+    if record is None:
+        return True
+
+    if not record.refreshed_at:
+        return True
+
+    if record.refreshed_at.date() < dt.datetime.utcnow().date():
+        return True
+
+    if int(record.raw_rows or 0) <= 0 and int(record.pitches_seen or 0) <= 0:
+        return True
+
+    return False
+
+
+def _gap_fill_missing_stored_365_rows(session, targets: List[Dict[str, Any]], output: Dict[str, Any]) -> None:
+    checked = 0
+    gapfilled = 0
+    still_missing = 0
+
+    for target in targets:
+        season = int(str(target["date"])[:4])
+        pitch_types = _pitch_types_for_pitcher(session, target["opposing_pitcher_id"], season)
+
+        if not pitch_types:
+            continue
+
+        for pitch_type in pitch_types:
+            checked += 1
+
+            if not _stored_row_needs_gap_fill(session, target, pitch_type):
+                continue
+
+            summary = build_batter_pitch_type_summary(
+                session=session,
+                batter_id=target["batter_id"],
+                pitch_type=pitch_type,
+                days_back=DAYS_BACK,
+            )
+
+            record = _upsert_matchup_row(session, target, summary)
+            gapfilled += 1
+
+            if int(summary.get("raw_rows") or 0) <= 0 and int(summary.get("pitches_seen") or 0) <= 0:
+                still_missing += 1
+
+            output["rows"].append({
+                **target,
+                **summary,
+                "aggregate_id": getattr(record, "id", None),
+                "gap_fill": True,
+            })
+
+    output["gap_fill_checked_rows"] = checked
+    output["gap_fill_upserted_rows"] = gapfilled
+    output["gap_fill_still_missing_rows"] = still_missing
+
+    _log(
+        f"Stored 365 gap-fill complete: "
+        f"checked={checked}; "
+        f"gapfilled={gapfilled}; "
+        f"still_missing={still_missing}"
+    )
+
+
 def run() -> Dict[str, Any]:
     _validate_runtime()
     engine = get_engine(DATABASE_URL)
@@ -458,6 +538,9 @@ def run() -> Dict[str, Any]:
         "skipped_no_arsenal": 0,
         "rows_with_raw_statcast": 0,
         "rows_without_raw_statcast": 0,
+        "gap_fill_checked_rows": 0,
+        "gap_fill_upserted_rows": 0,
+        "gap_fill_still_missing_rows": 0,
     }
 
     with Session() as session:
@@ -487,6 +570,8 @@ def run() -> Dict[str, Any]:
                     output["rows_without_raw_statcast"] += 1
                 output["rows"].append({**target, **summary, "aggregate_id": getattr(record, "id", None)})
 
+        _gap_fill_missing_stored_365_rows(session, targets, output)
+
         session.commit()
 
     output_path = Path(OUTPUT_PATH)
@@ -496,6 +581,9 @@ def run() -> Dict[str, Any]:
         f"Upserted {output['upserted_rows']} hittingMatchups rows; "
         f"rows_with_raw_statcast={output['rows_with_raw_statcast']}; "
         f"rows_without_raw_statcast={output['rows_without_raw_statcast']}; "
+        f"gap_fill_checked_rows={output['gap_fill_checked_rows']}; "
+        f"gap_fill_upserted_rows={output['gap_fill_upserted_rows']}; "
+        f"gap_fill_still_missing_rows={output['gap_fill_still_missing_rows']}; "
         f"skipped_no_arsenal={output['skipped_no_arsenal']}; "
         f"wrote JSON artifact to {output_path}"
     )
