@@ -159,8 +159,13 @@ def _build_pa_model(
     k_prob = clamp((k_off_w * off_k) + (k_pitch_w * pit_k), 0.12, 0.36)
     bb_prob = clamp((bb_off_w * off_bb) + (bb_pitch_w * pit_bb), 0.04, 0.15)
 
-    base_hit_prob = (hit_off_w * off_avg) + (hit_pitch_w * pit_xba) + (xwoba_w * (pit_xwoba - 0.070))
-    hit_prob = clamp(base_hit_prob * hit_env * (0.98 + 0.02 * run_env), 0.17, 0.36)
+    # Center pitcher xwOBA around league-average run quality before using it
+    # as a hit-probability adjustment. The previous formulation subtracted
+    # 0.070, which made xwOBA behave like a second batting-average input and
+    # inflated hit rates / suppressed contact outs.
+    xwoba_hit_adjustment = xwoba_w * (pit_xwoba - 0.320)
+    base_hit_prob = (hit_off_w * off_avg) + (hit_pitch_w * pit_xba) + xwoba_hit_adjustment
+    hit_prob = clamp(base_hit_prob * hit_env * (0.98 + 0.02 * run_env), 0.17, 0.32)
 
     power_index = (
         (power_iso_w * off_iso)
