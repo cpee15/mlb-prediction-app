@@ -138,6 +138,10 @@ def _normalize(value: Optional[float], baseline: float) -> float:
 
 
 def _logistic(x: float) -> float:
+    if x > 20:
+        return 1.0
+    if x < -20:
+        return 0.0
     return 1.0 / (1.0 + math.exp(-x))
 
 
