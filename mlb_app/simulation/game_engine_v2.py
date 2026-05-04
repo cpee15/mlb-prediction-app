@@ -85,6 +85,15 @@ def _build_pa_model(
     environment_profile = environment_profile or {}
 
     def pick(source: Dict[str, Any], keys, default):
+        def values_from_nested(obj):
+            if not isinstance(obj, dict):
+                return
+            for value in obj.values():
+                if isinstance(value, dict):
+                    yield from values_from_nested(value)
+                else:
+                    yield value
+
         for key in keys:
             value = source.get(key)
             if value is not None:
@@ -92,6 +101,18 @@ def _build_pa_model(
                     return float(value)
                 except (TypeError, ValueError):
                     return default
+
+        for section in source.values():
+            if not isinstance(section, dict):
+                continue
+            for key in keys:
+                value = section.get(key)
+                if value is not None:
+                    try:
+                        return float(value)
+                    except (TypeError, ValueError):
+                        return default
+
         return default
 
     def clamp(value: float, low: float, high: float) -> float:
