@@ -104,7 +104,7 @@ from mlb_app.simulation.game_simulation_builder import build_game_simulation as 
 from .daily_odds_routes import router as daily_odds_router
 from .simulation.inning_simulator import simulate_half_innings
 from .model_projection_routes import router as model_projection_router
-
+from .starting_pitcher_arsenal_refresh import refresh_starting_pitcher_arsenal
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 MLB_LIVE_FEED_BASE = "https://statsapi.mlb.com/api/v1.1/game"
@@ -1680,9 +1680,24 @@ def create_app():
                     }
 
                 agg, data_source = get_pitcher_aggregate_with_fallback(session, pid, season)
-                arsenal, arsenal_season = get_pitch_arsenal_with_fallback(session, pid, season)
 
-                arsenal_rows = _normalize_arsenal_to_dicts(arsenal)
+                try:
+                    arsenal_rows = refresh_starting_pitcher_arsenal(
+                        session=session,
+                        pitcher_id=pid,
+                        season=season,
+                        target_date=game_date_iso,
+                        window_days=365,
+                    )
+                    arsenal_season = season if arsenal_rows else None
+                except Exception:
+                    arsenal_rows = []
+                    arsenal_season = None
+
+                if not arsenal_rows:
+                    arsenal, arsenal_season = get_pitch_arsenal_with_fallback(session, pid, season)
+                    arsenal_rows = _normalize_arsenal_to_dicts(arsenal)
+
                 if not arsenal_rows:
                     live_arsenal, live_season = _fetch_live_pitch_arsenal(pid, season)
                     if live_arsenal:
