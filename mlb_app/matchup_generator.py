@@ -81,6 +81,76 @@ def _format_batter_features(session: Session, batter_id: int) -> Dict[str, Optio
     }
 
 
+def _format_team_offense_inputs(session: Session, team_id: int, season: int, split: str = "vsR") -> Dict[str, Optional[float]]:
+    """
+    Team-level offense inputs for game simulation.
+
+    This is intentionally conservative: use team_splits when lineup-level inputs
+    are not yet available. Compute ISO from SLG - AVG because the stored iso
+    field may contain OPS in older ETL rows.
+    """
+    row = get_team_split(session, team_id, season, split) or get_team_split(
+        session,
+        team_id,
+        season,
+        "vsL" if split == "vsR" else "vsR",
+    )
+
+    if not row:
+        return {
+            "source": "missing_team_splits",
+            "team_id": team_id,
+            "season": season,
+            "split": split,
+            "pa": None,
+            "hits": None,
+            "doubles": None,
+            "triples": None,
+            "home_runs": None,
+            "walks": None,
+            "strikeouts": None,
+            "batting_avg": None,
+            "on_base_pct": None,
+            "slugging_pct": None,
+            "iso": None,
+            "k_pct": None,
+            "bb_pct": None,
+        }
+
+    batting_avg = row.batting_avg
+    slugging_pct = row.slugging_pct
+    computed_iso = None
+    if batting_avg is not None and slugging_pct is not None:
+        computed_iso = round(max(float(slugging_pct) - float(batting_avg), 0.0), 3)
+
+    return {
+        "source": "team_splits",
+        "team_id": team_id,
+        "season": season,
+        "split": row.split,
+        "pa": row.pa,
+        "hits": row.hits,
+        "doubles": row.doubles,
+        "triples": row.triples,
+        "home_runs": row.home_runs,
+        "walks": row.walks,
+        "strikeouts": row.strikeouts,
+        "batting_avg": batting_avg,
+        "on_base_pct": row.on_base_pct,
+        "slugging_pct": slugging_pct,
+        "iso": computed_iso,
+        "stored_iso": row.iso,
+        "k_pct": row.k_pct,
+        "bb_pct": row.bb_pct,
+        "lineup_source": "team_splits_fallback_not_confirmed_lineup",
+        "sample_blend": {
+            "type": "team_split",
+            "season": season,
+            "split": row.split,
+        },
+    }
+
+
 def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
     try:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
@@ -123,6 +193,8 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
             "away_pitcher_features": {},
             "home_pitch_arsenal": {},
             "away_pitch_arsenal": {},
+            "home_offense_inputs": {},
+            "away_offense_inputs": {},
         }
 
         if not all([home_team, away_team, home_pitcher_id, away_pitcher_id]):
@@ -172,6 +244,22 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
                 date_str,
                 home_pitcher_id,
                 away_pitcher_id,
+                season,
+            )
+
+        try:
+            home_split = "vsL" if game.get("away", {}).get("probablePitcher", {}).get("pitchHand", {}).get("code") == "L" else "vsR"
+            away_split = "vsL" if game.get("home", {}).get("probablePitcher", {}).get("pitchHand", {}).get("code") == "L" else "vsR"
+
+            base_matchup["home_offense_inputs"] = _format_team_offense_inputs(session, home_team, season, home_split)
+            base_matchup["away_offense_inputs"] = _format_team_offense_inputs(session, away_team, season, away_split)
+        except Exception:
+            log.exception(
+                "Team offense input formatting failed for game_pk=%s date=%s home_team_id=%s away_team_id=%s season=%s",
+                game.get("_game_pk"),
+                date_str,
+                home_team,
+                away_team,
                 season,
             )
 
