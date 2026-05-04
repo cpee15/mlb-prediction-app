@@ -153,6 +153,37 @@ function findModel(team, name) {
   return (team?.models || []).find(m => m?.model_name === name)
 }
 
+function getSharedSimulation(game) {
+  return game?.sharedSimulation || {}
+}
+
+function getSharedDerivedSimulation(game) {
+  const shared = getSharedSimulation(game)
+  const derived = shared?.derived_outputs || {}
+  return (
+    derived.bullpen_adjusted_game_simulation ||
+    derived.game_simulation ||
+    {}
+  )
+}
+
+function getSharedMeta(game) {
+  const shared = getSharedSimulation(game)
+  return shared?.meta || shared?.metadata || {}
+}
+
+function getSharedFormulaMap(game) {
+  return getSharedSimulation(game)?.formulaMap || {}
+}
+
+function getSharedDirectInputs(game) {
+  return getSharedSimulation(game)?.direct_inputs || {}
+}
+
+function getSharedPAModels(game) {
+  return getSharedSimulation(game)?.pa_models || {}
+}
+
 function isSimulationModel(model) {
   return String(model?.model_name || '').startsWith('Simulation:')
 }
@@ -357,13 +388,24 @@ function OverviewTab({ game, awayRunModel, homeRunModel, totalModel }) {
   const homeInputs = homeRunModel?.inputs || {}
   const totalInputs = totalModel?.inputs || {}
 
+  const sharedSim = getSharedDerivedSimulation(game)
+  const totals = sharedSim.calibrated_total_probabilities || sharedSim.total_probabilities || {}
+
+  const totalExpectedRuns = sharedSim.total_expected_runs ?? totalInputs.total_expected_runs ?? totalModel?.score
+  const awayExpectedRuns = sharedSim.away_expected_runs ?? awayInputs.expected_runs ?? awayRunModel?.score
+  const homeExpectedRuns = sharedSim.home_expected_runs ?? homeInputs.expected_runs ?? homeRunModel?.score
+  const awayWinProbability = sharedSim.away_win_probability ?? awayInputs.win_probability
+  const homeWinProbability = sharedSim.home_win_probability ?? homeInputs.win_probability
+
   return (
     <>
       <div style={s.grid}>
-        <MetricCard labelText="Projected Total" value={totalInputs.total_expected_runs ?? totalModel?.score} />
-        <MetricCard labelText={`${game?.away_team?.name || away?.team_name || 'Away'} Win`} value={awayInputs.win_probability} format="pct" />
-        <MetricCard labelText={`${game?.home_team?.name || home?.team_name || 'Home'} Win`} value={homeInputs.win_probability} format="pct" />
-        <MetricCard labelText="Over 8.5" value={totalInputs.over_8_5} format="pct" />
+        <MetricCard labelText="Projected Total" value={totalExpectedRuns} />
+        <MetricCard labelText={`${game?.away_team?.name || away?.team_name || 'Away'} Runs`} value={awayExpectedRuns} />
+        <MetricCard labelText={`${game?.home_team?.name || home?.team_name || 'Home'} Runs`} value={homeExpectedRuns} />
+        <MetricCard labelText={`${game?.away_team?.name || away?.team_name || 'Away'} Win`} value={awayWinProbability} format="pct" />
+        <MetricCard labelText={`${game?.home_team?.name || home?.team_name || 'Home'} Win`} value={homeWinProbability} format="pct" />
+        <MetricCard labelText="Over 8.5" value={totals['over_8.5'] ?? totalInputs.over_8_5} format="pct" />
       </div>
 
       <div style={s.splitGrid}>
@@ -567,13 +609,44 @@ function BullpenProfilePanel({ labelText, profile }) {
   )
 }
 
-function SimulationTab({ workspace }) {
-  const sim = workspace?.bullpenAdjustedGameSimulation || {}
+function ModelContractPanel({ game }) {
+  const meta = getSharedMeta(game)
+  const shared = getSharedSimulation(game)
+
+  return (
+    <GenericPanel
+      title="Model Contract"
+      subtitle={meta.model_version || shared.model_version || 'shared simulation'}
+      tag="Diagnostic"
+      tagTone="diagnostic"
+    >
+      <StatRow k="Status" v={shared.status} />
+      <StatRow k="Source Builder" v={meta.source_builder} />
+      <StatRow k="Simulation Count" v={meta.simulation_count} format="num" />
+      <StatRow k="Seed" v={meta.seed} format="num" />
+      <StatRow k="Starter Exit Enabled" v={meta.starter_exit_enabled ? 'true' : 'false'} />
+      <StatRow k="Starter Quality Score" v={meta.starter_quality_score} format="decimal" />
+      <StatRow k="Starter Quality Label" v={meta.starter_quality_label} />
+      <StatRow k="Calibration Version" v={meta.calibration_version} />
+      <StatRow k="Offense Source" v={meta.offense_source} />
+      <StatRow k="Pitcher Source" v={meta.pitcher_source} />
+      <StatRow k="Bullpen Source" v={meta.bullpen_source} />
+      <StatRow k="Environment Source" v={meta.environment_source} />
+      {shared.error ? <StatRow k="Shared Simulation Error" v={shared.error} /> : null}
+    </GenericPanel>
+  )
+}
+
+function SimulationTab({ workspace, game }) {
+  const sharedSim = getSharedDerivedSimulation(game)
+  const sim = Object.keys(sharedSim || {}).length ? sharedSim : (workspace?.bullpenAdjustedGameSimulation || {})
   const totals = sim.calibrated_total_probabilities || sim.total_probabilities || {}
   const teamTotals = sim.calibrated_team_total_probabilities || sim.team_total_probabilities || {}
 
   return (
     <div style={s.splitGrid}>
+      <ModelContractPanel game={game} />
+
       <GenericPanel title="Game Simulation" subtitle={sim.model_version || 'bullpen adjusted simulation'}>
         <StatRow k="Total Expected Runs" v={sim.total_expected_runs} format="num" />
         <StatRow k="Away Expected Runs" v={sim.away_expected_runs} format="num" />
@@ -650,6 +723,13 @@ function DiagnosticsTab({ game }) {
 
   return (
     <div>
+      <details style={s.details}>
+        <summary style={s.summary}>Shared simulation payload</summary>
+        <pre style={{ whiteSpace: 'pre-wrap', color: '#c9d1d9', fontFamily: 'inherit' }}>
+          {JSON.stringify(game?.sharedSimulation || {}, null, 2)}
+        </pre>
+      </details>
+
       {diagnosticModels.length ? diagnosticModels.map((model, idx) => (
         <DiagnosticModelCard key={`${model?.model_name || 'model'}-${idx}`} model={model} />
       )) : <div style={s.noData}>No diagnostic models available.</div>}
@@ -685,7 +765,7 @@ function GameProjectionCard({ game }) {
     if (activeTab === 'environment') return <EnvironmentTab workspace={workspace} />
     if (activeTab === 'matchup') return <MatchupTab workspace={workspace} />
     if (activeTab === 'bullpen') return <BullpenTab workspace={workspace} />
-    if (activeTab === 'simulation') return <SimulationTab workspace={workspace} />
+    if (activeTab === 'simulation') return <SimulationTab workspace={workspace} game={game} />
     if (activeTab === 'diagnostics') return <DiagnosticsTab game={game} />
     return null
   }
