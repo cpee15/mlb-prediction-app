@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""Railway cron entrypoint for incremental refreshes across production and sandbox.
+"""Railway cron entrypoint for matchup refreshes.
 
-This script is designed for a separate Railway cron/worker service and should
-never start the web server.
+This worker intentionally separates the fast, user-facing matchup refresh path
+from heavy Statcast repair/backfill work.
 
-Behavior:
+Default fast mode:
 - verifies the app imports cleanly
-- runs a guarded Statcast ETL refresh before warming matchup payloads
-- runs a capped hitter Statcast backfill for today/tomorrow lineup hitters
-- runs a guarded hittingMatchups refresh so batter_pitch_type_matchups is populated
+- runs the hittingMatchups refresh so batter_pitch_type_matchups / Stored 365 rows are populated
 - refreshes live matchup payloads for today and tomorrow
 - warms matchup snapshots for today and tomorrow
-- does this for both production and sandbox targets
-- exits non-zero if any configured target fails
+
+Optional heavy recovery mode:
+- set RUN_STATCAST_ETL=1 to run Statcast ETL/backfill
+- set RUN_HITTER_STATCAST_BACKFILL=1 to run the wider hitter Statcast backfill
+
+Stored 365 cards should not wait behind a multi-day ETL unless heavy recovery is
+explicitly enabled in Railway.
 """
 
 from __future__ import annotations
@@ -32,12 +35,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("REFRESH_TIMEOUT_SECONDS", "60"))
+RUN_FAST_MATCHUP_REFRESH = os.environ.get("RUN_FAST_MATCHUP_REFRESH", "1") == "1"
 WARM_SNAPSHOTS = os.environ.get("WARM_MATCHUP_SNAPSHOTS", "1") == "1"
 REFRESH_MATCHUPS_FIRST = os.environ.get("REFRESH_MATCHUPS_FIRST", "1") == "1"
-RUN_STATCAST_ETL = os.environ.get("RUN_STATCAST_ETL", "1") == "1"
-RUN_HITTER_STATCAST_BACKFILL = os.environ.get("RUN_HITTER_STATCAST_BACKFILL", "1") == "1"
+RUN_STATCAST_ETL = os.environ.get("RUN_STATCAST_ETL", "0") == "1"
+RUN_HITTER_STATCAST_BACKFILL = os.environ.get("RUN_HITTER_STATCAST_BACKFILL", "0") == "1"
 RUN_HITTING_MATCHUPS_REFRESH = os.environ.get("RUN_HITTING_MATCHUPS_REFRESH", "1") == "1"
-REFRESH_ETL_BACKFILL_DAYS = int(os.environ.get("REFRESH_ETL_BACKFILL_DAYS", "7"))
+REFRESH_ETL_BACKFILL_DAYS = int(os.environ.get("REFRESH_ETL_BACKFILL_DAYS", "1"))
 os.environ.setdefault("STATCAST_LOOKBACK_DAYS", "365")
 os.environ.setdefault("HITTING_MATCHUPS_DAYS_BACK", "365")
 os.environ.setdefault("HITTING_MATCHUPS_MAX_BATTERS", "240")
@@ -156,7 +160,12 @@ def _run_hitting_matchups_refresh() -> None:
     _log(
         "hittingMatchups refresh completed: "
         f"targets={result.get('target_count')}, "
-        f"upserted_rows={result.get('upserted_rows')}"
+        f"upserted_rows={result.get('upserted_rows')}, "
+        f"rows_with_raw_statcast={result.get('rows_with_raw_statcast')}, "
+        f"rows_without_raw_statcast={result.get('rows_without_raw_statcast')}, "
+        f"gap_fill_checked_rows={result.get('gap_fill_checked_rows')}, "
+        f"gap_fill_upserted_rows={result.get('gap_fill_upserted_rows')}, "
+        f"gap_fill_still_missing_rows={result.get('gap_fill_still_missing_rows')}"
     )
 
 
@@ -197,39 +206,18 @@ def _run_target(label: str, base_url: str) -> None:
             _warm_snapshot_for_date(label, base_url, target_date)
 
 
-def main() -> int:
-    _log("Starting Railway refresh job")
-
-    try:
-        import mlb_app.app  # noqa: F401
-    except Exception as exc:
-        _log(f"Failed to import app module: {exc}")
-        return 1
-
-    try:
-        _run_statcast_etl_refresh()
-    except Exception as exc:
-        _log(f"Statcast ETL refresh failed: {exc}")
-        return 1
-
-    try:
-        _run_hitter_statcast_backfill()
-    except Exception as exc:
-        _log(f"Hitter Statcast backfill failed: {exc}")
-        return 1
+def _run_fast_matchup_refresh() -> None:
+    if not RUN_FAST_MATCHUP_REFRESH:
+        _log("Skipping fast matchup refresh because RUN_FAST_MATCHUP_REFRESH=0")
+        return
 
     try:
         _run_hitting_matchups_refresh()
     except Exception as exc:
         _log(f"hittingMatchups refresh failed: {exc}")
-        return 1
+        raise
 
-    try:
-        targets = _load_targets()
-    except Exception as exc:
-        _log(str(exc))
-        return 1
-
+    targets = _load_targets()
     failures: list[str] = []
 
     for label, base_url in targets:
@@ -251,9 +239,45 @@ def main() -> int:
             failures.append(message)
 
     if failures:
-        _log("Refresh job completed with failures:")
+        _log("Fast matchup refresh completed with target failures:")
         for failure in failures:
             _log(f" - {failure}")
+        raise RuntimeError("One or more refresh targets failed")
+
+
+def main() -> int:
+    _log("Starting Railway refresh job")
+    _log(
+        "Refresh mode: "
+        f"fast_matchup_refresh={int(RUN_FAST_MATCHUP_REFRESH)}, "
+        f"run_statcast_etl={int(RUN_STATCAST_ETL)}, "
+        f"etl_backfill_days={REFRESH_ETL_BACKFILL_DAYS}, "
+        f"run_hitter_statcast_backfill={int(RUN_HITTER_STATCAST_BACKFILL)}, "
+        f"run_hitting_matchups_refresh={int(RUN_HITTING_MATCHUPS_REFRESH)}"
+    )
+
+    try:
+        import mlb_app.app  # noqa: F401
+    except Exception as exc:
+        _log(f"Failed to import app module: {exc}")
+        return 1
+
+    try:
+        _run_fast_matchup_refresh()
+    except Exception as exc:
+        _log(f"Fast matchup refresh failed: {exc}")
+        return 1
+
+    try:
+        _run_statcast_etl_refresh()
+    except Exception as exc:
+        _log(f"Statcast ETL refresh failed: {exc}")
+        return 1
+
+    try:
+        _run_hitter_statcast_backfill()
+    except Exception as exc:
+        _log(f"Hitter Statcast backfill failed: {exc}")
         return 1
 
     _log("Refresh job completed successfully")
