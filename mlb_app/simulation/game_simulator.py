@@ -76,6 +76,10 @@ GAME_SIM_CALIBRATION = {
     # Pull extreme team totals modestly toward a neutral MLB-ish scoring level.
     "team_run_regression_anchor": 4.45,
     "team_run_regression_weight": 0.12,
+    # First-pass probability calibration. Backtest showed run means were
+    # calibrated but win probabilities were too confident at the extremes.
+    # Keep direction/order, but shrink raw simulation win frequency toward 50%.
+    "win_probability_confidence_scale": 0.75,
 }
 
 
@@ -87,6 +91,18 @@ def _calibrate_expected_runs(raw_runs: float) -> float:
     shrunk = raw_runs * shrinkage
     calibrated = (shrunk * (1.0 - regression_weight)) + (anchor * regression_weight)
     return round(calibrated, 4)
+
+
+def _calibrate_win_probability(raw_probability: float) -> float:
+    """
+    Shrink raw simulation win frequency toward 50%.
+
+    This is intentionally conservative. It addresses observed overconfidence
+    in probability extremes without changing the underlying run simulation.
+    """
+    scale = GAME_SIM_CALIBRATION["win_probability_confidence_scale"]
+    calibrated = 0.5 + ((raw_probability - 0.5) * scale)
+    return max(0.001, min(0.999, calibrated))
 
 
 def simulate_game(
@@ -141,8 +157,10 @@ def simulate_game(
     total_expected_runs = round(away_expected_runs + home_expected_runs, 4)
 
     # V1 has no extras. Split regulation ties evenly for a rough win-probability estimate.
-    home_win_probability = (home_wins + (ties_after_regulation * 0.5)) / simulations
-    away_win_probability = (away_wins + (ties_after_regulation * 0.5)) / simulations
+    raw_home_win_probability = (home_wins + (ties_after_regulation * 0.5)) / simulations
+    raw_away_win_probability = (away_wins + (ties_after_regulation * 0.5)) / simulations
+    home_win_probability = _calibrate_win_probability(raw_home_win_probability)
+    away_win_probability = _calibrate_win_probability(raw_away_win_probability)
 
     calibrated_total_runs_counter = _calibrated_counter_by_mean_shift(
         total_runs_counter,
@@ -190,6 +208,10 @@ def simulate_game(
         "raw_total_expected_runs": round(raw_total_expected_runs, 4),
         "away_win_probability": round(away_win_probability, 4),
         "home_win_probability": round(home_win_probability, 4),
+        "raw_away_win_probability": round(raw_away_win_probability, 4),
+        "raw_home_win_probability": round(raw_home_win_probability, 4),
+        "raw_away_win_probability": round(raw_away_win_probability, 4),
+        "raw_home_win_probability": round(raw_home_win_probability, 4),
         "tie_after_regulation_probability": round(ties_after_regulation / simulations, 4),
         "away_run_distribution": _distribution(away_runs_counter, simulations),
         "home_run_distribution": _distribution(home_runs_counter, simulations),
@@ -417,8 +439,10 @@ def simulate_game_with_bullpen(
     home_expected_runs = _calibrate_expected_runs(raw_home_expected_runs)
     total_expected_runs = round(away_expected_runs + home_expected_runs, 4)
 
-    home_win_probability = (home_wins + (ties_after_regulation * 0.5)) / simulations
-    away_win_probability = (away_wins + (ties_after_regulation * 0.5)) / simulations
+    raw_home_win_probability = (home_wins + (ties_after_regulation * 0.5)) / simulations
+    raw_away_win_probability = (away_wins + (ties_after_regulation * 0.5)) / simulations
+    home_win_probability = _calibrate_win_probability(raw_home_win_probability)
+    away_win_probability = _calibrate_win_probability(raw_away_win_probability)
 
     calibrated_total_runs_counter = _calibrated_counter_by_mean_shift(
         total_runs_counter,
@@ -515,7 +539,7 @@ def simulate_game_with_bullpen(
             "home_starter_innings_distribution": _distribution(home_starter_innings_counter, simulations),
             "bullpen_innings": max(0, innings - starter_innings),
             **GAME_SIM_CALIBRATION,
-            "calibration_applied_to": ["expected_runs", "total_probabilities", "team_total_probabilities"],
+            "calibration_applied_to": ["expected_runs", "win_probability", "total_probabilities", "team_total_probabilities"],
             "distribution_calibration_method": "integer_mean_shift_v1",
             "notes": [
                 "V1 uses starter PA probabilities for early innings and bullpen PA probabilities for late innings.",
