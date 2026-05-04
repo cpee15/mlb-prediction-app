@@ -5,6 +5,7 @@ and computes win probabilities via the scoring engine.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -19,6 +20,8 @@ from .db_utils import (
     get_team_split,
 )
 from .scoring import compute_win_probability
+
+log = logging.getLogger(__name__)
 
 
 def _format_pitcher_features(session: Session, pitcher_id: int) -> Dict[str, Optional[float]]:
@@ -97,45 +100,7 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
         home_record = game.get("home", {}).get("leagueRecord", {})
         away_record = game.get("away", {}).get("leagueRecord", {})
 
-        if not all([home_team, away_team, home_pitcher_id, away_pitcher_id]):
-            # Still include games without probable pitchers — just no win probs
-            matchup = {
-                "game_date": date_str,
-                "game_pk": game.get("_game_pk"),
-                "game_time": game.get("_game_date"),
-                "venue": game.get("_venue"),
-                "status": game.get("_status"),
-                "weather": game.get("_weather"),
-                "home_team_id": home_team,
-                "away_team_id": away_team,
-                "home_team_name": game.get("home", {}).get("team", {}).get("name"),
-                "away_team_name": game.get("away", {}).get("team", {}).get("name"),
-                "home_team_record": f"{home_record.get('wins', 0)}-{home_record.get('losses', 0)}" if home_record else None,
-                "away_team_record": f"{away_record.get('wins', 0)}-{away_record.get('losses', 0)}" if away_record else None,
-                "home_pitcher_id": home_pitcher_id,
-                "away_pitcher_id": away_pitcher_id,
-                "home_pitcher_name": game.get("home", {}).get("probablePitcher", {}).get("fullName"),
-                "away_pitcher_name": game.get("away", {}).get("probablePitcher", {}).get("fullName"),
-                "home_win_prob": None,
-                "away_win_prob": None,
-                "home_pitcher_features": {},
-                "away_pitcher_features": {},
-                "home_pitch_arsenal": {},
-                "away_pitch_arsenal": {},
-            }
-            matchups.append(matchup)
-            continue
-
-        home_win_prob, away_win_prob = compute_win_probability(
-            session,
-            home_pitcher_id=home_pitcher_id,
-            away_pitcher_id=away_pitcher_id,
-            home_team_id=home_team,
-            away_team_id=away_team,
-            season=season,
-        )
-
-        matchup = {
+        base_matchup = {
             "game_date": date_str,
             "game_pk": game.get("_game_pk"),
             "game_time": game.get("_game_date"),
@@ -152,14 +117,65 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
             "away_pitcher_id": away_pitcher_id,
             "home_pitcher_name": game.get("home", {}).get("probablePitcher", {}).get("fullName"),
             "away_pitcher_name": game.get("away", {}).get("probablePitcher", {}).get("fullName"),
-            "home_win_prob": home_win_prob,
-            "away_win_prob": away_win_prob,
-            "home_pitcher_features": _format_pitcher_features(session, home_pitcher_id),
-            "away_pitcher_features": _format_pitcher_features(session, away_pitcher_id),
-            "home_pitch_arsenal": _format_pitch_arsenal(session, home_pitcher_id, season),
-            "away_pitch_arsenal": _format_pitch_arsenal(session, away_pitcher_id, season),
+            "home_win_prob": None,
+            "away_win_prob": None,
+            "home_pitcher_features": {},
+            "away_pitcher_features": {},
+            "home_pitch_arsenal": {},
+            "away_pitch_arsenal": {},
         }
-        matchups.append(matchup)
+
+        if not all([home_team, away_team, home_pitcher_id, away_pitcher_id]):
+            # Still include games without probable pitchers — just no win probs
+            matchups.append(base_matchup)
+            continue
+
+        try:
+            home_win_prob, away_win_prob = compute_win_probability(
+                session,
+                home_pitcher_id=home_pitcher_id,
+                away_pitcher_id=away_pitcher_id,
+                home_team_id=home_team,
+                away_team_id=away_team,
+                season=season,
+            )
+            base_matchup["home_win_prob"] = home_win_prob
+            base_matchup["away_win_prob"] = away_win_prob
+        except Exception:
+            log.exception(
+                "Win probability failed for game_pk=%s date=%s home_pitcher_id=%s away_pitcher_id=%s",
+                game.get("_game_pk"),
+                date_str,
+                home_pitcher_id,
+                away_pitcher_id,
+            )
+
+        try:
+            base_matchup["home_pitcher_features"] = _format_pitcher_features(session, home_pitcher_id)
+            base_matchup["away_pitcher_features"] = _format_pitcher_features(session, away_pitcher_id)
+        except Exception:
+            log.exception(
+                "Pitcher feature formatting failed for game_pk=%s date=%s home_pitcher_id=%s away_pitcher_id=%s",
+                game.get("_game_pk"),
+                date_str,
+                home_pitcher_id,
+                away_pitcher_id,
+            )
+
+        try:
+            base_matchup["home_pitch_arsenal"] = _format_pitch_arsenal(session, home_pitcher_id, season)
+            base_matchup["away_pitch_arsenal"] = _format_pitch_arsenal(session, away_pitcher_id, season)
+        except Exception:
+            log.exception(
+                "Pitch arsenal formatting failed for game_pk=%s date=%s home_pitcher_id=%s away_pitcher_id=%s season=%s",
+                game.get("_game_pk"),
+                date_str,
+                home_pitcher_id,
+                away_pitcher_id,
+                season,
+            )
+
+        matchups.append(base_matchup)
 
     return matchups
 
