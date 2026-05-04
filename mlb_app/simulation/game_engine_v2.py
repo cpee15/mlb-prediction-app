@@ -54,6 +54,17 @@ def _game_date_from_matchup(matchup: Dict[str, Any]) -> str:
     return str(value)[:10]
 
 
+def _starter_quality_score_or_default(value):
+    if isinstance(value, dict):
+        score = value.get("score")
+    else:
+        score = value
+    try:
+        return float(score)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _build_pa_model(
     *,
     offense_profile: Dict[str, Any],
@@ -667,8 +678,8 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
         simulations=simulations,
         seed=seed,
         starter_innings=starter_innings,
-        away_starter_quality=away_starter_quality.get("score"),
-        home_starter_quality=home_starter_quality.get("score"),
+        away_starter_quality=_starter_quality_score_or_default(away_starter_quality),
+        home_starter_quality=_starter_quality_score_or_default(home_starter_quality),
         dynamic_starter_exit=True,
     )
 
