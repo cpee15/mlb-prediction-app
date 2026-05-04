@@ -565,6 +565,10 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                         "seed": 42,
                         "starter_exit_enabled": True,
                         "source_route": "/models/projections",
+                        "matchup": {
+                            "raw": matchup,
+                            "game_date": matchup.get("game_date") or target_date,
+                        },
                     },
                 )
             except Exception as shared_exc:
