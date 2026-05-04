@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { API_BASE } from '../lib/api'
 
-const API = import.meta.env.VITE_API_BASE_URL || ''
+const API = API_BASE
 
 const card = { background: '#161b22', border: '1px solid #30363d', borderRadius: '10px', padding: '16px', marginBottom: '16px' }
 
