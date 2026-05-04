@@ -38,9 +38,10 @@ const t = {
   statRow: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #161b22', fontSize: '13px' },
   statKey: { color: '#8b949e' },
   statVal: { color: '#e6edf3', fontWeight: '500' },
-  arsenalTable: { width: '100%', borderCollapse: 'collapse', fontSize: '12px', marginTop: '12px' },
-  th: { padding: '6px 8px', textAlign: 'left', color: '#8b949e', fontSize: '11px', textTransform: 'uppercase', borderBottom: '1px solid #21262d' },
-  td: { padding: '6px 8px', borderBottom: '1px solid #0d1117', color: '#e6edf3' },
+  arsenalTableWrap: { width: '100%', overflowX: 'auto', marginTop: '12px' },
+  arsenalTable: { width: '100%', minWidth: '720px', borderCollapse: 'collapse', fontSize: '12px' },
+  th: { padding: '6px 8px', textAlign: 'left', color: '#8b949e', fontSize: '11px', textTransform: 'uppercase', borderBottom: '1px solid #21262d', whiteSpace: 'nowrap' },
+  td: { padding: '6px 8px', borderBottom: '1px solid #0d1117', color: '#e6edf3', verticalAlign: 'top' },
   splitsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' },
   splitCard: { background: '#0d1117', border: '1px solid #21262d', borderRadius: '8px', padding: '16px' },
   splitTitle: { fontSize: '14px', fontWeight: '600', color: '#58a6ff', marginBottom: '10px' },
@@ -66,7 +67,6 @@ const t = {
   mtdR: { textAlign: 'right' },
   noData: { color: '#8b949e', fontSize: '13px', textAlign: 'center', padding: '24px' },
 
-  // ── Pitch widget styles ──────────────────────────────────────────────────
   pitchWidgetGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
@@ -234,17 +234,27 @@ function confidenceVariant(value) {
   return 'neutral'
 }
 
-function edgeVariant(value) {
-  if (value == null) return 'neutral'
-  if (value > 0.15) return 'good'
-  if (value < -0.15) return 'bad'
-  return 'neutral'
-}
-
 function sourceLabel(source) {
   if (source === 'batter_pitch_type_matchups') return 'Stored 365'
   if (source === 'live_statcast_events_fallback') return 'Fallback'
   return 'Live'
+}
+
+function arsenalSourceLabel(source) {
+  if (source === 'savant_arsenal_leaderboard') return 'Savant'
+  if (source === 'raw_statcast_aggregated') return 'Raw Statcast'
+  if (source === 'live_statcast_events_fallback') return 'Live Savant'
+  if (source) return source
+  return 'Legacy'
+}
+
+function arsenalFlagLabel(flag) {
+  if (flag === 'small_pitch_sample') return 'Small sample'
+  if (flag === 'unstable_pa_end_k_rate') return 'Unstable K%'
+  if (flag === 'no_xwoba_sample') return 'No xwOBA'
+  if (flag === 'low_batted_ball_sample') return 'Low BBE'
+  if (flag === 'raw_statcast_fallback') return 'Fallback'
+  return flag
 }
 
 function probColor(p) {
@@ -315,25 +325,68 @@ function PitcherCard({ side, pitcherName, pitcherId, detail }) {
 
       {arsenal.length > 0 && (
         <>
-          <div style={{ fontSize: '12px', color: '#8b949e', marginTop: '14px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Arsenal</div>
-          <table style={t.arsenalTable}>
-            <thead>
-              <tr>
-                {['Pitch', 'Use%', 'Whiff%', 'K%', 'xwOBA'].map(h => <th key={h} style={t.th}>{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {arsenal.map((p, i) => (
-                <tr key={i}>
-                  <td style={t.td}>{PITCH_NAMES[p.pitch_type] || p.pitch_type}</td>
-                  <td style={t.td}>{pct(p.usage_pct)}</td>
-                  <td style={t.td}>{pct(p.whiff_pct)}</td>
-                  <td style={t.td}>{pct(p.strikeout_pct)}</td>
-                  <td style={t.td}>{dec(p.xwoba)}</td>
+          <div style={{ fontSize: '12px', color: '#8b949e', marginTop: '14px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Arsenal
+          </div>
+          <div style={t.arsenalTableWrap}>
+            <table style={t.arsenalTable}>
+              <thead>
+                <tr>
+                  {['Pitch', 'Count', 'Use%', 'Whiff%', 'PA-End K%', 'BBE', 'xwOBA', 'Source'].map(h => (
+                    <th key={h} style={t.th}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {arsenal.map((p, i) => {
+                  const flags = Array.isArray(p.quality_flags) ? p.quality_flags : []
+                  const pitchLabel = PITCH_NAMES[p.pitch_type] || p.pitch_name || p.pitch_type || '—'
+
+                  return (
+                    <tr key={i}>
+                      <td style={t.td}>
+                        <div>{pitchLabel}</div>
+                        {flags.length > 0 && (
+                          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+                            {flags.slice(0, 3).map(flag => (
+                              <span
+                                key={flag}
+                                style={{
+                                  fontSize: '9px',
+                                  color: '#d29922',
+                                  background: '#2d2308',
+                                  border: '1px solid #5f4700',
+                                  borderRadius: '999px',
+                                  padding: '1px 5px',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {arsenalFlagLabel(flag)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td style={t.td}>{intVal(p.pitch_count)}</td>
+                      <td style={t.td}>{pct(p.usage_pct)}</td>
+                      <td style={t.td}>{pct(p.whiff_pct)}</td>
+                      <td style={t.td}>{pct(p.strikeout_pct)}</td>
+                      <td style={t.td}>{intVal(p.batted_ball_count)}</td>
+                      <td style={t.td}>{dec(p.xwoba)}</td>
+                      <td style={t.td}>
+                        <div>{arsenalSourceLabel(p.source)}</div>
+                        {p.source_window && (
+                          <div style={{ color: '#8b949e', fontSize: '10px', marginTop: '2px', maxWidth: '120px' }}>
+                            {p.source_window}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
 
@@ -398,8 +451,6 @@ function SplitTable({ title, split }) {
   )
 }
 
-// ── New pitch widget components ──────────────────────────────────────────────
-
 function RateBar({ label, value, variant = 'neutral' }) {
   return (
     <div style={t.rateRow}>
@@ -428,24 +479,23 @@ function PitchTypeWidget({ pitch }) {
   const source = bvt.source || null
 
   const pitchesSeenVal = pickMetric(bvt, ['pitches_seen', 'pa']) ?? 0
-  const paEndedVal     = pickMetric(bvt, ['pa_ended', 'pa']) ?? 0
-  const swingsVal      = pickMetric(bvt, ['swings']) ?? 0
-  const whiffsVal      = pickMetric(bvt, ['whiffs']) ?? 0
+  const paEndedVal = pickMetric(bvt, ['pa_ended', 'pa']) ?? 0
+  const swingsVal = pickMetric(bvt, ['swings']) ?? 0
+  const whiffsVal = pickMetric(bvt, ['whiffs']) ?? 0
 
-  const avgVal   = pickMetric(bvt, ['batting_avg'])
+  const avgVal = pickMetric(bvt, ['batting_avg'])
   const xwobaVal = pickMetric(bvt, ['xwoba'])
-  const xbaVal   = pickMetric(bvt, ['xba'])
-  const evVal    = pickMetric(bvt, ['avg_exit_velocity', 'avg_ev'])
-  const laVal    = pickMetric(bvt, ['avg_launch_angle', 'avg_la'])
+  const xbaVal = pickMetric(bvt, ['xba'])
+  const evVal = pickMetric(bvt, ['avg_exit_velocity', 'avg_ev'])
+  const laVal = pickMetric(bvt, ['avg_launch_angle', 'avg_la'])
 
-  const whiffPct   = pickMetric(bvt, ['whiff_pct'])
-  const kPct       = pickMetric(bvt, ['k_pct'])
+  const whiffPct = pickMetric(bvt, ['whiff_pct'])
+  const kPct = pickMetric(bvt, ['k_pct'])
   const putawayPct = pickMetric(bvt, ['putaway_pct'])
   const hardHitPct = pickMetric(bvt, ['hard_hit_pct', 'hardhit_pct'])
 
   return (
     <div style={t.pitchWidget(edge)}>
-      {/* Header */}
       <div style={t.pitchWidgetTop}>
         <div>
           <div style={t.pitchTypeBig}>{pitch.pitch_type || '—'}</div>
@@ -467,7 +517,6 @@ function PitchTypeWidget({ pitch }) {
         </div>
       </div>
 
-      {/* Sample strip */}
       <div style={t.sampleStrip}>
         {[
           { label: 'Pitches', value: intVal(pitchesSeenVal) },
@@ -482,23 +531,20 @@ function PitchTypeWidget({ pitch }) {
         ))}
       </div>
 
-      {/* Metric pills */}
       <div style={t.metricPillGrid}>
-        <MetricPill label="AVG"   value={dec(avgVal)} />
+        <MetricPill label="AVG" value={dec(avgVal)} />
         <MetricPill label="xwOBA" value={dec(xwobaVal)} />
-        <MetricPill label="EV"    value={evVal != null ? `${Number(evVal).toFixed(1)}` : '—'} />
-        <MetricPill label="LA"    value={laVal != null ? `${Number(laVal).toFixed(1)}°` : '—'} />
+        <MetricPill label="EV" value={evVal != null ? `${Number(evVal).toFixed(1)}` : '—'} />
+        <MetricPill label="LA" value={laVal != null ? `${Number(laVal).toFixed(1)}°` : '—'} />
       </div>
 
-      {/* Rate bars */}
       <div style={t.rateStack}>
-        <RateBar label="Whiff%"   value={whiffPct}   variant="good" />
-        <RateBar label="K%"       value={kPct}       variant="good" />
+        <RateBar label="Whiff%" value={whiffPct} variant="good" />
+        <RateBar label="K%" value={kPct} variant="good" />
         <RateBar label="PutAway%" value={putawayPct} variant="good" />
         <RateBar label="HardHit%" value={hardHitPct} variant={hardHitPct != null && hardHitPct > 0.40 ? 'bad' : 'neutral'} />
       </div>
 
-      {/* Footer: pitcher xwOBA + confidence bar */}
       <div style={t.widgetFooter}>
         <span style={{ fontSize: '11px', color: '#8b949e', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
           Pitcher xwOBA {dec(pitch.pitcher_xwoba)}
@@ -515,8 +561,6 @@ function PitchTypeWidget({ pitch }) {
     </div>
   )
 }
-
-// ── Updated CompetitiveBatterRow uses card grid ──────────────────────────────
 
 function CompetitiveBatterRow({ batter, expanded, onToggle }) {
   const matchup = batter.matchup || {}
@@ -545,7 +589,6 @@ function CompetitiveBatterRow({ batter, expanded, onToggle }) {
 
       {expanded && (
         <div style={{ padding: '0 14px 14px' }}>
-          {/* Head-to-head summary strip */}
           <div style={{
             display: 'flex',
             gap: '20px',
@@ -564,7 +607,6 @@ function CompetitiveBatterRow({ batter, expanded, onToggle }) {
             <span>Arsenal Season: <strong style={{ color: '#e6edf3' }}>{matchup.arsenal_season ?? '—'}</strong></span>
           </div>
 
-          {/* Pitch widget cards */}
           {matrix.length === 0 ? (
             <div style={t.noData}>No arsenal matchup data available</div>
           ) : (
