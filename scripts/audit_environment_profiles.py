@@ -187,6 +187,13 @@ def audit_game(game: Dict[str, Any]) -> Dict[str, Any]:
             "park_factor_source": park_component.get("source") or (
                 "real_or_schedule_provided" if has_real_run_factor else "neutral_fallback"
             ),
+            "park_factor_profile_found": park_component.get("park_factor_profile_found"),
+            "static_park_factor_used": park_component.get("static_park_factor_used"),
+            "normalized_venue_name": park_component.get("normalized_venue_name"),
+            "venue_type": park_component.get("venue_type"),
+            "default_roof_status": park_component.get("default_roof_status"),
+            "weather_applies_default": park_component.get("weather_applies_default"),
+            "neutral_park_fallback_used": park_component.get("neutral_fallback_used"),
             "temperature_f": temperature_f,
             "has_temperature": has_temperature,
             "temperature_source": "real_or_schedule_provided" if has_temperature else "missing",
@@ -252,8 +259,14 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     return {
         "total_games": total,
-        "games_with_real_run_factor": count_true("has_real_run_factor"),
-        "games_defaulting_run_factor_to_neutral": total - count_true("has_real_run_factor"),
+        "games_with_any_park_factor": count_true("has_real_run_factor"),
+        "games_with_raw_run_factor": sum(
+            1 for row in audits
+            if row.get("park_factor_source") == "real_or_schedule_provided"
+        ),
+        "games_with_static_park_factor": count_true("static_park_factor_used"),
+        "games_with_neutral_park_fallback": count_true("neutral_park_fallback_used"),
+        "games_defaulting_run_factor_to_neutral": count_true("neutral_park_fallback_used"),
         "games_with_temperature": count_true("has_temperature"),
         "games_missing_temperature": total - count_true("has_temperature"),
         "games_with_wind": count_true("has_wind"),
@@ -274,6 +287,14 @@ def summarize(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "games_with_rain_delay_risk": count_true("rain_delay_risk"),
         "readiness_counts": value_counts("readiness"),
         "park_factor_sources": value_counts("park_factor_source"),
+        "venue_types": value_counts("venue_type"),
+        "default_roof_statuses": value_counts("default_roof_status"),
+        "weather_applies_defaults": value_counts("weather_applies_default"),
+        "unmapped_venues": sorted({
+            row.get("venue_name")
+            for row, audit in zip(rows, audits)
+            if audit.get("neutral_park_fallback_used")
+        }),
         "weather_component_sources": value_counts("weather_component_source"),
         "wind_direction_types": value_counts("wind_direction_type"),
         "combined_index_methods": value_counts("combined_index_method"),
@@ -292,6 +313,11 @@ def print_game(row: Dict[str, Any]) -> None:
         f"hr_factor={audit.get('home_run_factor')} "
         f"hit_factor={audit.get('hit_factor')} "
         f"source={audit.get('park_factor_source')} "
+        f"mapped={audit.get('park_factor_profile_found')} "
+        f"static={audit.get('static_park_factor_used')} "
+        f"venue_type={audit.get('venue_type')} "
+        f"roof={audit.get('default_roof_status')} "
+        f"weather_applies={audit.get('weather_applies_default')} "
         f"park_impact={audit.get('park_run_impact')}"
     )
     print(
