@@ -7,6 +7,8 @@ be populated with real weather, park factor, and contextual inputs.
 
 import re
 
+from .park_factors import get_park_factor_profile
+
 
 def compute_environment_profile(raw_context: dict) -> dict:
     """
@@ -240,14 +242,32 @@ def compute_environment_profile(raw_context: dict) -> dict:
     if parsed_wind_direction:
         wind_direction = parsed_wind_direction
 
-    run_factor = raw_context.get("run_factor", raw_context.get("park_factor"))
-    run_factor = _safe_float(run_factor)
+    park_factor_profile = raw_context.get("park_factor_profile") or {}
+    venue_name = raw_context.get("venue_name")
+    if not park_factor_profile and venue_name:
+        park_factor_profile = get_park_factor_profile(venue_name)
+
+    raw_run_factor = raw_context.get("run_factor", raw_context.get("park_factor"))
+    run_factor = _safe_float(raw_run_factor)
 
     raw_home_run_factor = _safe_float(raw_context.get("home_run_factor"))
     raw_hit_factor = _safe_float(raw_context.get("hit_factor"))
 
+    park_factor_profile_found = bool(park_factor_profile.get("park_factor_profile_found"))
+    static_park_factor_used = False
+
+    if run_factor is None:
+        run_factor = _safe_float(park_factor_profile.get("run_factor"))
+        static_park_factor_used = run_factor is not None and park_factor_profile.get("source") != "neutral_fallback_unmapped_venue"
+
     home_run_factor = raw_home_run_factor
     hit_factor = raw_hit_factor
+
+    if home_run_factor is None:
+        home_run_factor = _safe_float(park_factor_profile.get("home_run_factor"))
+    if hit_factor is None:
+        hit_factor = _safe_float(park_factor_profile.get("hit_factor"))
+
     park_factor_fallback_used = False
     park_factor_fallback_source = None
 
@@ -260,6 +280,15 @@ def compute_environment_profile(raw_context: dict) -> dict:
         park_factor_fallback_used = True
         park_factor_fallback_source = "run_factor_proxy"
 
+    if run_factor is None:
+        run_factor = calibration["neutral_index"]
+        park_factor_fallback_used = True
+        park_factor_fallback_source = "neutral_fallback_missing_venue_or_park_factor"
+    if home_run_factor is None:
+        home_run_factor = calibration["neutral_index"]
+    if hit_factor is None:
+        hit_factor = calibration["neutral_index"]
+
     wind_adjustments = _wind_adjustments(wind_speed_mph, wind_direction)
 
     run_scoring_index = raw_context.get(
@@ -267,13 +296,16 @@ def compute_environment_profile(raw_context: dict) -> dict:
         _run_scoring_index(run_factor, temperature_f, wind_speed_mph, wind_direction),
     )
     base_index = run_factor if run_factor is not None else calibration["neutral_index"]
+    hr_base_index = home_run_factor if home_run_factor is not None else base_index
+    hit_base_index = hit_factor if hit_factor is not None else base_index
+
     hr_boost_index = raw_context.get(
         "hr_boost_index",
-        _calibrated_index(base_index, _temperature_adjustment(temperature_f) + wind_adjustments["wind_hr_adjustment"]),
+        _calibrated_index(hr_base_index, _temperature_adjustment(temperature_f) + wind_adjustments["wind_hr_adjustment"]),
     )
     hit_boost_index = raw_context.get(
         "hit_boost_index",
-        _calibrated_index(base_index, (_temperature_adjustment(temperature_f) * 0.35) + wind_adjustments["wind_hit_adjustment"]),
+        _calibrated_index(hit_base_index, (_temperature_adjustment(temperature_f) * 0.35) + wind_adjustments["wind_hit_adjustment"]),
     )
 
     missing_inputs = []
@@ -281,7 +313,7 @@ def compute_environment_profile(raw_context: dict) -> dict:
         missing_inputs.append("temperature_f")
     if wind_speed_mph is None and not wind_direction:
         missing_inputs.append("wind")
-    if run_factor is None:
+    if not park_factor_profile_found and not static_park_factor_used:
         missing_inputs.append("run_factor")
 
     source_fields_used = [
@@ -298,8 +330,16 @@ def compute_environment_profile(raw_context: dict) -> dict:
     ]
 
     temperature_adjustment = _temperature_adjustment(temperature_f)
-    park_component_source = "real_or_schedule_provided" if run_factor is not None else "neutral_fallback"
-    if park_factor_fallback_used and park_factor_fallback_source:
+    if raw_run_factor is not None:
+        park_component_source = "real_or_schedule_provided"
+    elif static_park_factor_used:
+        park_component_source = park_factor_profile.get("source") or "static_park_factor_v1"
+    elif park_factor_profile.get("source"):
+        park_component_source = park_factor_profile.get("source")
+    else:
+        park_component_source = "neutral_fallback"
+
+    if park_factor_fallback_used and park_factor_fallback_source and not static_park_factor_used:
         park_component_source = park_factor_fallback_source
 
     weather_component_source = "schedule_weather" if temperature_f is not None or wind_speed_mph is not None or wind_direction else "missing_weather"
@@ -333,7 +373,13 @@ def compute_environment_profile(raw_context: dict) -> dict:
                 "home_run_factor": home_run_factor,
                 "hit_factor": hit_factor,
                 "source": park_component_source,
-                "neutral_fallback_used": run_factor is None,
+                "park_factor_profile_found": park_factor_profile_found,
+                "static_park_factor_used": static_park_factor_used,
+                "normalized_venue_name": park_factor_profile.get("normalized_venue_name"),
+                "venue_type": park_factor_profile.get("venue_type"),
+                "default_roof_status": park_factor_profile.get("default_roof_status"),
+                "weather_applies_default": park_factor_profile.get("weather_applies_default"),
+                "neutral_fallback_used": bool(park_factor_profile.get("neutral_park_fallback_used")),
                 "proxy_from_run_factor_used": park_factor_fallback_used,
                 "proxy_source": park_factor_fallback_source,
             },

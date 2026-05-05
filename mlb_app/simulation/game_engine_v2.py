@@ -600,10 +600,13 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
         "offense_inputs": matchup.get("home_offense_inputs") or matchup.get("home_team_offense") or {},
     }
 
+    venue_name = matchup.get("venue_name") or matchup.get("venue")
+
     environment_profile = _compute_environment_profile_compatible({
         "game_pk": game_pk,
         "game_date": game_date,
-        "venue": matchup.get("venue_name") or matchup.get("venue"),
+        "venue_name": venue_name,
+        "venue": venue_name,
         "weather": matchup.get("weather") or {},
         "matchup": matchup,
     })
