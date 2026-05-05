@@ -297,6 +297,14 @@ def compute_environment_profile(raw_context: dict) -> dict:
         if raw_context.get(key) is not None
     ]
 
+    temperature_adjustment = _temperature_adjustment(temperature_f)
+    park_component_source = "real_or_schedule_provided" if run_factor is not None else "neutral_fallback"
+    if park_factor_fallback_used and park_factor_fallback_source:
+        park_component_source = park_factor_fallback_source
+
+    weather_component_source = "schedule_weather" if temperature_f is not None or wind_speed_mph is not None or wind_direction else "missing_weather"
+    combined_index_method = "additive_base_plus_weather_adjustment"
+
     return {
         "metadata": {
             "source_type": raw_context.get("source_type", "matchup_detail_context"),
@@ -316,6 +324,31 @@ def compute_environment_profile(raw_context: dict) -> dict:
             "wind_parsed_from_text": parsed_wind_speed is not None or bool(parsed_wind_direction),
             "park_factor_fallback_used": park_factor_fallback_used,
             "park_factor_fallback_source": park_factor_fallback_source,
+            "combined_index_method": combined_index_method,
+        },
+        "environment_components": {
+            "combined_index_method": combined_index_method,
+            "park_component": {
+                "run_factor": run_factor,
+                "home_run_factor": home_run_factor,
+                "hit_factor": hit_factor,
+                "source": park_component_source,
+                "neutral_fallback_used": run_factor is None,
+                "proxy_from_run_factor_used": park_factor_fallback_used,
+                "proxy_source": park_factor_fallback_source,
+            },
+            "weather_component": {
+                "temperature_f": temperature_f,
+                "wind_speed_mph": wind_speed_mph,
+                "wind_direction": wind_direction,
+                "wind_direction_type": wind_adjustments["wind_direction_type"],
+                "wind_speed_tier": wind_adjustments["wind_speed_tier"],
+                "temperature_adjustment": temperature_adjustment,
+                "wind_run_adjustment": wind_adjustments["wind_run_adjustment"],
+                "wind_hr_adjustment": wind_adjustments["wind_hr_adjustment"],
+                "wind_hit_adjustment": wind_adjustments["wind_hit_adjustment"],
+                "source": weather_component_source,
+            },
         },
         "weather": {
             "temperature_f": temperature_f,
