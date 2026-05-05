@@ -12,7 +12,7 @@ const PITCH_NAMES = {
 }
 
 const t = {
-  page: {},
+  page: { width: '100%', maxWidth: '100%', overflowX: 'hidden' },
   back: { color: '#58a6ff', textDecoration: 'none', fontSize: '13px', display: 'inline-block', marginBottom: '20px' },
   header: { background: '#161b22', border: '1px solid #30363d', borderRadius: '10px', padding: '20px 24px', marginBottom: '20px' },
   headerTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' },
@@ -29,17 +29,17 @@ const t = {
   probTeam: { fontSize: '15px', fontWeight: '600', color: '#e6edf3' },
   probPct: { fontSize: '32px', fontWeight: '800' },
   probBar: { height: '10px', borderRadius: '5px', overflow: 'hidden', background: '#21262d', display: 'flex' },
-  section: { background: '#161b22', border: '1px solid #30363d', borderRadius: '10px', padding: '20px 24px', marginBottom: '20px' },
+  section: { background: '#161b22', border: '1px solid #30363d', borderRadius: '10px', padding: '20px 24px', marginBottom: '20px', maxWidth: '100%', overflowX: 'hidden' },
   sectionTitle: { fontSize: '15px', fontWeight: '600', color: '#e6edf3', marginBottom: '16px', borderBottom: '1px solid #21262d', paddingBottom: '8px' },
-  pitcherGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' },
-  pitcherCard: { background: '#0d1117', border: '1px solid #21262d', borderRadius: '8px', padding: '16px' },
+  pitcherGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 520px), 1fr))', gap: '20px', maxWidth: '100%', overflowX: 'hidden' },
+  pitcherCard: { background: '#0d1117', border: '1px solid #21262d', borderRadius: '8px', padding: '16px', minWidth: 0, maxWidth: '100%', overflowX: 'hidden' },
   pitcherName: { fontSize: '16px', fontWeight: '700', color: '#e6edf3', marginBottom: '4px' },
   dataSource: { fontSize: '11px', color: '#8b949e', marginBottom: '12px' },
   statRow: { display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #161b22', fontSize: '13px' },
   statKey: { color: '#8b949e' },
   statVal: { color: '#e6edf3', fontWeight: '500' },
-  arsenalTableWrap: { width: '100%', overflowX: 'auto', marginTop: '12px' },
-  arsenalTable: { width: '100%', minWidth: '720px', borderCollapse: 'collapse', fontSize: '12px' },
+  arsenalTableWrap: { width: '100%', maxWidth: '100%', overflowX: 'auto', marginTop: '12px' },
+  arsenalTable: { width: '100%', minWidth: '620px', borderCollapse: 'collapse', fontSize: '12px' },
   th: { padding: '6px 8px', textAlign: 'left', color: '#8b949e', fontSize: '11px', textTransform: 'uppercase', borderBottom: '1px solid #21262d', whiteSpace: 'nowrap' },
   td: { padding: '6px 8px', borderBottom: '1px solid #0d1117', color: '#e6edf3', verticalAlign: 'top' },
   splitsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' },
@@ -679,7 +679,7 @@ export default function MatchupDetailPage() {
   }
 
   return (
-    <div>
+    <div style={t.page}>
       <Link to="/" style={t.back}>← Back to Matchups</Link>
 
       <div style={t.header}>
