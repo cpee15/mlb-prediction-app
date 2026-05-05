@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import copy
 from mlb_app.simulation.formula_map import build_formula_map
 
 import datetime
@@ -611,6 +613,17 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
         "matchup": matchup,
     })
 
+    # Side-specific environment profiles are intentionally identical copies for now.
+    # This creates a safe structure for future lineup-handedness HR adjustments without
+    # changing current model outputs.
+    away_offense_environment_profile = copy.deepcopy(environment_profile)
+    home_offense_environment_profile = copy.deepcopy(environment_profile)
+    side_specific_environment_diagnostics = {
+        "side_specific_environment_enabled": True,
+        "side_specific_environment_adjustment_source": "copied_from_game_environment",
+        "active_model_input_changed": False,
+    }
+
     away_offense_profile = _offense_workspace_profile(away_team) or {}
     home_offense_profile = _offense_workspace_profile(home_team) or {}
 
@@ -743,6 +756,9 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
             "away_bullpen_profile": away_bullpen_profile,
             "home_bullpen_profile": home_bullpen_profile,
             "environment_profile": environment_profile,
+            "away_offense_environment_profile": away_offense_environment_profile,
+            "home_offense_environment_profile": home_offense_environment_profile,
+            "side_specific_environment_diagnostics": side_specific_environment_diagnostics,
         },
         "pa_models": {
             "away_vs_home_starter": away_starter_pa,
