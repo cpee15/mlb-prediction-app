@@ -6,7 +6,7 @@ from mlb_app.simulation.formula_map import build_formula_map
 import datetime
 import inspect
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from mlb_app.database import create_tables, get_engine, get_session
 from mlb_app.matchup_generator import generate_matchups_for_date
@@ -521,6 +521,142 @@ def _compute_environment_profile_compatible(game_context: Dict[str, Any]) -> Dic
         }
 
 
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
+
+
+def _extract_handedness_mix_from_offense(offense_profile: Mapping[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(offense_profile, Mapping):
+        return None
+
+    for key in ("lineup_handedness_mix", "handedness_mix", "lineup_handedness"):
+        value = offense_profile.get(key)
+        if isinstance(value, Mapping):
+            return dict(value)
+
+    diagnostics = offense_profile.get("diagnostics")
+    if isinstance(diagnostics, Mapping):
+        for key in ("lineup_handedness_mix", "handedness_mix"):
+            value = diagnostics.get(key)
+            if isinstance(value, Mapping):
+                return dict(value)
+
+    return None
+
+
+def _apply_handedness_weighted_hr_adjustment(
+    environment_profile: Mapping[str, Any],
+    offense_profile: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Apply conservative side-specific HR boost adjustment if handedness mix exists.
+
+    No DB/session access. If handedness mix is unavailable, returns unchanged copy.
+    """
+    adjusted = copy.deepcopy(dict(environment_profile))
+
+    run_environment = dict(adjusted.get("run_environment") or {})
+    components = adjusted.get("environment_components") or {}
+    park_component = components.get("park_component") or {}
+
+    try:
+        base_hr_boost = float(run_environment.get("hr_boost_index"))
+    except Exception:
+        base_hr_boost = 1.0
+
+    try:
+        generic = float(park_component.get("home_run_factor"))
+    except Exception:
+        generic = 1.0
+
+    lhb = park_component.get("home_run_factor_lhb")
+    rhb = park_component.get("home_run_factor_rhb")
+    mix = _extract_handedness_mix_from_offense(offense_profile)
+
+    diagnostics = {
+        "active_model_input_changed": False,
+        "generic_home_run_factor": round(generic, 4),
+        "home_run_factor_lhb": lhb,
+        "home_run_factor_rhb": rhb,
+        "base_hr_boost_index": round(base_hr_boost, 4),
+        "adjusted_hr_boost_index": round(base_hr_boost, 4),
+        "weighted_home_run_factor_raw": round(generic, 4),
+        "handedness_adjustment_raw": 1.0,
+        "handedness_adjustment_final": 1.0,
+        "fallback_used": True,
+        "fallback_reason": None,
+    }
+
+    if not mix:
+        diagnostics["fallback_reason"] = "missing_lineup_handedness_mix"
+        adjusted["handedness_weighted_hr_diagnostics"] = diagnostics
+        return adjusted
+
+    counts = mix.get("counts") or {}
+    l_count = int(counts.get("L") or 0)
+    r_count = int(counts.get("R") or 0)
+    s_count = int(counts.get("S") or 0)
+    unknown_count = int(counts.get("unknown") or 0)
+    total = l_count + r_count + s_count + unknown_count
+
+    diagnostics["handedness_counts"] = {
+        "L": l_count,
+        "R": r_count,
+        "S": s_count,
+        "unknown": unknown_count,
+    }
+    diagnostics["handedness_coverage_rate"] = mix.get("coverage_rate")
+
+    if total <= 0:
+        diagnostics["fallback_reason"] = "empty_lineup_handedness_mix"
+        adjusted["handedness_weighted_hr_diagnostics"] = diagnostics
+        return adjusted
+
+    if lhb is None or rhb is None:
+        diagnostics["fallback_reason"] = "missing_lhr_rhr_park_factors"
+        adjusted["handedness_weighted_hr_diagnostics"] = diagnostics
+        return adjusted
+
+    try:
+        lhb = float(lhb)
+        rhb = float(rhb)
+    except Exception:
+        diagnostics["fallback_reason"] = "invalid_lhr_rhr_park_factors"
+        adjusted["handedness_weighted_hr_diagnostics"] = diagnostics
+        return adjusted
+
+    weighted_raw = (
+        (l_count * lhb)
+        + (r_count * rhb)
+        + (s_count * generic)
+        + (unknown_count * generic)
+    ) / total
+
+    raw_adjustment = weighted_raw / generic if generic else 1.0
+    final_adjustment = _clamp(1.0 + (0.50 * (raw_adjustment - 1.0)), 0.97, 1.03)
+    adjusted_hr_boost = base_hr_boost * final_adjustment
+
+    run_environment["hr_boost_index"] = round(adjusted_hr_boost, 4)
+    adjusted["run_environment"] = run_environment
+
+    diagnostics.update({
+        "active_model_input_changed": True,
+        "weighted_home_run_factor_raw": round(weighted_raw, 4),
+        "handedness_adjustment_raw": round(raw_adjustment, 4),
+        "handedness_adjustment_final": round(final_adjustment, 4),
+        "adjusted_hr_boost_index": round(adjusted_hr_boost, 4),
+        "fallback_used": False,
+        "fallback_reason": None,
+    })
+
+    if s_count:
+        diagnostics["switch_hitter_strategy"] = "generic_home_run_factor"
+    if unknown_count:
+        diagnostics["unknown_hitter_strategy"] = "generic_home_run_factor"
+
+    adjusted["handedness_weighted_hr_diagnostics"] = diagnostics
+    return adjusted
+
 def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     config = config or {}
 
@@ -627,6 +763,25 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
     away_offense_profile = _offense_workspace_profile(away_team) or {}
     home_offense_profile = _offense_workspace_profile(home_team) or {}
 
+    away_offense_environment_profile = _apply_handedness_weighted_hr_adjustment(
+        away_offense_environment_profile,
+        away_offense_profile,
+    )
+    home_offense_environment_profile = _apply_handedness_weighted_hr_adjustment(
+        home_offense_environment_profile,
+        home_offense_profile,
+    )
+    side_specific_environment_diagnostics = {
+        "side_specific_environment_enabled": True,
+        "side_specific_environment_adjustment_source": "handedness_weighted_hr_if_available",
+        "active_model_input_changed": bool(
+            (away_offense_environment_profile.get("handedness_weighted_hr_diagnostics") or {}).get("active_model_input_changed")
+            or (home_offense_environment_profile.get("handedness_weighted_hr_diagnostics") or {}).get("active_model_input_changed")
+        ),
+        "away_hr_diagnostics": away_offense_environment_profile.get("handedness_weighted_hr_diagnostics"),
+        "home_hr_diagnostics": home_offense_environment_profile.get("handedness_weighted_hr_diagnostics"),
+    }
+
     away_pitcher_profile = _pitcher_workspace_profile(away_team) or {}
     home_pitcher_profile = _pitcher_workspace_profile(home_team) or {}
 
@@ -655,7 +810,7 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
     away_starter_pa = _build_pa_model(
         offense_profile=away_offense_profile,
         opposing_pitcher_profile=home_pitcher_profile,
-        environment_profile=environment_profile,
+        environment_profile=away_offense_environment_profile,
         side="away_offense_vs_home_starter",
     )
 
@@ -663,7 +818,7 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
     home_starter_pa = _build_pa_model(
         offense_profile=home_offense_profile,
         opposing_pitcher_profile=away_pitcher_profile,
-        environment_profile=environment_profile,
+        environment_profile=home_offense_environment_profile,
         side="home_offense_vs_away_starter",
     )
 
@@ -701,14 +856,14 @@ def run_full_game_simulation(game_pk: int, config: Optional[Dict[str, Any]] = No
     away_vs_home_bullpen_pa = _build_bullpen_pa_model(
         offense_profile=away_offense_profile,
         opposing_bullpen_profile=home_bullpen_profile,
-        environment_profile=environment_profile,
+        environment_profile=away_offense_environment_profile,
         side="away_offense_vs_home_bullpen",
     )
 
     home_vs_away_bullpen_pa = _build_bullpen_pa_model(
         offense_profile=home_offense_profile,
         opposing_bullpen_profile=away_bullpen_profile,
-        environment_profile=environment_profile,
+        environment_profile=home_offense_environment_profile,
         side="home_offense_vs_away_bullpen",
     )
 
