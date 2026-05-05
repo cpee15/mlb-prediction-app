@@ -20,6 +20,7 @@ from .db_utils import (
     get_team_split,
 )
 from .scoring import compute_win_probability
+from .lineup_profile import build_lineup_offense_inputs
 
 log = logging.getLogger(__name__)
 
@@ -251,8 +252,51 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
             home_split = "vsL" if game.get("away", {}).get("probablePitcher", {}).get("pitchHand", {}).get("code") == "L" else "vsR"
             away_split = "vsL" if game.get("home", {}).get("probablePitcher", {}).get("pitchHand", {}).get("code") == "L" else "vsR"
 
-            base_matchup["home_offense_inputs"] = _format_team_offense_inputs(session, home_team, season, home_split)
-            base_matchup["away_offense_inputs"] = _format_team_offense_inputs(session, away_team, season, away_split)
+            home_team_fallback = _format_team_offense_inputs(session, home_team, season, home_split)
+            away_team_fallback = _format_team_offense_inputs(session, away_team, season, away_split)
+
+            base_matchup["home_offense_inputs"] = home_team_fallback
+            base_matchup["away_offense_inputs"] = away_team_fallback
+
+            try:
+                home_lineup_inputs = build_lineup_offense_inputs(
+                    session=session,
+                    game_pk=game.get("_game_pk"),
+                    side="home",
+                    team_id=home_team,
+                    season=season,
+                    split=home_split,
+                    team_fallback=home_team_fallback,
+                )
+                if home_lineup_inputs:
+                    base_matchup["home_offense_inputs"] = home_lineup_inputs
+            except Exception:
+                log.exception(
+                    "Confirmed home lineup offense input failed; using team_splits fallback for game_pk=%s date=%s home_team_id=%s",
+                    game.get("_game_pk"),
+                    date_str,
+                    home_team,
+                )
+
+            try:
+                away_lineup_inputs = build_lineup_offense_inputs(
+                    session=session,
+                    game_pk=game.get("_game_pk"),
+                    side="away",
+                    team_id=away_team,
+                    season=season,
+                    split=away_split,
+                    team_fallback=away_team_fallback,
+                )
+                if away_lineup_inputs:
+                    base_matchup["away_offense_inputs"] = away_lineup_inputs
+            except Exception:
+                log.exception(
+                    "Confirmed away lineup offense input failed; using team_splits fallback for game_pk=%s date=%s away_team_id=%s",
+                    game.get("_game_pk"),
+                    date_str,
+                    away_team,
+                )
         except Exception:
             log.exception(
                 "Team offense input formatting failed for game_pk=%s date=%s home_team_id=%s away_team_id=%s season=%s",
