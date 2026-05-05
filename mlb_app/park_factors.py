@@ -26,6 +26,8 @@ def _profile(
     default_roof_status: str = "open",
     weather_applies_default: bool | str = True,
     aliases: Optional[list[str]] = None,
+    home_run_factor_lhb: Optional[float] = None,
+    home_run_factor_rhb: Optional[float] = None,
 ) -> Dict[str, Any]:
     normalized = normalize_venue_name(venue_name)
     return {
@@ -34,6 +36,8 @@ def _profile(
         "aliases": aliases or [],
         "run_factor": run_factor,
         "home_run_factor": home_run_factor,
+        "home_run_factor_lhb": home_run_factor_lhb,
+        "home_run_factor_rhb": home_run_factor_rhb,
         "hit_factor": hit_factor,
         "venue_type": venue_type,
         "default_roof_status": default_roof_status,
@@ -102,6 +106,8 @@ def neutral_park_factor_profile(venue_name: Optional[str]) -> Dict[str, Any]:
         "aliases": [],
         "run_factor": 1.0,
         "home_run_factor": 1.0,
+        "home_run_factor_lhb": None,
+        "home_run_factor_rhb": None,
         "hit_factor": 1.0,
         "venue_type": "unknown",
         "default_roof_status": "unknown",
