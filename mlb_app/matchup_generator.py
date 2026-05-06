@@ -20,7 +20,7 @@ from .db_utils import (
     get_team_split,
 )
 from .scoring import compute_win_probability
-from .lineup_profile import build_lineup_offense_inputs
+from .lineup_profile import build_lineup_offense_inputs, build_lineup_offense_diagnostics
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +80,58 @@ def _format_batter_features(session: Session, batter_id: int) -> Dict[str, Optio
         "bb_pct": agg.bb_pct,
         "batting_avg": agg.batting_avg,
     }
+
+
+def _with_lineup_fallback_diagnostics(
+    offense_inputs: Dict,
+    diagnostics: Optional[Dict],
+) -> Dict:
+    updated = dict(offense_inputs or {})
+    diagnostics = diagnostics or {}
+
+    for key in (
+        "lineup_fallback_reason",
+        "lineup_fallback_stage",
+        "lineup_fetch_attempted",
+        "lineup_fetch_succeeded",
+        "lineup_side_found",
+        "starting_lineup_count",
+        "usable_hitter_profile_count",
+        "real_player_profile_count",
+        "fallback_player_count",
+        "min_usable_hitters",
+        "confirmed_lineup_inputs_would_activate",
+    ):
+        if key in diagnostics:
+            updated[key] = diagnostics.get(key)
+
+    return updated
+
+
+def _with_lineup_exception_diagnostics(
+    offense_inputs: Dict,
+    exc: Exception,
+) -> Dict:
+    message = str(exc)
+    exc_type = exc.__class__.__name__
+    lowered = message.lower()
+
+    updated = dict(offense_inputs or {})
+    updated.update({
+        "lineup_fallback_reason": "confirmed_lineup_fetch_or_build_error",
+        "lineup_fallback_stage": "exception",
+        "lineup_fetch_attempted": True,
+        "lineup_fetch_succeeded": False,
+        "lineup_fetch_error_type": exc_type,
+        "lineup_fetch_error_message": message,
+        "lineup_fetch_timeout": (
+            "timeout" in lowered
+            or "timed out" in lowered
+            or exc_type in {"ReadTimeout", "ReadTimeoutError", "TimeoutError"}
+        ),
+    })
+    return updated
+
 
 
 def _format_team_offense_inputs(session: Session, team_id: int, season: int, split: str = "vsR") -> Dict[str, Optional[float]]:
@@ -259,6 +311,15 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
             base_matchup["away_offense_inputs"] = away_team_fallback
 
             try:
+                home_lineup_diagnostics = build_lineup_offense_diagnostics(
+                    session=session,
+                    game_pk=game.get("_game_pk"),
+                    side="home",
+                    team_id=home_team,
+                    season=season,
+                    split=home_split,
+                    team_fallback=home_team_fallback,
+                )
                 home_lineup_inputs = build_lineup_offense_inputs(
                     session=session,
                     game_pk=game.get("_game_pk"),
@@ -270,7 +331,16 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
                 )
                 if home_lineup_inputs:
                     base_matchup["home_offense_inputs"] = home_lineup_inputs
-            except Exception:
+                else:
+                    base_matchup["home_offense_inputs"] = _with_lineup_fallback_diagnostics(
+                        base_matchup["home_offense_inputs"],
+                        home_lineup_diagnostics,
+                    )
+            except Exception as exc:
+                base_matchup["home_offense_inputs"] = _with_lineup_exception_diagnostics(
+                    base_matchup["home_offense_inputs"],
+                    exc,
+                )
                 log.exception(
                     "Confirmed home lineup offense input failed; using team_splits fallback for game_pk=%s date=%s home_team_id=%s",
                     game.get("_game_pk"),
@@ -279,6 +349,15 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
                 )
 
             try:
+                away_lineup_diagnostics = build_lineup_offense_diagnostics(
+                    session=session,
+                    game_pk=game.get("_game_pk"),
+                    side="away",
+                    team_id=away_team,
+                    season=season,
+                    split=away_split,
+                    team_fallback=away_team_fallback,
+                )
                 away_lineup_inputs = build_lineup_offense_inputs(
                     session=session,
                     game_pk=game.get("_game_pk"),
@@ -290,7 +369,16 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
                 )
                 if away_lineup_inputs:
                     base_matchup["away_offense_inputs"] = away_lineup_inputs
-            except Exception:
+                else:
+                    base_matchup["away_offense_inputs"] = _with_lineup_fallback_diagnostics(
+                        base_matchup["away_offense_inputs"],
+                        away_lineup_diagnostics,
+                    )
+            except Exception as exc:
+                base_matchup["away_offense_inputs"] = _with_lineup_exception_diagnostics(
+                    base_matchup["away_offense_inputs"],
+                    exc,
+                )
                 log.exception(
                     "Confirmed away lineup offense input failed; using team_splits fallback for game_pk=%s date=%s away_team_id=%s",
                     game.get("_game_pk"),
