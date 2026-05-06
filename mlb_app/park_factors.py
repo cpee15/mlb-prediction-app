@@ -4,7 +4,7 @@ import re
 from typing import Any, Dict, Optional
 
 
-PARK_FACTOR_SOURCE = "static_park_factor_v1"
+PARK_FACTOR_SOURCE = "static_park_factor_v2_lhr_rhr_conservative"
 
 
 def normalize_venue_name(name: Optional[str]) -> Optional[str]:
@@ -53,35 +53,35 @@ def _profile(
 PARK_FACTORS: Dict[str, Dict[str, Any]] = {}
 
 _RAW_PROFILES = [
-    _profile("Angel Stadium", 0.99, 0.98, 1.00, aliases=["Angel Stadium of Anaheim"], home_run_factor_lhb=0.98, home_run_factor_rhb=0.98),
-    _profile("Busch Stadium", 0.98, 0.96, 0.99, home_run_factor_lhb=0.96, home_run_factor_rhb=0.96),
+    _profile("Angel Stadium", 0.99, 0.98, 1.00, aliases=["Angel Stadium of Anaheim"], home_run_factor_lhb=0.99, home_run_factor_rhb=0.97),
+    _profile("Busch Stadium", 0.98, 0.96, 0.99, home_run_factor_lhb=0.95, home_run_factor_rhb=0.97),
     _profile("Chase Field", 1.01, 1.02, 1.01, venue_type="retractable", default_roof_status="unknown", weather_applies_default="unknown", home_run_factor_lhb=1.02, home_run_factor_rhb=1.02),
     _profile("Citi Field", 0.98, 0.96, 0.99, home_run_factor_lhb=0.96, home_run_factor_rhb=0.96),
     _profile("Citizens Bank Park", 1.02, 1.08, 1.00, home_run_factor_lhb=1.09, home_run_factor_rhb=1.07),
-    _profile("Comerica Park", 1.00, 0.95, 1.02, home_run_factor_lhb=0.95, home_run_factor_rhb=0.95),
+    _profile("Comerica Park", 1.00, 0.95, 1.02, home_run_factor_lhb=0.94, home_run_factor_rhb=0.96),
     _profile("Coors Field", 1.10, 1.08, 1.06, home_run_factor_lhb=1.08, home_run_factor_rhb=1.08),
     _profile("Daikin Park", 1.00, 1.02, 0.99, venue_type="retractable", default_roof_status="unknown", weather_applies_default="unknown", aliases=["Minute Maid Park"], home_run_factor_lhb=1.03, home_run_factor_rhb=1.01),
-    _profile("Dodger Stadium", 0.99, 1.00, 0.99, home_run_factor_lhb=1.00, home_run_factor_rhb=1.00),
+    _profile("Dodger Stadium", 0.99, 1.00, 0.99, home_run_factor_lhb=1.01, home_run_factor_rhb=0.99),
     _profile("Fenway Park", 1.03, 0.98, 1.04, home_run_factor_lhb=0.97, home_run_factor_rhb=0.99),
     _profile("Globe Life Field", 0.99, 0.98, 0.99, venue_type="retractable", default_roof_status="unknown", weather_applies_default="unknown", home_run_factor_lhb=0.98, home_run_factor_rhb=0.98),
     _profile("Great American Ball Park", 1.03, 1.10, 0.99, home_run_factor_lhb=1.10, home_run_factor_rhb=1.10),
-    _profile("Guaranteed Rate Field", 1.01, 1.05, 0.99, aliases=["Rate Field"], home_run_factor_lhb=1.05, home_run_factor_rhb=1.05),
+    _profile("Guaranteed Rate Field", 1.01, 1.05, 0.99, aliases=["Rate Field"], home_run_factor_lhb=1.06, home_run_factor_rhb=1.04),
     _profile("Kauffman Stadium", 1.01, 0.95, 1.03, home_run_factor_lhb=0.95, home_run_factor_rhb=0.95),
     _profile("loanDepot park", 0.98, 0.96, 0.99, venue_type="retractable", default_roof_status="unknown", weather_applies_default="unknown", aliases=["loanDepot Park", "Marlins Park"], home_run_factor_lhb=0.96, home_run_factor_rhb=0.96),
-    _profile("Nationals Park", 1.00, 1.01, 1.00, home_run_factor_lhb=1.01, home_run_factor_rhb=1.01),
-    _profile("Oracle Park", 0.97, 0.91, 0.99, home_run_factor_lhb=0.91, home_run_factor_rhb=0.91),
+    _profile("Nationals Park", 1.00, 1.01, 1.00, home_run_factor_lhb=1.02, home_run_factor_rhb=1.00),
+    _profile("Oracle Park", 0.97, 0.91, 0.99, home_run_factor_lhb=0.90, home_run_factor_rhb=0.92),
     _profile("Oriole Park at Camden Yards", 1.01, 1.04, 1.00, aliases=["Camden Yards"], home_run_factor_lhb=1.05, home_run_factor_rhb=1.03),
-    _profile("PNC Park", 0.99, 0.97, 1.00, home_run_factor_lhb=0.97, home_run_factor_rhb=0.97),
+    _profile("PNC Park", 0.99, 0.97, 1.00, home_run_factor_lhb=0.96, home_run_factor_rhb=0.98),
     _profile("Petco Park", 0.97, 0.94, 0.99, home_run_factor_lhb=0.94, home_run_factor_rhb=0.94),
-    _profile("Progressive Field", 0.99, 0.98, 1.00, home_run_factor_lhb=0.98, home_run_factor_rhb=0.98),
+    _profile("Progressive Field", 0.99, 0.98, 1.00, home_run_factor_lhb=0.99, home_run_factor_rhb=0.97),
     _profile("Rogers Centre", 1.01, 1.04, 1.00, venue_type="retractable", default_roof_status="unknown", weather_applies_default="unknown", home_run_factor_lhb=1.04, home_run_factor_rhb=1.04),
-    _profile("T-Mobile Park", 0.98, 0.96, 0.99, venue_type="retractable", default_roof_status="unknown", weather_applies_default="unknown", home_run_factor_lhb=0.96, home_run_factor_rhb=0.96),
-    _profile("Target Field", 0.99, 1.00, 0.99, home_run_factor_lhb=1.00, home_run_factor_rhb=1.00),
-    _profile("Truist Park", 1.01, 1.03, 1.00, home_run_factor_lhb=1.03, home_run_factor_rhb=1.03),
+    _profile("T-Mobile Park", 0.98, 0.96, 0.99, venue_type="retractable", default_roof_status="unknown", weather_applies_default="unknown", home_run_factor_lhb=0.95, home_run_factor_rhb=0.97),
+    _profile("Target Field", 0.99, 1.00, 0.99, home_run_factor_lhb=1.01, home_run_factor_rhb=0.99),
+    _profile("Truist Park", 1.01, 1.03, 1.00, home_run_factor_lhb=1.04, home_run_factor_rhb=1.02),
     _profile("Tropicana Field", 0.98, 0.96, 0.99, venue_type="dome", default_roof_status="dome", weather_applies_default=False, home_run_factor_lhb=0.96, home_run_factor_rhb=0.96),
-    _profile("Wrigley Field", 1.02, 1.05, 1.00, home_run_factor_lhb=1.05, home_run_factor_rhb=1.05),
+    _profile("Wrigley Field", 1.02, 1.05, 1.00, home_run_factor_lhb=1.06, home_run_factor_rhb=1.04),
     _profile("Yankee Stadium", 1.01, 1.07, 0.99, home_run_factor_lhb=1.09, home_run_factor_rhb=1.05),
-    _profile("American Family Field", 1.00, 1.03, 0.99, venue_type="retractable", default_roof_status="unknown", weather_applies_default="unknown", aliases=["Miller Park"], home_run_factor_lhb=1.03, home_run_factor_rhb=1.03),
+    _profile("American Family Field", 1.00, 1.03, 0.99, venue_type="retractable", default_roof_status="unknown", weather_applies_default="unknown", aliases=["Miller Park"], home_run_factor_lhb=1.04, home_run_factor_rhb=1.02),
     _profile("Sutter Health Park", 1.00, 1.00, 1.00, aliases=["Oakland Coliseum", "RingCentral Coliseum"], home_run_factor_lhb=1.00, home_run_factor_rhb=1.00),
 ]
 
