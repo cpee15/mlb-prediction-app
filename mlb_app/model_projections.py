@@ -195,7 +195,7 @@ def _pitcher_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
 
 def _offense_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
     inputs = team.get("offense_inputs") or {}
-    return {
+    profile = {
         "metadata": {
             "source_type": inputs.get("source") or "team_split_or_prior",
             "generated_from": "model_projections._offense_workspace_profile",
@@ -203,7 +203,7 @@ def _offense_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
             "team_id": team.get("team_id"),
             "team_name": team.get("team_name"),
             "lineup_source": inputs.get("lineup_source"),
-            "profile_granularity": "team_offense",
+            "profile_granularity": inputs.get("profile_granularity") or "team_offense",
             "sample_blend": inputs.get("sample_blend"),
         },
         "contact_skill": {
@@ -229,6 +229,19 @@ def _offense_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
             "strikeouts": safe_float(inputs.get("strikeouts")),
         },
     }
+
+    for passthrough_key in (
+        "lineup_handedness_mix",
+        "lineup_handedness_mix_source",
+        "lineup_handedness_coverage_rate",
+        "lineup_handedness_counts",
+        "lineup_handedness_player_count",
+        "lineup_handedness_unavailable_reason",
+    ):
+        if passthrough_key in inputs:
+            profile[passthrough_key] = inputs.get(passthrough_key)
+
+    return profile
 
 
 def _matchup_workspace_analysis(offense_team: Dict[str, Any], opposing_pitcher: Dict[str, Any]) -> Dict[str, Any]:

@@ -251,6 +251,8 @@ def compute_environment_profile(raw_context: dict) -> dict:
     run_factor = _safe_float(raw_run_factor)
 
     raw_home_run_factor = _safe_float(raw_context.get("home_run_factor"))
+    raw_home_run_factor_lhb = _safe_float(raw_context.get("home_run_factor_lhb"))
+    raw_home_run_factor_rhb = _safe_float(raw_context.get("home_run_factor_rhb"))
     raw_hit_factor = _safe_float(raw_context.get("hit_factor"))
 
     park_factor_profile_found = bool(park_factor_profile.get("park_factor_profile_found"))
@@ -261,10 +263,16 @@ def compute_environment_profile(raw_context: dict) -> dict:
         static_park_factor_used = run_factor is not None and park_factor_profile.get("source") != "neutral_fallback_unmapped_venue"
 
     home_run_factor = raw_home_run_factor
+    home_run_factor_lhb = raw_home_run_factor_lhb
+    home_run_factor_rhb = raw_home_run_factor_rhb
     hit_factor = raw_hit_factor
 
     if home_run_factor is None:
         home_run_factor = _safe_float(park_factor_profile.get("home_run_factor"))
+    if home_run_factor_lhb is None:
+        home_run_factor_lhb = _safe_float(park_factor_profile.get("home_run_factor_lhb"))
+    if home_run_factor_rhb is None:
+        home_run_factor_rhb = _safe_float(park_factor_profile.get("home_run_factor_rhb"))
     if hit_factor is None:
         hit_factor = _safe_float(park_factor_profile.get("hit_factor"))
 
@@ -371,6 +379,8 @@ def compute_environment_profile(raw_context: dict) -> dict:
             "park_component": {
                 "run_factor": run_factor,
                 "home_run_factor": home_run_factor,
+                "home_run_factor_lhb": home_run_factor_lhb,
+                "home_run_factor_rhb": home_run_factor_rhb,
                 "hit_factor": hit_factor,
                 "source": park_component_source,
                 "park_factor_profile_found": park_factor_profile_found,
@@ -410,6 +420,8 @@ def compute_environment_profile(raw_context: dict) -> dict:
         "park_factors": {
             "run_factor": run_factor,
             "home_run_factor": home_run_factor,
+            "home_run_factor_lhb": home_run_factor_lhb,
+            "home_run_factor_rhb": home_run_factor_rhb,
             "hit_factor": hit_factor,
         },
         "game_context": {

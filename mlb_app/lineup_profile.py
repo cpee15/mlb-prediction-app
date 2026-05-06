@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import datetime as dt
+
 from typing import Any, Dict, List, Optional
 
 import requests
+
+from .lineup_handedness import build_lineup_handedness_mix
 from sqlalchemy.orm import Session
 
 from .db_utils import get_batter_aggregate, get_player_split
@@ -388,7 +392,7 @@ def build_lineup_offense_inputs(
     if len(profiles) < MIN_USABLE_HITTERS:
         return None
 
-    return _aggregate_hitter_profiles(
+    aggregate = _aggregate_hitter_profiles(
         profiles=profiles,
         team_id=team_id,
         season=season,
@@ -396,6 +400,53 @@ def build_lineup_offense_inputs(
         team_fallback=team_fallback,
         fallback_player_count=fallback_player_count,
     )
+
+    lineup_handedness_mix = None
+    lineup_handedness_unavailable_reason = None
+
+    try:
+        target_date = dt.date(int(season), 12, 31)
+        season_start = dt.date(int(season), 1, 1)
+
+        hitter_ids_for_handedness = []
+        for profile in profiles:
+            player_id = profile.get("player_id") or profile.get("batter_id")
+            if player_id is not None:
+                try:
+                    hitter_ids_for_handedness.append(int(player_id))
+                except Exception:
+                    continue
+
+        if hitter_ids_for_handedness:
+            lineup_handedness_mix = build_lineup_handedness_mix(
+                session,
+                hitter_ids_for_handedness,
+                season_start,
+                target_date,
+            )
+        else:
+            lineup_handedness_unavailable_reason = "missing_hitter_ids"
+
+    except Exception as exc:
+        lineup_handedness_mix = None
+        lineup_handedness_unavailable_reason = f"handedness_mix_error:{exc}"
+
+    aggregate["lineup_handedness_mix"] = lineup_handedness_mix
+    aggregate["lineup_handedness_mix_source"] = (
+        lineup_handedness_mix or {}
+    ).get("source") if lineup_handedness_mix else None
+    aggregate["lineup_handedness_coverage_rate"] = (
+        lineup_handedness_mix or {}
+    ).get("coverage_rate") if lineup_handedness_mix else None
+    aggregate["lineup_handedness_counts"] = (
+        lineup_handedness_mix or {}
+    ).get("counts") if lineup_handedness_mix else None
+    aggregate["lineup_handedness_player_count"] = (
+        lineup_handedness_mix or {}
+    ).get("hitter_count") if lineup_handedness_mix else None
+    aggregate["lineup_handedness_unavailable_reason"] = lineup_handedness_unavailable_reason
+
+    return aggregate
 
 
 __all__ = [
