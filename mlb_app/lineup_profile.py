@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from .lineup_handedness import build_lineup_handedness_mix
+from .statsapi_cache import fetch_json_with_cache, make_cache_key
 from sqlalchemy.orm import Session
 
 from .db_utils import get_batter_aggregate, get_player_split
@@ -77,14 +78,120 @@ def fetch_boxscore_lineup(game_pk: int) -> Dict[str, List[Dict[str, Any]]]:
     for the first aggregate lineup model.
     """
     url = f"{MLB_STATS_BASE}/game/{game_pk}/boxscore"
-    resp = requests.get(url, timeout=30)
-    resp.raise_for_status()
-    boxscore = resp.json()
+    boxscore = fetch_json_with_cache(
+        url,
+        cache_key=make_cache_key("boxscore", game_pk),
+        timeout=30,
+    )
 
     return {
         "away": _extract_starting_lineup(boxscore, "away"),
         "home": _extract_starting_lineup(boxscore, "home"),
     }
+
+
+def build_lineup_offense_diagnostics(
+    session: Session,
+    game_pk: int,
+    side: str,
+    team_id: int,
+    season: int,
+    split: str,
+    team_fallback: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Read-only diagnostics explaining whether confirmed lineup offense inputs can activate.
+
+    This mirrors build_lineup_offense_inputs() gating but returns structured
+    diagnostics instead of model inputs. It intentionally does not change
+    activation criteria or fallback behavior.
+    """
+    diagnostics: Dict[str, Any] = {
+        "lineup_fallback_reason": None,
+        "lineup_fallback_stage": None,
+        "lineup_fetch_attempted": False,
+        "lineup_fetch_succeeded": False,
+        "lineup_side_found": False,
+        "starting_lineup_count": 0,
+        "usable_hitter_profile_count": 0,
+        "real_player_profile_count": 0,
+        "fallback_player_count": 0,
+        "min_usable_hitters": MIN_USABLE_HITTERS,
+        "confirmed_lineup_inputs_would_activate": False,
+    }
+
+    if not game_pk:
+        diagnostics.update({
+            "lineup_fallback_reason": "missing_game_pk",
+            "lineup_fallback_stage": "pre_fetch",
+        })
+        return diagnostics
+
+    diagnostics["lineup_fetch_attempted"] = True
+    lineups = fetch_boxscore_lineup(int(game_pk))
+    diagnostics["lineup_fetch_succeeded"] = True
+
+    lineup = lineups.get(side) or []
+    diagnostics["lineup_side_found"] = side in lineups
+    diagnostics["starting_lineup_count"] = len(lineup)
+
+    if len(lineup) < MIN_USABLE_HITTERS:
+        diagnostics.update({
+            "lineup_fallback_reason": "starting_lineup_incomplete",
+            "lineup_fallback_stage": "lineup_count",
+        })
+        return diagnostics
+
+    profiles: List[Dict[str, Any]] = []
+    fallback_player_count = 0
+    real_player_profile_count = 0
+
+    for player in lineup:
+        player_id = player.get("batter_id")
+        if not player_id:
+            fallback_player_count += 1
+            continue
+
+        profile = build_hitter_profile(
+            session=session,
+            player_id=int(player_id),
+            season=season,
+            split=split,
+            team_fallback=team_fallback,
+            lineup_player=player,
+        )
+
+        has_real_player_profile = bool(profile.get("has_player_split") or profile.get("has_batter_aggregate"))
+        if has_real_player_profile:
+            real_player_profile_count += 1
+        else:
+            fallback_player_count += 1
+
+        if profile.get("has_usable_profile"):
+            profiles.append(profile)
+
+    diagnostics["usable_hitter_profile_count"] = len(profiles)
+    diagnostics["real_player_profile_count"] = real_player_profile_count
+    diagnostics["fallback_player_count"] = fallback_player_count
+
+    if real_player_profile_count < MIN_USABLE_HITTERS:
+        diagnostics.update({
+            "lineup_fallback_reason": "not_enough_real_player_profiles",
+            "lineup_fallback_stage": "real_player_profile_count",
+        })
+        return diagnostics
+
+    if len(profiles) < MIN_USABLE_HITTERS:
+        diagnostics.update({
+            "lineup_fallback_reason": "not_enough_usable_hitter_profiles",
+            "lineup_fallback_stage": "usable_hitter_profile_count",
+        })
+        return diagnostics
+
+    diagnostics["confirmed_lineup_inputs_would_activate"] = True
+    return diagnostics
+
+
 
 
 def _extract_starting_lineup(boxscore: Dict[str, Any], side: str) -> List[Dict[str, Any]]:
@@ -331,6 +438,113 @@ def _aggregate_hitter_profiles(
     }
 
 
+def build_lineup_offense_diagnostics(
+    session: Session,
+    game_pk: int,
+    side: str,
+    team_id: int,
+    season: int,
+    split: str,
+    team_fallback: Dict[str, Any],
+    lineups: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+) -> Dict[str, Any]:
+    """
+    Read-only diagnostics explaining whether confirmed lineup offense inputs can activate.
+
+    This mirrors build_lineup_offense_inputs() gating but returns structured
+    diagnostics instead of model inputs. It intentionally does not change
+    activation criteria or fallback behavior.
+    """
+    diagnostics: Dict[str, Any] = {
+        "lineup_fallback_reason": None,
+        "lineup_fallback_stage": None,
+        "lineup_fetch_attempted": False,
+        "lineup_fetch_succeeded": False,
+        "lineup_side_found": False,
+        "starting_lineup_count": 0,
+        "usable_hitter_profile_count": 0,
+        "real_player_profile_count": 0,
+        "fallback_player_count": 0,
+        "min_usable_hitters": MIN_USABLE_HITTERS,
+        "confirmed_lineup_inputs_would_activate": False,
+    }
+
+    if not game_pk:
+        diagnostics.update({
+            "lineup_fallback_reason": "missing_game_pk",
+            "lineup_fallback_stage": "pre_fetch",
+        })
+        return diagnostics
+
+    diagnostics["lineup_fetch_attempted"] = True
+
+    if lineups is None:
+        lineups = fetch_boxscore_lineup(int(game_pk))
+
+    diagnostics["lineup_fetch_succeeded"] = True
+    diagnostics["lineup_side_found"] = side in lineups
+
+    lineup = lineups.get(side) or []
+    diagnostics["starting_lineup_count"] = len(lineup)
+
+    if len(lineup) < MIN_USABLE_HITTERS:
+        diagnostics.update({
+            "lineup_fallback_reason": "starting_lineup_incomplete",
+            "lineup_fallback_stage": "lineup_count",
+        })
+        return diagnostics
+
+    profiles: List[Dict[str, Any]] = []
+    fallback_player_count = 0
+    real_player_profile_count = 0
+
+    for player in lineup:
+        player_id = player.get("batter_id")
+        if not player_id:
+            fallback_player_count += 1
+            continue
+
+        profile = build_hitter_profile(
+            session=session,
+            player_id=int(player_id),
+            season=season,
+            split=split,
+            team_fallback=team_fallback,
+            lineup_player=player,
+        )
+
+        has_real_player_profile = bool(profile.get("has_player_split") or profile.get("has_batter_aggregate"))
+        if has_real_player_profile:
+            real_player_profile_count += 1
+        else:
+            fallback_player_count += 1
+
+        if profile.get("has_usable_profile"):
+            profiles.append(profile)
+
+    diagnostics["usable_hitter_profile_count"] = len(profiles)
+    diagnostics["real_player_profile_count"] = real_player_profile_count
+    diagnostics["fallback_player_count"] = fallback_player_count
+
+    if real_player_profile_count < MIN_USABLE_HITTERS:
+        diagnostics.update({
+            "lineup_fallback_reason": "not_enough_real_player_profiles",
+            "lineup_fallback_stage": "real_player_profile_count",
+        })
+        return diagnostics
+
+    if len(profiles) < MIN_USABLE_HITTERS:
+        diagnostics.update({
+            "lineup_fallback_reason": "not_enough_usable_hitter_profiles",
+            "lineup_fallback_stage": "usable_hitter_profile_count",
+        })
+        return diagnostics
+
+    diagnostics["confirmed_lineup_inputs_would_activate"] = True
+    return diagnostics
+
+
+
 def build_lineup_offense_inputs(
     session: Session,
     game_pk: int,
@@ -339,6 +553,7 @@ def build_lineup_offense_inputs(
     season: int,
     split: str,
     team_fallback: Dict[str, Any],
+    lineups: Optional[Dict[str, List[Dict[str, Any]]]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Return lineup-average offense inputs when confirmed lineups are usable.
@@ -349,7 +564,8 @@ def build_lineup_offense_inputs(
     if not game_pk:
         return None
 
-    lineups = fetch_boxscore_lineup(int(game_pk))
+    if lineups is None:
+        lineups = fetch_boxscore_lineup(int(game_pk))
     lineup = lineups.get(side) or []
 
     if len(lineup) < MIN_USABLE_HITTERS:
@@ -454,4 +670,5 @@ __all__ = [
     "fetch_boxscore_lineup",
     "build_hitter_profile",
     "build_lineup_offense_inputs",
+    "build_lineup_offense_diagnostics",
 ]

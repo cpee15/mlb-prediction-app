@@ -32,6 +32,7 @@ from .database import (
     TeamSplit,
     PlayerSplit,
 )
+from .statsapi_cache import fetch_json_with_cache, make_cache_key
 from .statcast_utils import (
     fetch_statcast_pitcher_data,
     fetch_statcast_batter_data,
@@ -57,10 +58,14 @@ def fetch_schedule(date_str: str) -> List[dict]:
     """Return list of game dicts for a date, including probable pitcher IDs."""
     url = f"{MLB_STATS_BASE}/schedule"
     params = {"sportId": 1, "date": date_str, "hydrate": "probablePitcher,team,linescore,weather"}
-    resp = requests.get(url, params=params, timeout=30)
-    resp.raise_for_status()
+    payload = fetch_json_with_cache(
+        url,
+        params=params,
+        cache_key=make_cache_key("schedule", date_str, params),
+        timeout=30,
+    )
     games = []
-    for day in resp.json().get("dates", []):
+    for day in payload.get("dates", []):
         for game in day.get("games", []):
             teams = game.get("teams", {})
             teams["_game_pk"] = game.get("gamePk")
