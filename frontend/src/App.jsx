@@ -13,7 +13,7 @@ import YesterdayTodayPage from './pages/YesterdayTodayPage'
 import AIPage from './pages/AIPage'
 import LiveScoreboardPage from './pages/LiveScoreboardPage'
 import LiveGamePageRestored from './pages/LiveGamePageRestored'
-import DailyOddsPage from './pages/DailyOddsPage'
+import DailyOddsPage from './pages/DailyOddsPageFixed'
 import ModelProjectionsPage from './pages/ModelProjectionsPage'
 
 const styles = {
