@@ -119,7 +119,7 @@ function getPitcherMetric(profile, matchup, side, keys) {
   return null
 }
 function getOffenseMetric(profile, matchup, side, keys) {
-  const pools = [profile?.metadata, profile?.contact_skill, profile?.plate_discipline, profile?.power, profile?.run_creation, matchup?.[`${side}_team_features`]]
+  const pools = [profile?.metadata, profile?.contact_skill, profile?.plate_discipline, profile?.power, profile?.run_creation, matchup?.[`${side}_offense_inputs`], matchup?.[`${side}_team_features`]]
   for (const key of keys) {
     for (const pool of pools) {
       if (pool && pool[key] !== undefined && pool[key] !== null && pool[key] !== '') return pool[key]
@@ -153,6 +153,65 @@ function findLockKey(rows, topPropCandidates) {
   if (rankedProps[0]?.match_key) return rankedProps[0].match_key
   const rankedGames = rows.map(row => ({ key: row.key, candidate: strongestGameCandidate(row.model) })).filter(row => row.candidate).sort((a, b) => candidateScore(b.candidate) - candidateScore(a.candidate))
   return rankedGames[0]?.key || null
+}
+
+// Mirrors backend scoring.py PARK_FACTORS — keyed by normalized venue name
+const VENUE_PARK_FACTORS = {
+  'angel stadium': 0.97, 'angel stadium of anaheim': 0.97,
+  'american family field': 1.01, 'miller park': 1.01,
+  'busch stadium': 0.99,
+  'camden yards': 0.99, 'oriole park at camden yards': 0.99,
+  'chase field': 0.98,
+  'citi field': 0.98,
+  'citizens bank park': 1.04,
+  'comerica park': 0.95,
+  'coors field': 1.30,
+  'daikin park': 1.01, 'minute maid park': 1.01,
+  'dodger stadium': 0.96,
+  'fenway park': 1.05,
+  'globe life field': 1.03,
+  'great american ball park': 1.15,
+  'guaranteed rate field': 1.01, 'rate field': 1.01,
+  'kauffman stadium': 0.92,
+  'loandepot park': 0.94, 'marlins park': 0.94,
+  'nationals park': 0.98,
+  'oracle park': 0.95,
+  'petco park': 0.90,
+  'pnc park': 0.97,
+  'progressive field': 0.97,
+  'rogers centre': 1.03,
+  't mobile park': 0.88,
+  'target field': 0.97,
+  'tropicana field': 0.88,
+  'truist park': 0.99,
+  'wrigley field': 0.99,
+  'yankee stadium': 1.10,
+  'sutter health park': 0.93, 'oakland coliseum': 0.93, 'ringcentral coliseum': 0.93,
+}
+function normalizeVenueName(name) {
+  if (!name) return ''
+  return String(name).toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
+function getParkFactor(venueName) {
+  const key = normalizeVenueName(venueName)
+  if (!key) return null
+  return VENUE_PARK_FACTORS[key] ?? null
+}
+
+function buildPitcherBullet(name, profile, matchup, side) {
+  const kPct = getPitcherMetric(profile, matchup, side, ['k_pct', 'strikeout_pct', 'k_rate'])
+  const bbPct = getPitcherMetric(profile, matchup, side, ['bb_pct', 'walk_pct', 'bb_rate'])
+  const xwoba = getPitcherMetric(profile, matchup, side, ['xwoba', 'xwoba_allowed'])
+  const hardHit = getPitcherMetric(profile, matchup, side, ['hard_hit_pct', 'hardhit_pct'])
+  const velo = getPitcherMetric(profile, matchup, side, ['avg_velocity'])
+  const parts = [
+    kPct != null ? `K% ${pct(kPct)}` : null,
+    bbPct != null ? `BB% ${pct(bbPct)}` : null,
+    xwoba != null ? `xwOBA ${dec(xwoba, 3)}` : null,
+    hardHit != null ? `Hard Hit ${pct(hardHit)}` : null,
+    velo != null ? `Velo ${num(velo)}` : null,
+  ].filter(Boolean)
+  return `${name}: ${parts.length > 0 ? parts.join(' | ') : 'No Statcast data available'}`
 }
 
 function MarketBox({ label, market }) {
@@ -300,8 +359,8 @@ function DailyRecapCard({ row, isLock }) {
   const confidence = firstDefined(strongest?.confidence, root.moneyline?.confidence, root.total?.confidence, awayRunModel?.data_confidence, homeRunModel?.data_confidence)
 
   const pitcherBullets = [
-    `${awayPitcher}: ERA/xERA ${dec(getPitcherMetric(awayPitcherProfile, matchup, 'away', ['era', 'xera', 'x_era']), 2)} | WHIP ${dec(getPitcherMetric(awayPitcherProfile, matchup, 'away', ['whip']), 2)} | K% ${pct(getPitcherMetric(awayPitcherProfile, matchup, 'away', ['k_pct', 'strikeout_pct', 'k_rate']))} | BB% ${pct(getPitcherMetric(awayPitcherProfile, matchup, 'away', ['bb_pct', 'walk_pct', 'bb_rate']))} | Hard Hit/xwOBA ${firstDefined(pct(getPitcherMetric(awayPitcherProfile, matchup, 'away', ['hard_hit_pct', 'hardhit_pct'])), dec(getPitcherMetric(awayPitcherProfile, matchup, 'away', ['xwoba', 'xwoba_allowed']), 3))}`,
-    `${homePitcher}: ERA/xERA ${dec(getPitcherMetric(homePitcherProfile, matchup, 'home', ['era', 'xera', 'x_era']), 2)} | WHIP ${dec(getPitcherMetric(homePitcherProfile, matchup, 'home', ['whip']), 2)} | K% ${pct(getPitcherMetric(homePitcherProfile, matchup, 'home', ['k_pct', 'strikeout_pct', 'k_rate']))} | BB% ${pct(getPitcherMetric(homePitcherProfile, matchup, 'home', ['bb_pct', 'walk_pct', 'bb_rate']))} | Hard Hit/xwOBA ${firstDefined(pct(getPitcherMetric(homePitcherProfile, matchup, 'home', ['hard_hit_pct', 'hardhit_pct'])), dec(getPitcherMetric(homePitcherProfile, matchup, 'home', ['xwoba', 'xwoba_allowed']), 3))}`,
+    buildPitcherBullet(awayPitcher, awayPitcherProfile, matchup, 'away'),
+    buildPitcherBullet(homePitcher, homePitcherProfile, matchup, 'home'),
   ]
 
   const hitterBullets = [
@@ -314,7 +373,7 @@ function DailyRecapCard({ row, isLock }) {
     `Wind Speed: ${firstDefined(getWeatherMetric(environment, matchup, ['wind_speed_mph']), label(getWeatherMetric(environment, matchup, ['wind'])))}`,
     `Wind Direction: ${label(getWeatherMetric(environment, matchup, ['wind_direction', 'wind_run_impact']))}`,
     `Humidity: ${firstDefined(pct(getWeatherMetric(environment, matchup, ['humidity'])), 'N/A')}`,
-    `Park Factor: ${dec(firstDefined(getWeatherMetric(environment, matchup, ['park_factor', 'run_scoring_index']), matchup?.park_factor), 2)} | Weather Risk: ${label(firstDefined(getWeatherMetric(environment, matchup, ['weather_risk', 'scoring_environment_label']), getWeatherMetric(environment, matchup, ['weather_run_impact'])))}`,
+    `Park Factor: ${dec(firstDefined(getWeatherMetric(environment, matchup, ['park_factor', 'run_factor', 'run_scoring_index']), matchup?.park_factor, getParkFactor(matchup?.venue)), 2)} | Weather Risk: ${label(firstDefined(getWeatherMetric(environment, matchup, ['weather_risk', 'scoring_environment_label']), getWeatherMetric(environment, matchup, ['weather_run_impact'])))}`,
   ]
 
   const consensusBullets = [
