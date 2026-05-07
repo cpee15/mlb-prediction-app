@@ -3,6 +3,18 @@ import { Link, useNavigate } from 'react-router-dom'
 
 const API = import.meta.env.VITE_API_BASE_URL || ''
 
+function getMlbToday() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
+
 const s = {
   header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' },
   title: { fontSize: '24px', fontWeight: '700', color: '#e6edf3' },
@@ -233,7 +245,7 @@ function ProbBar({ homeProb, awayProb }) {
 }
 
 export default function HomePage() {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getMlbToday()
   const [date, setDate] = useState(today)
   const [matchups, setMatchups] = useState([])
   const [oddsEvents, setOddsEvents] = useState([])
