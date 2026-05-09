@@ -57,6 +57,7 @@ const searchDropStyle = {
   background: C.card, border: `1px solid ${C.border}`, borderRadius: '6px',
   marginTop: '4px', maxHeight: '280px', overflowY: 'auto',
 }
+
 const searchItemStyle = (hover) => ({
   padding: '9px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.elevated}`,
   background: hover ? C.elevated : 'transparent',
@@ -74,47 +75,86 @@ const LEAGUE_AVGS = {
 
 const tooltipStyle = { background: '#1c2128', border: `1px solid ${C.border}`, borderRadius: '6px', fontSize: '12px', color: C.text }
 
+function safeNumber(value) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function hasRealPlayerName(name) {
+  if (!name) return false
+  const cleaned = String(name).trim()
+  if (!cleaned) return false
+  if (cleaned.startsWith('#')) return false
+  return !['none', 'null', 'nan', 'unknown', 'n/a', 'na'].includes(cleaned.toLowerCase())
+}
+
+function cleanLeaderboardRows(board) {
+  if (!Array.isArray(board)) return []
+
+  return board
+    .map((row, idx) => {
+      const value = safeNumber(row?.value)
+      return {
+        ...row,
+        value,
+        rank: row?.rank || idx + 1,
+      }
+    })
+    .filter(row => (
+      row.player_id &&
+      hasRealPlayerName(row.player_name) &&
+      row.value !== null
+    ))
+    .slice(0, 10)
+}
+
 // ─── Leaderboard config ────────────────────────────────────────────────────
 const LB_CONFIG = [
-  { key: 'home_runs',         title: 'Home Runs',          fmt: v => v,                         color: C.blue,   group: 'Counting' },
-  { key: 'hits',              title: 'Hits',               fmt: v => v,                         color: C.green,  group: 'Counting' },
-  { key: 'doubles',           title: 'Doubles (2B)',        fmt: v => v,                         color: C.teal,   group: 'Counting' },
-  { key: 'avg_exit_velocity', title: 'Avg Exit Velocity',  fmt: v => `${v.toFixed(1)} mph`,     color: C.orange, group: 'Statcast' },
-  { key: 'hard_hit_pct',      title: 'Hard Hit %',         fmt: v => `${(v*100).toFixed(1)}%`,  color: C.orange, group: 'Statcast' },
-  { key: 'barrel_pct',        title: 'Barrel %',           fmt: v => `${(v*100).toFixed(1)}%`,  color: C.red,    group: 'Statcast' },
-  { key: 'max_exit_velocity', title: 'Max Exit Velocity',  fmt: v => `${v.toFixed(1)} mph`,     color: C.purple, group: 'Statcast' },
-  { key: 'iso',               title: 'ISO',                fmt: v => v.toFixed(3),              color: C.blue,   group: 'Rate' },
-  { key: 'bb_pct',            title: 'Walk Rate (BB%)',    fmt: v => `${(v*100).toFixed(1)}%`,  color: C.green,  group: 'Rate' },
-  { key: 'k_pct_avoidance',   title: 'K% Avoidance',      fmt: v => `${(v*100).toFixed(1)}%`,  color: C.teal,   group: 'Rate',    inverse: true },
-  { key: 'contact_pct',       title: 'Contact %',          fmt: v => `${(v*100).toFixed(1)}%`,  color: C.green,  group: 'Contact' },
-  { key: 'whiff_pct',         title: 'Whiff % (Lowest)',   fmt: v => `${(v*100).toFixed(1)}%`,  color: C.muted,  group: 'Contact', inverse: true },
+  { key: 'home_runs', title: 'Home Runs', fmt: v => `${Math.round(v)}`, color: C.blue, group: 'Counting' },
+  { key: 'rbi', title: 'RBI', fmt: v => `${Math.round(v)}`, color: C.purple, group: 'Counting' },
+  { key: 'hits', title: 'Hits', fmt: v => `${Math.round(v)}`, color: C.green, group: 'Counting' },
+  { key: 'doubles', title: 'Doubles (2B)', fmt: v => `${Math.round(v)}`, color: C.teal, group: 'Counting' },
+  { key: 'avg_exit_velocity', title: 'Avg Exit Velocity', fmt: v => `${v.toFixed(1)} mph`, color: C.orange, group: 'Statcast' },
+  { key: 'hard_hit_pct', title: 'Hard Hit %', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.orange, group: 'Statcast' },
+  { key: 'barrel_pct', title: 'Barrel %', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.red, group: 'Statcast' },
+  { key: 'max_exit_velocity', title: 'Max Exit Velocity', fmt: v => `${v.toFixed(1)} mph`, color: C.purple, group: 'Statcast' },
+  { key: 'iso', title: 'ISO', fmt: v => v.toFixed(3), color: C.blue, group: 'Rate' },
+  { key: 'bb_pct', title: 'Walk Rate (BB%)', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.green, group: 'Rate' },
+  { key: 'k_pct_avoidance', title: 'K% Avoidance', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.teal, group: 'Rate', inverse: true },
+  { key: 'contact_pct', title: 'Contact %', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.green, group: 'Contact' },
+  { key: 'whiff_pct', title: 'Whiff % (Lowest)', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.muted, group: 'Contact', inverse: true },
 ]
 
 function MiniBar({ value, maxVal, minVal, color, inverse }) {
   const range = maxVal - minVal || 1
-  const pct = inverse
+  const rawPct = inverse
     ? ((maxVal - value) / range) * 100
     : ((value - minVal) / range) * 100
+  const width = Math.max(4, Math.min(100, rawPct))
+
   return (
     <div style={{ background: C.elevated, borderRadius: '3px', height: '6px', width: '52px', display: 'inline-block', verticalAlign: 'middle' }}>
-      <div style={{ width: `${Math.max(4, pct)}%`, height: '100%', background: color, borderRadius: '3px', opacity: 0.85 }} />
+      <div style={{ width: `${width}%`, height: '100%', background: color, borderRadius: '3px', opacity: 0.85 }} />
     </div>
   )
 }
 
 function LeaderboardCard({ title, board, fmtVal, color, inverse = false }) {
-  if (!board || board.length === 0) return null
-  const vals = board.map(r => r.value)
+  const rows = cleanLeaderboardRows(board)
+  if (!rows.length) return null
+
+  const vals = rows.map(r => r.value)
   const maxVal = Math.max(...vals)
   const minVal = Math.min(...vals)
+
   return (
     <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: '10px', overflow: 'hidden' }}>
       <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.elevated}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: '13px', fontWeight: '600', color: C.text }}>{title}</span>
-        <span style={{ fontSize: '11px', color: color, fontWeight: '600' }}>TOP {board.length}</span>
+        <span style={{ fontSize: '11px', color: color, fontWeight: '600' }}>TOP {rows.length}</span>
       </div>
-      {board.map(row => (
-        <div key={row.player_id} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: '8px', padding: '8px 14px', borderBottom: `1px solid ${C.bg}`, alignItems: 'center' }}>
+      {rows.map(row => (
+        <div key={`${title}-${row.player_id}`} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: '8px', padding: '8px 14px', borderBottom: `1px solid ${C.bg}`, alignItems: 'center' }}>
           <span style={{ fontSize: '11px', color: C.muted, fontWeight: '700', textAlign: 'right' }}>{row.rank}</span>
           <div style={{ overflow: 'hidden' }}>
             <Link
@@ -123,11 +163,15 @@ function LeaderboardCard({ title, board, fmtVal, color, inverse = false }) {
             >
               {row.player_name}
             </Link>
-            {row.team && <span style={{ fontSize: '11px', color: C.muted }}>{row.team}</span>}
+            <div style={{ fontSize: '11px', color: C.muted }}>
+              {row.team ? `${row.team} · ` : ''}
+              {row.pa != null ? `${row.pa} PA` : ''}
+              {row.bbe != null ? `${row.pa != null ? ' · ' : ''}${row.bbe} BBE` : ''}
+            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
             <MiniBar value={row.value} maxVal={maxVal} minVal={minVal} color={color} inverse={inverse} />
-            <span style={{ fontSize: '12px', fontWeight: '700', color: C.text, minWidth: '52px', textAlign: 'right' }}>{fmtVal(row.value)}</span>
+            <span style={{ fontSize: '12px', fontWeight: '700', color: C.text, minWidth: '58px', textAlign: 'right' }}>{fmtVal(row.value)}</span>
           </div>
         </div>
       ))}
@@ -135,23 +179,62 @@ function LeaderboardCard({ title, board, fmtVal, color, inverse = false }) {
   )
 }
 
-function LeaderboardDashboard({ leaderboards, season, loading }) {
-  if (loading) return <div style={s.loader}>Loading leaderboards…</div>
-  if (!leaderboards) return null
+function LeaderboardNotes({ data }) {
+  const notes = Array.isArray(data?.notes) ? data.notes : []
+  const unavailable = Array.isArray(data?.unavailable_metrics) ? data.unavailable_metrics : []
 
+  if (!notes.length && !unavailable.length) return null
+
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '12px 14px', marginBottom: '20px', color: C.muted, fontSize: '12px', lineHeight: 1.5 }}>
+      {notes.length > 0 && (
+        <div>
+          {notes.slice(0, 3).map((note, idx) => (
+            <div key={idx}>• {note}</div>
+          ))}
+        </div>
+      )}
+      {unavailable.length > 0 && (
+        <div style={{ marginTop: notes.length ? '8px' : 0 }}>
+          Unavailable or hidden metrics: {unavailable.join(', ')}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LeaderboardDashboard({ data, loading }) {
+  if (loading) return <div style={s.loader}>Loading leaderboards…</div>
+  if (!data) return null
+
+  const leaderboards = data.leaderboards || {}
   const groups = ['Counting', 'Statcast', 'Rate', 'Contact']
   const groupColors = { Counting: C.blue, Statcast: C.orange, Rate: C.green, Contact: C.teal }
   const groupLabels = { Counting: 'Counting Stats', Statcast: 'Statcast & Contact Quality', Rate: 'Plate Discipline', Contact: 'Swing Metrics' }
 
+  const visibleCards = LB_CONFIG.filter(cfg => cleanLeaderboardRows(leaderboards[cfg.key]).length > 0)
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '24px', flexWrap: 'wrap', gap: '8px' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: '700', color: C.text, margin: 0 }}>Batter Leaderboards</h1>
-        {season && <span style={{ fontSize: '13px', color: C.muted }}>{season} Season · Live Statcast Data</span>}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+        <div>
+          <h1 style={{ fontSize: '24px', fontWeight: '700', color: C.text, margin: 0 }}>Batter Leaderboards</h1>
+          <div style={{ fontSize: '13px', color: C.muted, marginTop: '6px' }}>
+            Daily Top 10 batter leaderboards built from deduped Statcast data.
+          </div>
+        </div>
+        <div style={{ fontSize: '13px', color: C.muted, textAlign: 'right' }}>
+          {data.season && <div>{data.season} Season · Live Statcast Data</div>}
+          {data.latest_event_date && <div>Latest event: {data.latest_event_date}</div>}
+        </div>
       </div>
+
+      <LeaderboardNotes data={data} />
+
       {groups.map(group => {
-        const cards = LB_CONFIG.filter(c => c.group === group && leaderboards[c.key]?.length > 0)
+        const cards = visibleCards.filter(c => c.group === group)
         if (!cards.length) return null
+
         return (
           <div key={group} style={{ marginBottom: '32px' }}>
             <div style={{ fontSize: '13px', fontWeight: '600', color: groupColors[group], textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '12px' }}>
@@ -172,9 +255,10 @@ function LeaderboardDashboard({ leaderboards, season, loading }) {
           </div>
         )
       })}
-      {Object.keys(leaderboards).length === 0 && (
+
+      {!visibleCards.length && (
         <div style={{ color: C.muted, textAlign: 'center', padding: '48px', background: C.card, borderRadius: '10px', border: `1px solid ${C.border}` }}>
-          No leaderboard data available yet for this season.
+          No clean leaderboard rows are available yet. Rows without real player names or valid values are hidden.
         </div>
       )}
     </div>
@@ -362,6 +446,7 @@ export default function BatterPage() {
   const [error, setError] = useState(null)
   const [lbData, setLbData] = useState(null)
   const [lbLoading, setLbLoading] = useState(false)
+  const [lbError, setLbError] = useState(null)
   const debounceRef = React.useRef(null)
 
   // Load player profile when id is present
@@ -377,11 +462,27 @@ export default function BatterPage() {
   // Load leaderboards on landing page (no player selected)
   useEffect(() => {
     if (id) return
+
+    let cancelled = false
     setLbLoading(true)
+    setLbError(null)
+
     fetch(`${API}/batters/leaderboards`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { setLbData(d); setLbLoading(false) })
-      .catch(() => setLbLoading(false))
+      .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.detail || r.statusText)))
+      .then(d => {
+        if (cancelled) return
+        setLbData(d)
+        setLbLoading(false)
+      })
+      .catch(e => {
+        if (cancelled) return
+        setLbError(String(e))
+        setLbLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [id])
 
   function onQueryChange(e) {
@@ -449,11 +550,13 @@ export default function BatterPage() {
 
       {/* ── Landing dashboard (no player selected) ── */}
       {!id && (
-        <LeaderboardDashboard
-          leaderboards={lbData?.leaderboards}
-          season={lbData?.season}
-          loading={lbLoading}
-        />
+        <>
+          {lbError && <div style={s.error}>Leaderboard error: {lbError}</div>}
+          <LeaderboardDashboard
+            data={lbData}
+            loading={lbLoading}
+          />
+        </>
       )}
 
       {/* ── Player profile ── */}
@@ -480,129 +583,112 @@ export default function BatterPage() {
               <DataQualityBox quality={dq} />
 
               <Link to={`/batter/${id}/rolling`} style={s.rollingLink}>
-                View Rolling Stats (PA / AB / Games) →
+                View Rolling Stats (PA / AB / Games)
               </Link>
 
               {ss && (
                 <div style={s.section}>
                   <div style={s.sectionTitle}>
-                    {new Date().getFullYear()} Season Stats
-                    <span style={s.sourceBadge}>MLB Stats API</span>
+                    Season Stats <span style={s.sourceBadge}>MLB Stats API</span>
                   </div>
                   <div style={s.statsGrid}>
-                    <StatCard label="G" value={num(ss.g)} />
-                    <StatCard label="PA" value={num(ss.pa)} />
-                    <StatCard label="AB" value={num(ss.ab)} />
-                    <StatCard label="H" value={num(ss.h)} />
+                    <StatCard label="AVG" value={fmt(ss.avg, 3)} />
+                    <StatCard label="OBP" value={fmt(ss.obp, 3)} />
+                    <StatCard label="SLG" value={fmt(ss.slg, 3)} />
+                    <StatCard label="OPS" value={fmt(ss.ops, 3)} />
                     <StatCard label="HR" value={num(ss.hr)} />
                     <StatCard label="RBI" value={num(ss.rbi)} />
-                    <StatCard label="R" value={num(ss.r)} />
                     <StatCard label="SB" value={num(ss.sb)} />
-                    <StatCard label="BB" value={num(ss.bb)} />
-                    <StatCard label="K" value={num(ss.k)} />
-                    <StatCard label="AVG" value={fmt(ss.batting_avg, 3)} />
-                    <StatCard label="OBP" value={fmt(ss.on_base_pct, 3)} />
-                    <StatCard label="SLG" value={fmt(ss.slugging_pct, 3)} />
-                    <StatCard label="OPS" value={fmt(ss.ops, 3)} />
-                    <StatCard label="K%" value={pct(ss.k_pct)} />
-                    <StatCard label="BB%" value={pct(ss.bb_pct)} />
+                    <StatCard label="PA" value={num(ss.plate_appearances)} />
+                  </div>
+                </div>
+              )}
+
+              {sc && (
+                <div style={s.section}>
+                  <div style={s.sectionTitle}>
+                    Statcast Profile <span style={s.sourceBadge}>Local Statcast</span>
+                  </div>
+                  <div style={s.statsGrid}>
+                    <StatCard label="Avg EV" value={sc.avg_exit_velocity ? `${fmt(sc.avg_exit_velocity)} mph` : '—'} />
+                    <StatCard label="Max EV" value={sc.max_exit_velocity ? `${fmt(sc.max_exit_velocity)} mph` : '—'} />
+                    <StatCard label="Avg LA" value={sc.avg_launch_angle ? `${fmt(sc.avg_launch_angle)}°` : '—'} />
+                    <StatCard label="Hard Hit%" value={pct(sc.hard_hit_pct)} />
+                    <StatCard label="Barrel%" value={pct(sc.barrel_pct)} />
+                    <StatCard label="K%" value={pct(sc.k_pct)} />
+                    <StatCard label="BB%" value={pct(sc.bb_pct)} />
+                    <StatCard label="PA" value={num(sc.actual_pa)} />
                   </div>
                 </div>
               )}
 
               {(sc || agg) && (
                 <div style={s.section}>
-                  <div style={s.sectionTitle}>
-                    Statcast Quality Metrics
-                    {sc && <span style={s.sourceBadge}>{sc.data_window} · {sc.sample_size} PA</span>}
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-                    <div style={{ ...s.chartBox, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', padding: '16px' }}>
-                      {sc ? <>
-                        <StatCard label="Avg Exit Velo" value={`${fmt(sc.avg_exit_velocity)} mph`} />
-                        <StatCard label="Max Exit Velo" value={`${fmt(sc.max_exit_velocity)} mph`} />
-                        <StatCard label="Avg Launch Angle" value={`${fmt(sc.avg_launch_angle)}°`} />
-                        <StatCard label="Hard Hit%" value={pct(sc.hard_hit_pct)} />
-                        <StatCard label="Barrel%" value={pct(sc.barrel_pct)} />
-                        <StatCard label="Sample" value={`${sc.sample_size ?? '—'} PA`} />
-                      </> : <>
-                        <StatCard label="Exit Velocity" value={`${fmt(agg.avg_exit_velocity)} mph`} />
-                        <StatCard label="Launch Angle" value={`${fmt(agg.avg_launch_angle)}°`} />
-                        <StatCard label="Hard Hit%" value={pct(agg.hard_hit_pct)} />
-                        <StatCard label="Barrel%" value={pct(agg.barrel_pct)} />
-                      </>}
-                    </div>
-                    <StatcastGauges sc={sc} agg={agg} />
-                  </div>
+                  <div style={s.sectionTitle}>Baseball Savant-Style Profile Bars</div>
+                  <StatcastGauges sc={sc} agg={agg} />
+                </div>
+              )}
+
+              {yby.length > 1 && (
+                <div style={s.section}>
+                  <div style={s.sectionTitle}>Year-by-Year Slash Line Trend</div>
+                  <SeasonTrendChart yby={yby} />
+                </div>
+              )}
+
+              {yby.length > 1 && (
+                <div style={s.section}>
+                  <div style={s.sectionTitle}>Power / Speed Trend</div>
+                  <HRTrendChart yby={yby} />
                 </div>
               )}
 
               {(splits.vsL || splits.vsR) && (
                 <div style={s.section}>
-                  <div style={s.sectionTitle}>Platoon Splits — Current Season</div>
+                  <div style={s.sectionTitle}>
+                    Platoon Splits <span style={s.sourceBadge}>vs LHP / vs RHP</span>
+                  </div>
                   <PlatoonChart splits={splits} />
                 </div>
               )}
 
-              {yby.length > 0 && (
+              {data.pitch_type_matchups && data.pitch_type_matchups.length > 0 && (
                 <div style={s.section}>
                   <div style={s.sectionTitle}>
-                    Career Season Trends
-                    <span style={s.sourceBadge}>MLB Stats API</span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                    <div>
-                      <div style={{ fontSize: '13px', color: C.muted, marginBottom: '8px', fontWeight: '500' }}>Rate Stats (AVG / OBP / SLG / OPS)</div>
-                      <SeasonTrendChart yby={yby} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '13px', color: C.muted, marginBottom: '8px', fontWeight: '500' }}>Counting Stats (HR / SB)</div>
-                      <HRTrendChart yby={yby} />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {yby.length > 0 && (
-                <div style={s.section}>
-                  <div style={s.sectionTitle}>
-                    Year-by-Year
-                    <span style={s.sourceBadge}>MLB Stats API</span>
+                    Pitch-Type Performance <span style={s.sourceBadge}>Batter vs Pitch Type</span>
                   </div>
                   <div style={s.tableWrap}>
                     <table style={s.table}>
                       <thead>
                         <tr>
-                          {['Season','G','PA','H','2B','3B','HR','RBI','SB','BB','K','AVG','OBP','SLG','OPS','K%','BB%'].map(h => (
-                            <th key={h} style={h === 'Season' ? s.th : { ...s.th, ...s.thR }}>{h}</th>
-                          ))}
+                          <th style={s.th}>Pitch</th>
+                          <th style={{ ...s.th, ...s.thR }}>PA</th>
+                          <th style={{ ...s.th, ...s.thR }}>AVG</th>
+                          <th style={{ ...s.th, ...s.thR }}>SLG</th>
+                          <th style={{ ...s.th, ...s.thR }}>wOBA</th>
+                          <th style={{ ...s.th, ...s.thR }}>Whiff%</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {yby.map((row, i) => (
-                          <tr key={i}>
-                            <td style={{ ...s.td, fontWeight: '700', color: C.blue }}>{row.season}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.g)}</td>
+                        {data.pitch_type_matchups.map(row => (
+                          <tr key={row.pitch_type}>
+                            <td style={{ ...s.td, color: C.blue, fontWeight: '600' }}>{row.pitch_type}</td>
                             <td style={{ ...s.td, ...s.tdR }}>{num(row.pa)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.h)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.doubles)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.triples)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.hr)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.rbi)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.sb)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.bb)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.k)}</td>
                             <td style={{ ...s.td, ...s.tdR }}>{fmt(row.batting_avg, 3)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{fmt(row.on_base_pct, 3)}</td>
                             <td style={{ ...s.td, ...s.tdR }}>{fmt(row.slugging_pct, 3)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{fmt(row.ops, 3)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{pct(row.k_pct)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{pct(row.bb_pct)}</td>
+                            <td style={{ ...s.td, ...s.tdR }}>{fmt(row.woba, 3)}</td>
+                            <td style={{ ...s.td, ...s.tdR }}>{pct(row.whiff_pct)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
+
+              {!ss && !sc && !agg && (
+                <div style={{ color: C.muted, textAlign: 'center', padding: '48px' }}>
+                  No batter profile data available for this player yet.
                 </div>
               )}
             </>
