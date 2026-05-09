@@ -4,8 +4,6 @@ import HomePage from './pages/HomePage'
 import MatchupDetailPage from './pages/MatchupDetailPage'
 import PitcherPage from './pages/PitcherPage'
 import RollingPitcherPage from './pages/RollingPitcherPage'
-import BatterPage from './pages/BatterPage'
-import RollingBatterPage from './pages/RollingBatterPage'
 import TeamPage from './pages/TeamPage'
 import StandingsPage from './pages/StandingsPage'
 import CompetitiveAnalysisPage from './pages/CompetitiveAnalysisPage'
@@ -15,6 +13,24 @@ import LiveScoreboardPage from './pages/LiveScoreboardPage'
 import LiveGamePageRestored from './pages/LiveGamePageRestored'
 import DailyOddsPage from './pages/DailyOddsPage'
 import ModelProjectionsPage from './pages/ModelProjectionsPage'
+
+function BatterTemporarilyUnavailable() {
+  return (
+    <div style={{
+      background: '#161b22',
+      border: '1px solid #30363d',
+      borderRadius: '10px',
+      padding: '24px',
+      color: '#e6edf3',
+    }}>
+      <h1 style={{ marginTop: 0, fontSize: '22px' }}>Batter page temporarily disabled</h1>
+      <p style={{ color: '#8b949e', lineHeight: 1.5 }}>
+        The Batter dashboard was disabled temporarily because the new leaderboard endpoint is causing production instability.
+        Matchups, pitchers, teams, odds, live scores, and the rest of the app remain available.
+      </p>
+    </div>
+  )
+}
 
 const styles = {
   nav: {
@@ -84,9 +100,9 @@ export default function App() {
           <Route path="/pitcher" element={<PitcherPage />} />
           <Route path="/pitcher/:id" element={<PitcherPage />} />
           <Route path="/pitcher/:id/rolling" element={<RollingPitcherPage />} />
-          <Route path="/batter" element={<BatterPage />} />
-          <Route path="/batter/:id" element={<BatterPage />} />
-          <Route path="/batter/:id/rolling" element={<RollingBatterPage />} />
+          <Route path="/batter" element={<BatterTemporarilyUnavailable />} />
+          <Route path="/batter/:id" element={<BatterTemporarilyUnavailable />} />
+          <Route path="/batter/:id/rolling" element={<BatterTemporarilyUnavailable />} />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/team/:id" element={<TeamPage />} />
           <Route path="/calendar" element={<YesterdayTodayPage />} />
