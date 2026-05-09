@@ -4,31 +4,81 @@ import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
-from sqlalchemy import func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session
 
-from .database import BatterAggregate, PitchArsenal, PitcherAggregate, PlayerSplit, StatcastEvent, TeamSplit
+from .database import (
+    BatterAggregate,
+    PitchArsenal,
+    PitcherAggregate,
+    PlayerSplit,
+    StatcastEvent,
+    TeamSplit,
+)
 
 HIT_EVENTS = {"single", "double", "triple", "home_run"}
 WALK_EVENTS = {"walk", "intent_walk"}
 HBP_EVENTS = {"hit_by_pitch"}
 STRIKEOUT_EVENTS = {"strikeout", "strikeout_double_play"}
-NON_AB_EVENTS = {"walk", "intent_walk", "hit_by_pitch", "sac_bunt", "sac_fly", "catcher_interf", "catcher_interference"}
+NON_AB_EVENTS = {
+    "walk",
+    "intent_walk",
+    "hit_by_pitch",
+    "sac_bunt",
+    "sac_fly",
+    "catcher_interf",
+    "catcher_interference",
+}
 TERMINAL_EVENTS = {
-    "single", "double", "triple", "home_run",
-    "strikeout", "strikeout_double_play",
-    "walk", "intent_walk", "hit_by_pitch",
-    "field_out", "force_out", "double_play", "grounded_into_double_play",
-    "fielders_choice", "fielders_choice_out", "sac_fly", "sac_bunt",
-    "catcher_interf", "catcher_interference",
+    "single",
+    "double",
+    "triple",
+    "home_run",
+    "strikeout",
+    "strikeout_double_play",
+    "walk",
+    "intent_walk",
+    "hit_by_pitch",
+    "field_out",
+    "force_out",
+    "double_play",
+    "grounded_into_double_play",
+    "fielders_choice",
+    "fielders_choice_out",
+    "sac_fly",
+    "sac_bunt",
+    "catcher_interf",
+    "catcher_interference",
 }
 TOTAL_BASES = {"single": 1, "double": 2, "triple": 3, "home_run": 4}
+
+SWING_DESCRIPTIONS = {
+    "swinging_strike",
+    "swinging_strike_blocked",
+    "foul",
+    "foul_tip",
+    "foul_bunt",
+    "missed_bunt",
+    "hit_into_play",
+    "hit_into_play_no_out",
+    "hit_into_play_score",
+}
+WHIFF_DESCRIPTIONS = {"swinging_strike", "swinging_strike_blocked", "missed_bunt"}
 
 
 def _clean_event_name(event_name: Optional[Any]) -> Optional[str]:
     if event_name is None:
         return None
     text = str(event_name).strip().lower()
+    if text in {"", "nan", "none", "null", "na", "n/a"}:
+        return None
+    return text
+
+
+def _clean_description(description: Optional[Any]) -> Optional[str]:
+    if description is None:
+        return None
+    text = str(description).strip().lower()
     if text in {"", "nan", "none", "null", "na", "n/a"}:
         return None
     return text
@@ -44,6 +94,32 @@ def _is_true_ab_event(event_name: Optional[Any]) -> bool:
     return bool(cleaned and cleaned in TERMINAL_EVENTS and cleaned not in NON_AB_EVENTS)
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _round(value: Optional[float], digits: int = 3) -> Optional[float]:
+    return round(value, digits) if value is not None else None
+
+
+def _model_has_column(model: Any, column_name: str) -> bool:
+    return hasattr(model, column_name)
+
+
 def get_pitcher_aggregate(session: Session, pitcher_id: int, window: str) -> Optional[PitcherAggregate]:
     return (
         session.query(PitcherAggregate)
@@ -53,16 +129,28 @@ def get_pitcher_aggregate(session: Session, pitcher_id: int, window: str) -> Opt
     )
 
 
-def get_pitcher_aggregate_with_fallback(session: Session, pitcher_id: int, current_season: Optional[int] = None) -> Tuple[Optional[PitcherAggregate], Optional[str]]:
+def get_pitcher_aggregate_with_fallback(
+    session: Session,
+    pitcher_id: int,
+    current_season: Optional[int] = None,
+) -> Tuple[Optional[PitcherAggregate], Optional[str]]:
     if current_season is None:
         current_season = datetime.date.today().year
+
     agg = get_pitcher_aggregate(session, pitcher_id, "90d")
     if agg:
         return agg, "Last 90 Days"
-    for window, label in [(str(current_season), f"{current_season} Season"), (str(current_season - 1), f"{current_season - 1} Season"), (str(current_season - 2), f"{current_season - 2} Season"), (str(current_season - 3), f"{current_season - 3} Season")]:
+
+    for window, label in [
+        (str(current_season), f"{current_season} Season"),
+        (str(current_season - 1), f"{current_season - 1} Season"),
+        (str(current_season - 2), f"{current_season - 2} Season"),
+        (str(current_season - 3), f"{current_season - 3} Season"),
+    ]:
         agg = get_pitcher_aggregate(session, pitcher_id, window)
         if agg:
             return agg, label
+
     return None, None
 
 
@@ -75,16 +163,28 @@ def get_batter_aggregate(session: Session, batter_id: int, window: str) -> Optio
     )
 
 
-def get_batter_aggregate_with_fallback(session: Session, batter_id: int, current_season: Optional[int] = None) -> Tuple[Optional[BatterAggregate], Optional[str]]:
+def get_batter_aggregate_with_fallback(
+    session: Session,
+    batter_id: int,
+    current_season: Optional[int] = None,
+) -> Tuple[Optional[BatterAggregate], Optional[str]]:
     if current_season is None:
         current_season = datetime.date.today().year
+
     agg = get_batter_aggregate(session, batter_id, "90d")
     if agg:
         return agg, "Last 90 Days"
-    for window, label in [(str(current_season), f"{current_season} Season"), (str(current_season - 1), f"{current_season - 1} Season"), (str(current_season - 2), f"{current_season - 2} Season"), (str(current_season - 3), f"{current_season - 3} Season")]:
+
+    for window, label in [
+        (str(current_season), f"{current_season} Season"),
+        (str(current_season - 1), f"{current_season - 1} Season"),
+        (str(current_season - 2), f"{current_season - 2} Season"),
+        (str(current_season - 3), f"{current_season - 3} Season"),
+    ]:
         agg = get_batter_aggregate(session, batter_id, window)
         if agg:
             return agg, label
+
     return None, None
 
 
@@ -97,13 +197,19 @@ def get_pitch_arsenal(session: Session, pitcher_id: int, season: int) -> List[Pi
     )
 
 
-def get_pitch_arsenal_with_fallback(session: Session, pitcher_id: int, current_season: Optional[int] = None) -> Tuple[List[PitchArsenal], Optional[int]]:
+def get_pitch_arsenal_with_fallback(
+    session: Session,
+    pitcher_id: int,
+    current_season: Optional[int] = None,
+) -> Tuple[List[PitchArsenal], Optional[int]]:
     if current_season is None:
         current_season = datetime.date.today().year
+
     for season in [current_season, current_season - 1, current_season - 2]:
         arsenal = get_pitch_arsenal(session, pitcher_id, season)
         if arsenal:
             return arsenal, season
+
     return [], None
 
 
@@ -124,54 +230,98 @@ def get_team_split(session: Session, team_id: int, season: int, split: str) -> O
 
 
 def _events_to_pitcher_df(events: List[StatcastEvent]) -> pd.DataFrame:
-    return pd.DataFrame([
-        {
-            "release_speed": e.release_speed,
-            "release_spin_rate": e.release_spin_rate,
-            "launch_speed": e.launch_speed,
-            "events": _clean_event_name(e.events) or "",
-            "description": "",
-            "pfx_x": e.pfx_x,
-            "pfx_z": e.pfx_z,
-            "release_pos_x": None,
-            "release_pos_z": None,
-            "release_extension": None,
-            "estimated_woba_using_speedangle": None,
-            "estimated_ba_using_speedangle": None,
-        }
-        for e in events
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "release_speed": e.release_speed,
+                "release_spin_rate": e.release_spin_rate,
+                "launch_speed": e.launch_speed,
+                "events": _clean_event_name(e.events) or "",
+                "description": _clean_description(getattr(e, "description", None)) or "",
+                "pfx_x": e.pfx_x,
+                "pfx_z": e.pfx_z,
+                "release_pos_x": None,
+                "release_pos_z": None,
+                "release_extension": None,
+                "estimated_woba_using_speedangle": None,
+                "estimated_ba_using_speedangle": None,
+            }
+            for e in events
+        ]
+    )
 
 
 def _events_to_batter_df(events: List[StatcastEvent]) -> pd.DataFrame:
-    return pd.DataFrame([
-        {"launch_speed": e.launch_speed, "launch_angle": e.launch_angle, "events": _clean_event_name(e.events) or ""}
-        for e in events
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "launch_speed": e.launch_speed,
+                "launch_angle": e.launch_angle,
+                "events": _clean_event_name(e.events) or "",
+                "description": _clean_description(getattr(e, "description", None)) or "",
+            }
+            for e in events
+        ]
+    )
 
 
-def _calculate_batter_stats(events: List[StatcastEvent], raw_event_count: Optional[int] = None) -> Dict[str, Any]:
+def _calculate_batter_stats(
+    events: List[StatcastEvent],
+    raw_event_count: Optional[int] = None,
+) -> Dict[str, Any]:
     terminal = [e for e in events if _is_terminal_event(e.events)]
     raw_count = len(events) if raw_event_count is None else raw_event_count
     dates = [e.game_date for e in terminal if e.game_date]
+
     pa = len(terminal)
     ab_events = [e for e in terminal if _is_true_ab_event(e.events)]
     ab = len(ab_events)
+
     outcomes = [_clean_event_name(e.events) for e in terminal]
+    descriptions = [_clean_description(getattr(e, "description", None)) for e in events]
+
     hits = sum(1 for event in outcomes if event in HIT_EVENTS)
+    doubles = sum(1 for event in outcomes if event == "double")
+    triples = sum(1 for event in outcomes if event == "triple")
     walks = sum(1 for event in outcomes if event in WALK_EVENTS)
     hbp = sum(1 for event in outcomes if event in HBP_EVENTS)
     strikeouts = sum(1 for event in outcomes if event in STRIKEOUT_EVENTS)
     home_runs = sum(1 for event in outcomes if event == "home_run")
     sacrifice_flies = sum(1 for event in outcomes if event == "sac_fly")
     total_bases = sum(TOTAL_BASES.get(event or "", 0) for event in outcomes)
+
     batted_balls = [e for e in terminal if e.launch_speed is not None]
     launch_angles = [e.launch_angle for e in terminal if e.launch_angle is not None]
     hard_hit_count = sum(1 for e in batted_balls if e.launch_speed is not None and e.launch_speed >= 95)
-    barrel_count = sum(1 for e in batted_balls if e.launch_speed is not None and e.launch_angle is not None and e.launch_speed >= 98 and 8 <= e.launch_angle <= 50)
+    barrel_count = sum(
+        1
+        for e in batted_balls
+        if e.launch_speed is not None
+        and e.launch_angle is not None
+        and e.launch_speed >= 98
+        and 8 <= e.launch_angle <= 50
+    )
+
+    swings = sum(1 for description in descriptions if description in SWING_DESCRIPTIONS)
+    whiffs = sum(1 for description in descriptions if description in WHIFF_DESCRIPTIONS)
+
     obp_denominator = ab + walks + hbp + sacrifice_flies
+    batting_avg = round(hits / ab, 3) if ab else None
     obp = round((hits + walks + hbp) / obp_denominator, 3) if obp_denominator else None
     slg = round(total_bases / ab, 3) if ab else None
+    iso = round(slg - batting_avg, 3) if slg is not None and batting_avg is not None else None
+
+    avg_exit_velocity = (
+        round(sum(e.launch_speed for e in batted_balls if e.launch_speed is not None) / len(batted_balls), 1)
+        if batted_balls
+        else None
+    )
+    max_exit_velocity = (
+        round(max(e.launch_speed for e in batted_balls if e.launch_speed is not None), 1)
+        if batted_balls
+        else None
+    )
+
     stats = {
         "actual_pa": pa,
         "actual_ab": ab,
@@ -182,19 +332,28 @@ def _calculate_batter_stats(events: List[StatcastEvent], raw_event_count: Option
         "hard_hit_count": hard_hit_count,
         "barrel_count": barrel_count,
         "hits": hits,
+        "doubles": doubles,
+        "triples": triples,
         "walks": walks,
         "strikeouts": strikeouts,
         "home_runs": home_runs,
-        "batting_avg": round(hits / ab, 3) if ab else None,
+        "total_bases": total_bases,
+        "batting_avg": batting_avg,
         "on_base_pct": obp,
         "slugging_pct": slg,
         "ops": round(obp + slg, 3) if obp is not None and slg is not None else None,
+        "iso": iso,
         "k_pct": round(strikeouts / pa, 3) if pa else None,
         "bb_pct": round(walks / pa, 3) if pa else None,
-        "avg_exit_velocity": round(sum(e.launch_speed for e in batted_balls if e.launch_speed is not None) / len(batted_balls), 1) if batted_balls else None,
+        "avg_exit_velocity": avg_exit_velocity,
+        "max_exit_velocity": max_exit_velocity,
         "avg_launch_angle": round(sum(launch_angles) / len(launch_angles), 1) if launch_angles else None,
         "hard_hit_pct": round(hard_hit_count / len(batted_balls), 3) if batted_balls else None,
         "barrel_pct": round(barrel_count / len(batted_balls), 3) if batted_balls else None,
+        "swings": swings,
+        "whiffs": whiffs,
+        "whiff_pct": round(whiffs / swings, 3) if swings else None,
+        "contact_pct": round(1 - (whiffs / swings), 3) if swings else None,
         "start_date": min(dates).isoformat() if dates else None,
         "end_date": max(dates).isoformat() if dates else None,
         "source": "postgres_statcast_events",
@@ -203,12 +362,17 @@ def _calculate_batter_stats(events: List[StatcastEvent], raw_event_count: Option
 
 
 def _has_full_event_order(session: Session, batter_id: int) -> bool:
-    return session.query(StatcastEvent.id).filter(
-        StatcastEvent.batter_id == batter_id,
-        StatcastEvent.game_pk.isnot(None),
-        StatcastEvent.at_bat_number.isnot(None),
-        StatcastEvent.pitch_number.isnot(None),
-    ).first() is not None
+    return (
+        session.query(StatcastEvent.id)
+        .filter(
+            StatcastEvent.batter_id == batter_id,
+            StatcastEvent.game_pk.isnot(None),
+            StatcastEvent.at_bat_number.isnot(None),
+            StatcastEvent.pitch_number.isnot(None),
+        )
+        .first()
+        is not None
+    )
 
 
 def _freshness_from_latest(latest: Optional[datetime.date]) -> Dict[str, Any]:
@@ -229,18 +393,25 @@ def get_batter_data_quality(session: Session, batter_id: int) -> Dict[str, Any]:
         .filter(StatcastEvent.batter_id == batter_id)
         .scalar()
     )
-    terminal_count = session.query(func.count(StatcastEvent.id)).filter(
-        StatcastEvent.batter_id == batter_id,
-        StatcastEvent.events.in_(TERMINAL_EVENTS),
-    ).scalar() or 0
+    terminal_count = (
+        session.query(func.count(StatcastEvent.id))
+        .filter(
+            StatcastEvent.batter_id == batter_id,
+            StatcastEvent.events.in_(TERMINAL_EVENTS),
+        )
+        .scalar()
+        or 0
+    )
     full_order = _has_full_event_order(session, batter_id)
     freshness = _freshness_from_latest(latest)
+
     warnings: List[str] = []
     if freshness["is_stale"]:
         warnings.append(
             f"Statcast data is stale: latest event is {freshness['latest_event_date'] or 'unavailable'}, "
             f"as-of date is {freshness['as_of_date']}."
         )
+
     if total == 0:
         ordering_quality = "unavailable"
         warnings.append("No Statcast events found for this batter.")
@@ -249,6 +420,7 @@ def get_batter_data_quality(session: Session, batter_id: int) -> Dict[str, Any]:
     else:
         ordering_quality = "date_only"
         warnings.append("Rolling PA order is date-level only; intra-game PA order unavailable.")
+
     return {
         "has_statcast": total > 0,
         "total_event_rows": total,
@@ -291,6 +463,7 @@ def get_pitcher_rolling_by_games(session: Session, pitcher_id: int, n_games: int
     )
     if not date_rows:
         return None
+
     date_list = [r[0] for r in date_rows]
     events = (
         session.query(StatcastEvent)
@@ -299,7 +472,9 @@ def get_pitcher_rolling_by_games(session: Session, pitcher_id: int, n_games: int
     )
     if not events:
         return None
+
     from .statcast_utils import calculate_pitcher_aggregates
+
     stats = calculate_pitcher_aggregates(_events_to_pitcher_df(events))
     stats["actual_games"] = len(date_list)
     stats["start_date"] = min(date_list).isoformat()
@@ -309,6 +484,7 @@ def get_pitcher_rolling_by_games(session: Session, pitcher_id: int, n_games: int
 
 def get_batter_rolling_by_games(session: Session, batter_id: int, n_games: int) -> Optional[Dict[str, Any]]:
     quality = get_batter_data_quality(session, batter_id)
+
     if quality["ordering_quality"] == "full_event_order":
         game_rows = (
             session.query(StatcastEvent.game_pk, func.max(StatcastEvent.game_date).label("game_date"))
@@ -324,12 +500,17 @@ def get_batter_rolling_by_games(session: Session, batter_id: int, n_games: int) 
         )
         if not game_rows:
             return None
+
         game_pks = [r[0] for r in game_rows]
-        events = session.query(StatcastEvent).filter(
-            StatcastEvent.batter_id == batter_id,
-            StatcastEvent.game_pk.in_(game_pks),
-            StatcastEvent.events.in_(TERMINAL_EVENTS),
-        ).all()
+        events = (
+            session.query(StatcastEvent)
+            .filter(
+                StatcastEvent.batter_id == batter_id,
+                StatcastEvent.game_pk.in_(game_pks),
+                StatcastEvent.events.in_(TERMINAL_EVENTS),
+            )
+            .all()
+        )
         actual_games = len(game_pks)
     else:
         date_rows = (
@@ -342,16 +523,25 @@ def get_batter_rolling_by_games(session: Session, batter_id: int, n_games: int) 
         )
         if not date_rows:
             return None
+
         date_list = [r[0] for r in date_rows]
-        events = session.query(StatcastEvent).filter(
-            StatcastEvent.batter_id == batter_id,
-            StatcastEvent.game_date.in_(date_list),
-            StatcastEvent.events.in_(TERMINAL_EVENTS),
-        ).all()
+        events = (
+            session.query(StatcastEvent)
+            .filter(
+                StatcastEvent.batter_id == batter_id,
+                StatcastEvent.game_date.in_(date_list),
+                StatcastEvent.events.in_(TERMINAL_EVENTS),
+            )
+            .all()
+        )
         actual_games = len(date_list)
-        quality["warnings"] = list(quality.get("warnings", [])) + ["Rolling game windows are date-based because game_pk is unavailable."]
+        quality["warnings"] = list(quality.get("warnings", [])) + [
+            "Rolling game windows are date-based because game_pk is unavailable."
+        ]
+
     if not events:
         return None
+
     stats = _calculate_batter_stats(events, raw_event_count=len(events))
     stats["actual_games"] = actual_games
     stats["window_type"] = "games"
@@ -363,6 +553,7 @@ def get_batter_rolling_by_pa(session: Session, batter_id: int, n_pa: int) -> Opt
     events = _ordered_batter_terminal_query(session, batter_id).limit(n_pa).all()
     if not events:
         return None
+
     stats = _calculate_batter_stats(events, raw_event_count=len(events))
     stats["actual_pa"] = len(events)
     stats["window_type"] = "PA"
@@ -376,6 +567,7 @@ def get_batter_rolling_by_ab(session: Session, batter_id: int, n_ab: int) -> Opt
     events = [e for e in candidates if _is_true_ab_event(e.events)][:n_ab]
     if not events:
         return None
+
     stats = _calculate_batter_stats(events, raw_event_count=len(candidates))
     stats["actual_ab"] = len(events)
     stats["window_type"] = "AB"
@@ -396,9 +588,11 @@ def get_batter_rolling_by_abs(session: Session, batter_id: int, n_abs: int) -> O
 def get_batter_rolling_splits(session: Session, batter_id: int, n_pa: int = 100) -> Dict[str, Any]:
     events = _ordered_batter_terminal_query(session, batter_id).limit(n_pa).all()
     grouped = {"vsL": [], "vsR": [], "unknown": []}
+
     for event in events:
         key = "vsL" if event.p_throws == "L" else "vsR" if event.p_throws == "R" else "unknown"
         grouped[key].append(event)
+
     return {
         "window_type": "PA",
         "requested_pa": n_pa,
@@ -411,9 +605,11 @@ def get_batter_rolling_splits(session: Session, batter_id: int, n_pa: int = 100)
 def get_batter_rolling_pitch_types(session: Session, batter_id: int, n_pa: int = 100) -> Dict[str, Any]:
     events = _ordered_batter_terminal_query(session, batter_id).limit(n_pa).all()
     grouped: Dict[str, List[StatcastEvent]] = {}
+
     for event in events:
         key = event.pitch_type or "unknown"
         grouped.setdefault(key, []).append(event)
+
     return {
         "window_type": "PA",
         "requested_pa": n_pa,
@@ -426,10 +622,19 @@ def get_batter_rolling_pitch_types(session: Session, batter_id: int, n_pa: int =
     }
 
 
-def get_batter_at_bats(session: Session, batter_id: int, n: int = 50, offset: int = 0) -> Tuple[int, List[Dict[str, Any]]]:
-    base = session.query(StatcastEvent).filter(StatcastEvent.batter_id == batter_id, StatcastEvent.events.in_(TERMINAL_EVENTS))
+def get_batter_at_bats(
+    session: Session,
+    batter_id: int,
+    n: int = 50,
+    offset: int = 0,
+) -> Tuple[int, List[Dict[str, Any]]]:
+    base = session.query(StatcastEvent).filter(
+        StatcastEvent.batter_id == batter_id,
+        StatcastEvent.events.in_(TERMINAL_EVENTS),
+    )
     total = base.count()
     events = _ordered_batter_terminal_query(session, batter_id).offset(offset).limit(n).all()
+
     rows = [
         {
             "game_date": e.game_date.isoformat() if e.game_date else None,
@@ -455,12 +660,35 @@ def get_batter_at_bats(session: Session, batter_id: int, n: int = 50, offset: in
 def _dedupe_events(events: List[StatcastEvent]) -> List[StatcastEvent]:
     seen = set()
     out: List[StatcastEvent] = []
+
     for e in events:
-        key = (e.game_date, e.game_pk, e.at_bat_number, e.pitch_number, e.pitcher_id, e.batter_id, e.pitch_type, e.release_speed, e.release_spin_rate, e.launch_speed, e.launch_angle, e.balls, e.strikes, e.events, e.stand, e.p_throws, e.pfx_x, e.pfx_z, e.plate_x, e.plate_z)
+        key = (
+            e.game_date,
+            e.game_pk,
+            e.at_bat_number,
+            e.pitch_number,
+            e.pitcher_id,
+            e.batter_id,
+            e.pitch_type,
+            e.release_speed,
+            e.release_spin_rate,
+            e.launch_speed,
+            e.launch_angle,
+            e.balls,
+            e.strikes,
+            e.events,
+            e.stand,
+            e.p_throws,
+            e.pfx_x,
+            e.pfx_z,
+            e.plate_x,
+            e.plate_z,
+        )
         if key in seen:
             continue
         seen.add(key)
         out.append(e)
+
     return out
 
 
@@ -595,17 +823,19 @@ def get_pitcher_game_log(session: Session, pitcher_id: int, n: int = 10) -> List
         speeds = [e.release_speed for e in evs if e.release_speed is not None]
         hard_hits = sum(1 for e in batted_balls if e.launch_speed is not None and e.launch_speed >= 95)
 
-        log.append({
-            "game_pk": game_key if not str(game_key).startswith("date:") else None,
-            "game_date": game_date,
-            "pitch_count": len(evs),
-            "plate_appearances": len(terminal),
-            "strikeouts": sum(1 for event in outcomes if event in STRIKEOUT_EVENTS),
-            "walks": sum(1 for event in outcomes if event in WALK_EVENTS or event in HBP_EVENTS),
-            "home_runs": sum(1 for event in outcomes if event == "home_run"),
-            "hard_hit_pct": round(hard_hits / len(batted_balls), 3) if batted_balls else None,
-            "avg_velocity": round(sum(speeds) / len(speeds), 1) if speeds else None,
-        })
+        log.append(
+            {
+                "game_pk": game_key if not str(game_key).startswith("date:") else None,
+                "game_date": game_date,
+                "pitch_count": len(evs),
+                "plate_appearances": len(terminal),
+                "strikeouts": sum(1 for event in outcomes if event in STRIKEOUT_EVENTS),
+                "walks": sum(1 for event in outcomes if event in WALK_EVENTS or event in HBP_EVENTS),
+                "home_runs": sum(1 for event in outcomes if event == "home_run"),
+                "hard_hit_pct": round(hard_hits / len(batted_balls), 3) if batted_balls else None,
+                "avg_velocity": round(sum(speeds) / len(speeds), 1) if speeds else None,
+            }
+        )
 
     log.sort(key=lambda row: (row.get("game_date") or "", row.get("game_pk") or 0), reverse=True)
     return log[:n]
@@ -614,43 +844,319 @@ def get_pitcher_game_log(session: Session, pitcher_id: int, n: int = 10) -> List
 def get_pitcher_multi_season(session: Session, pitcher_id: int, seasons: List[int]) -> List[Dict[str, Any]]:
     today_year = datetime.date.today().year
     result = []
+
     for season in seasons:
         window = "90d" if season == today_year else str(season)
         agg = get_pitcher_aggregate(session, pitcher_id, window)
         label = "YTD (90d)" if season == today_year else str(season)
-        result.append({
-            "season": season,
-            "label": label,
-            "avg_velocity": agg.avg_velocity if agg else None,
-            "avg_spin_rate": agg.avg_spin_rate if agg else None,
-            "k_pct": agg.k_pct if agg else None,
-            "bb_pct": agg.bb_pct if agg else None,
-            "hard_hit_pct": agg.hard_hit_pct if agg else None,
-            "xwoba": agg.xwoba if agg else None,
-            "xba": agg.xba if agg else None,
-        })
+        result.append(
+            {
+                "season": season,
+                "label": label,
+                "avg_velocity": agg.avg_velocity if agg else None,
+                "avg_spin_rate": agg.avg_spin_rate if agg else None,
+                "k_pct": agg.k_pct if agg else None,
+                "bb_pct": agg.bb_pct if agg else None,
+                "hard_hit_pct": agg.hard_hit_pct if agg else None,
+                "xwoba": agg.xwoba if agg else None,
+                "xba": agg.xba if agg else None,
+            }
+        )
+
     return result
 
 
 def get_batter_multi_season(session: Session, batter_id: int, seasons: List[int]) -> List[Dict[str, Any]]:
     today_year = datetime.date.today().year
     result = []
+
     for season in seasons:
         window = "90d" if season == today_year else str(season)
         agg = get_batter_aggregate(session, batter_id, window)
         label = "YTD (90d)" if season == today_year else str(season)
-        result.append({
-            "season": season,
-            "label": label,
-            "avg_exit_velocity": agg.avg_exit_velocity if agg else None,
-            "avg_launch_angle": agg.avg_launch_angle if agg else None,
-            "hard_hit_pct": agg.hard_hit_pct if agg else None,
-            "barrel_pct": agg.barrel_pct if agg else None,
-            "k_pct": agg.k_pct if agg else None,
-            "bb_pct": agg.bb_pct if agg else None,
-            "batting_avg": agg.batting_avg if agg else None,
-        })
+        result.append(
+            {
+                "season": season,
+                "label": label,
+                "avg_exit_velocity": agg.avg_exit_velocity if agg else None,
+                "avg_launch_angle": agg.avg_launch_angle if agg else None,
+                "hard_hit_pct": agg.hard_hit_pct if agg else None,
+                "barrel_pct": agg.barrel_pct if agg else None,
+                "k_pct": agg.k_pct if agg else None,
+                "bb_pct": agg.bb_pct if agg else None,
+                "batting_avg": agg.batting_avg if agg else None,
+            }
+        )
+
     return result
+
+
+def _leaderboard_row(
+    rank: int,
+    player: Dict[str, Any],
+    metric: str,
+    value: Any,
+) -> Dict[str, Any]:
+    return {
+        "rank": rank,
+        "player_id": player["player_id"],
+        "player_name": player["player_name"],
+        "team": player.get("team") or "",
+        "value": value,
+        "pa": player.get("pa"),
+        "ab": player.get("ab"),
+        "bbe": player.get("bbe"),
+        "swings": player.get("swings"),
+    }
+
+
+def _make_board(
+    players: List[Dict[str, Any]],
+    metric: str,
+    *,
+    min_key: str,
+    min_count: int,
+    limit: int,
+    reverse: bool = True,
+) -> List[Dict[str, Any]]:
+    filtered = [
+        p
+        for p in players
+        if p.get(metric) is not None
+        and p.get(min_key, 0) is not None
+        and p.get(min_key, 0) >= min_count
+    ]
+    filtered.sort(key=lambda p: p[metric], reverse=reverse)
+
+    return [
+        _leaderboard_row(i + 1, player, metric, player[metric])
+        for i, player in enumerate(filtered[:limit])
+    ]
+
+
+def _latest_batter_names(session: Session) -> Dict[int, str]:
+    try:
+        from .database import BatterPitchTypeMatchup
+    except Exception:
+        return {}
+
+    if not hasattr(BatterPitchTypeMatchup, "batter_id") or not hasattr(BatterPitchTypeMatchup, "batter_name"):
+        return {}
+
+    subq = (
+        session.query(
+            BatterPitchTypeMatchup.batter_id.label("batter_id"),
+            func.max(BatterPitchTypeMatchup.id).label("max_id"),
+        )
+        .filter(BatterPitchTypeMatchup.batter_name.isnot(None))
+        .group_by(BatterPitchTypeMatchup.batter_id)
+        .subquery()
+    )
+
+    rows = (
+        session.query(BatterPitchTypeMatchup.batter_id, BatterPitchTypeMatchup.batter_name)
+        .join(subq, BatterPitchTypeMatchup.id == subq.c.max_id)
+        .all()
+    )
+
+    return {int(row.batter_id): row.batter_name for row in rows if row.batter_id and row.batter_name}
+
+
+def _latest_batter_teams(
+    session: Session,
+    season: int,
+) -> Dict[int, str]:
+    if not (
+        _model_has_column(StatcastEvent, "home_team")
+        and _model_has_column(StatcastEvent, "away_team")
+        and _model_has_column(StatcastEvent, "inning_topbot")
+    ):
+        return {}
+
+    s_start = datetime.date(season, 1, 1)
+    s_end = datetime.date(season, 12, 31)
+
+    subq = (
+        session.query(
+            StatcastEvent.batter_id.label("batter_id"),
+            func.max(StatcastEvent.game_date).label("max_date"),
+        )
+        .filter(
+            StatcastEvent.game_date >= s_start,
+            StatcastEvent.game_date <= s_end,
+            StatcastEvent.batter_id.isnot(None),
+        )
+        .group_by(StatcastEvent.batter_id)
+        .subquery()
+    )
+
+    rows = (
+        session.query(
+            StatcastEvent.batter_id,
+            StatcastEvent.inning_topbot,
+            StatcastEvent.home_team,
+            StatcastEvent.away_team,
+        )
+        .join(
+            subq,
+            and_(
+                StatcastEvent.batter_id == subq.c.batter_id,
+                StatcastEvent.game_date == subq.c.max_date,
+            ),
+        )
+        .all()
+    )
+
+    team_map: Dict[int, str] = {}
+    for row in rows:
+        if row.batter_id in team_map:
+            continue
+        team = row.away_team if row.inning_topbot == "Top" else row.home_team
+        if team:
+            team_map[int(row.batter_id)] = team
+
+    return team_map
+
+
+def _optional_rbi_column() -> Optional[Any]:
+    for name in ("rbi", "rbis", "runs_batted_in"):
+        if hasattr(StatcastEvent, name):
+            return getattr(StatcastEvent, name)
+    return None
+
+
+def _event_description_column() -> Optional[Any]:
+    return getattr(StatcastEvent, "description", None) if hasattr(StatcastEvent, "description") else None
+
+
+def _season_rows_for_leaderboards(
+    session: Session,
+    season: int,
+) -> Tuple[int, List[Any]]:
+    description_col = _event_description_column()
+    rbi_col = _optional_rbi_column()
+
+    swing_case = case((description_col.in_(list(SWING_DESCRIPTIONS)), 1), else_=0) if description_col is not None else 0
+    whiff_case = case((description_col.in_(list(WHIFF_DESCRIPTIONS)), 1), else_=0) if description_col is not None else 0
+    rbi_expr = func.sum(rbi_col).label("rbi") if rbi_col is not None else None
+
+    terminal_list = list(TERMINAL_EVENTS)
+    non_ab_list = list(NON_AB_EVENTS)
+
+    selected_rows: List[Any] = []
+    actual_season = season
+
+    for candidate_season in [season, season - 1]:
+        s_start = datetime.date(candidate_season, 1, 1)
+        s_end = datetime.date(candidate_season, 12, 31)
+
+        query_columns = [
+            StatcastEvent.batter_id,
+            func.sum(case((StatcastEvent.events.in_(terminal_list), 1), else_=0)).label("pa"),
+            func.sum(case((StatcastEvent.events.in_(terminal_list), 1), else_=0)).label("terminal_events"),
+            func.sum(case((StatcastEvent.events.in_(list(HIT_EVENTS)), 1), else_=0)).label("hits"),
+            func.sum(case((StatcastEvent.events == "home_run", 1), else_=0)).label("home_runs"),
+            func.sum(case((StatcastEvent.events == "double", 1), else_=0)).label("doubles"),
+            func.sum(
+                case(
+                    (
+                        and_(
+                            StatcastEvent.events.in_(terminal_list),
+                            StatcastEvent.events.notin_(non_ab_list),
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("ab"),
+            func.sum(
+                case(
+                    (
+                        StatcastEvent.events == "home_run",
+                        4,
+                    ),
+                    (
+                        StatcastEvent.events == "triple",
+                        3,
+                    ),
+                    (
+                        StatcastEvent.events == "double",
+                        2,
+                    ),
+                    (
+                        StatcastEvent.events == "single",
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("total_bases"),
+            func.sum(
+                case(
+                    (
+                        and_(
+                            StatcastEvent.launch_speed.isnot(None),
+                            StatcastEvent.launch_angle.isnot(None),
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("bbe"),
+            func.sum(
+                case(
+                    (
+                        and_(
+                            StatcastEvent.launch_speed.isnot(None),
+                            StatcastEvent.launch_speed >= 95,
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("hard_hits"),
+            func.sum(
+                case(
+                    (
+                        and_(
+                            StatcastEvent.launch_speed.isnot(None),
+                            StatcastEvent.launch_angle.isnot(None),
+                            StatcastEvent.launch_speed >= 98,
+                            StatcastEvent.launch_angle >= 8,
+                            StatcastEvent.launch_angle <= 50,
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("barrels"),
+            func.avg(StatcastEvent.launch_speed).label("avg_exit_velocity"),
+            func.max(StatcastEvent.launch_speed).label("max_exit_velocity"),
+            func.sum(case((StatcastEvent.events.in_(list(STRIKEOUT_EVENTS)), 1), else_=0)).label("strikeouts"),
+            func.sum(case((StatcastEvent.events.in_(list(WALK_EVENTS)), 1), else_=0)).label("walks"),
+            func.sum(swing_case).label("swings") if description_col is not None else func.count().filter(False).label("swings"),
+            func.sum(whiff_case).label("whiffs") if description_col is not None else func.count().filter(False).label("whiffs"),
+        ]
+
+        if rbi_expr is not None:
+            query_columns.append(rbi_expr)
+
+        rows = (
+            session.query(*query_columns)
+            .filter(
+                StatcastEvent.game_date >= s_start,
+                StatcastEvent.game_date <= s_end,
+                StatcastEvent.batter_id.isnot(None),
+            )
+            .group_by(StatcastEvent.batter_id)
+            .all()
+        )
+
+        if rows:
+            selected_rows = rows
+            actual_season = candidate_season
+            break
+
+    return actual_season, selected_rows
 
 
 def get_batter_leaderboards(
@@ -660,180 +1166,219 @@ def get_batter_leaderboards(
     min_bbe: int = 30,
     limit: int = 10,
 ) -> Dict[str, Any]:
-    from sqlalchemy import case, and_
-    from .database import BatterPitchTypeMatchup
+    """Build grouped daily batter leaderboards from stored StatcastEvent rows.
 
+    The endpoint intentionally does not fabricate unavailable metrics. RBI and Chase%
+    are only exposed when the local schema contains enough source fields to compute
+    them correctly.
+    """
     if season is None:
         season = datetime.date.today().year
 
-    SWING_DESCS = [
-        "swinging_strike", "swinging_strike_blocked", "foul", "foul_tip",
-        "hit_into_play", "hit_into_play_no_out", "hit_into_play_score", "missed_bunt",
-    ]
-    WHIFF_DESCS = ["swinging_strike", "swinging_strike_blocked"]
-    TERMINAL_LIST = list(TERMINAL_EVENTS)
-    NON_AB_LIST = list(NON_AB_EVENTS)
-
-    actual_season = None
-    rows = []
-    for s in [season, season - 1]:
-        s_start = datetime.date(s, 1, 1)
-        s_end = datetime.date(s, 12, 31)
-        rows = (
-            session.query(
-                StatcastEvent.batter_id,
-                func.sum(case((StatcastEvent.events.in_(TERMINAL_LIST), 1), else_=0)).label("pa"),
-                func.sum(case((StatcastEvent.events.in_(list(HIT_EVENTS)), 1), else_=0)).label("hits"),
-                func.sum(case((StatcastEvent.events == "home_run", 1), else_=0)).label("home_runs"),
-                func.sum(case((StatcastEvent.events == "double", 1), else_=0)).label("doubles"),
-                func.sum(case((and_(StatcastEvent.launch_speed.isnot(None), StatcastEvent.launch_angle.isnot(None)), 1), else_=0)).label("bbe"),
-                func.sum(case((and_(StatcastEvent.launch_speed.isnot(None), StatcastEvent.launch_speed >= 95), 1), else_=0)).label("hard_hits"),
-                func.sum(case((and_(StatcastEvent.launch_speed.isnot(None), StatcastEvent.launch_angle.isnot(None), StatcastEvent.launch_speed >= 98, StatcastEvent.launch_angle >= 8, StatcastEvent.launch_angle <= 50), 1), else_=0)).label("barrels"),
-                func.avg(StatcastEvent.launch_speed).label("avg_ev"),
-                func.max(StatcastEvent.launch_speed).label("max_ev"),
-                func.sum(case((StatcastEvent.events.in_(["strikeout", "strikeout_double_play"]), 1), else_=0)).label("strikeouts"),
-                func.sum(case((StatcastEvent.events.in_(["walk", "intent_walk"]), 1), else_=0)).label("walks"),
-                func.sum(case((StatcastEvent.description.in_(SWING_DESCS), 1), else_=0)).label("swings"),
-                func.sum(case((StatcastEvent.description.in_(WHIFF_DESCS), 1), else_=0)).label("whiffs"),
-                func.sum(case(
-                    (StatcastEvent.events == "home_run", 4),
-                    (StatcastEvent.events == "triple", 3),
-                    (StatcastEvent.events == "double", 2),
-                    (StatcastEvent.events == "single", 1),
-                    else_=0,
-                )).label("total_bases"),
-                func.sum(case((and_(StatcastEvent.events.in_(TERMINAL_LIST), StatcastEvent.events.notin_(NON_AB_LIST)), 1), else_=0)).label("ab"),
-            )
-            .filter(StatcastEvent.game_date >= s_start, StatcastEvent.game_date <= s_end)
-            .group_by(StatcastEvent.batter_id)
-            .all()
-        )
-        if rows:
-            actual_season = s
-            break
+    actual_season, rows = _season_rows_for_leaderboards(session, season)
 
     if not rows:
-        return {"updated_at": str(datetime.date.today()), "source": "statcast_events", "season": season, "leaderboards": {}}
+        return {
+            "updated_at": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "source": "postgres_statcast_events",
+            "season": season,
+            "leaderboards": {},
+            "available_metrics": [],
+            "unavailable_metrics": [
+                "home_runs",
+                "rbi",
+                "hits",
+                "doubles",
+                "iso",
+                "hard_hit_pct",
+                "barrel_pct",
+                "avg_exit_velocity",
+                "max_exit_velocity",
+                "whiff_pct",
+                "chase_pct",
+                "contact_pct",
+                "k_pct_avoidance",
+                "bb_pct",
+            ],
+            "notes": ["No StatcastEvent rows found for requested season or previous season."],
+        }
 
-    # Player name lookup (most recent entry per batter)
-    name_subq = (
-        session.query(BatterPitchTypeMatchup.batter_id, func.max(BatterPitchTypeMatchup.id).label("max_id"))
-        .filter(BatterPitchTypeMatchup.batter_name.isnot(None))
-        .group_by(BatterPitchTypeMatchup.batter_id)
-        .subquery()
-    )
-    name_rows = (
-        session.query(BatterPitchTypeMatchup.batter_id, BatterPitchTypeMatchup.batter_name)
-        .join(name_subq, BatterPitchTypeMatchup.id == name_subq.c.max_id)
-        .all()
-    )
-    name_map = {bid: bname for bid, bname in name_rows}
+    name_map = _latest_batter_names(session)
+    team_map = _latest_batter_teams(session, actual_season)
+    has_rbi = _optional_rbi_column() is not None
+    has_description = _event_description_column() is not None
 
-    # Team lookup via most recent event per batter this season
-    subq = (
-        session.query(StatcastEvent.batter_id, func.max(StatcastEvent.game_date).label("max_date"))
-        .filter(StatcastEvent.game_date >= datetime.date(actual_season, 1, 1), StatcastEvent.game_date <= datetime.date(actual_season, 12, 31))
-        .group_by(StatcastEvent.batter_id)
-        .subquery()
+    players: List[Dict[str, Any]] = []
+    latest_event_date = (
+        session.query(func.max(StatcastEvent.game_date))
+        .filter(
+            StatcastEvent.game_date >= datetime.date(actual_season, 1, 1),
+            StatcastEvent.game_date <= datetime.date(actual_season, 12, 31),
+        )
+        .scalar()
     )
-    team_rows = (
-        session.query(StatcastEvent.batter_id, StatcastEvent.inning_topbot, StatcastEvent.home_team, StatcastEvent.away_team)
-        .join(subq, and_(StatcastEvent.batter_id == subq.c.batter_id, StatcastEvent.game_date == subq.c.max_date))
-        .all()
-    )
-    team_map: Dict[int, str] = {}
-    for tr in team_rows:
-        if tr.batter_id not in team_map:
-            t = tr.away_team if tr.inning_topbot == "Top" else tr.home_team
-            if t:
-                team_map[tr.batter_id] = t
 
-    players = []
     for row in rows:
-        pa = int(row.pa or 0)
-        ab = int(row.ab or 0)
-        hits = int(row.hits or 0)
-        home_runs = int(row.home_runs or 0)
-        doubles = int(row.doubles or 0)
-        bbe = int(row.bbe or 0)
-        hard_hits = int(row.hard_hits or 0)
-        barrels = int(row.barrels or 0)
-        strikeouts = int(row.strikeouts or 0)
-        walks = int(row.walks or 0)
-        swings = int(row.swings or 0)
-        whiffs = int(row.whiffs or 0)
-        total_bases = int(row.total_bases or 0)
-        avg_ev = round(float(row.avg_ev), 1) if row.avg_ev is not None else None
-        max_ev = round(float(row.max_ev), 1) if row.max_ev is not None else None
-        batting_avg = round(hits / ab, 3) if ab > 0 else None
-        slg = round(total_bases / ab, 3) if ab > 0 else None
-        iso = round(slg - batting_avg, 3) if slg is not None and batting_avg is not None else None
-        k_pct = round(strikeouts / pa, 3) if pa > 0 else None
-        bb_pct = round(walks / pa, 3) if pa > 0 else None
-        hard_hit_pct = round(hard_hits / bbe, 3) if bbe > 0 else None
-        barrel_pct = round(barrels / bbe, 3) if bbe > 0 else None
-        whiff_pct = round(whiffs / swings, 3) if swings > 0 else None
-        contact_pct = round(1.0 - whiff_pct, 3) if whiff_pct is not None else None
-        bid = row.batter_id
-        players.append({
-            "player_id": bid, "player_name": name_map.get(bid, f"#{bid}"),
-            "team": team_map.get(bid, ""), "pa": pa, "bbe": bbe, "swings": swings,
-            "hits": hits, "home_runs": home_runs, "doubles": doubles,
-            "avg_ev": avg_ev, "max_ev": max_ev,
-            "hard_hit_pct": hard_hit_pct, "barrel_pct": barrel_pct,
-            "iso": iso, "k_pct": k_pct, "bb_pct": bb_pct,
-            "whiff_pct": whiff_pct, "contact_pct": contact_pct,
-        })
+        batter_id = _safe_int(row.batter_id)
+        if not batter_id:
+            continue
 
-    def make_board(metric: str, min_key: str = "pa", min_count: int = 50, reverse: bool = True) -> List[Dict]:
-        filtered = [p for p in players if p.get(metric) is not None and p.get(min_key, 0) >= min_count]
-        filtered.sort(key=lambda p: p[metric], reverse=reverse)
-        return [
-            {"rank": i + 1, "player_id": p["player_id"], "player_name": p["player_name"], "team": p["team"], "value": p[metric]}
-            for i, p in enumerate(filtered[:limit])
-        ]
+        pa = _safe_int(row.pa)
+        ab = _safe_int(row.ab)
+        hits = _safe_int(row.hits)
+        home_runs = _safe_int(row.home_runs)
+        doubles = _safe_int(row.doubles)
+        total_bases = _safe_int(row.total_bases)
+        bbe = _safe_int(row.bbe)
+        hard_hits = _safe_int(row.hard_hits)
+        barrels = _safe_int(row.barrels)
+        strikeouts = _safe_int(row.strikeouts)
+        walks = _safe_int(row.walks)
+        swings = _safe_int(row.swings)
+        whiffs = _safe_int(row.whiffs)
 
-    leaderboards: Dict[str, Any] = {}
-    for metric in ["home_runs", "hits", "doubles"]:
-        b = make_board(metric, min_key="pa", min_count=min_pa)
-        if b:
-            leaderboards[metric] = b
-    for internal, resp_key in [("avg_ev", "avg_exit_velocity"), ("max_ev", "max_exit_velocity"), ("hard_hit_pct", "hard_hit_pct"), ("barrel_pct", "barrel_pct")]:
-        b = make_board(internal, min_key="bbe", min_count=min_bbe)
-        if b:
-            leaderboards[resp_key] = b
-    for metric, min_key, min_count, reverse, lb_key in [
-        ("iso", "pa", 100, True, "iso"),
-        ("bb_pct", "pa", 100, True, "bb_pct"),
-        ("k_pct", "pa", 100, False, "k_pct_avoidance"),
-        ("contact_pct", "swings", 50, True, "contact_pct"),
-        ("whiff_pct", "swings", 50, False, "whiff_pct"),
-    ]:
-        b = make_board(metric, min_key=min_key, min_count=min_count, reverse=reverse)
-        if b:
-            leaderboards[lb_key] = b
+        batting_avg = round(hits / ab, 3) if ab else None
+        slugging_pct = round(total_bases / ab, 3) if ab else None
+        iso = round(slugging_pct - batting_avg, 3) if slugging_pct is not None and batting_avg is not None else None
+        hard_hit_pct = round(hard_hits / bbe, 3) if bbe else None
+        barrel_pct = round(barrels / bbe, 3) if bbe else None
+        k_pct = round(strikeouts / pa, 3) if pa else None
+        bb_pct = round(walks / pa, 3) if pa else None
+        whiff_pct = round(whiffs / swings, 3) if swings else None
+        contact_pct = round(1 - whiff_pct, 3) if whiff_pct is not None else None
 
-    return {"updated_at": str(datetime.date.today()), "source": "statcast_events", "season": actual_season, "leaderboards": leaderboards}
+        player: Dict[str, Any] = {
+            "player_id": batter_id,
+            "player_name": name_map.get(batter_id, f"#{batter_id}"),
+            "team": team_map.get(batter_id, ""),
+            "pa": pa,
+            "ab": ab,
+            "bbe": bbe,
+            "swings": swings,
+            "hits": hits,
+            "home_runs": home_runs,
+            "doubles": doubles,
+            "iso": iso,
+            "hard_hit_pct": hard_hit_pct,
+            "barrel_pct": barrel_pct,
+            "avg_exit_velocity": _round(_safe_float(row.avg_exit_velocity), 1),
+            "max_exit_velocity": _round(_safe_float(row.max_exit_velocity), 1),
+            "k_pct": k_pct,
+            "bb_pct": bb_pct,
+            "whiff_pct": whiff_pct,
+            "contact_pct": contact_pct,
+        }
+
+        if has_rbi and hasattr(row, "rbi"):
+            player["rbi"] = _safe_int(row.rbi)
+
+        players.append(player)
+
+    leaderboards: Dict[str, List[Dict[str, Any]]] = {}
+
+    board_specs = [
+        ("home_runs", "home_runs", "pa", min_pa, True),
+        ("hits", "hits", "pa", min_pa, True),
+        ("doubles", "doubles", "pa", min_pa, True),
+        ("iso", "iso", "pa", max(min_pa, 100), True),
+        ("hard_hit_pct", "hard_hit_pct", "bbe", min_bbe, True),
+        ("barrel_pct", "barrel_pct", "bbe", min_bbe, True),
+        ("avg_exit_velocity", "avg_exit_velocity", "bbe", min_bbe, True),
+        ("max_exit_velocity", "max_exit_velocity", "bbe", min_bbe, True),
+        ("bb_pct", "bb_pct", "pa", max(min_pa, 100), True),
+        ("k_pct_avoidance", "k_pct", "pa", max(min_pa, 100), False),
+        ("contact_pct", "contact_pct", "swings", 50, True),
+        ("whiff_pct", "whiff_pct", "swings", 50, False),
+    ]
+
+    if has_rbi:
+        board_specs.insert(1, ("rbi", "rbi", "pa", min_pa, True))
+
+    for response_key, metric, min_key, min_count, reverse in board_specs:
+        board = _make_board(
+            players,
+            metric,
+            min_key=min_key,
+            min_count=min_count,
+            limit=limit,
+            reverse=reverse,
+        )
+        if board:
+            leaderboards[response_key] = board
+
+    available_metrics = sorted(leaderboards.keys())
+    requested_metrics = {
+        "home_runs",
+        "rbi",
+        "hits",
+        "doubles",
+        "iso",
+        "hard_hit_pct",
+        "barrel_pct",
+        "avg_exit_velocity",
+        "max_exit_velocity",
+        "whiff_pct",
+        "chase_pct",
+        "contact_pct",
+        "k_pct_avoidance",
+        "bb_pct",
+    }
+
+    unavailable_metrics = sorted(requested_metrics - set(available_metrics))
+    notes: List[str] = []
+    if not has_rbi:
+        notes.append("RBI leaderboard omitted because StatcastEvent has no RBI/rbis/runs_batted_in column.")
+    if not has_description:
+        notes.append("Whiff and contact leaderboards omitted unless StatcastEvent.description is populated.")
+    notes.append("Chase% omitted because zone/swing decision fields are not available in the local StatcastEvent model.")
+    if actual_season != season:
+        notes.append(f"No rows found for {season}; leaderboards fell back to {actual_season}.")
+
+    return {
+        "updated_at": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "source": "postgres_statcast_events",
+        "season": actual_season,
+        "latest_event_date": latest_event_date.isoformat() if latest_event_date else None,
+        "minimums": {
+            "min_pa": min_pa,
+            "min_bbe": min_bbe,
+            "limit": limit,
+        },
+        "leaderboards": leaderboards,
+        "available_metrics": available_metrics,
+        "unavailable_metrics": unavailable_metrics,
+        "notes": notes,
+    }
 
 
 def get_player_splits_multi_season(
-    session: Session, player_id: int, seasons: List[int]
+    session: Session,
+    player_id: int,
+    seasons: List[int],
 ) -> Dict[int, Dict[str, Any]]:
     """Return vsL/vsR splits keyed by season for the given player."""
     result: Dict[int, Dict[str, Any]] = {}
+
     for season in seasons:
-        vsL = get_player_split(session, player_id, season, "vsL")
-        vsR = get_player_split(session, player_id, season, "vsR")
-        if vsL or vsR:
-            def _sd(s: Optional[PlayerSplit]) -> Optional[Dict[str, Any]]:
-                if not s:
+        vs_l = get_player_split(session, player_id, season, "vsL")
+        vs_r = get_player_split(session, player_id, season, "vsR")
+
+        if vs_l or vs_r:
+            def _split_dict(split: Optional[PlayerSplit]) -> Optional[Dict[str, Any]]:
+                if not split:
                     return None
                 return {
-                    "pa": s.pa, "batting_avg": s.batting_avg,
-                    "on_base_pct": s.on_base_pct, "slugging_pct": s.slugging_pct,
-                    "k_pct": s.k_pct, "bb_pct": s.bb_pct, "home_runs": s.home_runs,
+                    "pa": split.pa,
+                    "batting_avg": split.batting_avg,
+                    "on_base_pct": split.on_base_pct,
+                    "slugging_pct": split.slugging_pct,
+                    "k_pct": split.k_pct,
+                    "bb_pct": split.bb_pct,
+                    "home_runs": split.home_runs,
                 }
-            result[season] = {"vsL": _sd(vsL), "vsR": _sd(vsR)}
+
+            result[season] = {"vsL": _split_dict(vs_l), "vsR": _split_dict(vs_r)}
+
     return result
 
 
