@@ -653,6 +653,169 @@ def get_batter_multi_season(session: Session, batter_id: int, seasons: List[int]
     return result
 
 
+def get_batter_leaderboards(
+    session: Session,
+    season: Optional[int] = None,
+    min_pa: int = 50,
+    min_bbe: int = 30,
+    limit: int = 10,
+) -> Dict[str, Any]:
+    from sqlalchemy import case, and_
+    from .database import BatterPitchTypeMatchup
+
+    if season is None:
+        season = datetime.date.today().year
+
+    SWING_DESCS = [
+        "swinging_strike", "swinging_strike_blocked", "foul", "foul_tip",
+        "hit_into_play", "hit_into_play_no_out", "hit_into_play_score", "missed_bunt",
+    ]
+    WHIFF_DESCS = ["swinging_strike", "swinging_strike_blocked"]
+    TERMINAL_LIST = list(TERMINAL_EVENTS)
+    NON_AB_LIST = list(NON_AB_EVENTS)
+
+    actual_season = None
+    rows = []
+    for s in [season, season - 1]:
+        s_start = datetime.date(s, 1, 1)
+        s_end = datetime.date(s, 12, 31)
+        rows = (
+            session.query(
+                StatcastEvent.batter_id,
+                func.sum(case((StatcastEvent.events.in_(TERMINAL_LIST), 1), else_=0)).label("pa"),
+                func.sum(case((StatcastEvent.events.in_(list(HIT_EVENTS)), 1), else_=0)).label("hits"),
+                func.sum(case((StatcastEvent.events == "home_run", 1), else_=0)).label("home_runs"),
+                func.sum(case((StatcastEvent.events == "double", 1), else_=0)).label("doubles"),
+                func.sum(case((and_(StatcastEvent.launch_speed.isnot(None), StatcastEvent.launch_angle.isnot(None)), 1), else_=0)).label("bbe"),
+                func.sum(case((and_(StatcastEvent.launch_speed.isnot(None), StatcastEvent.launch_speed >= 95), 1), else_=0)).label("hard_hits"),
+                func.sum(case((and_(StatcastEvent.launch_speed.isnot(None), StatcastEvent.launch_angle.isnot(None), StatcastEvent.launch_speed >= 98, StatcastEvent.launch_angle >= 8, StatcastEvent.launch_angle <= 50), 1), else_=0)).label("barrels"),
+                func.avg(StatcastEvent.launch_speed).label("avg_ev"),
+                func.max(StatcastEvent.launch_speed).label("max_ev"),
+                func.sum(case((StatcastEvent.events.in_(["strikeout", "strikeout_double_play"]), 1), else_=0)).label("strikeouts"),
+                func.sum(case((StatcastEvent.events.in_(["walk", "intent_walk"]), 1), else_=0)).label("walks"),
+                func.sum(case((StatcastEvent.description.in_(SWING_DESCS), 1), else_=0)).label("swings"),
+                func.sum(case((StatcastEvent.description.in_(WHIFF_DESCS), 1), else_=0)).label("whiffs"),
+                func.sum(case(
+                    (StatcastEvent.events == "home_run", 4),
+                    (StatcastEvent.events == "triple", 3),
+                    (StatcastEvent.events == "double", 2),
+                    (StatcastEvent.events == "single", 1),
+                    else_=0,
+                )).label("total_bases"),
+                func.sum(case((and_(StatcastEvent.events.in_(TERMINAL_LIST), StatcastEvent.events.notin_(NON_AB_LIST)), 1), else_=0)).label("ab"),
+            )
+            .filter(StatcastEvent.game_date >= s_start, StatcastEvent.game_date <= s_end)
+            .group_by(StatcastEvent.batter_id)
+            .all()
+        )
+        if rows:
+            actual_season = s
+            break
+
+    if not rows:
+        return {"updated_at": str(datetime.date.today()), "source": "statcast_events", "season": season, "leaderboards": {}}
+
+    # Player name lookup (most recent entry per batter)
+    name_subq = (
+        session.query(BatterPitchTypeMatchup.batter_id, func.max(BatterPitchTypeMatchup.id).label("max_id"))
+        .filter(BatterPitchTypeMatchup.batter_name.isnot(None))
+        .group_by(BatterPitchTypeMatchup.batter_id)
+        .subquery()
+    )
+    name_rows = (
+        session.query(BatterPitchTypeMatchup.batter_id, BatterPitchTypeMatchup.batter_name)
+        .join(name_subq, BatterPitchTypeMatchup.id == name_subq.c.max_id)
+        .all()
+    )
+    name_map = {bid: bname for bid, bname in name_rows}
+
+    # Team lookup via most recent event per batter this season
+    subq = (
+        session.query(StatcastEvent.batter_id, func.max(StatcastEvent.game_date).label("max_date"))
+        .filter(StatcastEvent.game_date >= datetime.date(actual_season, 1, 1), StatcastEvent.game_date <= datetime.date(actual_season, 12, 31))
+        .group_by(StatcastEvent.batter_id)
+        .subquery()
+    )
+    team_rows = (
+        session.query(StatcastEvent.batter_id, StatcastEvent.inning_topbot, StatcastEvent.home_team, StatcastEvent.away_team)
+        .join(subq, and_(StatcastEvent.batter_id == subq.c.batter_id, StatcastEvent.game_date == subq.c.max_date))
+        .all()
+    )
+    team_map: Dict[int, str] = {}
+    for tr in team_rows:
+        if tr.batter_id not in team_map:
+            t = tr.away_team if tr.inning_topbot == "Top" else tr.home_team
+            if t:
+                team_map[tr.batter_id] = t
+
+    players = []
+    for row in rows:
+        pa = int(row.pa or 0)
+        ab = int(row.ab or 0)
+        hits = int(row.hits or 0)
+        home_runs = int(row.home_runs or 0)
+        doubles = int(row.doubles or 0)
+        bbe = int(row.bbe or 0)
+        hard_hits = int(row.hard_hits or 0)
+        barrels = int(row.barrels or 0)
+        strikeouts = int(row.strikeouts or 0)
+        walks = int(row.walks or 0)
+        swings = int(row.swings or 0)
+        whiffs = int(row.whiffs or 0)
+        total_bases = int(row.total_bases or 0)
+        avg_ev = round(float(row.avg_ev), 1) if row.avg_ev is not None else None
+        max_ev = round(float(row.max_ev), 1) if row.max_ev is not None else None
+        batting_avg = round(hits / ab, 3) if ab > 0 else None
+        slg = round(total_bases / ab, 3) if ab > 0 else None
+        iso = round(slg - batting_avg, 3) if slg is not None and batting_avg is not None else None
+        k_pct = round(strikeouts / pa, 3) if pa > 0 else None
+        bb_pct = round(walks / pa, 3) if pa > 0 else None
+        hard_hit_pct = round(hard_hits / bbe, 3) if bbe > 0 else None
+        barrel_pct = round(barrels / bbe, 3) if bbe > 0 else None
+        whiff_pct = round(whiffs / swings, 3) if swings > 0 else None
+        contact_pct = round(1.0 - whiff_pct, 3) if whiff_pct is not None else None
+        bid = row.batter_id
+        players.append({
+            "player_id": bid, "player_name": name_map.get(bid, f"#{bid}"),
+            "team": team_map.get(bid, ""), "pa": pa, "bbe": bbe, "swings": swings,
+            "hits": hits, "home_runs": home_runs, "doubles": doubles,
+            "avg_ev": avg_ev, "max_ev": max_ev,
+            "hard_hit_pct": hard_hit_pct, "barrel_pct": barrel_pct,
+            "iso": iso, "k_pct": k_pct, "bb_pct": bb_pct,
+            "whiff_pct": whiff_pct, "contact_pct": contact_pct,
+        })
+
+    def make_board(metric: str, min_key: str = "pa", min_count: int = 50, reverse: bool = True) -> List[Dict]:
+        filtered = [p for p in players if p.get(metric) is not None and p.get(min_key, 0) >= min_count]
+        filtered.sort(key=lambda p: p[metric], reverse=reverse)
+        return [
+            {"rank": i + 1, "player_id": p["player_id"], "player_name": p["player_name"], "team": p["team"], "value": p[metric]}
+            for i, p in enumerate(filtered[:limit])
+        ]
+
+    leaderboards: Dict[str, Any] = {}
+    for metric in ["home_runs", "hits", "doubles"]:
+        b = make_board(metric, min_key="pa", min_count=min_pa)
+        if b:
+            leaderboards[metric] = b
+    for internal, resp_key in [("avg_ev", "avg_exit_velocity"), ("max_ev", "max_exit_velocity"), ("hard_hit_pct", "hard_hit_pct"), ("barrel_pct", "barrel_pct")]:
+        b = make_board(internal, min_key="bbe", min_count=min_bbe)
+        if b:
+            leaderboards[resp_key] = b
+    for metric, min_key, min_count, reverse, lb_key in [
+        ("iso", "pa", 100, True, "iso"),
+        ("bb_pct", "pa", 100, True, "bb_pct"),
+        ("k_pct", "pa", 100, False, "k_pct_avoidance"),
+        ("contact_pct", "swings", 50, True, "contact_pct"),
+        ("whiff_pct", "swings", 50, False, "whiff_pct"),
+    ]:
+        b = make_board(metric, min_key=min_key, min_count=min_count, reverse=reverse)
+        if b:
+            leaderboards[lb_key] = b
+
+    return {"updated_at": str(datetime.date.today()), "source": "statcast_events", "season": actual_season, "leaderboards": leaderboards}
+
+
 def get_player_splits_multi_season(
     session: Session, player_id: int, seasons: List[int]
 ) -> Dict[int, Dict[str, Any]]:
@@ -693,6 +856,7 @@ __all__ = [
     "get_batter_rolling_splits",
     "get_batter_rolling_pitch_types",
     "get_batter_at_bats",
+    "get_batter_leaderboards",
     "get_pitcher_game_log",
     "get_pitcher_multi_season",
     "get_batter_multi_season",

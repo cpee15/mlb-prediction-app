@@ -11,6 +11,7 @@ from .db_utils import (
     get_batter_aggregate_with_fallback,
     get_batter_at_bats,
     get_batter_data_quality,
+    get_batter_leaderboards,
     get_batter_multi_season,
     get_batter_rolling_by_ab,
     get_batter_rolling_by_abs,
@@ -155,6 +156,18 @@ def _aggregate_to_dict(agg) -> Optional[Dict[str, Any]]:
         "end_date": agg.end_date.isoformat() if agg.end_date else None,
         "window": agg.window,
     }
+
+
+@router.get("/batters/leaderboards")
+def batters_leaderboards(
+    season: Optional[int] = None,
+    min_pa: int = Query(50, ge=1),
+    min_bbe: int = Query(30, ge=1),
+    limit: int = Query(10, ge=1, le=50),
+) -> Dict[str, Any]:
+    Session = _get_session()
+    with Session() as session:
+        return get_batter_leaderboards(session, season=season, min_pa=min_pa, min_bbe=min_bbe, limit=limit)
 
 
 @router.get("/batter/{id}/profile")
