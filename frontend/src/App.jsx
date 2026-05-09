@@ -14,6 +14,13 @@ import LiveGamePageRestored from './pages/LiveGamePageRestored'
 import DailyOddsPage from './pages/DailyOddsPage'
 import ModelProjectionsPage from './pages/ModelProjectionsPage'
 
+// Set VITE_ENABLE_BATTER_PAGE=true in Railway env vars to re-enable the Batter routes.
+// Keep false until the leaderboard endpoint is validated stable in production.
+const ENABLE_BATTER_PAGE = import.meta.env.VITE_ENABLE_BATTER_PAGE === 'true'
+
+const BatterPage = ENABLE_BATTER_PAGE ? React.lazy(() => import('./pages/BatterPage')) : null
+const RollingBatterPage = ENABLE_BATTER_PAGE ? React.lazy(() => import('./pages/RollingBatterPage')) : null
+
 function BatterTemporarilyUnavailable() {
   return (
     <div style={{
@@ -25,7 +32,7 @@ function BatterTemporarilyUnavailable() {
     }}>
       <h1 style={{ marginTop: 0, fontSize: '22px' }}>Batter page temporarily disabled</h1>
       <p style={{ color: '#8b949e', lineHeight: 1.5 }}>
-        The Batter dashboard was disabled temporarily because the new leaderboard endpoint is causing production instability.
+        The Batter dashboard is temporarily unavailable while the backend leaderboard endpoint is being stabilised.
         Matchups, pitchers, teams, odds, live scores, and the rest of the app remain available.
       </p>
     </div>
@@ -100,9 +107,9 @@ export default function App() {
           <Route path="/pitcher" element={<PitcherPage />} />
           <Route path="/pitcher/:id" element={<PitcherPage />} />
           <Route path="/pitcher/:id/rolling" element={<RollingPitcherPage />} />
-          <Route path="/batter" element={<BatterTemporarilyUnavailable />} />
-          <Route path="/batter/:id" element={<BatterTemporarilyUnavailable />} />
-          <Route path="/batter/:id/rolling" element={<BatterTemporarilyUnavailable />} />
+          <Route path="/batter" element={ENABLE_BATTER_PAGE ? <React.Suspense fallback={null}><BatterPage /></React.Suspense> : <BatterTemporarilyUnavailable />} />
+          <Route path="/batter/:id" element={ENABLE_BATTER_PAGE ? <React.Suspense fallback={null}><BatterPage /></React.Suspense> : <BatterTemporarilyUnavailable />} />
+          <Route path="/batter/:id/rolling" element={ENABLE_BATTER_PAGE ? <React.Suspense fallback={null}><RollingBatterPage /></React.Suspense> : <BatterTemporarilyUnavailable />} />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/team/:id" element={<TeamPage />} />
           <Route path="/calendar" element={<YesterdayTodayPage />} />
