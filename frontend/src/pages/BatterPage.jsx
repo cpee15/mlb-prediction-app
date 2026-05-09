@@ -1,614 +1,1364 @@
-import React, { useState, useEffect } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
-import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer, ReferenceLine,
-} from 'recharts'
+from __future__ import annotations
 
-const API = import.meta.env.VITE_API_BASE_URL || ''
+import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
-const C = {
-  green: '#3fb950', blue: '#58a6ff', orange: '#d29922', red: '#f85149',
-  purple: '#bc8cff', teal: '#39d0d8',
-  text: '#e6edf3', muted: '#8b949e', bg: '#0d1117', card: '#161b22',
-  border: '#30363d', elevated: '#21262d',
+import pandas as pd
+from sqlalchemy import and_, func, or_
+from sqlalchemy.orm import Session
+
+from .database import (
+    BatterAggregate,
+    PitchArsenal,
+    PitcherAggregate,
+    PlayerSplit,
+    StatcastEvent,
+    TeamSplit,
+)
+
+HIT_EVENTS = {"single", "double", "triple", "home_run"}
+WALK_EVENTS = {"walk", "intent_walk"}
+HBP_EVENTS = {"hit_by_pitch"}
+STRIKEOUT_EVENTS = {"strikeout", "strikeout_double_play"}
+NON_AB_EVENTS = {
+    "walk",
+    "intent_walk",
+    "hit_by_pitch",
+    "sac_bunt",
+    "sac_fly",
+    "catcher_interf",
+    "catcher_interference",
 }
-
-const s = {
-  searchRow: { display: 'flex', gap: '12px', marginBottom: '20px' },
-  input: {
-    flex: 1, background: C.card, border: `1px solid ${C.border}`, color: C.text,
-    borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none',
-  },
-  playerHeader: {
-    background: C.card, border: `1px solid ${C.border}`, borderRadius: '10px',
-    padding: '20px 24px', marginBottom: '20px',
-  },
-  playerName: { fontSize: '26px', fontWeight: '700', color: C.text, marginBottom: '6px' },
-  playerMeta: { display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '13px', color: C.muted },
-  metaChip: { background: C.elevated, borderRadius: '4px', padding: '2px 8px', color: C.text },
-  rollingLink: {
-    display: 'inline-block', background: C.elevated, border: `1px solid ${C.border}`,
-    color: C.blue, textDecoration: 'none', borderRadius: '6px',
-    padding: '7px 16px', fontSize: '13px', fontWeight: '500', marginBottom: '24px',
-  },
-  qaBox: { background: C.card, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '12px 14px', marginBottom: '20px', fontSize: '13px', color: C.muted },
-  qaWarn: { color: C.orange, marginTop: '6px' },
-  section: { marginBottom: '32px' },
-  sectionTitle: { fontSize: '16px', fontWeight: '600', color: C.text, marginBottom: '14px', borderBottom: `1px solid ${C.elevated}`, paddingBottom: '8px' },
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '12px' },
-  statCard: { background: C.card, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '14px 16px' },
-  statLabel: { fontSize: '11px', color: C.muted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' },
-  statVal: { fontSize: '22px', fontWeight: '700', color: C.text },
-  tableWrap: { background: C.card, border: `1px solid ${C.border}`, borderRadius: '10px', overflow: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px' },
-  th: { padding: '10px 14px', textAlign: 'left', color: C.muted, fontWeight: '500', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: `1px solid ${C.elevated}`, whiteSpace: 'nowrap' },
-  thR: { textAlign: 'right' },
-  td: { padding: '10px 14px', borderBottom: `1px solid ${C.bg}`, color: C.text, whiteSpace: 'nowrap' },
-  tdR: { textAlign: 'right' },
-  sourceBadge: { display: 'inline-block', fontSize: '11px', padding: '2px 7px', borderRadius: '3px', background: C.elevated, color: C.muted, marginLeft: '10px', verticalAlign: 'middle', fontWeight: '400' },
-  loader: { color: C.muted, padding: '48px', textAlign: 'center' },
-  error: { color: C.red, padding: '24px', background: '#1f1116', borderRadius: '8px' },
-  chartBox: { background: C.card, border: `1px solid ${C.border}`, borderRadius: '10px', padding: '20px' },
+TERMINAL_EVENTS = {
+    "single",
+    "double",
+    "triple",
+    "home_run",
+    "strikeout",
+    "strikeout_double_play",
+    "walk",
+    "intent_walk",
+    "hit_by_pitch",
+    "field_out",
+    "force_out",
+    "double_play",
+    "grounded_into_double_play",
+    "fielders_choice",
+    "fielders_choice_out",
+    "sac_fly",
+    "sac_bunt",
+    "catcher_interf",
+    "catcher_interference",
 }
+TOTAL_BASES = {"single": 1, "double": 2, "triple": 3, "home_run": 4}
 
-const searchDropStyle = {
-  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
-  background: C.card, border: `1px solid ${C.border}`, borderRadius: '6px',
-  marginTop: '4px', maxHeight: '280px', overflowY: 'auto',
+SWING_DESCRIPTIONS = {
+    "swinging_strike",
+    "swinging_strike_blocked",
+    "foul",
+    "foul_tip",
+    "foul_bunt",
+    "missed_bunt",
+    "hit_into_play",
+    "hit_into_play_no_out",
+    "hit_into_play_score",
 }
-const searchItemStyle = (hover) => ({
-  padding: '9px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.elevated}`,
-  background: hover ? C.elevated : 'transparent',
-  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-})
+WHIFF_DESCRIPTIONS = {"swinging_strike", "swinging_strike_blocked", "missed_bunt"}
 
-const fmt = (v, d = 1) => v != null ? (typeof v === 'number' ? v.toFixed(d) : v) : '—'
-const pct = (v, d = 1) => v != null ? `${(v * 100).toFixed(d)}%` : '—'
-const num = (v) => v != null ? v : '—'
 
-const LEAGUE_AVGS = {
-  avg_exit_velocity: 88.5, hard_hit_pct: 0.38, barrel_pct: 0.08,
-  k_pct: 0.225, bb_pct: 0.085,
-}
+def _clean_event_name(event_name: Optional[Any]) -> Optional[str]:
+    if event_name is None:
+        return None
+    text = str(event_name).strip().lower()
+    if text in {"", "nan", "none", "null", "na", "n/a"}:
+        return None
+    return text
 
-const tooltipStyle = { background: '#1c2128', border: `1px solid ${C.border}`, borderRadius: '6px', fontSize: '12px', color: C.text }
 
-// ─── Leaderboard config ────────────────────────────────────────────────────
-const LB_CONFIG = [
-  { key: 'home_runs',         title: 'Home Runs',          fmt: v => v,                         color: C.blue,   group: 'Counting' },
-  { key: 'hits',              title: 'Hits',               fmt: v => v,                         color: C.green,  group: 'Counting' },
-  { key: 'doubles',           title: 'Doubles (2B)',        fmt: v => v,                         color: C.teal,   group: 'Counting' },
-  { key: 'avg_exit_velocity', title: 'Avg Exit Velocity',  fmt: v => `${v.toFixed(1)} mph`,     color: C.orange, group: 'Statcast' },
-  { key: 'hard_hit_pct',      title: 'Hard Hit %',         fmt: v => `${(v*100).toFixed(1)}%`,  color: C.orange, group: 'Statcast' },
-  { key: 'barrel_pct',        title: 'Barrel %',           fmt: v => `${(v*100).toFixed(1)}%`,  color: C.red,    group: 'Statcast' },
-  { key: 'max_exit_velocity', title: 'Max Exit Velocity',  fmt: v => `${v.toFixed(1)} mph`,     color: C.purple, group: 'Statcast' },
-  { key: 'iso',               title: 'ISO',                fmt: v => v.toFixed(3),              color: C.blue,   group: 'Rate' },
-  { key: 'bb_pct',            title: 'Walk Rate (BB%)',    fmt: v => `${(v*100).toFixed(1)}%`,  color: C.green,  group: 'Rate' },
-  { key: 'k_pct_avoidance',   title: 'K% Avoidance',      fmt: v => `${(v*100).toFixed(1)}%`,  color: C.teal,   group: 'Rate',    inverse: true },
-  { key: 'contact_pct',       title: 'Contact %',          fmt: v => `${(v*100).toFixed(1)}%`,  color: C.green,  group: 'Contact' },
-  { key: 'whiff_pct',         title: 'Whiff % (Lowest)',   fmt: v => `${(v*100).toFixed(1)}%`,  color: C.muted,  group: 'Contact', inverse: true },
-]
+def _clean_description(description: Optional[Any]) -> Optional[str]:
+    if description is None:
+        return None
+    text = str(description).strip().lower()
+    if text in {"", "nan", "none", "null", "na", "n/a"}:
+        return None
+    return text
 
-function MiniBar({ value, maxVal, minVal, color, inverse }) {
-  const range = maxVal - minVal || 1
-  const pct = inverse
-    ? ((maxVal - value) / range) * 100
-    : ((value - minVal) / range) * 100
-  return (
-    <div style={{ background: C.elevated, borderRadius: '3px', height: '6px', width: '52px', display: 'inline-block', verticalAlign: 'middle' }}>
-      <div style={{ width: `${Math.max(4, pct)}%`, height: '100%', background: color, borderRadius: '3px', opacity: 0.85 }} />
-    </div>
-  )
-}
 
-function LeaderboardCard({ title, board, fmtVal, color, inverse = false }) {
-  if (!board || board.length === 0) return null
-  const vals = board.map(r => r.value)
-  const maxVal = Math.max(...vals)
-  const minVal = Math.min(...vals)
-  return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: '10px', overflow: 'hidden' }}>
-      <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.elevated}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '13px', fontWeight: '600', color: C.text }}>{title}</span>
-        <span style={{ fontSize: '11px', color: color, fontWeight: '600' }}>TOP {board.length}</span>
-      </div>
-      {board.map(row => (
-        <div key={row.player_id} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: '8px', padding: '8px 14px', borderBottom: `1px solid ${C.bg}`, alignItems: 'center' }}>
-          <span style={{ fontSize: '11px', color: C.muted, fontWeight: '700', textAlign: 'right' }}>{row.rank}</span>
-          <div style={{ overflow: 'hidden' }}>
-            <Link
-              to={`/batter/${row.player_id}`}
-              style={{ color: C.blue, textDecoration: 'none', fontSize: '13px', fontWeight: '500', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            >
-              {row.player_name}
-            </Link>
-            {row.team && <span style={{ fontSize: '11px', color: C.muted }}>{row.team}</span>}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
-            <MiniBar value={row.value} maxVal={maxVal} minVal={minVal} color={color} inverse={inverse} />
-            <span style={{ fontSize: '12px', fontWeight: '700', color: C.text, minWidth: '52px', textAlign: 'right' }}>{fmtVal(row.value)}</span>
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
+def _is_terminal_event(event_name: Optional[Any]) -> bool:
+    cleaned = _clean_event_name(event_name)
+    return cleaned in TERMINAL_EVENTS
 
-function LeaderboardDashboard({ leaderboards, season, loading }) {
-  if (loading) return <div style={s.loader}>Loading leaderboards…</div>
-  if (!leaderboards) return null
 
-  const groups = ['Counting', 'Statcast', 'Rate', 'Contact']
-  const groupColors = { Counting: C.blue, Statcast: C.orange, Rate: C.green, Contact: C.teal }
-  const groupLabels = { Counting: 'Counting Stats', Statcast: 'Statcast & Contact Quality', Rate: 'Plate Discipline', Contact: 'Swing Metrics' }
+def _is_true_ab_event(event_name: Optional[Any]) -> bool:
+    cleaned = _clean_event_name(event_name)
+    return bool(cleaned and cleaned in TERMINAL_EVENTS and cleaned not in NON_AB_EVENTS)
 
-  return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '24px', flexWrap: 'wrap', gap: '8px' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: '700', color: C.text, margin: 0 }}>Batter Leaderboards</h1>
-        {season && <span style={{ fontSize: '13px', color: C.muted }}>{season} Season · Live Statcast Data</span>}
-      </div>
-      {groups.map(group => {
-        const cards = LB_CONFIG.filter(c => c.group === group && leaderboards[c.key]?.length > 0)
-        if (!cards.length) return null
-        return (
-          <div key={group} style={{ marginBottom: '32px' }}>
-            <div style={{ fontSize: '13px', fontWeight: '600', color: groupColors[group], textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '12px' }}>
-              {groupLabels[group]}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '14px' }}>
-              {cards.map(cfg => (
-                <LeaderboardCard
-                  key={cfg.key}
-                  title={cfg.title}
-                  board={leaderboards[cfg.key]}
-                  fmtVal={cfg.fmt}
-                  color={cfg.color}
-                  inverse={cfg.inverse}
-                />
-              ))}
-            </div>
-          </div>
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _round(value: Optional[float], digits: int = 3) -> Optional[float]:
+    return round(value, digits) if value is not None else None
+
+
+def _model_has_column(model: Any, column_name: str) -> bool:
+    return hasattr(model, column_name)
+
+
+def _is_real_player_name(name: Optional[str]) -> bool:
+    if not name:
+        return False
+    cleaned = str(name).strip()
+    if not cleaned:
+        return False
+    if cleaned.startswith("#"):
+        return False
+    if cleaned.lower() in {"none", "null", "nan", "unknown", "n/a", "na"}:
+        return False
+    return True
+
+
+def get_pitcher_aggregate(session: Session, pitcher_id: int, window: str) -> Optional[PitcherAggregate]:
+    return (
+        session.query(PitcherAggregate)
+        .filter(PitcherAggregate.pitcher_id == pitcher_id, PitcherAggregate.window == window)
+        .order_by(PitcherAggregate.end_date.desc())
+        .first()
+    )
+
+
+def get_pitcher_aggregate_with_fallback(
+    session: Session,
+    pitcher_id: int,
+    current_season: Optional[int] = None,
+) -> Tuple[Optional[PitcherAggregate], Optional[str]]:
+    if current_season is None:
+        current_season = datetime.date.today().year
+
+    agg = get_pitcher_aggregate(session, pitcher_id, "90d")
+    if agg:
+        return agg, "Last 90 Days"
+
+    for window, label in [
+        (str(current_season), f"{current_season} Season"),
+        (str(current_season - 1), f"{current_season - 1} Season"),
+        (str(current_season - 2), f"{current_season - 2} Season"),
+        (str(current_season - 3), f"{current_season - 3} Season"),
+    ]:
+        agg = get_pitcher_aggregate(session, pitcher_id, window)
+        if agg:
+            return agg, label
+
+    return None, None
+
+
+def get_batter_aggregate(session: Session, batter_id: int, window: str) -> Optional[BatterAggregate]:
+    return (
+        session.query(BatterAggregate)
+        .filter(BatterAggregate.batter_id == batter_id, BatterAggregate.window == window)
+        .order_by(BatterAggregate.end_date.desc())
+        .first()
+    )
+
+
+def get_batter_aggregate_with_fallback(
+    session: Session,
+    batter_id: int,
+    current_season: Optional[int] = None,
+) -> Tuple[Optional[BatterAggregate], Optional[str]]:
+    if current_season is None:
+        current_season = datetime.date.today().year
+
+    agg = get_batter_aggregate(session, batter_id, "90d")
+    if agg:
+        return agg, "Last 90 Days"
+
+    for window, label in [
+        (str(current_season), f"{current_season} Season"),
+        (str(current_season - 1), f"{current_season - 1} Season"),
+        (str(current_season - 2), f"{current_season - 2} Season"),
+        (str(current_season - 3), f"{current_season - 3} Season"),
+    ]:
+        agg = get_batter_aggregate(session, batter_id, window)
+        if agg:
+            return agg, label
+
+    return None, None
+
+
+def get_pitch_arsenal(session: Session, pitcher_id: int, season: int) -> List[PitchArsenal]:
+    return (
+        session.query(PitchArsenal)
+        .filter(PitchArsenal.pitcher_id == pitcher_id, PitchArsenal.season == season)
+        .order_by(PitchArsenal.usage_pct.desc())
+        .all()
+    )
+
+
+def get_pitch_arsenal_with_fallback(
+    session: Session,
+    pitcher_id: int,
+    current_season: Optional[int] = None,
+) -> Tuple[List[PitchArsenal], Optional[int]]:
+    if current_season is None:
+        current_season = datetime.date.today().year
+
+    for season in [current_season, current_season - 1, current_season - 2]:
+        arsenal = get_pitch_arsenal(session, pitcher_id, season)
+        if arsenal:
+            return arsenal, season
+
+    return [], None
+
+
+def get_player_split(session: Session, player_id: int, season: int, split: str) -> Optional[PlayerSplit]:
+    return (
+        session.query(PlayerSplit)
+        .filter(PlayerSplit.player_id == player_id, PlayerSplit.season == season, PlayerSplit.split == split)
+        .first()
+    )
+
+
+def get_team_split(session: Session, team_id: int, season: int, split: str) -> Optional[TeamSplit]:
+    return (
+        session.query(TeamSplit)
+        .filter(TeamSplit.team_id == team_id, TeamSplit.season == season, TeamSplit.split == split)
+        .first()
+    )
+
+
+def _events_to_pitcher_df(events: List[StatcastEvent]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "release_speed": e.release_speed,
+                "release_spin_rate": e.release_spin_rate,
+                "launch_speed": e.launch_speed,
+                "events": _clean_event_name(e.events) or "",
+                "description": _clean_description(getattr(e, "description", None)) or "",
+                "pfx_x": e.pfx_x,
+                "pfx_z": e.pfx_z,
+                "release_pos_x": None,
+                "release_pos_z": None,
+                "release_extension": None,
+                "estimated_woba_using_speedangle": None,
+                "estimated_ba_using_speedangle": None,
+            }
+            for e in events
+        ]
+    )
+
+
+def _events_to_batter_df(events: List[StatcastEvent]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "launch_speed": e.launch_speed,
+                "launch_angle": e.launch_angle,
+                "events": _clean_event_name(e.events) or "",
+                "description": _clean_description(getattr(e, "description", None)) or "",
+            }
+            for e in events
+        ]
+    )
+
+
+def _calculate_batter_stats(
+    events: List[StatcastEvent],
+    raw_event_count: Optional[int] = None,
+) -> Dict[str, Any]:
+    terminal = [e for e in events if _is_terminal_event(e.events)]
+    raw_count = len(events) if raw_event_count is None else raw_event_count
+    dates = [e.game_date for e in terminal if e.game_date]
+
+    pa = len(terminal)
+    ab_events = [e for e in terminal if _is_true_ab_event(e.events)]
+    ab = len(ab_events)
+
+    outcomes = [_clean_event_name(e.events) for e in terminal]
+    descriptions = [_clean_description(getattr(e, "description", None)) for e in events]
+
+    hits = sum(1 for event in outcomes if event in HIT_EVENTS)
+    doubles = sum(1 for event in outcomes if event == "double")
+    triples = sum(1 for event in outcomes if event == "triple")
+    walks = sum(1 for event in outcomes if event in WALK_EVENTS)
+    hbp = sum(1 for event in outcomes if event in HBP_EVENTS)
+    strikeouts = sum(1 for event in outcomes if event in STRIKEOUT_EVENTS)
+    home_runs = sum(1 for event in outcomes if event == "home_run")
+    sacrifice_flies = sum(1 for event in outcomes if event == "sac_fly")
+    total_bases = sum(TOTAL_BASES.get(event or "", 0) for event in outcomes)
+
+    batted_balls = [e for e in events if e.launch_speed is not None]
+    launch_angles = [e.launch_angle for e in events if e.launch_angle is not None]
+    hard_hit_count = sum(1 for e in batted_balls if e.launch_speed is not None and e.launch_speed >= 95)
+    barrel_count = sum(
+        1
+        for e in batted_balls
+        if e.launch_speed is not None
+        and e.launch_angle is not None
+        and e.launch_speed >= 98
+        and 8 <= e.launch_angle <= 50
+    )
+
+    swings = sum(1 for description in descriptions if description in SWING_DESCRIPTIONS)
+    whiffs = sum(1 for description in descriptions if description in WHIFF_DESCRIPTIONS)
+
+    obp_denominator = ab + walks + hbp + sacrifice_flies
+    batting_avg = round(hits / ab, 3) if ab else None
+    obp = round((hits + walks + hbp) / obp_denominator, 3) if obp_denominator else None
+    slg = round(total_bases / ab, 3) if ab else None
+    iso = round(slg - batting_avg, 3) if slg is not None and batting_avg is not None else None
+
+    avg_exit_velocity = (
+        round(sum(e.launch_speed for e in batted_balls if e.launch_speed is not None) / len(batted_balls), 1)
+        if batted_balls
+        else None
+    )
+    max_exit_velocity = (
+        round(max(e.launch_speed for e in batted_balls if e.launch_speed is not None), 1)
+        if batted_balls
+        else None
+    )
+
+    stats = {
+        "actual_pa": pa,
+        "actual_ab": ab,
+        "event_count": raw_count,
+        "terminal_event_count": pa,
+        "invalid_event_count": max(raw_count - pa, 0),
+        "batted_ball_count": len(batted_balls),
+        "hard_hit_count": hard_hit_count,
+        "barrel_count": barrel_count,
+        "hits": hits,
+        "doubles": doubles,
+        "triples": triples,
+        "walks": walks,
+        "strikeouts": strikeouts,
+        "home_runs": home_runs,
+        "total_bases": total_bases,
+        "batting_avg": batting_avg,
+        "on_base_pct": obp,
+        "slugging_pct": slg,
+        "ops": round(obp + slg, 3) if obp is not None and slg is not None else None,
+        "iso": iso,
+        "k_pct": round(strikeouts / pa, 3) if pa else None,
+        "bb_pct": round(walks / pa, 3) if pa else None,
+        "avg_exit_velocity": avg_exit_velocity,
+        "max_exit_velocity": max_exit_velocity,
+        "avg_launch_angle": round(sum(launch_angles) / len(launch_angles), 1) if launch_angles else None,
+        "hard_hit_pct": round(hard_hit_count / len(batted_balls), 3) if batted_balls else None,
+        "barrel_pct": round(barrel_count / len(batted_balls), 3) if batted_balls else None,
+        "swings": swings,
+        "whiffs": whiffs,
+        "whiff_pct": round(whiffs / swings, 3) if swings else None,
+        "contact_pct": round(1 - (whiffs / swings), 3) if swings else None,
+        "start_date": min(dates).isoformat() if dates else None,
+        "end_date": max(dates).isoformat() if dates else None,
+        "source": "postgres_statcast_events",
+    }
+    return stats
+
+
+def _has_full_event_order(session: Session, batter_id: int) -> bool:
+    return (
+        session.query(StatcastEvent.id)
+        .filter(
+            StatcastEvent.batter_id == batter_id,
+            StatcastEvent.game_pk.isnot(None),
+            StatcastEvent.at_bat_number.isnot(None),
+            StatcastEvent.pitch_number.isnot(None),
         )
-      })}
-      {Object.keys(leaderboards).length === 0 && (
-        <div style={{ color: C.muted, textAlign: 'center', padding: '48px', background: C.card, borderRadius: '10px', border: `1px solid ${C.border}` }}>
-          No leaderboard data available yet for this season.
-        </div>
-      )}
-    </div>
-  )
-}
+        .first()
+        is not None
+    )
 
-// ─── Profile chart helpers ─────────────────────────────────────────────────
-function StatCard({ label, value }) {
-  return (
-    <div style={s.statCard}>
-      <div style={s.statLabel}>{label}</div>
-      <div style={s.statVal}>{value}</div>
-    </div>
-  )
-}
 
-function DataQualityBox({ quality }) {
-  if (!quality) return null
-  const warnings = quality.warnings || []
-  return (
-    <div style={s.qaBox}>
-      <div>Data Quality: <strong style={{ color: C.text }}>{quality.ordering_quality || 'unknown'}</strong></div>
-      <div>Latest Statcast Event: <strong style={{ color: C.text }}>{quality.latest_event_date || '—'}</strong></div>
-      {warnings.map((w, i) => <div key={i} style={s.qaWarn}>⚠ {w}</div>)}
-    </div>
-  )
-}
+def _freshness_from_latest(latest: Optional[datetime.date]) -> Dict[str, Any]:
+    today = datetime.date.today()
+    days_stale = (today - latest).days if latest else None
+    return {
+        "as_of_date": today.isoformat(),
+        "latest_event_date": latest.isoformat() if latest else None,
+        "days_stale": days_stale,
+        "is_stale": days_stale is None or days_stale > 1,
+    }
 
-function GaugeBar({ label, value, leagueAvg, max, unit = '', inverse = false }) {
-  if (value == null) return null
-  const pctFill = Math.min(100, Math.max(0, (value / max) * 100))
-  const leaguePct = Math.min(100, Math.max(0, (leagueAvg / max) * 100))
-  const isGood = inverse ? value <= leagueAvg : value >= leagueAvg
-  const color = isGood ? C.green : C.orange
-  return (
-    <div style={{ marginBottom: '18px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '7px', fontSize: '13px' }}>
-        <span style={{ color: C.muted }}>{label}</span>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <span style={{ color: C.muted, fontSize: '11px' }}>Lg avg: {leagueAvg}{unit}</span>
-          <span style={{ color, fontWeight: '700' }}>{value.toFixed(1)}{unit}</span>
-        </div>
-      </div>
-      <div style={{ background: C.elevated, borderRadius: '4px', height: '10px', position: 'relative' }}>
-        <div style={{ width: `${pctFill}%`, height: '100%', background: color, borderRadius: '4px', opacity: 0.85 }} />
-        <div style={{ position: 'absolute', top: '-3px', left: `${leaguePct}%`, width: '2px', height: '16px', background: C.muted, opacity: 0.6, transform: 'translateX(-50%)' }} />
-      </div>
-    </div>
-  )
-}
 
-function StatcastGauges({ sc, agg }) {
-  const data = sc || agg
-  if (!data) return null
-  return (
-    <div style={{ ...s.chartBox, padding: '24px 28px' }}>
-      <div style={{ fontSize: '13px', color: C.muted, marginBottom: '20px' }}>
-        Bars show player value vs MLB average. Green = above average, orange = below average.
-      </div>
-      <GaugeBar label="Avg Exit Velocity" value={data.avg_exit_velocity} leagueAvg={LEAGUE_AVGS.avg_exit_velocity} max={115} unit=" mph" />
-      <GaugeBar label="Hard Hit%" value={data.hard_hit_pct != null ? data.hard_hit_pct * 100 : null} leagueAvg={LEAGUE_AVGS.hard_hit_pct * 100} max={80} unit="%" />
-      <GaugeBar label="Barrel%" value={data.barrel_pct != null ? data.barrel_pct * 100 : null} leagueAvg={LEAGUE_AVGS.barrel_pct * 100} max={25} unit="%" />
-      <GaugeBar label="K%" value={data.k_pct != null ? data.k_pct * 100 : null} leagueAvg={LEAGUE_AVGS.k_pct * 100} max={50} unit="%" inverse />
-      <GaugeBar label="BB%" value={data.bb_pct != null ? data.bb_pct * 100 : null} leagueAvg={LEAGUE_AVGS.bb_pct * 100} max={20} unit="%" />
-    </div>
-  )
-}
+def get_batter_data_quality(session: Session, batter_id: int) -> Dict[str, Any]:
+    total = session.query(func.count(StatcastEvent.id)).filter(StatcastEvent.batter_id == batter_id).scalar() or 0
+    latest = (
+        session.query(func.max(StatcastEvent.game_date))
+        .filter(StatcastEvent.batter_id == batter_id)
+        .scalar()
+    )
+    terminal_count = (
+        session.query(func.count(StatcastEvent.id))
+        .filter(
+            StatcastEvent.batter_id == batter_id,
+            StatcastEvent.events.in_(TERMINAL_EVENTS),
+        )
+        .scalar()
+        or 0
+    )
+    full_order = _has_full_event_order(session, batter_id)
+    freshness = _freshness_from_latest(latest)
 
-function SeasonTrendChart({ yby }) {
-  if (!yby || yby.length < 2) return null
-  const data = [...yby].sort((a, b) => a.season - b.season).map(row => ({
-    season: String(row.season),
-    AVG: row.batting_avg != null ? +row.batting_avg.toFixed(3) : null,
-    OBP: row.on_base_pct != null ? +row.on_base_pct.toFixed(3) : null,
-    SLG: row.slugging_pct != null ? +row.slugging_pct.toFixed(3) : null,
-    OPS: row.ops != null ? +row.ops.toFixed(3) : null,
-  }))
-  return (
-    <div style={s.chartBox}>
-      <ResponsiveContainer width="100%" height={260}>
-        <LineChart data={data} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={C.elevated} />
-          <XAxis dataKey="season" tick={{ fill: C.muted, fontSize: 12 }} axisLine={{ stroke: C.border }} tickLine={false} />
-          <YAxis domain={['auto', 'auto']} tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} width={48} />
-          <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: C.blue, fontWeight: 600 }} />
-          <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '12px' }} />
-          <ReferenceLine y={0.250} stroke={C.muted} strokeDasharray="4 4" opacity={0.4} />
-          <Line type="monotone" dataKey="AVG" stroke={C.green} strokeWidth={2} dot={{ r: 3, fill: C.green }} activeDot={{ r: 5 }} connectNulls />
-          <Line type="monotone" dataKey="OBP" stroke={C.blue} strokeWidth={2} dot={{ r: 3, fill: C.blue }} activeDot={{ r: 5 }} connectNulls />
-          <Line type="monotone" dataKey="SLG" stroke={C.orange} strokeWidth={2} dot={{ r: 3, fill: C.orange }} activeDot={{ r: 5 }} connectNulls />
-          <Line type="monotone" dataKey="OPS" stroke={C.purple} strokeWidth={2} dot={{ r: 3, fill: C.purple }} activeDot={{ r: 5 }} connectNulls />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  )
-}
+    warnings: List[str] = []
+    if freshness["is_stale"]:
+        warnings.append(
+            f"Statcast data is stale: latest event is {freshness['latest_event_date'] or 'unavailable'}, "
+            f"as-of date is {freshness['as_of_date']}."
+        )
 
-function HRTrendChart({ yby }) {
-  if (!yby || yby.length < 2) return null
-  const data = [...yby].sort((a, b) => a.season - b.season).map(row => ({
-    season: String(row.season),
-    HR: row.hr ?? 0,
-    SB: row.sb ?? 0,
-  }))
-  return (
-    <div style={s.chartBox}>
-      <ResponsiveContainer width="100%" height={220}>
-        <BarChart data={data} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={C.elevated} vertical={false} />
-          <XAxis dataKey="season" tick={{ fill: C.muted, fontSize: 12 }} axisLine={{ stroke: C.border }} tickLine={false} />
-          <YAxis tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} width={32} />
-          <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: C.blue, fontWeight: 600 }} />
-          <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '12px' }} />
-          <Bar dataKey="HR" fill={C.blue} radius={[3, 3, 0, 0]} maxBarSize={36} />
-          <Bar dataKey="SB" fill={C.green} radius={[3, 3, 0, 0]} maxBarSize={36} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  )
-}
+    if total == 0:
+        ordering_quality = "unavailable"
+        warnings.append("No Statcast events found for this batter.")
+    elif full_order:
+        ordering_quality = "full_event_order"
+    else:
+        ordering_quality = "date_only"
+        warnings.append("Rolling PA order is date-level only; intra-game PA order unavailable.")
 
-function PlatoonChart({ splits }) {
-  if (!splits?.vsL && !splits?.vsR) return null
-  const vsL = splits.vsL
-  const vsR = splits.vsR
-  const metrics = [
-    { key: 'batting_avg', label: 'AVG', scale: 1000 },
-    { key: 'on_base_pct', label: 'OBP', scale: 1000 },
-    { key: 'slugging_pct', label: 'SLG', scale: 1000 },
-    { key: 'k_pct', label: 'K%', scale: 100 },
-    { key: 'bb_pct', label: 'BB%', scale: 100 },
-  ]
-  const data = metrics.map(m => ({
-    label: m.label,
-    'vs LHP': vsL?.[m.key] != null ? +(vsL[m.key] * m.scale).toFixed(1) : null,
-    'vs RHP': vsR?.[m.key] != null ? +(vsR[m.key] * m.scale).toFixed(1) : null,
-  }))
-  return (
-    <div style={s.chartBox}>
-      <div style={{ fontSize: '13px', color: C.muted, marginBottom: '12px' }}>
-        AVG/OBP/SLG ×1000 · K%/BB% as percentage
-      </div>
-      <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={data} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={C.elevated} vertical={false} />
-          <XAxis dataKey="label" tick={{ fill: C.muted, fontSize: 12 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: C.muted, fontSize: 11 }} axisLine={false} tickLine={false} width={36} />
-          <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: C.orange, fontWeight: 600 }} />
-          <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }} />
-          <Bar dataKey="vs LHP" fill={C.purple} radius={[3, 3, 0, 0]} maxBarSize={40} />
-          <Bar dataKey="vs RHP" fill={C.blue} radius={[3, 3, 0, 0]} maxBarSize={40} />
-        </BarChart>
-      </ResponsiveContainer>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '20px' }}>
-        {[['vs LHP', vsL, C.purple], ['vs RHP', vsR, C.blue]].map(([title, split, color]) => (
-          <div key={title} style={{ background: C.elevated, borderRadius: '8px', padding: '14px' }}>
-            <div style={{ fontSize: '13px', fontWeight: '600', color, marginBottom: '10px' }}>{title} · {split?.pa ?? '—'} PA</div>
-            {split ? [
-              ['AVG', fmt(split.batting_avg, 3)], ['OBP', fmt(split.on_base_pct, 3)],
-              ['SLG', fmt(split.slugging_pct, 3)], ['OPS', fmt(split.ops, 3)],
-              ['K%', pct(split.k_pct)], ['BB%', pct(split.bb_pct)],
-            ].map(([k, v]) => (
-              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '13px', borderBottom: `1px solid ${C.border}` }}>
-                <span style={{ color: C.muted }}>{k}</span>
-                <span style={{ color: C.text, fontWeight: '500' }}>{v}</span>
-              </div>
-            )) : <div style={{ color: C.muted, fontSize: '13px' }}>No data</div>}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
+    return {
+        "has_statcast": total > 0,
+        "total_event_rows": total,
+        "terminal_event_rows": terminal_count,
+        "latest_event_date": freshness["latest_event_date"],
+        "as_of_date": freshness["as_of_date"],
+        "days_stale": freshness["days_stale"],
+        "is_stale": freshness["is_stale"],
+        "rolling_pa_available": terminal_count > 0,
+        "rolling_game_available": total > 0,
+        "ordering_quality": ordering_quality,
+        "warnings": warnings,
+        "source": "postgres_statcast_events",
+    }
 
-// ─── Main page ─────────────────────────────────────────────────────────────
-export default function BatterPage() {
-  const { id } = useParams()
-  const navigate = useNavigate()
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState([])
-  const [searching, setSearching] = useState(false)
-  const [hoverIdx, setHoverIdx] = useState(-1)
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [lbData, setLbData] = useState(null)
-  const [lbLoading, setLbLoading] = useState(false)
-  const debounceRef = React.useRef(null)
 
-  // Load player profile when id is present
-  useEffect(() => {
-    if (!id) { setData(null); return }
-    setLoading(true); setError(null); setResults([])
-    fetch(`${API}/batter/${id}/profile`)
-      .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.detail || r.statusText)))
-      .then(d => { setData(d); setLoading(false) })
-      .catch(e => { setError(String(e)); setLoading(false); setData(null) })
-  }, [id])
+def _ordered_batter_terminal_query(session: Session, batter_id: int):
+    query = session.query(StatcastEvent).filter(
+        StatcastEvent.batter_id == batter_id,
+        StatcastEvent.events.in_(TERMINAL_EVENTS),
+    )
+    if _has_full_event_order(session, batter_id):
+        return query.order_by(
+            StatcastEvent.game_date.desc(),
+            StatcastEvent.game_pk.desc(),
+            StatcastEvent.at_bat_number.desc(),
+            StatcastEvent.pitch_number.desc(),
+        )
+    return query.order_by(StatcastEvent.game_date.desc(), StatcastEvent.id.desc())
 
-  // Load leaderboards on landing page (no player selected)
-  useEffect(() => {
-    if (id) return
-    setLbLoading(true)
-    fetch(`${API}/batters/leaderboards`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { setLbData(d); setLbLoading(false) })
-      .catch(() => setLbLoading(false))
-  }, [id])
 
-  function onQueryChange(e) {
-    const val = e.target.value
-    setQuery(val); setHoverIdx(-1)
-    clearTimeout(debounceRef.current)
-    if (val.length < 2) { setResults([]); return }
-    debounceRef.current = setTimeout(() => {
-      setSearching(true)
-      fetch(`${API}/players/search?name=${encodeURIComponent(val)}`)
-        .then(r => r.ok ? r.json() : [])
-        .then(d => { setResults((d || []).filter(p => p.position_type === 'Batter')); setSearching(false) })
-        .catch(() => setSearching(false))
-    }, 300)
-  }
+def get_pitcher_rolling_by_games(session: Session, pitcher_id: int, n_games: int) -> Optional[Dict[str, Any]]:
+    date_rows = (
+        session.query(StatcastEvent.game_date)
+        .filter(StatcastEvent.pitcher_id == pitcher_id)
+        .distinct()
+        .order_by(StatcastEvent.game_date.desc())
+        .limit(n_games)
+        .all()
+    )
+    if not date_rows:
+        return None
 
-  function selectPlayer(p) {
-    setQuery(p.name); setResults([])
-    navigate(`/batter/${p.id}`)
-  }
+    date_list = [r[0] for r in date_rows]
+    events = (
+        session.query(StatcastEvent)
+        .filter(StatcastEvent.pitcher_id == pitcher_id, StatcastEvent.game_date.in_(date_list))
+        .all()
+    )
+    if not events:
+        return None
 
-  const info = data?.player_info
-  const ss = data?.season_stats
-  const sc = data?.statcast
-  const splits = data?.splits || {}
-  const yby = data?.year_by_year || []
-  const agg = data?.aggregate
-  const dq = data?.data_quality
+    from .statcast_utils import calculate_pitcher_aggregates
 
-  return (
-    <div>
-      {/* Search — always visible at top */}
-      <div style={{ position: 'relative', marginBottom: id ? '28px' : '20px' }}>
-        <div style={s.searchRow}>
-          <input
-            style={s.input}
-            placeholder="Search batter by name (e.g. Aaron Judge) — or browse leaderboards below"
-            value={query}
-            onChange={onQueryChange}
-            autoComplete="off"
-          />
-          {searching && <span style={{ color: C.muted, fontSize: '13px', alignSelf: 'center' }}>Searching…</span>}
-          {id && (
-            <button
-              onClick={() => { setQuery(''); navigate('/batter') }}
-              style={{ background: C.elevated, border: `1px solid ${C.border}`, color: C.muted, borderRadius: '6px', padding: '0 14px', fontSize: '13px', cursor: 'pointer' }}
-            >
-              ← Leaderboards
-            </button>
-          )}
-        </div>
-        {results.length > 0 && (
-          <div style={searchDropStyle}>
-            {results.slice(0, 10).map((p, i) => (
-              <div key={p.id} style={searchItemStyle(i === hoverIdx)}
-                onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(-1)}
-                onClick={() => selectPlayer(p)}>
-                <span style={{ color: C.text }}>{p.name}</span>
-                <span style={{ color: C.muted, fontSize: '12px' }}>{p.team || ''}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+    stats = calculate_pitcher_aggregates(_events_to_pitcher_df(events))
+    stats["actual_games"] = len(date_list)
+    stats["start_date"] = min(date_list).isoformat()
+    stats["end_date"] = max(date_list).isoformat()
+    return stats
 
-      {/* ── Landing dashboard (no player selected) ── */}
-      {!id && (
-        <LeaderboardDashboard
-          leaderboards={lbData?.leaderboards}
-          season={lbData?.season}
-          loading={lbLoading}
-        />
-      )}
 
-      {/* ── Player profile ── */}
-      {id && (
-        <>
-          {loading && <div style={s.loader}>Loading…</div>}
-          {error && <div style={{ color: C.red, padding: '24px', background: '#1f1116', borderRadius: '8px' }}>{error}</div>}
+def get_batter_rolling_by_games(session: Session, batter_id: int, n_games: int) -> Optional[Dict[str, Any]]:
+    quality = get_batter_data_quality(session, batter_id)
 
-          {data && (
-            <>
-              {info && (
-                <div style={s.playerHeader}>
-                  <div style={s.playerName}>{info.name}</div>
-                  <div style={s.playerMeta}>
-                    {info.position && <span style={s.metaChip}>{info.position}</span>}
-                    {info.team && <span style={s.metaChip}>{info.team}</span>}
-                    {info.bats && <span>Bats: <strong style={{ color: C.text }}>{info.bats}</strong></span>}
-                    {info.throws && <span>Throws: <strong style={{ color: C.text }}>{info.throws}</strong></span>}
-                    {info.mlb_debut && <span>Debut: <strong style={{ color: C.text }}>{info.mlb_debut?.slice(0, 4)}</strong></span>}
-                  </div>
-                </div>
-              )}
+    if quality["ordering_quality"] == "full_event_order":
+        game_rows = (
+            session.query(StatcastEvent.game_pk, func.max(StatcastEvent.game_date).label("game_date"))
+            .filter(
+                StatcastEvent.batter_id == batter_id,
+                StatcastEvent.game_pk.isnot(None),
+                StatcastEvent.events.in_(TERMINAL_EVENTS),
+            )
+            .group_by(StatcastEvent.game_pk)
+            .order_by(func.max(StatcastEvent.game_date).desc(), StatcastEvent.game_pk.desc())
+            .limit(n_games)
+            .all()
+        )
+        if not game_rows:
+            return None
 
-              <DataQualityBox quality={dq} />
+        game_pks = [r[0] for r in game_rows]
+        events = (
+            session.query(StatcastEvent)
+            .filter(
+                StatcastEvent.batter_id == batter_id,
+                StatcastEvent.game_pk.in_(game_pks),
+                StatcastEvent.events.in_(TERMINAL_EVENTS),
+            )
+            .all()
+        )
+        actual_games = len(game_pks)
+    else:
+        date_rows = (
+            session.query(StatcastEvent.game_date)
+            .filter(StatcastEvent.batter_id == batter_id, StatcastEvent.events.in_(TERMINAL_EVENTS))
+            .distinct()
+            .order_by(StatcastEvent.game_date.desc())
+            .limit(n_games)
+            .all()
+        )
+        if not date_rows:
+            return None
 
-              <Link to={`/batter/${id}/rolling`} style={s.rollingLink}>
-                View Rolling Stats (PA / AB / Games) →
-              </Link>
+        date_list = [r[0] for r in date_rows]
+        events = (
+            session.query(StatcastEvent)
+            .filter(
+                StatcastEvent.batter_id == batter_id,
+                StatcastEvent.game_date.in_(date_list),
+                StatcastEvent.events.in_(TERMINAL_EVENTS),
+            )
+            .all()
+        )
+        actual_games = len(date_list)
+        quality["warnings"] = list(quality.get("warnings", [])) + [
+            "Rolling game windows are date-based because game_pk is unavailable."
+        ]
 
-              {ss && (
-                <div style={s.section}>
-                  <div style={s.sectionTitle}>
-                    {new Date().getFullYear()} Season Stats
-                    <span style={s.sourceBadge}>MLB Stats API</span>
-                  </div>
-                  <div style={s.statsGrid}>
-                    <StatCard label="G" value={num(ss.g)} />
-                    <StatCard label="PA" value={num(ss.pa)} />
-                    <StatCard label="AB" value={num(ss.ab)} />
-                    <StatCard label="H" value={num(ss.h)} />
-                    <StatCard label="HR" value={num(ss.hr)} />
-                    <StatCard label="RBI" value={num(ss.rbi)} />
-                    <StatCard label="R" value={num(ss.r)} />
-                    <StatCard label="SB" value={num(ss.sb)} />
-                    <StatCard label="BB" value={num(ss.bb)} />
-                    <StatCard label="K" value={num(ss.k)} />
-                    <StatCard label="AVG" value={fmt(ss.batting_avg, 3)} />
-                    <StatCard label="OBP" value={fmt(ss.on_base_pct, 3)} />
-                    <StatCard label="SLG" value={fmt(ss.slugging_pct, 3)} />
-                    <StatCard label="OPS" value={fmt(ss.ops, 3)} />
-                    <StatCard label="K%" value={pct(ss.k_pct)} />
-                    <StatCard label="BB%" value={pct(ss.bb_pct)} />
-                  </div>
-                </div>
-              )}
+    if not events:
+        return None
 
-              {(sc || agg) && (
-                <div style={s.section}>
-                  <div style={s.sectionTitle}>
-                    Statcast Quality Metrics
-                    {sc && <span style={s.sourceBadge}>{sc.data_window} · {sc.sample_size} PA</span>}
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-                    <div style={{ ...s.chartBox, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', padding: '16px' }}>
-                      {sc ? <>
-                        <StatCard label="Avg Exit Velo" value={`${fmt(sc.avg_exit_velocity)} mph`} />
-                        <StatCard label="Max Exit Velo" value={`${fmt(sc.max_exit_velocity)} mph`} />
-                        <StatCard label="Avg Launch Angle" value={`${fmt(sc.avg_launch_angle)}°`} />
-                        <StatCard label="Hard Hit%" value={pct(sc.hard_hit_pct)} />
-                        <StatCard label="Barrel%" value={pct(sc.barrel_pct)} />
-                        <StatCard label="Sample" value={`${sc.sample_size ?? '—'} PA`} />
-                      </> : <>
-                        <StatCard label="Exit Velocity" value={`${fmt(agg.avg_exit_velocity)} mph`} />
-                        <StatCard label="Launch Angle" value={`${fmt(agg.avg_launch_angle)}°`} />
-                        <StatCard label="Hard Hit%" value={pct(agg.hard_hit_pct)} />
-                        <StatCard label="Barrel%" value={pct(agg.barrel_pct)} />
-                      </>}
-                    </div>
-                    <StatcastGauges sc={sc} agg={agg} />
-                  </div>
-                </div>
-              )}
+    stats = _calculate_batter_stats(events, raw_event_count=len(events))
+    stats["actual_games"] = actual_games
+    stats["window_type"] = "games"
+    stats["data_quality"] = quality
+    return stats
 
-              {(splits.vsL || splits.vsR) && (
-                <div style={s.section}>
-                  <div style={s.sectionTitle}>Platoon Splits — Current Season</div>
-                  <PlatoonChart splits={splits} />
-                </div>
-              )}
 
-              {yby.length > 0 && (
-                <div style={s.section}>
-                  <div style={s.sectionTitle}>
-                    Career Season Trends
-                    <span style={s.sourceBadge}>MLB Stats API</span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                    <div>
-                      <div style={{ fontSize: '13px', color: C.muted, marginBottom: '8px', fontWeight: '500' }}>Rate Stats (AVG / OBP / SLG / OPS)</div>
-                      <SeasonTrendChart yby={yby} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '13px', color: C.muted, marginBottom: '8px', fontWeight: '500' }}>Counting Stats (HR / SB)</div>
-                      <HRTrendChart yby={yby} />
-                    </div>
-                  </div>
-                </div>
-              )}
+def get_batter_rolling_by_pa(session: Session, batter_id: int, n_pa: int) -> Optional[Dict[str, Any]]:
+    events = _ordered_batter_terminal_query(session, batter_id).limit(n_pa).all()
+    if not events:
+        return None
 
-              {yby.length > 0 && (
-                <div style={s.section}>
-                  <div style={s.sectionTitle}>
-                    Year-by-Year
-                    <span style={s.sourceBadge}>MLB Stats API</span>
-                  </div>
-                  <div style={s.tableWrap}>
-                    <table style={s.table}>
-                      <thead>
-                        <tr>
-                          {['Season','G','PA','H','2B','3B','HR','RBI','SB','BB','K','AVG','OBP','SLG','OPS','K%','BB%'].map(h => (
-                            <th key={h} style={h === 'Season' ? s.th : { ...s.th, ...s.thR }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {yby.map((row, i) => (
-                          <tr key={i}>
-                            <td style={{ ...s.td, fontWeight: '700', color: C.blue }}>{row.season}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.g)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.pa)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.h)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.doubles)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.triples)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.hr)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.rbi)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.sb)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.bb)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{num(row.k)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{fmt(row.batting_avg, 3)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{fmt(row.on_base_pct, 3)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{fmt(row.slugging_pct, 3)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{fmt(row.ops, 3)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{pct(row.k_pct)}</td>
-                            <td style={{ ...s.td, ...s.tdR }}>{pct(row.bb_pct)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </>
-      )}
-    </div>
-  )
-}
+    stats = _calculate_batter_stats(events, raw_event_count=len(events))
+    stats["actual_pa"] = len(events)
+    stats["window_type"] = "PA"
+    stats["label"] = f"Last {n_pa} PA"
+    stats["data_quality"] = get_batter_data_quality(session, batter_id)
+    return stats
+
+
+def get_batter_rolling_by_ab(session: Session, batter_id: int, n_ab: int) -> Optional[Dict[str, Any]]:
+    candidates = _ordered_batter_terminal_query(session, batter_id).limit(max(n_ab * 5, n_ab)).all()
+    events = [e for e in candidates if _is_true_ab_event(e.events)][:n_ab]
+    if not events:
+        return None
+
+    stats = _calculate_batter_stats(events, raw_event_count=len(candidates))
+    stats["actual_ab"] = len(events)
+    stats["window_type"] = "AB"
+    stats["label"] = f"Last {n_ab} AB"
+    stats["data_quality"] = get_batter_data_quality(session, batter_id)
+    return stats
+
+
+def get_batter_rolling_by_abs(session: Session, batter_id: int, n_abs: int) -> Optional[Dict[str, Any]]:
+    result = get_batter_rolling_by_pa(session, batter_id, n_abs)
+    if result:
+        result["actual_abs"] = result.get("actual_pa")
+        result["legacy_alias"] = "get_batter_rolling_by_abs"
+        result["label_warning"] = "Legacy abs rolling returns PA-style terminal outcomes, not strict official AB."
+    return result
+
+
+def get_batter_rolling_splits(session: Session, batter_id: int, n_pa: int = 100) -> Dict[str, Any]:
+    events = _ordered_batter_terminal_query(session, batter_id).limit(n_pa).all()
+    grouped = {"vsL": [], "vsR": [], "unknown": []}
+
+    for event in events:
+        key = "vsL" if event.p_throws == "L" else "vsR" if event.p_throws == "R" else "unknown"
+        grouped[key].append(event)
+
+    return {
+        "window_type": "PA",
+        "requested_pa": n_pa,
+        "actual_pa": len(events),
+        "splits": {k: ({**_calculate_batter_stats(v), "actual_pa": len(v)} if v else None) for k, v in grouped.items()},
+        "data_quality": get_batter_data_quality(session, batter_id),
+    }
+
+
+def get_batter_rolling_pitch_types(session: Session, batter_id: int, n_pa: int = 100) -> Dict[str, Any]:
+    events = _ordered_batter_terminal_query(session, batter_id).limit(n_pa).all()
+    grouped: Dict[str, List[StatcastEvent]] = {}
+
+    for event in events:
+        key = event.pitch_type or "unknown"
+        grouped.setdefault(key, []).append(event)
+
+    return {
+        "window_type": "PA",
+        "requested_pa": n_pa,
+        "actual_pa": len(events),
+        "pitch_types": {
+            k: {**_calculate_batter_stats(v), "actual_pa": len(v)}
+            for k, v in sorted(grouped.items(), key=lambda item: len(item[1]), reverse=True)
+        },
+        "data_quality": get_batter_data_quality(session, batter_id),
+    }
+
+
+def get_batter_at_bats(
+    session: Session,
+    batter_id: int,
+    n: int = 50,
+    offset: int = 0,
+) -> Tuple[int, List[Dict[str, Any]]]:
+    base = session.query(StatcastEvent).filter(
+        StatcastEvent.batter_id == batter_id,
+        StatcastEvent.events.in_(TERMINAL_EVENTS),
+    )
+    total = base.count()
+    events = _ordered_batter_terminal_query(session, batter_id).offset(offset).limit(n).all()
+
+    rows = [
+        {
+            "game_date": e.game_date.isoformat() if e.game_date else None,
+            "game_pk": e.game_pk,
+            "at_bat_number": e.at_bat_number,
+            "pitch_number": e.pitch_number,
+            "inning": e.inning,
+            "inning_topbot": e.inning_topbot,
+            "outs_when_up": e.outs_when_up,
+            "pitcher_id": e.pitcher_id,
+            "pitcher_hand": e.p_throws,
+            "batter_stand": e.stand,
+            "result": _clean_event_name(e.events),
+            "exit_velocity": e.launch_speed,
+            "launch_angle": e.launch_angle,
+            "pitch_type": e.pitch_type,
+        }
+        for e in events
+    ]
+    return total, rows
+
+
+def _dedupe_events(events: List[StatcastEvent]) -> List[StatcastEvent]:
+    seen = set()
+    out: List[StatcastEvent] = []
+
+    for e in events:
+        key = (
+            e.game_date,
+            e.game_pk,
+            e.at_bat_number,
+            e.pitch_number,
+            e.pitcher_id,
+            e.batter_id,
+            e.pitch_type,
+            e.release_speed,
+            e.release_spin_rate,
+            e.launch_speed,
+            e.launch_angle,
+            e.balls,
+            e.strikes,
+            e.events,
+            e.stand,
+            e.p_throws,
+            e.pfx_x,
+            e.pfx_z,
+            e.plate_x,
+            e.plate_z,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(e)
+
+    return out
+
+
+def _pitch_event_identity(e: StatcastEvent) -> Tuple[Any, ...]:
+    if e.game_pk is not None and e.at_bat_number is not None and e.pitch_number is not None:
+        return (
+            e.game_pk,
+            e.at_bat_number,
+            e.pitch_number,
+            e.pitcher_id,
+            e.batter_id,
+            e.pitch_type,
+        )
+
+    return (
+        e.game_date,
+        e.pitcher_id,
+        e.batter_id,
+        e.pitch_type,
+        _clean_event_name(e.events),
+        e.release_speed,
+        e.release_spin_rate,
+        e.launch_speed,
+        e.launch_angle,
+        e.balls,
+        e.strikes,
+        e.inning,
+        e.inning_topbot,
+        e.outs_when_up,
+    )
+
+
+def _dedupe_pitch_events(events: List[StatcastEvent]) -> List[StatcastEvent]:
+    seen = set()
+    out: List[StatcastEvent] = []
+
+    for e in events:
+        key = _pitch_event_identity(e)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(e)
+
+    return out
+
+
+def _terminal_pa_identity(e: StatcastEvent) -> Tuple[Any, ...]:
+    if e.game_pk is not None and e.at_bat_number is not None:
+        return (
+            e.game_pk,
+            e.at_bat_number,
+            e.pitcher_id,
+            e.batter_id,
+        )
+
+    return (
+        e.game_date,
+        e.pitcher_id,
+        e.batter_id,
+        _clean_event_name(e.events),
+        e.inning,
+        e.inning_topbot,
+        e.outs_when_up,
+    )
+
+
+def _dedupe_terminal_pas(events: List[StatcastEvent]) -> List[StatcastEvent]:
+    seen = set()
+    out: List[StatcastEvent] = []
+
+    for e in events:
+        if not _is_terminal_event(e.events):
+            continue
+
+        key = _terminal_pa_identity(e)
+        if key in seen:
+            continue
+
+        seen.add(key)
+        out.append(e)
+
+    return out
+
+
+def get_pitcher_game_log(session: Session, pitcher_id: int, n: int = 10) -> List[Dict[str, Any]]:
+    game_rows = (
+        session.query(
+            StatcastEvent.game_pk,
+            func.max(StatcastEvent.game_date).label("game_date"),
+        )
+        .filter(
+            StatcastEvent.pitcher_id == pitcher_id,
+            StatcastEvent.game_date.isnot(None),
+        )
+        .group_by(StatcastEvent.game_pk)
+        .order_by(func.max(StatcastEvent.game_date).desc(), StatcastEvent.game_pk.desc().nullslast())
+        .limit(n)
+        .all()
+    )
+
+    if not game_rows:
+        return []
+
+    game_pks = [row.game_pk for row in game_rows if row.game_pk is not None]
+    date_only_rows = [row.game_date for row in game_rows if row.game_pk is None and row.game_date is not None]
+
+    query = session.query(StatcastEvent).filter(StatcastEvent.pitcher_id == pitcher_id)
+
+    filters = []
+    if game_pks:
+        filters.append(StatcastEvent.game_pk.in_(game_pks))
+    if date_only_rows:
+        filters.append(StatcastEvent.game_date.in_(date_only_rows))
+
+    if not filters:
+        return []
+
+    events = query.filter(or_(*filters)).all()
+
+    by_game: Dict[Tuple[Any, str], List[StatcastEvent]] = {}
+    for e in _dedupe_pitch_events(events):
+        game_date = e.game_date.isoformat() if e.game_date else "unknown"
+        game_key = e.game_pk if e.game_pk is not None else f"date:{game_date}"
+        by_game.setdefault((game_key, game_date), []).append(e)
+
+    log = []
+    for (game_key, game_date), evs in sorted(by_game.items(), key=lambda item: item[0][1], reverse=True):
+        terminal = _dedupe_terminal_pas(evs)
+        outcomes = [_clean_event_name(e.events) for e in terminal]
+
+        batted_balls = [e for e in terminal if e.launch_speed is not None]
+        speeds = [e.release_speed for e in evs if e.release_speed is not None]
+        hard_hits = sum(1 for e in batted_balls if e.launch_speed is not None and e.launch_speed >= 95)
+
+        log.append(
+            {
+                "game_pk": game_key if not str(game_key).startswith("date:") else None,
+                "game_date": game_date,
+                "pitch_count": len(evs),
+                "plate_appearances": len(terminal),
+                "strikeouts": sum(1 for event in outcomes if event in STRIKEOUT_EVENTS),
+                "walks": sum(1 for event in outcomes if event in WALK_EVENTS or event in HBP_EVENTS),
+                "home_runs": sum(1 for event in outcomes if event == "home_run"),
+                "hard_hit_pct": round(hard_hits / len(batted_balls), 3) if batted_balls else None,
+                "avg_velocity": round(sum(speeds) / len(speeds), 1) if speeds else None,
+            }
+        )
+
+    log.sort(key=lambda row: (row.get("game_date") or "", row.get("game_pk") or 0), reverse=True)
+    return log[:n]
+
+
+def get_pitcher_multi_season(session: Session, pitcher_id: int, seasons: List[int]) -> List[Dict[str, Any]]:
+    today_year = datetime.date.today().year
+    result = []
+
+    for season in seasons:
+        window = "90d" if season == today_year else str(season)
+        agg = get_pitcher_aggregate(session, pitcher_id, window)
+        label = "YTD (90d)" if season == today_year else str(season)
+        result.append(
+            {
+                "season": season,
+                "label": label,
+                "avg_velocity": agg.avg_velocity if agg else None,
+                "avg_spin_rate": agg.avg_spin_rate if agg else None,
+                "k_pct": agg.k_pct if agg else None,
+                "bb_pct": agg.bb_pct if agg else None,
+                "hard_hit_pct": agg.hard_hit_pct if agg else None,
+                "xwoba": agg.xwoba if agg else None,
+                "xba": agg.xba if agg else None,
+            }
+        )
+
+    return result
+
+
+def get_batter_multi_season(session: Session, batter_id: int, seasons: List[int]) -> List[Dict[str, Any]]:
+    today_year = datetime.date.today().year
+    result = []
+
+    for season in seasons:
+        window = "90d" if season == today_year else str(season)
+        agg = get_batter_aggregate(session, batter_id, window)
+        label = "YTD (90d)" if season == today_year else str(season)
+        result.append(
+            {
+                "season": season,
+                "label": label,
+                "avg_exit_velocity": agg.avg_exit_velocity if agg else None,
+                "avg_launch_angle": agg.avg_launch_angle if agg else None,
+                "hard_hit_pct": agg.hard_hit_pct if agg else None,
+                "barrel_pct": agg.barrel_pct if agg else None,
+                "k_pct": agg.k_pct if agg else None,
+                "bb_pct": agg.bb_pct if agg else None,
+                "batting_avg": agg.batting_avg if agg else None,
+            }
+        )
+
+    return result
+
+
+def _leaderboard_row(
+    rank: int,
+    player: Dict[str, Any],
+    metric: str,
+    value: Any,
+) -> Dict[str, Any]:
+    return {
+        "rank": rank,
+        "player_id": player["player_id"],
+        "player_name": player["player_name"],
+        "team": player.get("team") or "",
+        "value": value,
+        "pa": player.get("pa"),
+        "ab": player.get("ab"),
+        "bbe": player.get("bbe"),
+        "swings": player.get("swings"),
+    }
+
+
+def _make_board(
+    players: List[Dict[str, Any]],
+    metric: str,
+    *,
+    min_key: str,
+    min_count: int,
+    limit: int,
+    reverse: bool = True,
+) -> List[Dict[str, Any]]:
+    filtered = [
+        p
+        for p in players
+        if _is_real_player_name(p.get("player_name"))
+        and p.get(metric) is not None
+        and p.get(min_key, 0) is not None
+        and p.get(min_key, 0) >= min_count
+    ]
+    filtered.sort(key=lambda p: p[metric], reverse=reverse)
+
+    return [
+        _leaderboard_row(i + 1, player, metric, player[metric])
+        for i, player in enumerate(filtered[:limit])
+    ]
+
+
+def _latest_batter_names(session: Session) -> Dict[int, str]:
+    name_map: Dict[int, str] = {}
+
+    try:
+        from .database import BatterPitchTypeMatchup
+
+        if hasattr(BatterPitchTypeMatchup, "batter_id") and hasattr(BatterPitchTypeMatchup, "batter_name"):
+            rows = (
+                session.query(BatterPitchTypeMatchup.batter_id, BatterPitchTypeMatchup.batter_name)
+                .filter(BatterPitchTypeMatchup.batter_id.isnot(None))
+                .filter(BatterPitchTypeMatchup.batter_name.isnot(None))
+                .all()
+            )
+            for batter_id, batter_name in rows:
+                if batter_id and _is_real_player_name(batter_name):
+                    name_map[int(batter_id)] = str(batter_name).strip()
+    except Exception:
+        pass
+
+    try:
+        if hasattr(StatcastEvent, "batter_name"):
+            rows = (
+                session.query(StatcastEvent.batter_id, StatcastEvent.batter_name)
+                .filter(StatcastEvent.batter_id.isnot(None))
+                .filter(StatcastEvent.batter_name.isnot(None))
+                .distinct()
+                .all()
+            )
+            for batter_id, batter_name in rows:
+                if batter_id and _is_real_player_name(batter_name):
+                    name_map.setdefault(int(batter_id), str(batter_name).strip())
+    except Exception:
+        pass
+
+    return name_map
+
+
+def _latest_batter_teams(session: Session, season: int) -> Dict[int, str]:
+    if not (
+        _model_has_column(StatcastEvent, "home_team")
+        and _model_has_column(StatcastEvent, "away_team")
+        and _model_has_column(StatcastEvent, "inning_topbot")
+    ):
+        return {}
+
+    s_start = datetime.date(season, 1, 1)
+    s_end = datetime.date(season, 12, 31)
+
+    events = (
+        session.query(StatcastEvent)
+        .filter(
+            StatcastEvent.game_date >= s_start,
+            StatcastEvent.game_date <= s_end,
+            StatcastEvent.batter_id.isnot(None),
+        )
+        .order_by(StatcastEvent.game_date.desc(), StatcastEvent.id.desc())
+        .all()
+    )
+
+    team_map: Dict[int, str] = {}
+    for event in events:
+        batter_id = getattr(event, "batter_id", None)
+        if not batter_id or int(batter_id) in team_map:
+            continue
+
+        team = event.away_team if getattr(event, "inning_topbot", None) == "Top" else event.home_team
+        if team:
+            team_map[int(batter_id)] = team
+
+    return team_map
+
+
+def _optional_rbi_column() -> Optional[str]:
+    for name in ("rbi", "rbis", "runs_batted_in"):
+        if hasattr(StatcastEvent, name):
+            return name
+    return None
+
+
+def _event_description_available() -> bool:
+    return hasattr(StatcastEvent, "description")
+
+
+def _season_events_for_leaderboards(
+    session: Session,
+    season: int,
+) -> Tuple[int, List[StatcastEvent]]:
+    selected_events: List[StatcastEvent] = []
+    actual_season = season
+
+    for candidate_season in [season, season - 1]:
+        s_start = datetime.date(candidate_season, 1, 1)
+        s_end = datetime.date(candidate_season, 12, 31)
+
+        events = (
+            session.query(StatcastEvent)
+            .filter(
+                StatcastEvent.game_date >= s_start,
+                StatcastEvent.game_date <= s_end,
+                StatcastEvent.batter_id.isnot(None),
+            )
+            .all()
+        )
+
+        if events:
+            selected_events = events
+            actual_season = candidate_season
+            break
+
+    return actual_season, selected_events
+
+
+def _group_events_by_batter(events: List[StatcastEvent]) -> Dict[int, List[StatcastEvent]]:
+    grouped: Dict[int, List[StatcastEvent]] = {}
+    for event in events:
+        batter_id = getattr(event, "batter_id", None)
+        if batter_id is None:
+            continue
+        grouped.setdefault(int(batter_id), []).append(event)
+    return grouped
+
+
+def _calculate_leaderboard_player(
+    batter_id: int,
+    events: List[StatcastEvent],
+    name_map: Dict[int, str],
+    team_map: Dict[int, str],
+    rbi_column: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    player_name = name_map.get(int(batter_id))
+    if not _is_real_player_name(player_name):
+        return None
+
+    deduped_terminal = _dedupe_terminal_pas(events)
+    deduped_pitches = _dedupe_pitch_events(events)
+
+    if not deduped_terminal and not deduped_pitches:
+        return None
+
+    terminal_outcomes = [_clean_event_name(event.events) for event in deduped_terminal]
+    pitch_descriptions = [_clean_description(getattr(event, "description", None)) for event in deduped_pitches]
+
+    pa = len(deduped_terminal)
+    ab_events = [event for event in deduped_terminal if _is_true_ab_event(event.events)]
+    ab = len(ab_events)
+    hits = sum(1 for event in terminal_outcomes if event in HIT_EVENTS)
+    home_runs = sum(1 for event in terminal_outcomes if event == "home_run")
+    doubles = sum(1 for event in terminal_outcomes if event == "double")
+    walks = sum(1 for event in terminal_outcomes if event in WALK_EVENTS)
+    strikeouts = sum(1 for event in terminal_outcomes if event in STRIKEOUT_EVENTS)
+    total_bases = sum(TOTAL_BASES.get(event or "", 0) for event in terminal_outcomes)
+
+    batting_avg = round(hits / ab, 3) if ab else None
+    slugging_pct = round(total_bases / ab, 3) if ab else None
+    iso = round(slugging_pct - batting_avg, 3) if slugging_pct is not None and batting_avg is not None else None
+    k_pct = round(strikeouts / pa, 3) if pa else None
+    bb_pct = round(walks / pa, 3) if pa else None
+
+    batted_balls = [event for event in deduped_pitches if getattr(event, "launch_speed", None) is not None]
+    bbe = len(batted_balls)
+    hard_hits = sum(1 for event in batted_balls if event.launch_speed is not None and event.launch_speed >= 95)
+    barrels = sum(
+        1
+        for event in batted_balls
+        if event.launch_speed is not None
+        and getattr(event, "launch_angle", None) is not None
+        and event.launch_speed >= 98
+        and 8 <= event.launch_angle <= 50
+    )
+
+    avg_exit_velocity = (
+        round(sum(event.launch_speed for event in batted_balls if event.launch_speed is not None) / bbe, 1)
+        if bbe
+        else None
+    )
+    max_exit_velocity = (
+        round(max(event.launch_speed for event in batted_balls if event.launch_speed is not None), 1)
+        if bbe
+        else None
+    )
+    hard_hit_pct = round(hard_hits / bbe, 3) if bbe else None
+    barrel_pct = round(barrels / bbe, 3) if bbe else None
+
+    swings = sum(1 for description in pitch_descriptions if description in SWING_DESCRIPTIONS)
+    whiffs = sum(1 for description in pitch_descriptions if description in WHIFF_DESCRIPTIONS)
+    whiff_pct = round(whiffs / swings, 3) if swings else None
+    contact_pct = round(1 - whiff_pct, 3) if whiff_pct is not None else None
+
+    player: Dict[str, Any] = {
+        "player_id": int(batter_id),
+        "player_name": player_name,
+        "team": team_map.get(int(batter_id), ""),
+        "pa": pa,
+        "ab": ab,
+        "bbe": bbe,
+        "swings": swings,
+        "hits": hits,
+        "home_runs": home_runs,
+        "doubles": doubles,
+        "iso": iso,
+        "hard_hit_pct": hard_hit_pct,
+        "barrel_pct": barrel_pct,
+        "avg_exit_velocity": avg_exit_velocity,
+        "max_exit_velocity": max_exit_velocity,
+        "k_pct": k_pct,
+        "bb_pct": bb_pct,
+        "whiff_pct": whiff_pct,
+        "contact_pct": contact_pct,
+    }
+
+    if rbi_column:
+        rbi_total = sum(_safe_int(getattr(event, rbi_column, 0)) for event in deduped_terminal)
+        player["rbi"] = rbi_total
+
+    return player
+
+
+def get_batter_leaderboards(
+    session: Session,
+    season: Optional[int] = None,
+    min_pa: int = 50,
+    min_bbe: int = 100,
+    limit: int = 10,
+) -> Dict[str, Any]:
+    if season is None:
+        season = datetime.date.today().year
+
+    actual_season, events = _season_events_for_leaderboards(session, season)
+
+    if not events:
+        return {
+            "updated_at": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "source": "postgres_statcast_events",
+            "season": season,
+            "leaderboards": {},
+            "available_metrics": [],
+            "unavailable_metrics": [
+                "home_runs",
+                "rbi",
+                "hits",
+                "doubles",
+                "iso",
+                "hard_hit_pct",
+                "barrel_pct",
+                "avg_exit_velocity",
+                "max_exit_velocity",
+                "whiff_pct",
+                "chase_pct",
+                "contact_pct",
+                "k_pct_avoidance",
+                "bb_pct",
+            ],
+            "notes": ["No StatcastEvent rows found for requested season or previous season."],
+        }
+
+    name_map = _latest_batter_names(session)
+    team_map = _latest_batter_teams(session, actual_season)
+    rbi_column = _optional_rbi_column()
+    has_description = _event_description_available()
+
+    grouped = _group_events_by_batter(events)
+    players: List[Dict[str, Any]] = []
+
+    for batter_id, batter_events in grouped.items():
+        player = _calculate_leaderboard_player(
+            batter_id=batter_id,
+            events=batter_events,
+            name_map=name_map,
+            team_map=team_map,
+            rbi_column=rbi_column,
+        )
+        if player:
+            players.append(player)
+
+    latest_event_date = max((event.game_date for event in events if event.game_date), default=None)
+
+    leaderboards: Dict[str, List[Dict[str, Any]]] = {}
+
+    board_specs = [
+        ("home_runs", "home_runs", "pa", min_pa, True),
+        ("hits", "hits", "pa", min_pa, True),
+        ("doubles", "doubles", "pa", min_pa, True),
+        ("iso", "iso", "pa", max(min_pa, 100), True),
+        ("hard_hit_pct", "hard_hit_pct", "bbe", min_bbe, True),
+        ("barrel_pct", "barrel_pct", "bbe", min_bbe, True),
+        ("avg_exit_velocity", "avg_exit_velocity", "bbe", min_bbe, True),
+        ("max_exit_velocity", "max_exit_velocity", "bbe", min_bbe, True),
+        ("bb_pct", "bb_pct", "pa", max(min_pa, 100), True),
+        ("k_pct_avoidance", "k_pct", "pa", max(min_pa, 100), False),
+        ("contact_pct", "contact_pct", "swings", 75, True),
+        ("whiff_pct", "whiff_pct", "swings", 75, False),
+    ]
+
+    if rbi_column:
+        board_specs.insert(1, ("rbi", "rbi", "pa", min_pa, True))
+
+    for response_key, metric, min_key, min_count, reverse in board_specs:
+        board = _make_board(
+            players,
+            metric,
+            min_key=min_key,
+            min_count=min_count,
+            limit=limit,
+            reverse=reverse,
+        )
+        if board:
+            leaderboards[response_key] = board
+
+    available_metrics = sorted(leaderboards.keys())
+    requested_metrics = {
+        "home_runs",
+        "rbi",
+        "hits",
+        "doubles",
+        "iso",
+        "hard_hit_pct",
+        "barrel_pct",
+        "avg_exit_velocity",
+        "max_exit_velocity",
+        "whiff_pct",
+        "chase_pct",
+        "contact_pct",
+        "k_pct_avoidance",
+        "bb_pct",
+    }
+
+    unavailable_metrics = sorted(requested_metrics - set(available_metrics))
+    notes: List[str] = [
+        "Counting leaderboards are calculated from deduped terminal plate appearances.",
+        "Contact-quality leaderboards are calculated from deduped pitch/batted-ball rows.",
+    ]
+
+    if not rbi_column:
+        notes.append("RBI leaderboard omitted because StatcastEvent has no RBI/rbis/runs_batted_in column.")
+    if not has_description:
+        notes.append("Whiff and contact leaderboards omitted unless StatcastEvent.description is populated.")
+    notes.append("Chase% omitted because zone/swing-decision fields are not available in the local StatcastEvent model.")
+    if actual_season != season:
+        notes.append(f"No rows found for {season}; leaderboards fell back to {actual_season}.")
+    if not players:
+        notes.append("No leaderboard rows had resolvable real player names; fallback #player_id rows are intentionally omitted.")
+
+    return {
+        "updated_at": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "source": "postgres_statcast_events",
+        "season": actual_season,
+        "latest_event_date": latest_event_date.isoformat() if latest_event_date else None,
+        "minimums": {
+            "min_pa": min_pa,
+            "min_bbe": min_bbe,
+            "min_swings": 75,
+            "limit": limit,
+        },
+        "leaderboards": leaderboards,
+        "available_metrics": available_metrics,
+        "unavailable_metrics": unavailable_metrics,
+        "notes": notes,
+    }
+
+
+def get_player_splits_multi_season(
+    session: Session,
+    player_id: int,
+    seasons: List[int],
+) -> Dict[int, Dict[str, Any]]:
+    result: Dict[int, Dict[str, Any]] = {}
+
+    for season in seasons:
+        vs_l = get_player_split(session, player_id, season, "vsL")
+        vs_r = get_player_split(session, player_id, season, "vsR")
+
+        if vs_l or vs_r:
+            def _split_dict(split: Optional[PlayerSplit]) -> Optional[Dict[str, Any]]:
+                if not split:
+                    return None
+                return {
+                    "pa": split.pa,
+                    "batting_avg": split.batting_avg,
+                    "on_base_pct": split.on_base_pct,
+                    "slugging_pct": split.slugging_pct,
+                    "k_pct": split.k_pct,
+                    "bb_pct": split.bb_pct,
+                    "home_runs": split.home_runs,
+                }
+
+            result[season] = {"vsL": _split_dict(vs_l), "vsR": _split_dict(vs_r)}
+
+    return result
+
+
+__all__ = [
+    "get_pitcher_aggregate",
+    "get_pitcher_aggregate_with_fallback",
+    "get_batter_aggregate",
+    "get_batter_aggregate_with_fallback",
+    "get_pitch_arsenal",
+    "get_pitch_arsenal_with_fallback",
+    "get_player_split",
+    "get_player_splits_multi_season",
+    "get_team_split",
+    "get_pitcher_rolling_by_games",
+    "get_batter_data_quality",
+    "get_batter_rolling_by_games",
+    "get_batter_rolling_by_pa",
+    "get_batter_rolling_by_ab",
+    "get_batter_rolling_by_abs",
+    "get_batter_rolling_splits",
+    "get_batter_rolling_pitch_types",
+    "get_batter_at_bats",
+    "get_batter_leaderboards",
+    "get_pitcher_game_log",
+    "get_pitcher_multi_season",
+    "get_batter_multi_season",
+]
