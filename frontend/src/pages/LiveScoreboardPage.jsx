@@ -1,36 +1,97 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { API_BASE } from '../lib/api'
+import { API_BASE, getMlbLiveDate, addIsoDays } from '../lib/api'
 
 const REFRESH_INTERVAL_MS = 30_000
 
 const STATUS_COLORS = {
   Live: '#3fb950',
   Final: '#8b949e',
+  Scheduled: '#58a6ff',
   Preview: '#58a6ff',
   'Pre-Game': '#58a6ff',
   Warmup: '#d29922',
   Delayed: '#d29922',
   Postponed: '#f85149',
   Suspended: '#f85149',
+  'Status Pending': '#8b949e',
 }
 
-function statusColor(abstract, detail) {
-  if (abstract === 'Live') return STATUS_COLORS.Live
-  if (abstract === 'Final') return STATUS_COLORS.Final
-  return STATUS_COLORS[detail] || STATUS_COLORS[abstract] || '#8b949e'
+function normalizeGameStatus(game) {
+  const abstract = game?.status_abstract || game?.abstractGameState || game?.status?.abstractGameState
+  const detail = game?.status_detail || game?.detailedState || game?.status?.detailedState
+  const coded = game?.codedGameState || game?.status?.codedGameState
+  const raw = `${abstract || ''} ${detail || ''} ${coded || ''}`.toLowerCase()
+
+  if (raw.includes('final') || raw.includes('game over') || raw.includes('completed early') || coded === 'F') {
+    return { abstract: 'Final', label: 'Final' }
+  }
+
+  if (raw.includes('postponed')) {
+    return { abstract: 'Postponed', label: 'Postponed' }
+  }
+
+  if (raw.includes('suspended')) {
+    return { abstract: 'Suspended', label: 'Suspended' }
+  }
+
+  if (raw.includes('delay')) {
+    return { abstract: 'Delayed', label: detail || 'Delayed' }
+  }
+
+  if (abstract === 'Live' || ['I', 'M', 'N'].includes(coded) || raw.includes('progress')) {
+    if (game?.inning) {
+      return {
+        abstract: 'Live',
+        label: `${game?.inning_state || ''} ${game.inning}`.trim(),
+      }
+    }
+
+    return {
+      abstract: 'Live',
+      label: detail && detail !== 'In Progress' ? detail : 'Live',
+    }
+  }
+
+  if (detail === 'Warmup' || detail === 'Warm Up') {
+    return { abstract: 'Warmup', label: 'Warmup' }
+  }
+
+  if (detail === 'Pre-Game') {
+    return { abstract: 'Scheduled', label: 'Pre-Game' }
+  }
+
+  if (abstract === 'Preview' || ['S', 'P'].includes(coded)) {
+    return { abstract: 'Scheduled', label: detail || 'Scheduled' }
+  }
+
+  const start = game?.game_datetime || game?.gameDate || game?.start_time
+  if (start) {
+    const minutesUntilStart = (new Date(start).getTime() - Date.now()) / 60000
+
+    if (minutesUntilStart <= 30 && minutesUntilStart >= 0) {
+      return { abstract: 'Warmup', label: 'Warmup' }
+    }
+
+    if (minutesUntilStart < 0 && minutesUntilStart >= -240) {
+      return { abstract: 'Live', label: 'Live' }
+    }
+
+    if (minutesUntilStart < -240) {
+      return { abstract: 'Final', label: 'Status Pending' }
+    }
+  }
+
+  return { abstract: 'Scheduled', label: detail || abstract || 'Scheduled' }
 }
 
-function statusLabel(abstract, detail, inning, inningState) {
-  if (abstract === 'Live' && inning) return `${inningState || ''} ${inning}`.trim()
-  return detail || abstract || '—'
+function statusColor(abstract) {
+  return STATUS_COLORS[abstract] || '#8b949e'
 }
 
 function isUpcomingStatus(game) {
-  const abstract = game?.status_abstract
-  if (!abstract) return false
-  if (abstract === 'Live' || abstract === 'Final') return false
-  return true
+  const normalized = normalizeGameStatus(game)
+  return normalized.abstract === 'Scheduled' || normalized.abstract === 'Warmup'
 }
 
 function WeatherBadge({ weather }) {
@@ -69,10 +130,11 @@ function DecisionLine({ decisions }) {
 }
 
 function GameCard({ game }) {
-  const color = statusColor(game.status_abstract, game.status_detail)
-  const label = statusLabel(game.status_abstract, game.status_detail, game.inning, game.inning_state)
-  const isLive = game.status_abstract === 'Live'
-  const isFinal = game.status_abstract === 'Final'
+  const normalizedStatus = normalizeGameStatus(game)
+  const color = statusColor(normalizedStatus.abstract)
+  const label = normalizedStatus.label
+  const isLive = normalizedStatus.abstract === 'Live'
+  const isFinal = normalizedStatus.abstract === 'Final'
   const showProbables = !isFinal && !isLive
 
   return (
@@ -157,14 +219,15 @@ function GameCard({ game }) {
 }
 
 export default function LiveScoreboardPage() {
+  const [date, setDate] = useState(getMlbLiveDate())
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [lastRefresh, setLastRefresh] = useState(null)
   const timerRef = useRef(null)
 
-  function fetchScoreboard() {
-    fetch(`${API_BASE}/live/scoreboard`)
+  function fetchScoreboard(selectedDate = date) {
+    fetch(`${API_BASE}/live/scoreboard?date=${selectedDate}`)
       .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.detail || r.statusText)))
       .then(d => {
         setData(d)
@@ -179,45 +242,81 @@ export default function LiveScoreboardPage() {
   }
 
   useEffect(() => {
-    fetchScoreboard()
-    timerRef.current = setInterval(fetchScoreboard, REFRESH_INTERVAL_MS)
+    fetchScoreboard(date)
+    timerRef.current = setInterval(() => fetchScoreboard(date), REFRESH_INTERVAL_MS)
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current)
       }
     }
-  }, [])
+  }, [date])
 
   if (loading) return <div style={{ color: '#8b949e', padding: '40px' }}>Loading scoreboard…</div>
   if (error) return <div style={{ color: '#f85149', padding: '40px' }}>Error: {error}</div>
 
   const games = data?.games || []
-  const liveGames = games.filter(g => g.status_abstract === 'Live')
+  const liveGames = games.filter(g => normalizeGameStatus(g).abstract === 'Live')
   const upcomingGames = games.filter(isUpcomingStatus)
-  const finalGames = games.filter(g => g.status_abstract === 'Final')
+  const finalGames = games.filter(g => normalizeGameStatus(g).abstract === 'Final')
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '22px', fontWeight: '700', color: '#e6edf3' }}>
             Live Scoreboard
           </h1>
           <div style={{ fontSize: '13px', color: '#8b949e', marginTop: '4px' }}>
-            {data?.date} · {games.length} games
+            {date} · {games.length} games
             {liveGames.length > 0 && (
               <span style={{ color: '#3fb950', marginLeft: '8px' }}>● {liveGames.length} live</span>
             )}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           {lastRefresh && (
             <span style={{ fontSize: '11px', color: '#8b949e' }}>
               Updated {lastRefresh.toLocaleTimeString()}
             </span>
           )}
           <button
-            onClick={fetchScoreboard}
+            onClick={() => setDate(addIsoDays(date, -1))}
+            style={{
+              background: '#21262d', border: '1px solid #30363d', color: '#e6edf3',
+              borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontSize: '13px',
+            }}
+          >
+            ←
+          </button>
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            style={{
+              background: '#0d1117', border: '1px solid #30363d', color: '#e6edf3',
+              borderRadius: '6px', padding: '6px 10px', fontSize: '13px',
+            }}
+          />
+          <button
+            onClick={() => setDate(getMlbLiveDate())}
+            style={{
+              background: '#238636', border: '1px solid #2ea043', color: '#fff',
+              borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontSize: '13px',
+            }}
+          >
+            Today
+          </button>
+          <button
+            onClick={() => setDate(addIsoDays(date, 1))}
+            style={{
+              background: '#21262d', border: '1px solid #30363d', color: '#e6edf3',
+              borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontSize: '13px',
+            }}
+          >
+            →
+          </button>
+          <button
+            onClick={() => fetchScoreboard(date)}
             style={{
               background: '#21262d', border: '1px solid #30363d', color: '#e6edf3',
               borderRadius: '6px', padding: '6px 14px', cursor: 'pointer', fontSize: '13px',
@@ -230,7 +329,7 @@ export default function LiveScoreboardPage() {
 
       {games.length === 0 && (
         <div style={{ color: '#8b949e', textAlign: 'center', padding: '60px 0' }}>
-          No games scheduled for {data?.date}.
+          No games scheduled for {date}.
         </div>
       )}
 
