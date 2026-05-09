@@ -161,8 +161,8 @@ def _aggregate_to_dict(agg) -> Optional[Dict[str, Any]]:
 @router.get("/batters/leaderboards")
 def batters_leaderboards(
     season: Optional[int] = None,
-    min_pa: int = Query(50, ge=1),
-    min_bbe: int = Query(30, ge=1),
+    min_pa: int = Query(25, ge=1),
+    min_bbe: int = Query(100, ge=1),
     limit: int = Query(10, ge=1, le=50),
 ) -> Dict[str, Any]:
     Session = _get_session()
