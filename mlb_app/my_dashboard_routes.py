@@ -16,6 +16,7 @@ router = APIRouter()
 class MyDashboardSolverRequest(BaseModel):
     date: Optional[str] = None
     component: str
+    filters: Optional[Dict[str, Any]] = None
 
 
 def session_factory():
@@ -31,6 +32,7 @@ def my_dashboard_health() -> Dict[str, Any]:
         "name": "My Dashboard",
         "status": "ok",
         "auth_required": False,
+        "persistence": "frontend_localStorage_v1",
         "supported_components": sorted(SUPPORTED_COMPONENTS),
     }
 
@@ -40,15 +42,15 @@ def my_dashboard_solver_get(
     date: Optional[str] = Query(default=None),
     component: str = Query(default="hitters"),
 ) -> Dict[str, Any]:
-    return _run_solver(date=date, component=component)
+    return _run_solver(date=date, component=component, filters=None)
 
 
 @router.post("/my-dashboard/solver")
 def my_dashboard_solver_post(payload: MyDashboardSolverRequest) -> Dict[str, Any]:
-    return _run_solver(date=payload.date, component=payload.component)
+    return _run_solver(date=payload.date, component=payload.component, filters=payload.filters)
 
 
-def _run_solver(date: Optional[str], component: str) -> Dict[str, Any]:
+def _run_solver(date: Optional[str], component: str, filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     target_date = (date or dt.date.today().isoformat())[:10]
     try:
         dt.date.fromisoformat(target_date)
@@ -58,7 +60,7 @@ def _run_solver(date: Optional[str], component: str) -> Dict[str, Any]:
     try:
         factory = session_factory()
         with factory() as session:
-            return build_dashboard_solver_payload(session=session, date=target_date, component=component)
+            return build_dashboard_solver_payload(session=session, date=target_date, component=component, filters=filters)
     except HTTPException:
         raise
     except Exception as exc:
