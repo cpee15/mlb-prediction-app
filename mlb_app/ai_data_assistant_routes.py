@@ -8,7 +8,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from .ai_data_assistant import PROMPT_CHIPS, answer_with_optional_llm, build_assistant_context, classify_assistant_intent
+from .ai_data_assistant import PROMPT_CHIPS, classify_assistant_intent
+from .ai_data_assistant_performance import build_ai_data_assistant_response, clear_ai_data_assistant_caches
 from .database import create_tables, get_engine, get_session
 
 router = APIRouter()
@@ -20,7 +21,7 @@ class AIDataAssistantRequest(BaseModel):
     game_pk: Optional[int] = None
     player_id: Optional[int] = None
     team_id: Optional[int] = None
-    use_llm: bool = True
+    use_llm: bool = False
 
 
 def session_factory():
@@ -70,6 +71,7 @@ def ai_data_assistant_page() -> str:
           <label>Date <input id="date" type="date" value="{today}" /></label>
           <label>Game PK <input id="gamePk" type="number" placeholder="optional" /></label>
           <label>Player ID <input id="playerId" type="number" placeholder="optional" /></label>
+          <label><input id="useLlm" type="checkbox" /> Use LLM polish</label>
           <button id="askBtn" type="button">Ask</button>
         </div>
         <textarea id="message" placeholder="Ask about today's slate, model edges, Daily Odds, Stored 365, missing data, or a specific matchup.">Summarize today's slate</textarea>
@@ -80,7 +82,7 @@ def ai_data_assistant_page() -> str:
         <pre id="answer">Ask a question to query the app-owned data packet.</pre>
         <div class="meta">
           <div class="card"><strong>Sources used</strong><div id="sources" class="muted">None yet</div></div>
-          <div class="card"><strong>Missing data</strong><div id="missing" class="muted">None yet</div></div>
+          <div class="card"><strong>Timing</strong><div id="timing" class="muted">None yet</div></div>
           <div class="card"><strong>Data quality</strong><div id="quality" class="muted">None yet</div></div>
         </div>
       </div>
@@ -88,7 +90,7 @@ def ai_data_assistant_page() -> str:
   </main>
 <script>
 const $ = (id) => document.getElementById(id);
-document.querySelectorAll('.chip').forEach(btn => btn.addEventListener('click', () => {{ $('message').value = btn.textContent; ask(); }}));
+document.querySelectorAll('.chip').forEach(btn => btn.addEventListener('click', () => {{ $('message').value = btn.textContent; $('useLlm').checked = false; ask(); }}));
 $('askBtn').addEventListener('click', ask);
 async function ask() {{
   $('status').textContent = 'Querying app-owned data...';
@@ -97,17 +99,18 @@ async function ask() {{
     message: $('message').value,
     date: $('date').value || null,
     game_pk: $('gamePk').value ? Number($('gamePk').value) : null,
-    player_id: $('playerId').value ? Number($('playerId').value) : null
+    player_id: $('playerId').value ? Number($('playerId').value) : null,
+    use_llm: $('useLlm').checked
   }};
   try {{
     const res = await fetch('/ai-data-assistant', {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify(payload) }});
     const data = await res.json();
     if (!res.ok) throw new Error(JSON.stringify(data.detail || data));
-    $('status').textContent = `Intent: ${{data.intent || 'unknown'}} | Date: ${{data.date || ''}}`;
+    $('status').textContent = `Intent: ${{data.intent || 'unknown'}} | Date: ${{data.date || ''}} | Cache: ${{data.cache_status || 'none'}}`;
     $('answer').textContent = data.answer || 'No answer returned.';
     $('sources').textContent = (data.sources_used || []).join(', ') || 'None';
-    $('missing').textContent = JSON.stringify(data.missing_data || [], null, 2);
-    $('quality').textContent = JSON.stringify(data.data_quality || {{}}, null, 2);
+    $('timing').textContent = JSON.stringify(data.timing || {{}}, null, 2);
+    $('quality').textContent = JSON.stringify({{ data_quality: data.data_quality || {{}}, missing_data: data.missing_data || [] }}, null, 2);
   }} catch (err) {{
     $('status').textContent = 'Error';
     $('answer').textContent = String(err);
@@ -126,7 +129,7 @@ def ai_data_assistant_prompts() -> Dict[str, Any]:
 
 @router.get("/ai-data-assistant/health")
 def ai_data_assistant_health() -> Dict[str, Any]:
-    return {"name": "AI Data Assistant", "status": "ok", "llm_configured": bool(os.getenv("OPENAI_API_KEY"))}
+    return {"name": "AI Data Assistant", "status": "ok", "llm_configured": bool(os.getenv("OPENAI_API_KEY")), "deterministic_default": True}
 
 
 @router.post("/ai-data-assistant")
@@ -136,8 +139,15 @@ def ai_data_assistant_query(payload: AIDataAssistantRequest) -> Dict[str, Any]:
     try:
         factory = session_factory()
         with factory() as session:
-            context = build_assistant_context(session=session, message=payload.message, date=payload.date, game_pk=payload.game_pk, player_id=payload.player_id, team_id=payload.team_id)
-            result = answer_with_optional_llm(payload.message, context, use_llm=payload.use_llm)
+            result = build_ai_data_assistant_response(
+                session=session,
+                message=payload.message,
+                date=payload.date,
+                game_pk=payload.game_pk,
+                player_id=payload.player_id,
+                team_id=payload.team_id,
+                use_llm=payload.use_llm,
+            )
             result["name"] = "AI Data Assistant"
             result["intent"] = result.get("intent") or classify_assistant_intent(payload.message)
             return result
@@ -145,3 +155,8 @@ def ai_data_assistant_query(payload: AIDataAssistantRequest) -> Dict[str, Any]:
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail={"message": "AI Data Assistant failed", "error": str(exc)}) from exc
+
+
+@router.post("/ai-data-assistant/cache/clear")
+def ai_data_assistant_cache_clear() -> Dict[str, Any]:
+    return clear_ai_data_assistant_caches()
