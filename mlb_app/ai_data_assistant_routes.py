@@ -11,8 +11,10 @@ from pydantic import BaseModel
 from .ai_data_assistant import PROMPT_CHIPS, classify_assistant_intent
 from .ai_data_assistant_performance import build_ai_data_assistant_response, clear_ai_data_assistant_caches
 from .database import create_tables, get_engine, get_session
+from .my_dashboard_routes import router as my_dashboard_router
 
 router = APIRouter()
+router.include_router(my_dashboard_router)
 
 
 class AIDataAssistantRequest(BaseModel):

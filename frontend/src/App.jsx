@@ -13,6 +13,7 @@ import LiveScoreboardPage from './pages/LiveScoreboardPage'
 import LiveGamePageRestored from './pages/LiveGamePageRestored'
 import DailyOddsPage from './pages/DailyOddsPage'
 import ModelProjectionsPage from './pages/ModelProjectionsPage'
+import MyDashboardPage from './pages/MyDashboardPage'
 
 // Set VITE_ENABLE_BATTER_PAGE=true in Railway env vars to re-enable the Batter routes.
 // Keep false until the leaderboard endpoint is validated stable in production.
@@ -47,7 +48,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '28px',
-    height: '56px',
+    minHeight: '56px',
     flexWrap: 'wrap',
   },
   brand: {
@@ -88,6 +89,7 @@ export default function App() {
         <NavLink to="/" end style={link}>Matchups</NavLink>
         <NavLink to="/daily-odds" style={link}>Daily Odds</NavLink>
         <NavLink to="/models/projections" style={link}>Model Projections</NavLink>
+        <NavLink to="/my-dashboard" style={link}>My Dashboard</NavLink>
         <NavLink to="/standings" style={link}>Standings</NavLink>
         <NavLink to="/pitcher" style={link}>Pitcher</NavLink>
         <NavLink to="/batter" style={link}>Batter</NavLink>
@@ -101,6 +103,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/daily-odds" element={<DailyOddsPage />} />
           <Route path="/models/projections" element={<ModelProjectionsPage />} />
+          <Route path="/my-dashboard" element={<MyDashboardPage />} />
           <Route path="/matchup/:game_pk" element={<MatchupDetailPage />} />
           <Route path="/matchup/:game_pk/competitive" element={<CompetitiveAnalysisPage />} />
           <Route path="/standings" element={<StandingsPage />} />
