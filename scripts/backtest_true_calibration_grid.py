@@ -7,7 +7,7 @@ import math
 import os
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -18,36 +18,12 @@ from mlb_app.simulation.game_engine_v2 import run_full_game_simulation
 
 BACKTEST_START = os.getenv("BACKTEST_START", "2026-04-20")
 BACKTEST_END = os.getenv("BACKTEST_END", "2026-05-03")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///mlb.db")
+SIMS_PER_GAME = int(os.getenv("SIMS_PER_GAME", "50"))
+SEED = int(os.getenv("SEED", "42"))
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "sqlite:///mlb.db",
-)
-
-SIMS_PER_GAME = int(
-    os.getenv(
-        "SIMS_PER_GAME",
-        "50",
-    )
-)
-
-MAX_GAMES_RAW = os.getenv(
-    "MAX_GAMES",
-    "",
-)
-
-MAX_GAMES = (
-    int(MAX_GAMES_RAW)
-    if MAX_GAMES_RAW.strip()
-    else None
-)
-
-SEED = int(
-    os.getenv(
-        "SEED",
-        "42",
-    )
-)
+MAX_GAMES_RAW = os.getenv("MAX_GAMES", "")
+MAX_GAMES = int(MAX_GAMES_RAW) if MAX_GAMES_RAW.strip() else None
 
 
 CONFIGS = {
@@ -72,8 +48,28 @@ CONFIGS = {
 }
 
 
-def daterange(start, end):
+PRIMARY_RUN_PATHS = {
+    "home": "derived_outputs.bullpen_adjusted_game_simulation.home_expected_runs",
+    "away": "derived_outputs.bullpen_adjusted_game_simulation.away_expected_runs",
+    "total": "derived_outputs.bullpen_adjusted_game_simulation.total_expected_runs",
+}
 
+FALLBACK_RUN_PATHS = {
+    "home": "derived_outputs.game_simulation.home_expected_runs",
+    "away": "derived_outputs.game_simulation.away_expected_runs",
+    "total": "derived_outputs.game_simulation.total_expected_runs",
+}
+
+# Conservative only. Do not use over/under or total-probability paths as winner probability.
+WIN_PROB_PATHS = [
+    "derived_outputs.game_simulation.home_win_probability",
+    "derived_outputs.game_simulation.home_win_prob",
+    "derived_outputs.bullpen_adjusted_game_simulation.home_win_probability",
+    "derived_outputs.bullpen_adjusted_game_simulation.home_win_prob",
+]
+
+
+def daterange(start: str, end: str):
     import datetime as dt
 
     current = dt.date.fromisoformat(start)
@@ -84,88 +80,66 @@ def daterange(start, end):
         current += dt.timedelta(days=1)
 
 
-def write_csv(path: Path, rows: List[Dict[str, Any]]):
+def flatten(obj: Any, prefix: str = "") -> Dict[str, Any]:
+    rows: Dict[str, Any] = {}
 
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            next_prefix = f"{prefix}.{key}" if prefix else str(key)
+            rows.update(flatten(value, next_prefix))
+    elif isinstance(obj, list):
+        for idx, value in enumerate(obj):
+            rows.update(flatten(value, f"{prefix}[{idx}]"))
+    else:
+        rows[prefix] = obj
+
+    return rows
+
+
+def write_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
     if not rows:
         path.write_text("")
         return
 
-    fieldnames = sorted({
-        key
-        for row in rows
-        for key in row.keys()
-    })
-
+    fieldnames = sorted({key for row in rows for key in row.keys()})
     with path.open("w", newline="") as handle:
-
-        writer = csv.DictWriter(
-            handle,
-            fieldnames=fieldnames,
-        )
-
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
 
-def safe_mean(values):
-
-    vals = [
-        v for v in values
-        if v is not None
-    ]
-
+def safe_mean(values: List[Optional[float]]) -> Optional[float]:
+    vals = [v for v in values if v is not None]
     if not vals:
         return None
-
     return sum(vals) / len(vals)
 
 
-def safe_rmse(errors):
-
-    vals = [
-        e for e in errors
-        if e is not None
-    ]
-
+def safe_rmse(errors: List[Optional[float]]) -> Optional[float]:
+    vals = [e for e in errors if e is not None]
     if not vals:
         return None
-
-    return math.sqrt(
-        sum(v * v for v in vals)
-        / len(vals)
-    )
+    return math.sqrt(sum(v * v for v in vals) / len(vals))
 
 
-def clamp_prob(prob):
-    return max(
-        0.001,
-        min(0.999, prob),
-    )
+def clamp_prob(prob: float) -> float:
+    return max(0.001, min(0.999, prob))
 
 
-def brier(prob, actual):
+def brier(prob: float, actual: int) -> float:
     return (prob - actual) ** 2
 
 
-def log_loss(prob, actual):
-
+def log_loss(prob: float, actual: int) -> float:
     prob = clamp_prob(prob)
-
     if actual == 1:
         return -math.log(prob)
-
     return -math.log(1 - prob)
 
 
-def load_actual_results():
-
-    sqlite_path = DATABASE_URL.replace(
-        "sqlite:///",
-        "",
-    )
-
+def load_actual_results() -> Dict[int, Dict[str, Any]]:
+    sqlite_path = DATABASE_URL.replace("sqlite:///", "")
     conn = sqlite3.connect(sqlite_path)
-
     conn.row_factory = sqlite3.Row
 
     rows = conn.execute(
@@ -177,835 +151,438 @@ def load_actual_results():
 
     conn.close()
 
-    return {
-        int(row["game_pk"]): dict(row)
-        for row in rows
-    }
+    return {int(row["game_pk"]): dict(row) for row in rows}
 
 
-def apply_pct_modifier(
-    payload,
-    key,
-    modifier,
-):
-
+def apply_pct_modifier(payload: Dict[str, Any], key: str, modifier: float) -> None:
     if key not in payload:
         return
 
     value = payload[key]
-
-    if not isinstance(
-        value,
-        (
-            int,
-            float,
-        ),
-    ):
+    if not isinstance(value, (int, float)):
         return
 
-    payload[key] = value * (
-        1 + modifier
-    )
+    payload[key] = value * (1 + modifier)
 
 
-def apply_config(
-    raw_matchup,
-    config,
-):
+def apply_config(raw_matchup: Dict[str, Any], config: Dict[str, float]) -> Dict[str, Any]:
+    matchup = copy.deepcopy(raw_matchup)
 
-    matchup = copy.deepcopy(
-        raw_matchup
-    )
-
-    for side in [
-        "away_offense_inputs",
-        "home_offense_inputs",
-    ]:
-
+    for side in ["away_offense_inputs", "home_offense_inputs"]:
         offense = matchup.get(side)
 
-        if not isinstance(
-            offense,
-            dict,
-        ):
+        if not isinstance(offense, dict):
             continue
 
-        if (
-            "hitter_contact_boost"
-            in config
-        ):
+        if "hitter_contact_boost" in config:
+            for key in ["xba", "xwoba", "hard_hit_pct", "barrel_pct"]:
+                apply_pct_modifier(offense, key, config["hitter_contact_boost"])
 
-            for key in [
-                "xba",
-                "xwoba",
-                "hard_hit_pct",
-                "barrel_pct",
-            ]:
+        if "hitter_recent_boost" in config:
+            for key in ["batting_avg", "iso", "hard_hit_pct"]:
+                apply_pct_modifier(offense, key, config["hitter_recent_boost"])
 
-                apply_pct_modifier(
-                    offense,
-                    key,
-                    config[
-                        "hitter_contact_boost"
-                    ],
-                )
-
-        if (
-            "hitter_recent_boost"
-            in config
-        ):
-
-            for key in [
-                "batting_avg",
-                "iso",
-                "hard_hit_pct",
-            ]:
-
-                apply_pct_modifier(
-                    offense,
-                    key,
-                    config[
-                        "hitter_recent_boost"
-                    ],
-                )
-
-    for side in [
-        "away_pitcher_features",
-        "home_pitcher_features",
-    ]:
-
+    for side in ["away_pitcher_features", "home_pitcher_features"]:
         pitcher = matchup.get(side)
 
-        if not isinstance(
-            pitcher,
-            dict,
-        ):
+        if not isinstance(pitcher, dict):
             continue
 
-        if (
-            "pitcher_stuff_penalty"
-            in config
-        ):
-
-            for key in [
-                "xba",
-                "xwoba",
-                "hard_hit_pct",
-            ]:
-
-                apply_pct_modifier(
-                    pitcher,
-                    key,
-                    config[
-                        "pitcher_stuff_penalty"
-                    ],
-                )
+        if "pitcher_stuff_penalty" in config:
+            for key in ["xba", "xwoba", "hard_hit_pct"]:
+                apply_pct_modifier(pitcher, key, config["pitcher_stuff_penalty"])
 
     return matchup
 
 
-def extract_prediction(
-    sim_output,
-):
+def get_float_path(flat: Dict[str, Any], path: str, min_value: float, max_value: float) -> Tuple[Optional[str], Optional[float]]:
+    value = flat.get(path)
 
-    derived = sim_output.get(
-        "derived_outputs",
-        {},
-    )
+    if not isinstance(value, (int, float)):
+        return None, None
 
-    home_prob = derived.get(
-        "home_win_probability",
-        0.5,
-    )
+    value = float(value)
 
-    home_runs = derived.get(
-        "expected_home_runs",
-        derived.get(
-            "home_team_runs",
-            4.5,
-        ),
-    )
+    if value < min_value or value > max_value:
+        return None, None
 
-    away_runs = derived.get(
-        "expected_away_runs",
-        derived.get(
-            "away_team_runs",
-            4.5,
-        ),
-    )
+    return path, value
+
+
+def parse_expected_runs(flat: Dict[str, Any]) -> Dict[str, Any]:
+    home_path, home = get_float_path(flat, PRIMARY_RUN_PATHS["home"], 0.0, 12.0)
+    away_path, away = get_float_path(flat, PRIMARY_RUN_PATHS["away"], 0.0, 12.0)
+    total_path, total = get_float_path(flat, PRIMARY_RUN_PATHS["total"], 0.0, 24.0)
+
+    fallback_used = False
+    fallback_reasons = []
+
+    if home is None:
+        fallback_used = True
+        fallback_reasons.append("primary_home_missing")
+        home_path, home = get_float_path(flat, FALLBACK_RUN_PATHS["home"], 0.0, 12.0)
+
+    if away is None:
+        fallback_used = True
+        fallback_reasons.append("primary_away_missing")
+        away_path, away = get_float_path(flat, FALLBACK_RUN_PATHS["away"], 0.0, 12.0)
+
+    if total is None:
+        fallback_used = True
+        fallback_reasons.append("primary_total_missing")
+        total_path, total = get_float_path(flat, FALLBACK_RUN_PATHS["total"], 0.0, 24.0)
+
+    derived_total_used = False
+    if total is None and home is not None and away is not None:
+        total = home + away
+        total_path = "__derived_home_plus_away__"
+        derived_total_used = True
+        fallback_used = True
+        fallback_reasons.append("total_derived_from_home_away")
+
+    valid = home is not None and away is not None and total is not None
 
     return {
-        "home_win_prob":
-            float(home_prob),
-        "away_win_prob":
-            float(1 - home_prob),
-        "pred_home_runs":
-            float(home_runs),
-        "pred_away_runs":
-            float(away_runs),
-        "pred_total_runs":
-            float(home_runs)
-            + float(away_runs),
-        "pred_run_diff":
-            float(home_runs)
-            - float(away_runs),
+        "home": home,
+        "away": away,
+        "total": total,
+        "home_path": home_path,
+        "away_path": away_path,
+        "total_path": total_path,
+        "fallback_used": fallback_used,
+        "fallback_reasons": ",".join(fallback_reasons),
+        "derived_total_used": derived_total_used,
+        "valid": valid,
     }
 
 
-def main():
+def parse_home_win_probability(flat: Dict[str, Any]) -> Dict[str, Any]:
+    for path in WIN_PROB_PATHS:
+        parsed_path, value = get_float_path(flat, path, 0.0, 1.0)
+        if value is not None:
+            return {
+                "value": value,
+                "path": parsed_path,
+                "available": True,
+            }
 
-    actual_results = (
-        load_actual_results()
-    )
+    return {
+        "value": None,
+        "path": None,
+        "available": False,
+    }
 
-    engine = create_engine(
-        DATABASE_URL
-    )
 
-    SessionLocal = sessionmaker(
-        bind=engine
-    )
+def extract_prediction(sim_output: Dict[str, Any]) -> Dict[str, Any]:
+    flat = flatten(sim_output)
 
-    config_rows = []
-    game_rows = []
-    bucket_rows = []
+    runs = parse_expected_runs(flat)
+    win = parse_home_win_probability(flat)
+
+    parser_quality_status = "valid_paths_no_fallbacks"
+    if not runs["valid"]:
+        parser_quality_status = "expected_run_parser_paths_missing"
+    elif runs["fallback_used"]:
+        parser_quality_status = "run_paths_valid_with_fallbacks"
+
+    if not win["available"]:
+        win_status = "win_parser_missing"
+    else:
+        win_status = "win_parser_valid"
+
+    return {
+        "home_win_prob": win["value"],
+        "home_win_prob_path": win["path"],
+        "win_probability_available": win["available"],
+        "pred_home_runs": runs["home"],
+        "pred_away_runs": runs["away"],
+        "pred_total_runs": runs["total"],
+        "pred_run_diff": (
+            runs["home"] - runs["away"]
+            if runs["home"] is not None and runs["away"] is not None
+            else None
+        ),
+        "home_runs_path": runs["home_path"],
+        "away_runs_path": runs["away_path"],
+        "total_runs_path": runs["total_path"],
+        "run_parser_fallback_used": runs["fallback_used"],
+        "run_parser_fallback_reasons": runs["fallback_reasons"],
+        "derived_total_used": runs["derived_total_used"],
+        "run_parser_valid": runs["valid"],
+        "parser_quality_status": parser_quality_status,
+        "win_parser_status": win_status,
+    }
+
+
+def main() -> None:
+    actual_results = load_actual_results()
+
+    engine = create_engine(DATABASE_URL)
+    SessionLocal = sessionmaker(bind=engine)
+
+    config_rows: List[Dict[str, Any]] = []
+    game_rows: List[Dict[str, Any]] = []
+    parser_rows: List[Dict[str, Any]] = []
+
+    run_parser_fallback_count = 0
+    run_parser_missing_count = 0
+    win_parser_missing_count = 0
 
     with SessionLocal() as session:
-
         all_matchups = []
 
-        for game_date in daterange(
-            BACKTEST_START,
-            BACKTEST_END,
-        ):
-
-            print(
-                f"[load] "
-                f"loading {game_date}"
-            )
-
-            try:
-
-                matchups = (
-                    generate_matchups_for_date(
-                        session,
-                        game_date,
-                    )
-                )
-
-            except Exception as exc:
-
-                print(
-                    f"[warn] "
-                    f"failed matchup generation "
-                    f"{game_date}: {exc}"
-                )
-
-                continue
+        for game_date in daterange(BACKTEST_START, BACKTEST_END):
+            matchups = generate_matchups_for_date(session, game_date)
 
             for matchup in matchups:
+                game_pk = matchup.get("game_pk")
 
-                game_pk = matchup.get(
-                    "game_pk"
-                )
-
-                if (
-                    game_pk
-                    not in actual_results
-                ):
+                if game_pk not in actual_results:
                     continue
 
-                all_matchups.append(
-                    (
-                        game_date,
-                        matchup,
-                    )
-                )
+                all_matchups.append((game_date, matchup))
 
         if MAX_GAMES:
+            all_matchups = all_matchups[:MAX_GAMES]
 
-            all_matchups = (
-                all_matchups[
-                    :MAX_GAMES
-                ]
-            )
+        print(f"[info] loaded {len(all_matchups)} games")
 
-        print(
-            f"[info] "
-            f"loaded "
-            f"{len(all_matchups)} "
-            f"games"
-        )
+        for config_index, (config_name, config) in enumerate(CONFIGS.items(), start=1):
+            print(f"\n[config {config_index}/{len(CONFIGS)}] {config_name}")
 
-        for (
-            config_index,
-            (
-                config_name,
-                config,
-            ),
-        ) in enumerate(
-            CONFIGS.items(),
-            start=1,
-        ):
+            total_errors: List[float] = []
+            total_sq_errors: List[float] = []
+            home_errors: List[float] = []
+            away_errors: List[float] = []
+            diff_errors: List[float] = []
 
-            print(
-                f"\n"
-                f"[config "
-                f"{config_index}/"
-                f"{len(CONFIGS)}] "
-                f"{config_name}"
-            )
+            briers: List[float] = []
+            log_losses: List[float] = []
+            winner_correct: List[float] = []
 
-            total_errors = []
-            total_sq_errors = []
+            predicted_totals: List[float] = []
+            predicted_probs: List[float] = []
+            actual_totals: List[float] = []
 
-            home_errors = []
-            away_errors = []
-            diff_errors = []
-
-            briers = []
-            log_losses = []
-
-            winner_correct = []
-
-            predicted_totals = []
-            actual_totals = []
-
+            simulation_success = 0
             games_evaluated = 0
-            sim_success = 0
 
-            for (
-                game_index,
-                (
-                    game_date,
-                    raw_matchup,
-                ),
-            ) in enumerate(
-                all_matchups,
-                start=1,
-            ):
+            for game_index, (game_date, raw_matchup) in enumerate(all_matchups, start=1):
+                game_pk = raw_matchup.get("game_pk")
+                actual = actual_results[game_pk]
 
-                game_pk = raw_matchup.get(
-                    "game_pk"
-                )
-
-                actual = actual_results[
-                    game_pk
-                ]
-
-                matchup_copy = (
-                    apply_config(
-                        raw_matchup,
-                        config,
-                    )
-                )
+                matchup_copy = apply_config(raw_matchup, config)
 
                 try:
-
-                    sim_output = (
-                        run_full_game_simulation(
-                            game_pk,
-                            config={
-                                "simulation_count":
-                                    SIMS_PER_GAME,
-                                "seed":
-                                    SEED,
-                                "matchup": {
-                                    "raw":
-                                        matchup_copy,
-                                    "game_date":
-                                        game_date,
-                                },
+                    sim_output = run_full_game_simulation(
+                        game_pk,
+                        config={
+                            "simulation_count": SIMS_PER_GAME,
+                            "seed": SEED,
+                            "matchup": {
+                                "raw": matchup_copy,
+                                "game_date": game_date,
                             },
-                        )
+                        },
                     )
-
+                    simulation_success += 1
                 except Exception as exc:
-
-                    print(
-                        f"[warn] "
-                        f"simulation failed "
-                        f"{game_pk}: "
-                        f"{exc}"
-                    )
-
+                    print(f"[warn] simulation failed {game_pk}: {exc}")
                     continue
 
                 games_evaluated += 1
-                sim_success += 1
+                pred = extract_prediction(sim_output)
 
-                pred = (
-                    extract_prediction(
-                        sim_output
-                    )
-                )
+                if pred["run_parser_fallback_used"]:
+                    run_parser_fallback_count += 1
 
-                actual_home = float(
-                    actual[
-                        "home_score"
-                    ]
-                )
+                if not pred["run_parser_valid"]:
+                    run_parser_missing_count += 1
 
-                actual_away = float(
-                    actual[
-                        "away_score"
-                    ]
-                )
+                if not pred["win_probability_available"]:
+                    win_parser_missing_count += 1
 
-                actual_total = (
-                    actual_home
-                    + actual_away
-                )
+                actual_home = float(actual["home_score"])
+                actual_away = float(actual["away_score"])
+                actual_total = actual_home + actual_away
+                actual_diff = actual_home - actual_away
+                actual_home_win = 1 if actual_home > actual_away else 0
 
-                actual_diff = (
-                    actual_home
-                    - actual_away
-                )
+                total_err = None
+                total_sq = None
+                home_err = None
+                away_err = None
+                diff_err = None
 
-                actual_home_win = (
-                    1
-                    if actual_home
-                    > actual_away
-                    else 0
-                )
+                if pred["run_parser_valid"]:
+                    total_err = abs(pred["pred_total_runs"] - actual_total)
+                    total_sq = (pred["pred_total_runs"] - actual_total) ** 2
+                    home_err = abs(pred["pred_home_runs"] - actual_home)
+                    away_err = abs(pred["pred_away_runs"] - actual_away)
+                    diff_err = abs(pred["pred_run_diff"] - actual_diff)
 
-                pred_home_win = (
-                    1
-                    if pred[
-                        "home_win_prob"
-                    ]
-                    >= 0.5
-                    else 0
-                )
+                    total_errors.append(total_err)
+                    total_sq_errors.append(total_sq)
+                    home_errors.append(home_err)
+                    away_errors.append(away_err)
+                    diff_errors.append(diff_err)
 
-                total_err = abs(
-                    pred[
-                        "pred_total_runs"
-                    ]
-                    - actual_total
-                )
+                    predicted_totals.append(pred["pred_total_runs"])
+                    actual_totals.append(actual_total)
 
-                total_sq = (
-                    pred[
-                        "pred_total_runs"
-                    ]
-                    - actual_total
-                ) ** 2
+                if pred["win_probability_available"]:
+                    br = brier(pred["home_win_prob"], actual_home_win)
+                    ll = log_loss(pred["home_win_prob"], actual_home_win)
+                    pred_home_win = 1 if pred["home_win_prob"] >= 0.5 else 0
 
-                home_err = abs(
-                    pred[
-                        "pred_home_runs"
-                    ]
-                    - actual_home
-                )
-
-                away_err = abs(
-                    pred[
-                        "pred_away_runs"
-                    ]
-                    - actual_away
-                )
-
-                diff_err = abs(
-                    pred[
-                        "pred_run_diff"
-                    ]
-                    - actual_diff
-                )
-
-                br = brier(
-                    pred[
-                        "home_win_prob"
-                    ],
-                    actual_home_win,
-                )
-
-                ll = log_loss(
-                    pred[
-                        "home_win_prob"
-                    ],
-                    actual_home_win,
-                )
-
-                total_errors.append(
-                    total_err
-                )
-
-                total_sq_errors.append(
-                    total_sq
-                )
-
-                home_errors.append(
-                    home_err
-                )
-
-                away_errors.append(
-                    away_err
-                )
-
-                diff_errors.append(
-                    diff_err
-                )
-
-                briers.append(br)
-                log_losses.append(ll)
-
-                winner_correct.append(
-                    1
-                    if pred_home_win
-                    == actual_home_win
-                    else 0
-                )
-
-                predicted_totals.append(
-                    pred[
-                        "pred_total_runs"
-                    ]
-                )
-
-                actual_totals.append(
-                    actual_total
-                )
-
-                prob_bucket = round(
-                    pred[
-                        "home_win_prob"
-                    ] * 10
-                ) / 10
-
-                bucket_rows.append(
-                    {
-                        "config":
-                            config_name,
-                        "bucket":
-                            prob_bucket,
-                        "actual_home_win":
-                            actual_home_win,
-                        "pred_home_win_prob":
-                            pred[
-                                "home_win_prob"
-                            ],
-                    }
-                )
+                    briers.append(br)
+                    log_losses.append(ll)
+                    winner_correct.append(1 if pred_home_win == actual_home_win else 0)
+                    predicted_probs.append(pred["home_win_prob"])
+                else:
+                    br = None
+                    ll = None
 
                 game_rows.append(
                     {
-                        "config":
-                            config_name,
-                        "game_pk":
-                            game_pk,
-                        "game_date":
-                            game_date,
-                        "pred_home_win_prob":
-                            pred[
-                                "home_win_prob"
-                            ],
-                        "actual_home_win":
-                            actual_home_win,
-                        "pred_total":
-                            pred[
-                                "pred_total_runs"
-                            ],
-                        "actual_total":
-                            actual_total,
-                        "total_error":
-                            total_err,
-                        "brier":
-                            br,
-                        "log_loss":
-                            ll,
+                        "config": config_name,
+                        "game_pk": game_pk,
+                        "game_date": game_date,
+                        "pred_home_runs": pred["pred_home_runs"],
+                        "pred_away_runs": pred["pred_away_runs"],
+                        "pred_total": pred["pred_total_runs"],
+                        "pred_home_win_prob": pred["home_win_prob"],
+                        "actual_home": actual_home,
+                        "actual_away": actual_away,
+                        "actual_total": actual_total,
+                        "total_error": total_err,
+                        "home_error": home_err,
+                        "away_error": away_err,
+                        "run_diff_error": diff_err,
+                        "brier": br,
+                        "log_loss": ll,
+                        "parser_quality_status": pred["parser_quality_status"],
+                        "win_parser_status": pred["win_parser_status"],
                     }
                 )
 
-                if (
-                    game_index % 10 == 0
-                ):
-
-                    print(
-                        f"[progress] "
-                        f"{config_name} "
-                        f"{game_index}/"
-                        f"{len(all_matchups)}"
+                for metric_name, value, path, fallback in [
+                    ("home_expected_runs", pred["pred_home_runs"], pred["home_runs_path"], pred["run_parser_fallback_used"]),
+                    ("away_expected_runs", pred["pred_away_runs"], pred["away_runs_path"], pred["run_parser_fallback_used"]),
+                    ("total_expected_runs", pred["pred_total_runs"], pred["total_runs_path"], pred["run_parser_fallback_used"]),
+                    ("home_win_probability", pred["home_win_prob"], pred["home_win_prob_path"], not pred["win_probability_available"]),
+                ]:
+                    parser_rows.append(
+                        {
+                            "config": config_name,
+                            "game_pk": game_pk,
+                            "metric": metric_name,
+                            "path": path,
+                            "value": value,
+                            "fallback_used": fallback,
+                            "parser_quality_status": pred["parser_quality_status"],
+                            "win_parser_status": pred["win_parser_status"],
+                        }
                     )
 
-            avg_brier = safe_mean(
-                briers
-            )
+                if game_index % 10 == 0:
+                    print(f"[progress] {config_name} {game_index}/{len(all_matchups)}")
 
-            avg_log = safe_mean(
-                log_losses
-            )
+            avg_brier = safe_mean(briers)
+            avg_log = safe_mean(log_losses)
+            total_mae = safe_mean(total_errors)
+            total_rmse = safe_rmse(total_sq_errors)
 
-            total_mae = safe_mean(
-                total_errors
-            )
-
-            total_rmse = safe_rmse(
-                total_sq_errors
-            )
-
-            combined_score = (
-                (
-                    avg_brier or 0
-                )
-                + (
-                    avg_log or 0
-                )
-                + (
-                    total_mae or 0
-                ) / 10
-                + (
-                    total_rmse or 0
-                ) / 10
-            )
+            combined_score = None
+            if total_mae is not None and total_rmse is not None:
+                combined_score = (total_mae / 10) + (total_rmse / 10)
+                if avg_brier is not None:
+                    combined_score += avg_brier
+                if avg_log is not None:
+                    combined_score += avg_log
 
             config_rows.append(
                 {
-                    "config":
-                        config_name,
-                    "games_evaluated":
-                        games_evaluated,
-                    "games_with_actuals":
-                        games_evaluated,
-                    "simulation_success_rate":
-                        round(
-                            sim_success
-                            / games_evaluated,
-                            4,
-                        )
-                        if games_evaluated
-                        else None,
-                    "winner_accuracy":
-                        round(
-                            safe_mean(
-                                winner_correct
-                            ),
-                            6,
-                        )
-                        if winner_correct
-                        else None,
-                    "home_win_brier":
-                        round(
-                            avg_brier,
-                            6,
-                        )
-                        if avg_brier
-                        else None,
-                    "home_win_log_loss":
-                        round(
-                            avg_log,
-                            6,
-                        )
-                        if avg_log
-                        else None,
-                    "total_run_mae":
-                        round(
-                            total_mae,
-                            6,
-                        )
-                        if total_mae
-                        else None,
-                    "total_run_rmse":
-                        round(
-                            total_rmse,
-                            6,
-                        )
-                        if total_rmse
-                        else None,
-                    "home_run_mae":
-                        round(
-                            safe_mean(
-                                home_errors
-                            ),
-                            6,
-                        )
-                        if home_errors
-                        else None,
-                    "away_run_mae":
-                        round(
-                            safe_mean(
-                                away_errors
-                            ),
-                            6,
-                        )
-                        if away_errors
-                        else None,
-                    "run_differential_mae":
-                        round(
-                            safe_mean(
-                                diff_errors
-                            ),
-                            6,
-                        )
-                        if diff_errors
-                        else None,
-                    "average_predicted_total":
-                        round(
-                            safe_mean(
-                                predicted_totals
-                            ),
-                            6,
-                        )
-                        if predicted_totals
-                        else None,
-                    "average_actual_total":
-                        round(
-                            safe_mean(
-                                actual_totals
-                            ),
-                            6,
-                        )
-                        if actual_totals
-                        else None,
-                    "predicted_total_bias":
-                        round(
-                            (
-                                safe_mean(
-                                    predicted_totals
-                                )
-                                - safe_mean(
-                                    actual_totals
-                                )
-                            ),
-                            6,
-                        )
-                        if predicted_totals
-                        and actual_totals
-                        else None,
-                    "combined_score":
-                        round(
-                            combined_score,
-                            6,
-                        ),
+                    "config": config_name,
+                    "games_evaluated": games_evaluated,
+                    "simulation_success_rate": round(simulation_success / games_evaluated, 6) if games_evaluated else None,
+                    "run_games_scored": len(total_errors),
+                    "win_games_scored": len(briers),
+                    "winner_accuracy": round(safe_mean(winner_correct), 6) if winner_correct else None,
+                    "home_win_brier": round(avg_brier, 6) if avg_brier is not None else None,
+                    "home_win_log_loss": round(avg_log, 6) if avg_log is not None else None,
+                    "total_run_mae": round(total_mae, 6) if total_mae is not None else None,
+                    "total_run_rmse": round(total_rmse, 6) if total_rmse is not None else None,
+                    "home_run_mae": round(safe_mean(home_errors), 6) if home_errors else None,
+                    "away_run_mae": round(safe_mean(away_errors), 6) if away_errors else None,
+                    "run_differential_mae": round(safe_mean(diff_errors), 6) if diff_errors else None,
+                    "average_predicted_total": round(safe_mean(predicted_totals), 6) if predicted_totals else None,
+                    "average_actual_total": round(safe_mean(actual_totals), 6) if actual_totals else None,
+                    "predicted_total_bias": round(safe_mean(predicted_totals) - safe_mean(actual_totals), 6)
+                    if predicted_totals and actual_totals
+                    else None,
+                    "prediction_variability_total": round(max(predicted_totals) - min(predicted_totals), 6) if predicted_totals else None,
+                    "prediction_variability_prob": round(max(predicted_probs) - min(predicted_probs), 6) if predicted_probs else None,
+                    "combined_score": round(combined_score, 6) if combined_score is not None else None,
                 }
             )
 
-    ranked = sorted(
-        config_rows,
-        key=lambda row: row[
-            "combined_score"
-        ],
+    ranked_by_runs = sorted(
+        [row for row in config_rows if row["total_run_mae"] is not None],
+        key=lambda row: (row["total_run_mae"], row["total_run_rmse"]),
     )
 
-    best = ranked[0]
-
-    baseline = next(
-        row
-        for row in ranked
-        if row["config"]
-        == "baseline_current_production"
+    ranked_by_combined = sorted(
+        [row for row in config_rows if row["combined_score"] is not None],
+        key=lambda row: row["combined_score"],
     )
 
-    diagnosis = (
-        "candidate_improves_calibration"
-        if best["config"]
-        != "baseline_current_production"
-        else "baseline_still_best"
-    )
+    if run_parser_missing_count > 0:
+        diagnosis = "expected_run_parser_paths_missing"
+    elif win_parser_missing_count > 0:
+        diagnosis = "run_calibration_ready_win_parser_missing"
+    else:
+        diagnosis = "true_calibration_grid_ready_for_full_run"
 
     payload = {
-        "diagnosis":
-            diagnosis,
-        "ranked_configs_by_combined_score":
-            ranked,
-        "ranked_configs_by_brier":
-            sorted(
-                ranked,
-                key=lambda r: r[
-                    "home_win_brier"
-                ],
-            ),
-        "ranked_configs_by_log_loss":
-            sorted(
-                ranked,
-                key=lambda r: r[
-                    "home_win_log_loss"
-                ],
-            ),
-        "ranked_configs_by_total_mae":
-            sorted(
-                ranked,
-                key=lambda r: r[
-                    "total_run_mae"
-                ],
-            ),
-        "baseline_vs_best_delta": {
-            "baseline":
-                baseline["config"],
-            "best":
-                best["config"],
-            "combined_score_delta":
-                round(
-                    baseline[
-                        "combined_score"
-                    ]
-                    - best[
-                        "combined_score"
-                    ],
-                    6,
-                ),
-        },
-        "recommended_profile_config_for_next_layer":
-            best["config"],
-        "recommended_next_step":
-            (
-                "Proceed based on "
-                "best real calibration "
-                "candidate."
-            ),
+        "diagnosis": diagnosis,
+        "backtest_start": BACKTEST_START,
+        "backtest_end": BACKTEST_END,
+        "sims_per_game": SIMS_PER_GAME,
+        "max_games": MAX_GAMES,
+        "run_parser_fallback_count": run_parser_fallback_count,
+        "run_parser_missing_count": run_parser_missing_count,
+        "win_parser_missing_count": win_parser_missing_count,
+        "ranked_configs_by_run_mae": ranked_by_runs,
+        "ranked_configs_by_combined_score": ranked_by_combined,
+        "config_summaries": config_rows,
+        "recommended_next_step": (
+            "Run full calibration with SIMS_PER_GAME=500."
+            if diagnosis == "true_calibration_grid_ready_for_full_run"
+            else "Patch/confirm winner probability parser or proceed with run-only calibration."
+        ),
     }
 
     out_dir = Path("tmp")
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    out_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    prefix = (
-        f"true_calibration_grid_"
-        f"{BACKTEST_START}_to_{BACKTEST_END}"
-    )
+    prefix = f"true_calibration_grid_{BACKTEST_START}_to_{BACKTEST_END}"
 
     json_path = out_dir / f"{prefix}.json"
+    games_csv = out_dir / f"{prefix}_games.csv"
+    configs_csv = out_dir / f"{prefix}_configs.csv"
+    parser_csv = out_dir / "true_calibration_grid_parser_paths.csv"
 
-    json_path.write_text(
-        json.dumps(
-            payload,
-            indent=2,
-            sort_keys=True,
-        )
-    )
+    json_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    write_csv(games_csv, game_rows)
+    write_csv(configs_csv, config_rows)
+    write_csv(parser_csv, parser_rows)
 
-    write_csv(
-        out_dir / f"{prefix}_games.csv",
-        game_rows,
-    )
-
-    write_csv(
-        out_dir / f"{prefix}_configs.csv",
-        config_rows,
-    )
-
-    write_csv(
-        out_dir / f"{prefix}_rankings.csv",
-        ranked,
-    )
-
-    write_csv(
-        out_dir / f"{prefix}_buckets.csv",
-        bucket_rows,
-    )
-
-    print(
-        json.dumps(
-            payload,
-            indent=2,
-            sort_keys=True,
-        )
-    )
-
+    print(json.dumps(payload, indent=2, sort_keys=True))
     print(f"Wrote {json_path}")
+    print(f"Wrote {games_csv}")
+    print(f"Wrote {configs_csv}")
+    print(f"Wrote {parser_csv}")
 
 
 if __name__ == "__main__":
