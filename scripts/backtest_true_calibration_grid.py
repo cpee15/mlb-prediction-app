@@ -119,7 +119,19 @@ def safe_rmse(errors: List[Optional[float]]) -> Optional[float]:
     vals = [e for e in errors if e is not None]
     if not vals:
         return None
-    return math.sqrt(sum(v * v for v in vals) / len(vals))
+
+    return math.sqrt(
+        sum(v * v for v in vals) / len(vals)
+    )
+
+
+def safe_mse(errors: List[Optional[float]]) -> Optional[float]:
+    vals = [e for e in errors if e is not None]
+
+    if not vals:
+        return None
+
+    return sum(v * v for v in vals) / len(vals)
 
 
 def clamp_prob(prob: float) -> float:
@@ -351,10 +363,16 @@ def main() -> None:
             print(f"\n[config {config_index}/{len(CONFIGS)}] {config_name}")
 
             total_errors: List[float] = []
-            total_sq_errors: List[float] = []
+            total_signed_errors: List[float] = []
+
             home_errors: List[float] = []
+            home_signed_errors: List[float] = []
+
             away_errors: List[float] = []
+            away_signed_errors: List[float] = []
+
             diff_errors: List[float] = []
+            diff_signed_errors: List[float] = []
 
             briers: List[float] = []
             log_losses: List[float] = []
@@ -409,23 +427,41 @@ def main() -> None:
                 actual_home_win = 1 if actual_home > actual_away else 0
 
                 total_err = None
-                total_sq = None
+                total_signed = None
+
                 home_err = None
+                home_signed = None
+
                 away_err = None
+                away_signed = None
+
                 diff_err = None
+                diff_signed = None
 
                 if pred["run_parser_valid"]:
-                    total_err = abs(pred["pred_total_runs"] - actual_total)
-                    total_sq = (pred["pred_total_runs"] - actual_total) ** 2
-                    home_err = abs(pred["pred_home_runs"] - actual_home)
-                    away_err = abs(pred["pred_away_runs"] - actual_away)
-                    diff_err = abs(pred["pred_run_diff"] - actual_diff)
+                    total_signed = pred["pred_total_runs"] - actual_total
+                    total_err = abs(total_signed)
+
+                    home_signed = pred["pred_home_runs"] - actual_home
+                    home_err = abs(home_signed)
+
+                    away_signed = pred["pred_away_runs"] - actual_away
+                    away_err = abs(away_signed)
+
+                    diff_signed = pred["pred_run_diff"] - actual_diff
+                    diff_err = abs(diff_signed)
 
                     total_errors.append(total_err)
-                    total_sq_errors.append(total_sq)
+                    total_signed_errors.append(total_signed)
+
                     home_errors.append(home_err)
+                    home_signed_errors.append(home_signed)
+
                     away_errors.append(away_err)
+                    away_signed_errors.append(away_signed)
+
                     diff_errors.append(diff_err)
+                    diff_signed_errors.append(diff_signed)
 
                     predicted_totals.append(pred["pred_total_runs"])
                     actual_totals.append(actual_total)
@@ -491,7 +527,16 @@ def main() -> None:
             avg_brier = safe_mean(briers)
             avg_log = safe_mean(log_losses)
             total_mae = safe_mean(total_errors)
-            total_rmse = safe_rmse(total_sq_errors)
+            total_rmse = safe_rmse(total_signed_errors)
+
+            total_mse = safe_mse(total_signed_errors)
+            home_mse = safe_mse(home_signed_errors)
+            away_mse = safe_mse(away_signed_errors)
+            diff_mse = safe_mse(diff_signed_errors)
+
+            home_rmse = safe_rmse(home_signed_errors)
+            away_rmse = safe_rmse(away_signed_errors)
+            diff_rmse = safe_rmse(diff_signed_errors)
 
             combined_score = None
             if total_mae is not None and total_rmse is not None:
@@ -516,6 +561,15 @@ def main() -> None:
                     "home_run_mae": round(safe_mean(home_errors), 6) if home_errors else None,
                     "away_run_mae": round(safe_mean(away_errors), 6) if away_errors else None,
                     "run_differential_mae": round(safe_mean(diff_errors), 6) if diff_errors else None,
+
+                    "home_run_rmse": round(home_rmse, 6) if home_rmse is not None else None,
+                    "away_run_rmse": round(away_rmse, 6) if away_rmse is not None else None,
+                    "run_differential_rmse": round(diff_rmse, 6) if diff_rmse is not None else None,
+
+                    "total_run_mse": round(total_mse, 6) if total_mse is not None else None,
+                    "home_run_mse": round(home_mse, 6) if home_mse is not None else None,
+                    "away_run_mse": round(away_mse, 6) if away_mse is not None else None,
+                    "run_differential_mse": round(diff_mse, 6) if diff_mse is not None else None,
                     "average_predicted_total": round(safe_mean(predicted_totals), 6) if predicted_totals else None,
                     "average_actual_total": round(safe_mean(actual_totals), 6) if actual_totals else None,
                     "predicted_total_bias": round(safe_mean(predicted_totals) - safe_mean(actual_totals), 6)
@@ -537,12 +591,28 @@ def main() -> None:
         key=lambda row: row["combined_score"],
     )
 
-    if run_parser_missing_count > 0:
+    suspicious_rmse = False
+
+    for row in config_rows:
+
+        mae = row.get("total_run_mae")
+        rmse = row.get("total_run_rmse")
+
+        if (
+            mae is not None
+            and rmse is not None
+            and rmse > (mae * 3.0)
+        ):
+            suspicious_rmse = True
+
+    if suspicious_rmse:
+        diagnosis = "rmse_inflation_detected"
+    elif run_parser_missing_count > 0:
         diagnosis = "expected_run_parser_paths_missing"
     elif win_parser_missing_count > 0:
         diagnosis = "run_calibration_ready_win_parser_missing"
     else:
-        diagnosis = "true_calibration_grid_ready_for_full_run"
+        diagnosis = "rmse_verified"
 
     payload = {
         "diagnosis": diagnosis,
