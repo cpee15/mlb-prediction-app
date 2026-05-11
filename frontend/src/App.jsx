@@ -93,7 +93,7 @@ export default function App() {
         <NavLink to="/batter" style={link}>Batter</NavLink>
         <NavLink to="/team" style={link}>Team</NavLink>
         <NavLink to="/calendar" style={link}>Calendar</NavLink>
-        <NavLink to="/ai" style={link}>AI</NavLink>
+        <NavLink to="/ai-data-assistant" style={link}>AI Data Assistant</NavLink>
         <NavLink to="/live" style={link}>Live</NavLink>
       </nav>
       <main style={styles.main}>
@@ -114,6 +114,7 @@ export default function App() {
           <Route path="/team/:id" element={<TeamPage />} />
           <Route path="/calendar" element={<YesterdayTodayPage />} />
           <Route path="/ai" element={<AIPage />} />
+          <Route path="/ai-data-assistant" element={<AIPage />} />
           <Route path="/live" element={<LiveScoreboardPage />} />
           <Route path="/live/:game_pk" element={<LiveGamePageRestored />} />
         </Routes>
