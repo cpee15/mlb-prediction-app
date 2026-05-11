@@ -82,6 +82,14 @@ def _format_batter_features(session: Session, batter_id: int) -> Dict[str, Optio
     }
 
 
+def _pitcher_status(pitcher_id: Optional[int]) -> str:
+    return "probable" if pitcher_id else "missing"
+
+
+def _pitcher_source(pitcher_id: Optional[int]) -> Optional[str]:
+    return "mlb_stats_probablePitcher" if pitcher_id else None
+
+
 def _with_lineup_fallback_diagnostics(
     offense_inputs: Dict,
     diagnostics: Optional[Dict],
@@ -240,6 +248,10 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
             "away_pitcher_id": away_pitcher_id,
             "home_pitcher_name": game.get("home", {}).get("probablePitcher", {}).get("fullName"),
             "away_pitcher_name": game.get("away", {}).get("probablePitcher", {}).get("fullName"),
+            "home_pitcher_status": _pitcher_status(home_pitcher_id),
+            "away_pitcher_status": _pitcher_status(away_pitcher_id),
+            "home_pitcher_source": _pitcher_source(home_pitcher_id),
+            "away_pitcher_source": _pitcher_source(away_pitcher_id),
             "home_win_prob": None,
             "away_win_prob": None,
             "home_pitcher_features": {},
