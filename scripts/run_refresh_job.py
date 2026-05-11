@@ -66,28 +66,64 @@ def _request_json(url: str, method: str = "GET") -> dict | list | str | None:
             return body
 
 
+def _has_pitcher(game: dict, side: str) -> bool:
+    """Return true when a matchup payload includes a usable pitcher for the side."""
+    return bool(
+        game.get(f"{side}_pitcher_id")
+        or game.get(f"{side}_pitcher_name")
+        or game.get(f"{side}_probable_pitcher_id")
+        or game.get(f"{side}_probable_pitcher_name")
+    )
+
+
+def _missing_pitcher_summary(game: dict) -> dict:
+    return {
+        "game_pk": game.get("game_pk"),
+        "away_team": game.get("away_team_name"),
+        "home_team": game.get("home_team_name"),
+        "away_pitcher_id": game.get("away_pitcher_id"),
+        "away_pitcher_name": game.get("away_pitcher_name"),
+        "away_pitcher_status": game.get("away_pitcher_status"),
+        "home_pitcher_id": game.get("home_pitcher_id"),
+        "home_pitcher_name": game.get("home_pitcher_name"),
+        "home_pitcher_status": game.get("home_pitcher_status"),
+    }
+
+
 def _refresh_matchups_for_date(label: str, base_url: str, target_date: dt.date) -> None:
     query = urllib.parse.urlencode({"date": target_date.isoformat()})
     url = f"{base_url}/matchups?{query}"
     _log(f"[{label}] Refreshing live matchup payload for {target_date.isoformat()} via {url}")
     result = _request_json(url, method="GET")
     if isinstance(result, list):
-        projected_counts = {
+        pitcher_counts = {
             "home": sum(
                 1
                 for game in result
-                if isinstance(game, dict) and game.get("home_lineup_source") == "projected"
+                if isinstance(game, dict) and _has_pitcher(game, "home")
             ),
             "away": sum(
                 1
                 for game in result
-                if isinstance(game, dict) and game.get("away_lineup_source") == "projected"
+                if isinstance(game, dict) and _has_pitcher(game, "away")
             ),
         }
+        missing_pitchers = [
+            _missing_pitcher_summary(game)
+            for game in result
+            if isinstance(game, dict)
+            and (not _has_pitcher(game, "home") or not _has_pitcher(game, "away"))
+        ]
         _log(
             f"[{label}] Live matchup refresh result for {target_date.isoformat()}: "
-            f"{len(result)} games, projected counts={projected_counts}"
+            f"{len(result)} games, pitcher counts={pitcher_counts}, "
+            f"missing_pitcher_games={len(missing_pitchers)}"
         )
+        if missing_pitchers:
+            _log(
+                f"[{label}] Missing pitcher detail for {target_date.isoformat()}: "
+                f"{missing_pitchers}"
+            )
     else:
         _log(f"[{label}] Live matchup refresh response for {target_date.isoformat()}: {result}")
 
