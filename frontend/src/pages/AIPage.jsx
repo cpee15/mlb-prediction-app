@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
-
-const API = import.meta.env.VITE_API_BASE_URL || ''
+import { API_BASE, getMlbLiveDate } from '../lib/api'
 
 const PROMPT_CHIPS = [
   "Summarize today's slate",
@@ -16,7 +15,7 @@ const PROMPT_CHIPS = [
 ]
 
 export default function AIPage() {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getMlbLiveDate()
   const [message, setMessage] = useState("Summarize today's slate")
   const [date, setDate] = useState(today)
   const [gamePk, setGamePk] = useState('')
@@ -37,7 +36,7 @@ export default function AIPage() {
         player_id: playerId ? Number(playerId) : null,
       }
 
-      const res = await fetch(`${API}/ai-data-assistant`, {
+      const res = await fetch(`${API_BASE}/ai-data-assistant`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
