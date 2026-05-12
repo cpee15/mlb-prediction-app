@@ -9,6 +9,7 @@ Default fast mode:
 - runs the hittingMatchups refresh so batter_pitch_type_matchups / Stored 365 rows are populated
 - refreshes live matchup payloads for today and tomorrow
 - warms matchup snapshots for today and tomorrow
+- clears process-local AI Data Assistant caches on each refreshed API target
 
 Optional heavy recovery mode:
 - set RUN_STATCAST_ETL=1 to run Statcast ETL/backfill
@@ -38,6 +39,7 @@ REQUEST_TIMEOUT_SECONDS = int(os.environ.get("REFRESH_TIMEOUT_SECONDS", "60"))
 RUN_FAST_MATCHUP_REFRESH = os.environ.get("RUN_FAST_MATCHUP_REFRESH", "1") == "1"
 WARM_SNAPSHOTS = os.environ.get("WARM_MATCHUP_SNAPSHOTS", "1") == "1"
 REFRESH_MATCHUPS_FIRST = os.environ.get("REFRESH_MATCHUPS_FIRST", "1") == "1"
+CLEAR_AI_CACHE_AFTER_REFRESH = os.environ.get("CLEAR_AI_CACHE_AFTER_REFRESH", "1") == "1"
 RUN_STATCAST_ETL = os.environ.get("RUN_STATCAST_ETL", "0") == "1"
 RUN_HITTER_STATCAST_BACKFILL = os.environ.get("RUN_HITTER_STATCAST_BACKFILL", "0") == "1"
 RUN_HITTING_MATCHUPS_REFRESH = os.environ.get("RUN_HITTING_MATCHUPS_REFRESH", "1") == "1"
@@ -133,6 +135,25 @@ def _warm_snapshot_for_date(label: str, base_url: str, target_date: dt.date) -> 
     _log(f"[{label}] Warming matchup snapshot for {target_date.isoformat()} via {url}")
     result = _request_json(url, method="POST")
     _log(f"[{label}] Snapshot response for {target_date.isoformat()}: {result}")
+
+
+def _clear_ai_data_assistant_cache(label: str, base_url: str) -> None:
+    """Best-effort cache clear for process-local AI/model projection caches.
+
+    This intentionally never raises. A cache clear failure should not turn an
+    otherwise successful refresh into a failed Railway cron run.
+    """
+    if not CLEAR_AI_CACHE_AFTER_REFRESH:
+        _log(f"[{label}] Skipping AI Data Assistant cache clear because CLEAR_AI_CACHE_AFTER_REFRESH=0")
+        return
+
+    url = f"{base_url}/ai-data-assistant/cache/clear"
+    try:
+        _log(f"[{label}] Clearing AI Data Assistant cache via {url}")
+        result = _request_json(url, method="POST")
+        _log(f"[{label}] AI Data Assistant cache clear response: {result}")
+    except Exception as exc:
+        _log(f"[{label}] AI Data Assistant cache clear failed but refresh will continue: {exc}")
 
 
 def _run_statcast_etl_refresh() -> None:
@@ -241,6 +262,8 @@ def _run_target(label: str, base_url: str) -> None:
         if WARM_SNAPSHOTS:
             _warm_snapshot_for_date(label, base_url, target_date)
 
+    _clear_ai_data_assistant_cache(label, base_url)
+
 
 def _run_fast_matchup_refresh() -> None:
     if not RUN_FAST_MATCHUP_REFRESH:
@@ -289,7 +312,8 @@ def main() -> int:
         f"run_statcast_etl={int(RUN_STATCAST_ETL)}, "
         f"etl_backfill_days={REFRESH_ETL_BACKFILL_DAYS}, "
         f"run_hitter_statcast_backfill={int(RUN_HITTER_STATCAST_BACKFILL)}, "
-        f"run_hitting_matchups_refresh={int(RUN_HITTING_MATCHUPS_REFRESH)}"
+        f"run_hitting_matchups_refresh={int(RUN_HITTING_MATCHUPS_REFRESH)}, "
+        f"clear_ai_cache_after_refresh={int(CLEAR_AI_CACHE_AFTER_REFRESH)}"
     )
 
     try:
