@@ -103,11 +103,29 @@ def simulate_half_inning(
     probabilities: Dict[str, float],
     rng: Optional[random.Random] = None,
     max_plate_appearances: int = 30,
+    initial_bases: Tuple[bool, bool, bool] = (False, False, False),
+    initial_outs: int = 0,
 ) -> Dict[str, Any]:
     rng = rng or random.Random()
-    outs = 0
+
+    bases = tuple(bool(x) for x in initial_bases)
+
+    if len(bases) != 3:
+        raise ValueError(
+            "initial_bases must contain exactly three booleans"
+        )
+
+    outs = int(initial_outs)
+
+    if outs < 0 or outs > 2:
+        raise ValueError(
+            "initial_outs must be 0, 1, or 2"
+        )
+
+    starting_bases = bases
+    starting_outs = outs
+
     runs = 0
-    bases = (False, False, False)
     pa_count = 0
     outcomes = []
 
@@ -128,6 +146,10 @@ def simulate_half_inning(
         "plate_appearances": pa_count,
         "outcomes": outcomes,
         "ended_by_max_pa": outs < 3,
+        "initial_bases": starting_bases,
+        "initial_outs": starting_outs,
+        "ending_bases": bases,
+        "ending_outs": outs,
     }
 
 
