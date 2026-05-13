@@ -24,104 +24,64 @@ const RollingBatterPage = ENABLE_BATTER_PAGE ? React.lazy(() => import('./pages/
 
 function BatterTemporarilyUnavailable() {
   return (
-    <div style={{
-      background: '#161b22',
-      border: '1px solid #30363d',
-      borderRadius: '10px',
-      padding: '24px',
-      color: '#e6edf3',
-    }}>
-      <h1 style={{ marginTop: 0, fontSize: '22px' }}>Batter page temporarily disabled</h1>
-      <p style={{ color: '#8b949e', lineHeight: 1.5 }}>
-        The Batter dashboard is temporarily unavailable while the backend leaderboard endpoint is being stabilised.
-        Matchups, pitchers, teams, odds, live scores, and the rest of the app remain available.
+    <section className="state-panel">
+      <div className="status-badge warning" style={{ marginBottom: 12 }}>Temporarily Disabled</div>
+      <h1 className="page-title" style={{ fontSize: 24 }}>Batter dashboard validation in progress</h1>
+      <p className="page-subtitle" style={{ margin: '10px auto 0' }}>
+        The Batter dashboard is temporarily unavailable while the backend leaderboard endpoint is validated for production stability. Matchups, pitchers, teams, odds, live scores, and model projections remain available.
       </p>
-    </div>
+    </section>
   )
 }
 
-const styles = {
-  nav: {
-    background: '#161b22',
-    borderBottom: '1px solid #30363d',
-    padding: '0 24px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '28px',
-    minHeight: '56px',
-    flexWrap: 'wrap',
-  },
-  brand: {
-    fontSize: '18px',
-    fontWeight: '700',
-    color: '#58a6ff',
-    textDecoration: 'none',
-    letterSpacing: '-0.5px',
-    marginRight: '4px',
-  },
-  link: {
-    color: '#8b949e',
-    textDecoration: 'none',
-    fontSize: '14px',
-    fontWeight: '500',
-    padding: '4px 0',
-    borderBottom: '2px solid transparent',
-    transition: 'color 0.15s, border-color 0.15s',
-  },
-  activeLink: {
-    color: '#e6edf3',
-    borderBottomColor: '#58a6ff',
-  },
-  main: {
-    maxWidth: '1200px',
-    margin: '0 auto',
-    padding: '32px 24px',
-  },
-}
-
-const link = ({ isActive }) => ({ ...styles.link, ...(isActive ? styles.activeLink : {}) })
+const navLinkClass = ({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`
 
 export default function App() {
   return (
     <BrowserRouter>
-      <nav style={styles.nav}>
-        <NavLink to="/" style={styles.brand}>⚾ MLB Predict</NavLink>
-        <NavLink to="/" end style={link}>Matchups</NavLink>
-        <NavLink to="/daily-odds" style={link}>Daily Odds</NavLink>
-        <NavLink to="/models/projections" style={link}>Model Projections</NavLink>
-        <NavLink to="/my-dashboard" style={link}>My Dashboard</NavLink>
-        <NavLink to="/standings" style={link}>Standings</NavLink>
-        <NavLink to="/pitcher" style={link}>Pitcher</NavLink>
-        <NavLink to="/batter" style={link}>Batter</NavLink>
-        <NavLink to="/team" style={link}>Team</NavLink>
-        <NavLink to="/calendar" style={link}>Calendar</NavLink>
-        <NavLink to="/ai-data-assistant" style={link}>AI Data Assistant</NavLink>
-        <NavLink to="/live" style={link}>Live</NavLink>
-      </nav>
-      <main style={styles.main}>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/daily-odds" element={<DailyOddsPage />} />
-          <Route path="/models/projections" element={<ModelProjectionsPage />} />
-          <Route path="/my-dashboard" element={<MyDashboardPage />} />
-          <Route path="/matchup/:game_pk" element={<MatchupDetailPage />} />
-          <Route path="/matchup/:game_pk/competitive" element={<CompetitiveAnalysisPage />} />
-          <Route path="/standings" element={<StandingsPage />} />
-          <Route path="/pitcher" element={<PitcherPage />} />
-          <Route path="/pitcher/:id" element={<PitcherPage />} />
-          <Route path="/pitcher/:id/rolling" element={<RollingPitcherPage />} />
-          <Route path="/batter" element={ENABLE_BATTER_PAGE ? <React.Suspense fallback={null}><BatterPage /></React.Suspense> : <BatterTemporarilyUnavailable />} />
-          <Route path="/batter/:id" element={ENABLE_BATTER_PAGE ? <React.Suspense fallback={null}><BatterPage /></React.Suspense> : <BatterTemporarilyUnavailable />} />
-          <Route path="/batter/:id/rolling" element={ENABLE_BATTER_PAGE ? <React.Suspense fallback={null}><RollingBatterPage /></React.Suspense> : <BatterTemporarilyUnavailable />} />
-          <Route path="/team" element={<TeamPage />} />
-          <Route path="/team/:id" element={<TeamPage />} />
-          <Route path="/calendar" element={<YesterdayTodayPage />} />
-          <Route path="/ai" element={<AIPage />} />
-          <Route path="/ai-data-assistant" element={<AIPage />} />
-          <Route path="/live" element={<LiveScoreboardPage />} />
-          <Route path="/live/:game_pk" element={<LiveGamePageRestored />} />
-        </Routes>
-      </main>
+      <div className="app-shell">
+        <nav className="app-nav" aria-label="Primary navigation">
+          <NavLink to="/" className="app-brand">
+            <span className="app-brand-mark">◆</span>
+            <span>MLB Prediction Engine</span>
+          </NavLink>
+          <NavLink to="/" end className={navLinkClass}>Matchups</NavLink>
+          <NavLink to="/daily-odds" className={navLinkClass}>Daily Odds</NavLink>
+          <NavLink to="/models/projections" className={navLinkClass}>Model Projections</NavLink>
+          <NavLink to="/my-dashboard" className={navLinkClass}>My Dashboard</NavLink>
+          <NavLink to="/standings" className={navLinkClass}>Standings</NavLink>
+          <NavLink to="/pitcher" className={navLinkClass}>Pitcher</NavLink>
+          <NavLink to="/batter" className={navLinkClass}>Batter</NavLink>
+          <NavLink to="/team" className={navLinkClass}>Team</NavLink>
+          <NavLink to="/calendar" className={navLinkClass}>Calendar</NavLink>
+          <NavLink to="/ai-data-assistant" className={navLinkClass}>AI Data Assistant</NavLink>
+          <NavLink to="/live" className={navLinkClass}>Live</NavLink>
+        </nav>
+        <main className="app-main">
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/daily-odds" element={<DailyOddsPage />} />
+            <Route path="/models/projections" element={<ModelProjectionsPage />} />
+            <Route path="/my-dashboard" element={<MyDashboardPage />} />
+            <Route path="/matchup/:game_pk" element={<MatchupDetailPage />} />
+            <Route path="/matchup/:game_pk/competitive" element={<CompetitiveAnalysisPage />} />
+            <Route path="/standings" element={<StandingsPage />} />
+            <Route path="/pitcher" element={<PitcherPage />} />
+            <Route path="/pitcher/:id" element={<PitcherPage />} />
+            <Route path="/pitcher/:id/rolling" element={<RollingPitcherPage />} />
+            <Route path="/batter" element={ENABLE_BATTER_PAGE ? <React.Suspense fallback={null}><BatterPage /></React.Suspense> : <BatterTemporarilyUnavailable />} />
+            <Route path="/batter/:id" element={ENABLE_BATTER_PAGE ? <React.Suspense fallback={null}><BatterPage /></React.Suspense> : <BatterTemporarilyUnavailable />} />
+            <Route path="/batter/:id/rolling" element={ENABLE_BATTER_PAGE ? <React.Suspense fallback={null}><RollingBatterPage /></React.Suspense> : <BatterTemporarilyUnavailable />} />
+            <Route path="/team" element={<TeamPage />} />
+            <Route path="/team/:id" element={<TeamPage />} />
+            <Route path="/calendar" element={<YesterdayTodayPage />} />
+            <Route path="/ai" element={<AIPage />} />
+            <Route path="/ai-data-assistant" element={<AIPage />} />
+            <Route path="/live" element={<LiveScoreboardPage />} />
+            <Route path="/live/:game_pk" element={<LiveGamePageRestored />} />
+          </Routes>
+        </main>
+      </div>
     </BrowserRouter>
   )
 }
