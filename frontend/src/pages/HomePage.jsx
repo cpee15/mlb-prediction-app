@@ -4,34 +4,57 @@ import { API_BASE, getMlbLiveDate } from '../lib/api'
 
 const API = API_BASE
 
+function useIsMobile(breakpoint = 768) {
+  const getMatches = () => (typeof window !== 'undefined' ? window.innerWidth <= breakpoint : false)
+  const [isMobile, setIsMobile] = useState(getMatches)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const onResize = () => setIsMobile(getMatches())
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [breakpoint])
+
+  return isMobile
+}
+
 const s = {
-  matchupGrid: { display: 'grid', gap: '16px' },
-  card: { cursor: 'pointer' },
-  slateMeta: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12, flexWrap: 'wrap' },
-  venue: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', color: 'var(--text-muted)', fontSize: 12 },
-  matchupRow: { display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'stretch', gap: 16 },
-  teamPanel: { border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 14, background: 'rgba(7, 11, 18, 0.34)' },
+  matchupGrid: { display: 'grid', gap: '16px', minWidth: 0 },
+  card: { cursor: 'pointer', minWidth: 0 },
+  slateMeta: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12, flexWrap: 'wrap', minWidth: 0 },
+  slateMetaMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  venue: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', color: 'var(--text-muted)', fontSize: 12, minWidth: 0, overflowWrap: 'anywhere' },
+  matchupRow: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)', alignItems: 'stretch', gap: 16, minWidth: 0 },
+  matchupRowMobile: { gridTemplateColumns: '1fr', gap: 10 },
+  teamPanel: { border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 14, background: 'rgba(7, 11, 18, 0.34)', minWidth: 0 },
+  teamPanelMobile: { textAlign: 'left' },
   teamPanelRight: { textAlign: 'right' },
-  teamName: { fontSize: 18, fontWeight: 850, color: 'var(--text-primary)', letterSpacing: '-0.03em' },
-  record: { fontSize: 12, color: 'var(--text-muted)', marginTop: 2 },
-  pitcher: { fontSize: 13, color: 'var(--accent)', marginTop: 10, minHeight: 20 },
-  prob: { fontSize: 30, fontWeight: 900, letterSpacing: '-0.06em', marginTop: 12 },
-  vs: { display: 'grid', placeItems: 'center', color: 'var(--text-muted)', fontWeight: 900, letterSpacing: '0.18em', fontSize: 12 },
-  oddsBox: { marginTop: 16, padding: 14, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', background: 'rgba(7, 11, 18, 0.46)' },
-  oddsHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 },
-  oddsTitle: { color: 'var(--text-primary)', fontSize: 13, fontWeight: 850, letterSpacing: '0.02em' },
-  oddsSubtle: { color: 'var(--text-muted)', fontSize: 12 },
-  oddsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 },
-  marketCard: { border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: 10, background: 'rgba(17, 24, 39, 0.76)' },
-  marketLabel: { color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 7, fontWeight: 850 },
-  oddsLine: { display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 },
-  propButton: { marginTop: 12, padding: '8px 11px', fontSize: 12, fontWeight: 800 },
-  propsPanel: { marginTop: 12, borderTop: '1px solid var(--border-subtle)', paddingTop: 12 },
-  propsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 },
-  propCard: { border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: 10, background: 'rgba(17, 24, 39, 0.78)' },
-  propMarket: { color: 'var(--warning)', fontSize: 11, fontWeight: 850, marginBottom: 5 },
-  propName: { color: 'var(--text-primary)', fontSize: 12, fontWeight: 800 },
-  propDetails: { color: 'var(--text-muted)', fontSize: 12, marginTop: 3 },
+  teamName: { fontSize: 18, fontWeight: 850, color: 'var(--text-primary)', letterSpacing: '-0.03em', minWidth: 0, overflowWrap: 'anywhere', lineHeight: 1.16 },
+  record: { fontSize: 12, color: 'var(--text-muted)', marginTop: 2, overflowWrap: 'anywhere' },
+  pitcher: { fontSize: 13, color: 'var(--accent)', marginTop: 10, minHeight: 20, minWidth: 0, overflowWrap: 'anywhere' },
+  prob: { fontSize: 30, fontWeight: 900, letterSpacing: '-0.06em', marginTop: 12, overflowWrap: 'anywhere' },
+  vs: { display: 'grid', placeItems: 'center', color: 'var(--text-muted)', fontWeight: 900, letterSpacing: '0.18em', fontSize: 12, minWidth: 0 },
+  vsMobile: { placeItems: 'start', padding: '0 2px', letterSpacing: '0.08em' },
+  oddsBox: { marginTop: 16, padding: 14, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', background: 'rgba(7, 11, 18, 0.46)', minWidth: 0 },
+  oddsHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12, minWidth: 0 },
+  oddsHeaderMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  oddsTitle: { color: 'var(--text-primary)', fontSize: 13, fontWeight: 850, letterSpacing: '0.02em', overflowWrap: 'anywhere' },
+  oddsSubtle: { color: 'var(--text-muted)', fontSize: 12, overflowWrap: 'anywhere' },
+  oddsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, minWidth: 0 },
+  oddsGridMobile: { gridTemplateColumns: '1fr' },
+  marketCard: { border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: 10, background: 'rgba(17, 24, 39, 0.76)', minWidth: 0 },
+  marketLabel: { color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 7, fontWeight: 850, overflowWrap: 'anywhere' },
+  oddsLine: { display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, minWidth: 0, overflowWrap: 'anywhere' },
+  oddsLineText: { minWidth: 0, overflowWrap: 'anywhere', whiteSpace: 'normal' },
+  oddsPrice: { color: 'var(--text-primary)', whiteSpace: 'nowrap' },
+  propButton: { marginTop: 12, padding: '8px 11px', fontSize: 12, fontWeight: 800, maxWidth: '100%' },
+  propsPanel: { marginTop: 12, borderTop: '1px solid var(--border-subtle)', paddingTop: 12, minWidth: 0 },
+  propsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, minWidth: 0 },
+  propsGridMobile: { gridTemplateColumns: '1fr' },
+  propCard: { border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: 10, background: 'rgba(17, 24, 39, 0.78)', minWidth: 0 },
+  propMarket: { color: 'var(--warning)', fontSize: 11, fontWeight: 850, marginBottom: 5, overflowWrap: 'anywhere' },
+  propName: { color: 'var(--text-primary)', fontSize: 12, fontWeight: 800, overflowWrap: 'anywhere' },
+  propDetails: { color: 'var(--text-muted)', fontSize: 12, marginTop: 3, overflowWrap: 'anywhere' },
 }
 
 function probColor(p) {
@@ -101,7 +124,7 @@ function OddsMarket({ label, market }) {
     return (
       <div style={s.marketCard}>
         <div style={s.marketLabel}>{label}</div>
-        <div style={s.oddsLine}><span>Unavailable</span><span>—</span></div>
+        <div style={s.oddsLine}><span style={s.oddsLineText}>Unavailable</span><span>—</span></div>
       </div>
     )
   }
@@ -110,15 +133,15 @@ function OddsMarket({ label, market }) {
       <div style={s.marketLabel}>{label}</div>
       {selections.slice(0, 2).map((sel, idx) => (
         <div key={`${label}-${idx}`} style={s.oddsLine}>
-          <span>{sel.name || sel.description || 'Unavailable'}{sel.line != null ? ` ${sel.line}` : ''}</span>
-          <strong style={{ color: 'var(--text-primary)' }}>{american(sel.price)}</strong>
+          <span style={s.oddsLineText}>{sel.name || sel.description || 'Unavailable'}{sel.line != null ? ` ${sel.line}` : ''}</span>
+          <strong style={s.oddsPrice}>{american(sel.price)}</strong>
         </div>
       ))}
     </div>
   )
 }
 
-function PropPreview({ eventId }) {
+function PropPreview({ eventId, isMobile }) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [propsData, setPropsData] = useState(null)
@@ -150,7 +173,7 @@ function PropPreview({ eventId }) {
 
   return (
     <div onClick={e => e.stopPropagation()}>
-      <button type="button" style={s.propButton} onClick={toggle}>
+      <button type="button" style={{ ...s.propButton, ...(isMobile ? { width: '100%' } : {}) }} onClick={toggle}>
         {open ? 'Hide Player Props' : 'Show Player Props'}
       </button>
       {open && (
@@ -160,7 +183,7 @@ function PropPreview({ eventId }) {
           {!loading && !error && propsData && cards.length === 0 && (
             <div style={s.oddsSubtle}>No player props returned for this event.</div>
           )}
-          <div style={s.propsGrid}>
+          <div style={{ ...s.propsGrid, ...(isMobile ? s.propsGridMobile : {}) }}>
             {cards.map(({ market, sel }, idx) => (
               <div key={`${market.market_key}-${sel.description}-${sel.name}-${idx}`} style={s.propCard}>
                 <div style={s.propMarket}>{String(market.market_name || market.market_key || '').replaceAll('_', ' ')}</div>
@@ -175,26 +198,26 @@ function PropPreview({ eventId }) {
   )
 }
 
-function OddsSnapshot({ event }) {
+function OddsSnapshot({ event, isMobile }) {
   if (!event) return null
   const moneyline = findMarket(event, 'h2h')
   const spread = findMarket(event, 'spreads')
   const total = findMarket(event, 'totals')
   return (
     <div style={s.oddsBox} onClick={e => e.stopPropagation()}>
-      <div style={s.oddsHeader}>
-        <div>
+      <div style={{ ...s.oddsHeader, ...(isMobile ? s.oddsHeaderMobile : {}) }}>
+        <div style={{ minWidth: 0 }}>
           <div style={s.oddsTitle}>DraftKings Market Snapshot</div>
           <div style={s.oddsSubtle}>Moneyline, run line, totals, and available props</div>
         </div>
         <div className="status-badge">Market Context</div>
       </div>
-      <div style={s.oddsGrid}>
+      <div style={{ ...s.oddsGrid, ...(isMobile ? s.oddsGridMobile : {}) }}>
         <OddsMarket label="Moneyline" market={moneyline} />
         <OddsMarket label="Run Line" market={spread} />
         <OddsMarket label="Total" market={total} />
       </div>
-      {event.event_id && <PropPreview eventId={event.event_id} />}
+      {event.event_id && <PropPreview eventId={event.event_id} isMobile={isMobile} />}
     </div>
   )
 }
@@ -203,12 +226,12 @@ function ProbBar({ homeProb, awayProb }) {
   const hp = homeProb != null ? Math.round(homeProb * 100) : 50
   const ap = awayProb != null ? Math.round(awayProb * 100) : 100 - hp
   return (
-    <div style={{ marginTop: 14 }}>
+    <div style={{ marginTop: 14, minWidth: 0 }}>
       <div style={{ display: 'flex', height: 6, borderRadius: 999, overflow: 'hidden', background: 'rgba(148, 163, 184, 0.14)' }}>
         <div style={{ width: `${ap}%`, background: 'linear-gradient(90deg, #5aa7ff, #7bbcff)', transition: 'width 0.4s' }} />
         <div style={{ width: `${hp}%`, background: 'linear-gradient(90deg, #41d695, #8ee8bd)', transition: 'width 0.4s' }} />
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginTop: 5 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, color: 'var(--text-muted)', marginTop: 5, flexWrap: 'wrap' }}>
         <span>{awayProb != null ? `${ap}% away` : 'Away pending'}</span>
         <span>{homeProb != null ? `${hp}% home` : 'Home pending'}</span>
       </div>
@@ -224,6 +247,7 @@ function statusClass(status) {
 }
 
 export default function HomePage() {
+  const isMobile = useIsMobile()
   const today = getMlbLiveDate()
   const [date, setDate] = useState(today)
   const [matchups, setMatchups] = useState([])
@@ -291,14 +315,22 @@ export default function HomePage() {
       <div style={s.matchupGrid}>
         {matchups.map((m, i) => {
           const oddsEvent = oddsByMatchup.get(keyFromMatchup(m))
+          const awayPanelStyle = {
+            ...s.teamPanel,
+            ...(isMobile ? s.teamPanelMobile : {}),
+          }
+          const homePanelStyle = {
+            ...s.teamPanel,
+            ...(!isMobile ? s.teamPanelRight : s.teamPanelMobile),
+          }
           return (
             <article
               key={m.game_pk || i}
-              className="pro-card pro-card-hover card-pad"
+              className="pro-card pro-card-hover card-pad responsive-matchup-card"
               style={s.card}
               onClick={() => m.game_pk && navigate(`/matchup/${m.game_pk}`)}
             >
-              <div style={s.slateMeta}>
+              <div style={{ ...s.slateMeta, ...(isMobile ? s.slateMetaMobile : {}) }}>
                 <div style={s.venue}>
                   <span>{m.venue || 'Venue pending'}</span>
                   {m.game_time && <span>· {formatTime(m.game_time)}</span>}
@@ -307,13 +339,13 @@ export default function HomePage() {
                 {m.status && <span className={`status-badge ${statusClass(m.status)}`}>{m.status}</span>}
               </div>
 
-              <div style={s.matchupRow}>
-                <div style={s.teamPanel}>
+              <div style={{ ...s.matchupRow, ...(isMobile ? s.matchupRowMobile : {}) }}>
+                <div style={awayPanelStyle}>
                   <div style={s.teamName}>{m.away_team_name || `Team ${m.away_team_id}`}</div>
                   <div style={s.record}>{m.away_team_record || 'Record pending'}</div>
                   <div style={s.pitcher}>
                     {m.away_pitcher_name
-                      ? <Link to={`/pitcher/${m.away_pitcher_id}`} onClick={e => e.stopPropagation()} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 750 }}>
+                      ? <Link to={`/pitcher/${m.away_pitcher_id}`} onClick={e => e.stopPropagation()} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 750, overflowWrap: 'anywhere' }}>
                           {m.away_pitcher_name}
                         </Link>
                       : <span className="status-badge warning">Pitcher Pending</span>}
@@ -323,26 +355,26 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                <div style={s.vs}>AT</div>
+                <div style={{ ...s.vs, ...(isMobile ? s.vsMobile : {}) }}>{isMobile ? 'AT' : 'AT'}</div>
 
-                <div style={{ ...s.teamPanel, ...s.teamPanelRight }}>
+                <div style={homePanelStyle}>
                   <div style={s.teamName}>{m.home_team_name || `Team ${m.home_team_id}`}</div>
                   <div style={s.record}>{m.home_team_record || 'Record pending'}</div>
-                  <div style={{ ...s.pitcher, textAlign: 'right' }}>
+                  <div style={{ ...s.pitcher, textAlign: isMobile ? 'left' : 'right' }}>
                     {m.home_pitcher_name
-                      ? <Link to={`/pitcher/${m.home_pitcher_id}`} onClick={e => e.stopPropagation()} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 750 }}>
+                      ? <Link to={`/pitcher/${m.home_pitcher_id}`} onClick={e => e.stopPropagation()} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 750, overflowWrap: 'anywhere' }}>
                           {m.home_pitcher_name}
                         </Link>
                       : <span className="status-badge warning">Pitcher Pending</span>}
                   </div>
-                  <div style={{ ...s.prob, color: probColor(m.home_win_prob), textAlign: 'right' }}>
+                  <div style={{ ...s.prob, color: probColor(m.home_win_prob), textAlign: isMobile ? 'left' : 'right' }}>
                     {m.home_win_prob != null ? `${Math.round(m.home_win_prob * 100)}%` : 'Pending'}
                   </div>
                 </div>
               </div>
 
               <ProbBar homeProb={m.home_win_prob} awayProb={m.away_win_prob} />
-              <OddsSnapshot event={oddsEvent} />
+              <OddsSnapshot event={oddsEvent} isMobile={isMobile} />
             </article>
           )
         })}
