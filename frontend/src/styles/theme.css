@@ -44,6 +44,11 @@ html, body, #root {
   min-height: 100%;
 }
 
+html, body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -61,10 +66,25 @@ body {
 
 button, input, select, textarea {
   font: inherit;
+  max-width: 100%;
 }
 
 a {
   color: var(--accent);
+}
+
+img, svg, canvas, video {
+  max-width: 100%;
+}
+
+pre, code {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+table {
+  max-width: 100%;
 }
 
 button, .btn {
@@ -96,6 +116,7 @@ input:focus, select:focus, textarea:focus {
 
 .app-shell {
   min-height: 100vh;
+  min-width: 0;
 }
 
 .app-nav {
@@ -111,6 +132,7 @@ input:focus, select:focus, textarea:focus {
   border-bottom: 1px solid var(--border-subtle);
   backdrop-filter: blur(18px);
   box-shadow: var(--shadow-nav);
+  min-width: 0;
 }
 
 .app-brand {
@@ -134,6 +156,7 @@ input:focus, select:focus, textarea:focus {
   background: linear-gradient(135deg, rgba(90, 167, 255, 0.28), rgba(65, 214, 149, 0.16));
   border: 1px solid rgba(90, 167, 255, 0.32);
   color: var(--accent);
+  flex: 0 0 auto;
 }
 
 .app-nav-link {
@@ -171,6 +194,7 @@ input:focus, select:focus, textarea:focus {
   width: min(1280px, calc(100% - 40px));
   margin: 0 auto;
   padding: 34px 0 56px;
+  min-width: 0;
 }
 
 .page-header {
@@ -179,6 +203,7 @@ input:focus, select:focus, textarea:focus {
   justify-content: space-between;
   gap: var(--space-5);
   margin-bottom: var(--space-6);
+  min-width: 0;
 }
 
 .page-kicker {
@@ -196,6 +221,7 @@ input:focus, select:focus, textarea:focus {
   font-size: clamp(26px, 3vw, 38px);
   line-height: 1.05;
   letter-spacing: -0.04em;
+  overflow-wrap: anywhere;
 }
 
 .page-subtitle {
@@ -203,6 +229,7 @@ input:focus, select:focus, textarea:focus {
   margin: 10px 0 0;
   color: var(--text-secondary);
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .control-row {
@@ -210,6 +237,7 @@ input:focus, select:focus, textarea:focus {
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .input-control {
@@ -220,6 +248,7 @@ input:focus, select:focus, textarea:focus {
 .card-grid {
   display: grid;
   gap: var(--space-4);
+  min-width: 0;
 }
 
 .pro-card {
@@ -231,6 +260,14 @@ input:focus, select:focus, textarea:focus {
     linear-gradient(180deg, rgba(22, 31, 48, 0.96), rgba(13, 19, 32, 0.96)),
     var(--bg-card);
   box-shadow: var(--shadow-card);
+  min-width: 0;
+}
+
+.pro-card *,
+.state-panel *,
+.metric-tile *,
+.card-grid * {
+  min-width: 0;
 }
 
 .pro-card::before {
@@ -262,6 +299,7 @@ input:focus, select:focus, textarea:focus {
   justify-content: space-between;
   gap: var(--space-4);
   margin-bottom: var(--space-4);
+  min-width: 0;
 }
 
 .card-title {
@@ -270,11 +308,13 @@ input:focus, select:focus, textarea:focus {
   font-size: 16px;
   font-weight: 800;
   letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
 }
 
 .card-meta {
   color: var(--text-muted);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .status-badge {
@@ -289,7 +329,9 @@ input:focus, select:focus, textarea:focus {
   font-size: 11px;
   font-weight: 750;
   letter-spacing: 0.02em;
-  white-space: nowrap;
+  white-space: normal;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .status-badge.success {
@@ -314,6 +356,7 @@ input:focus, select:focus, textarea:focus {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: var(--space-3);
+  min-width: 0;
 }
 
 .metric-tile {
@@ -321,6 +364,7 @@ input:focus, select:focus, textarea:focus {
   border-radius: var(--radius-md);
   padding: 12px;
   background: rgba(7, 11, 18, 0.42);
+  min-width: 0;
 }
 
 .metric-label {
@@ -330,6 +374,7 @@ input:focus, select:focus, textarea:focus {
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .metric-value {
@@ -337,12 +382,14 @@ input:focus, select:focus, textarea:focus {
   font-size: 22px;
   font-weight: 850;
   letter-spacing: -0.04em;
+  overflow-wrap: anywhere;
 }
 
 .metric-context {
   margin-top: 3px;
   color: var(--text-muted);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .state-panel {
@@ -352,6 +399,8 @@ input:focus, select:focus, textarea:focus {
   background: rgba(13, 19, 32, 0.8);
   color: var(--text-secondary);
   text-align: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .state-panel.error {
@@ -387,5 +436,104 @@ input:focus, select:focus, textarea:focus {
 
   .page-header {
     flex-direction: column;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-main {
+    width: min(100% - 20px, 1280px);
+    padding-top: 18px;
+    padding-bottom: 36px;
+  }
+
+  .app-nav {
+    min-height: auto;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .app-brand {
+    max-width: 210px;
+    white-space: normal;
+    line-height: 1.1;
+  }
+
+  .app-nav-link {
+    padding: 9px 0;
+    font-size: 12px;
+  }
+
+  .page-header,
+  .card-header,
+  .control-row {
+    align-items: stretch;
+  }
+
+  .control-row > *,
+  .page-header input,
+  .page-header select,
+  .page-header button {
+    max-width: 100%;
+  }
+
+  .card-grid,
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card-pad {
+    padding: var(--space-4);
+  }
+
+  .state-panel {
+    padding: 20px;
+  }
+
+  .pro-card-hover:hover {
+    transform: none;
+  }
+
+  .status-badge {
+    justify-content: center;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+    width: 100%;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  th,
+  td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 430px) {
+  .app-main {
+    width: min(100% - 16px, 1280px);
+  }
+
+  .page-title {
+    font-size: clamp(24px, 8vw, 32px);
+  }
+
+  .card-pad {
+    padding: var(--space-3);
+  }
+
+  .metric-value {
+    font-size: 20px;
   }
 }
