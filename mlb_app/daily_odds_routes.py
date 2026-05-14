@@ -10,7 +10,6 @@ from fastapi import APIRouter
 from .daily_odds_models import build_game_models, build_prop_models
 from .database import create_tables, get_engine, get_session
 from .matchup_generator import generate_matchups_for_date
-from .my_dashboard_solver import build_dashboard_solver_payload, projection_payload
 from .odds_provider import fetch_draftkings_event_odds, fetch_draftkings_events
 
 router = APIRouter()
@@ -46,15 +45,6 @@ def _team_name_from_event(event: Dict[str, Any], side: str) -> Optional[str]:
     return team.get("name") if isinstance(team, dict) else team
 
 
-def _build_matchup_index(matchups: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    index: Dict[str, Dict[str, Any]] = {}
-    for matchup in matchups or []:
-        key = _key_from_matchup(matchup)
-        if key != "@":
-            index[key] = matchup
-    return index
-
-
 def _safe_error(error: Exception) -> Dict[str, Any]:
     return {"type": error.__class__.__name__, "message": str(error)}
 
@@ -72,6 +62,13 @@ def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
 
 
+def _session_factory():
+    database_url = os.getenv("DATABASE_URL", "sqlite:///mlb.db")
+    engine = get_engine(database_url)
+    create_tables(engine)
+    return get_session(engine)
+
+
 def _load_matchups(target_date: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     errors: List[Dict[str, Any]] = []
     try:
@@ -84,10 +81,7 @@ def _load_matchups(target_date: str) -> tuple[List[Dict[str, Any]], List[Dict[st
         errors.append({"stage": "generate_matchups_for_date_primary", "error": _safe_error(primary_exc)})
 
     try:
-        database_url = os.getenv("DATABASE_URL", "sqlite:///mlb.db")
-        engine = get_engine(database_url)
-        create_tables(engine)
-        Session = get_session(engine)
+        Session = _session_factory()
         with Session() as session:
             return generate_matchups_for_date(session, target_date), errors
     except Exception as fallback_exc:
@@ -95,35 +89,24 @@ def _load_matchups(target_date: str) -> tuple[List[Dict[str, Any]], List[Dict[st
         return [], errors
 
 
-def _session_factory():
-    database_url = os.getenv("DATABASE_URL", "sqlite:///mlb.db")
-    engine = get_engine(database_url)
-    create_tables(engine)
-    return get_session(engine)
+def _build_matchup_index(matchups: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    index: Dict[str, Dict[str, Any]] = {}
+    for matchup in matchups or []:
+        key = _key_from_matchup(matchup)
+        if key != "@":
+            index[key] = matchup
+    return index
 
 
 def _candidate_sort_key(candidate: Dict[str, Any]) -> float:
-    edge = candidate.get("edge")
-    confidence = candidate.get("confidence")
-    score = candidate.get("score")
-    try:
-        edge_component = abs(float(edge)) if edge is not None else 0.0
-    except (TypeError, ValueError):
-        edge_component = 0.0
-    try:
-        confidence_component = float(confidence) if confidence is not None else 0.0
-    except (TypeError, ValueError):
-        confidence_component = 0.0
-    try:
-        score_component = float(score) if score is not None else 0.0
-    except (TypeError, ValueError):
-        score_component = 0.0
-    return edge_component * 10.0 + confidence_component + score_component
+    edge = _safe_float(candidate.get("edge"))
+    confidence = _safe_float(candidate.get("confidence"))
+    score = _safe_float(candidate.get("score"))
+    return abs(edge or 0.0) * 10.0 + (confidence or 0.0) + (score or 0.0)
 
 
 def _fallback_candidates_from_matchups(matchups: List[Dict[str, Any]], limit: int = 20) -> List[Dict[str, Any]]:
     candidates: List[Dict[str, Any]] = []
-
     for matchup in matchups or []:
         game_pk = matchup.get("game_pk")
         away_team = matchup.get("away_team_name") or matchup.get("away_team") or matchup.get("away_name") or "Away"
@@ -136,7 +119,6 @@ def _fallback_candidates_from_matchups(matchups: List[Dict[str, Any]], limit: in
             pick_team = home_team if home_prob >= away_prob else away_team
             model_probability = max(home_prob, away_prob)
             gap = abs(home_prob - away_prob)
-            confidence = round(_clamp(0.52 + gap, 0.52, 0.85), 3)
             candidates.append({
                 "model": "pregame_internal_moneyline_v1",
                 "market": "pregame_moneyline",
@@ -151,7 +133,7 @@ def _fallback_candidates_from_matchups(matchups: List[Dict[str, Any]], limit: in
                 "model_probability": round(model_probability, 4),
                 "market_implied_probability": None,
                 "edge": None,
-                "confidence": confidence,
+                "confidence": round(_clamp(0.52 + gap, 0.52, 0.85), 3),
                 "game_pk": game_pk,
                 "event_id": None,
                 "away_team": away_team,
@@ -163,19 +145,14 @@ def _fallback_candidates_from_matchups(matchups: List[Dict[str, Any]], limit: in
                 "features_used": [
                     {"name": "home_win_prob", "value": home_prob, "source": "matchups.home_win_prob", "transform": "raw"},
                     {"name": "away_win_prob", "value": away_prob, "source": "matchups.away_win_prob", "transform": "raw"},
-                    {"name": "probability_gap", "value": gap, "source": "matchups.win_probability_gap", "transform": "absolute_difference"},
                 ],
                 "missing_inputs": ["sportsbook_event_id", "sportsbook_price", "market_implied_probability"],
                 "drivers": ["internal win probability", "pregame matchup model", "odds provider returned zero events"],
             })
 
-        home_pitcher = matchup.get("home_pitcher_name")
-        away_pitcher = matchup.get("away_pitcher_name")
-        home_features = matchup.get("home_pitcher_features") or {}
-        away_features = matchup.get("away_pitcher_features") or {}
         for side, pitcher_name, opponent, features in [
-            ("home", home_pitcher, away_team, home_features),
-            ("away", away_pitcher, home_team, away_features),
+            ("home", matchup.get("home_pitcher_name"), away_team, matchup.get("home_pitcher_features") or {}),
+            ("away", matchup.get("away_pitcher_name"), home_team, matchup.get("away_pitcher_features") or {}),
         ]:
             if not pitcher_name:
                 continue
@@ -192,7 +169,6 @@ def _fallback_candidates_from_matchups(matchups: List[Dict[str, Any]], limit: in
             if not signal_parts:
                 continue
             score = round(sum(signal_parts) / len(signal_parts), 4)
-            confidence = round(_clamp(0.50 + score, 0.50, 0.78), 3)
             candidates.append({
                 "model": "pregame_internal_pitcher_prop_watchlist_v1",
                 "market": "pitcher_strikeouts_watchlist",
@@ -207,7 +183,7 @@ def _fallback_candidates_from_matchups(matchups: List[Dict[str, Any]], limit: in
                 "model_probability": None,
                 "market_implied_probability": None,
                 "edge": None,
-                "confidence": confidence,
+                "confidence": round(_clamp(0.50 + score, 0.50, 0.78), 3),
                 "game_pk": game_pk,
                 "event_id": None,
                 "away_team": away_team,
@@ -241,7 +217,6 @@ def _build_global_prop_candidates(events: List[Dict[str, Any]], matchup_index: D
         ]
         if not prop_markets:
             continue
-
         models = build_prop_models(matchup, prop_markets, market_filter="all", limit=20)
         for candidate in models.get("top_candidates", []) if isinstance(models, dict) else []:
             enriched = dict(candidate)
@@ -347,18 +322,12 @@ def _compact_dashboard_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _empty_projection_summary() -> Dict[str, Any]:
-    return {
-        "projection_count": 0,
-        "games": [],
-        "source": "model_projections",
-        "missing_inputs": ["model_projection_payload_unavailable"],
-    }
+    return {"projection_count": 0, "games": [], "source": "model_projections", "missing_inputs": []}
 
 
 def _summarize_projection_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     games = payload.get("games") if isinstance(payload.get("games"), list) else []
     compact_games: List[Dict[str, Any]] = []
-
     for game in games[:20]:
         if not isinstance(game, dict):
             continue
@@ -377,7 +346,6 @@ def _summarize_projection_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             "total_expected_runs": simulation.get("total_expected_runs"),
             "missing_inputs": game.get("missing_inputs") or workspace.get("missing_inputs") or [],
         })
-
     return {
         "projection_count": len(games),
         "games": compact_games,
@@ -388,6 +356,8 @@ def _summarize_projection_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _load_dashboard_summary(target_date: str, errors: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from .my_dashboard_solver import build_dashboard_solver_payload, projection_payload
+
     summary: Dict[str, Any] = {
         "components": {},
         "components_used": [],
@@ -398,22 +368,18 @@ def _load_dashboard_summary(target_date: str, errors: List[Dict[str, Any]]) -> D
         "top_overall_players": [],
         "model_projection_summary": _empty_projection_summary(),
     }
-
     try:
         Session = _session_factory()
         with Session() as session:
             for component in DASHBOARD_COMPONENTS:
                 try:
                     payload = build_dashboard_solver_payload(session, target_date, component)
-                    compact = _compact_dashboard_payload(payload)
-                    summary["components"][component] = compact
+                    summary["components"][component] = _compact_dashboard_payload(payload)
                     summary["components_used"].append(component)
                 except Exception as exc:
                     errors.append({"stage": f"dashboard_solver_{component}", "error": _safe_error(exc)})
-
             try:
-                projection = projection_payload(session, target_date) or {}
-                summary["model_projection_summary"] = _summarize_projection_payload(projection)
+                summary["model_projection_summary"] = _summarize_projection_payload(projection_payload(session, target_date) or {})
             except Exception as exc:
                 errors.append({"stage": "model_projection_payload", "error": _safe_error(exc)})
     except Exception as exc:
@@ -424,7 +390,6 @@ def _load_dashboard_summary(target_date: str, errors: List[Dict[str, Any]]) -> D
     teams = summary["components"].get("teams", {}).get("items") or []
     totals = summary["components"].get("totals", {}).get("items") or []
     overall = summary["components"].get("overall_players", {}).get("items") or []
-
     summary["top_hitter_angles"] = hitters[:10]
     summary["top_pitcher_angles"] = pitchers[:10]
     summary["top_team_edges"] = teams[:10]
@@ -434,13 +399,11 @@ def _load_dashboard_summary(target_date: str, errors: List[Dict[str, Any]]) -> D
         item for item in hitters if item.get("best_pitch_angles") or "batter_pitch_type_matchups" in str(item.get("source") or "")
     ][:10]
     summary["batter_vs_arsenal_count"] = len(summary["batter_vs_arsenal_edges"])
-
     return summary
 
 
 def _best_game_signal(outputs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     candidates: List[Dict[str, Any]] = []
-
     for row in outputs or []:
         models = row.get("models") or {}
         for market_key in ("moneyline", "spread", "run_line", "total"):
@@ -465,11 +428,7 @@ def _best_game_signal(outputs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]
                 "missing_inputs": model.get("missing_inputs") or row.get("missing_inputs") or [],
                 "features_used": model.get("features_used") or [],
             })
-
-    if not candidates:
-        return None
-
-    return sorted(candidates, key=_candidate_sort_key, reverse=True)[0]
+    return sorted(candidates, key=_candidate_sort_key, reverse=True)[0] if candidates else None
 
 
 def _first_item(summary: Dict[str, Any], component: str) -> Optional[Dict[str, Any]]:
@@ -477,49 +436,16 @@ def _first_item(summary: Dict[str, Any], component: str) -> Optional[Dict[str, A
     return item if isinstance(item, dict) else None
 
 
-def _build_daily_recap(
-    outputs: List[Dict[str, Any]],
-    dashboard_summary: Dict[str, Any],
-    odds_status: Optional[str],
-    odds_event_count: int,
-) -> Dict[str, Any]:
-    best_side = _best_game_signal(outputs)
-    best_total = _first_item(dashboard_summary, "totals")
-    best_pitcher = _first_item(dashboard_summary, "pitchers")
-    best_hitter = _first_item(dashboard_summary, "hitters")
-    best_team = _first_item(dashboard_summary, "teams")
-
+def _build_daily_recap(outputs: List[Dict[str, Any]], dashboard_summary: Dict[str, Any], odds_status: Optional[str], odds_event_count: int) -> Dict[str, Any]:
     priced_count = sum(1 for row in outputs if row.get("event_id"))
-    pricing_note = (
-        "Sportsbook-priced markets are available and model sections distinguish price-backed edges from model-only signals."
-        if odds_event_count
-        else "No sportsbook event payload was available; all surfaced picks are model-only watchlist signals and do not assume a price or line."
-    )
-
-    missing_sections = [
-        name
-        for name, value in {
-            "best_side": best_side,
-            "best_total": best_total,
-            "best_pitcher": best_pitcher,
-            "best_hitter": best_hitter,
-            "best_team": best_team,
-        }.items()
-        if not value
-    ]
-
     return {
-        "best_side": best_side,
-        "best_total": best_total,
-        "best_pitcher": best_pitcher,
-        "best_hitter": best_hitter,
-        "best_team": best_team,
-        "data_quality_note": (
-            f"Missing sections: {', '.join(missing_sections)}."
-            if missing_sections
-            else "Daily Odds is populated from shared My Dashboard, AI Data Assistant, Model Projection, and Batter vs Arsenal data paths."
-        ),
-        "pricing_note": pricing_note,
+        "best_side": _best_game_signal(outputs),
+        "best_total": _first_item(dashboard_summary, "totals"),
+        "best_pitcher": _first_item(dashboard_summary, "pitchers"),
+        "best_hitter": _first_item(dashboard_summary, "hitters"),
+        "best_team": _first_item(dashboard_summary, "teams"),
+        "data_quality_note": "Daily Odds unified recap is loaded on demand from shared My Dashboard, AI Data Assistant, Model Projection, and Batter vs Arsenal paths.",
+        "pricing_note": "Sportsbook-priced markets are available." if odds_event_count else "No sportsbook event payload was available; surfaced picks are model-only watchlist signals.",
         "odds_status": odds_status,
         "priced_game_count": priced_count,
         "model_only_game_count": max(len(outputs) - priced_count, 0),
@@ -527,29 +453,19 @@ def _build_daily_recap(
     }
 
 
-def _collect_missing_inputs(
-    outputs: List[Dict[str, Any]],
-    dashboard_summary: Dict[str, Any],
-    projection_summary: Dict[str, Any],
-    errors: List[Dict[str, Any]],
-) -> List[Any]:
+def _collect_missing_inputs(outputs: List[Dict[str, Any]], dashboard_summary: Dict[str, Any], projection_summary: Dict[str, Any], errors: List[Dict[str, Any]]) -> List[Any]:
     missing: List[Any] = []
-
     for row in outputs:
         missing.extend(row.get("missing_inputs") or [])
-        models = row.get("models") or {}
-        for model in models.values():
+        for model in (row.get("models") or {}).values():
             if isinstance(model, dict):
                 missing.extend(model.get("missing_inputs") or [])
-
     for component_payload in dashboard_summary.get("components", {}).values():
         missing.extend(component_payload.get("missing_data") or [])
         for item in component_payload.get("items") or []:
             missing.extend(item.get("missing_data") or [])
-
     missing.extend(projection_summary.get("missing_inputs") or [])
     missing.extend({"stage": item.get("stage"), "error": item.get("error")} for item in errors if item.get("stage"))
-
     deduped: List[Any] = []
     seen = set()
     for item in missing:
@@ -562,27 +478,36 @@ def _collect_missing_inputs(
 
 
 def _sources_used(odds_payload: Dict[str, Any], dashboard_summary: Dict[str, Any]) -> List[str]:
-    sources = [
-        "daily_odds_models",
-        "matchup_generator.generate_matchups_for_date",
-        "odds_provider.fetch_draftkings_events",
-    ]
-
+    sources = ["daily_odds_models", "matchup_generator.generate_matchups_for_date", "odds_provider.fetch_draftkings_events"]
     if dashboard_summary.get("components_used"):
-        sources.append("my_dashboard_solver.build_dashboard_solver_payload")
-        sources.append("ai_data_assistant Stored 365 / pitcher lean contexts")
-
+        sources.extend(["my_dashboard_solver.build_dashboard_solver_payload", "ai_data_assistant Stored 365 / pitcher lean contexts"])
     if dashboard_summary.get("model_projection_summary", {}).get("projection_count", 0) > 0:
         sources.append("model_projections.build_model_projection_payload")
-
     if odds_payload.get("provider"):
         sources.append(str(odds_payload.get("provider")))
-
     return sources
 
 
+def _base_response(target_date: str, outputs: List[Dict[str, Any]], events: List[Dict[str, Any]], odds_payload: Dict[str, Any], top_prop_candidates: List[Dict[str, Any]], errors: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "date": target_date,
+        "count": len(outputs),
+        "matched_count": sum(1 for row in outputs if row.get("matched")),
+        "unmatched_count": sum(1 for row in outputs if not row.get("matched")),
+        "odds_status": odds_payload.get("status") if isinstance(odds_payload, dict) else None,
+        "last_updated": odds_payload.get("last_updated") if isinstance(odds_payload, dict) else None,
+        "odds_event_count": len(events),
+        "models": outputs,
+        "games": outputs,
+        "top_prop_model_candidates": top_prop_candidates,
+        "top_prop_candidate_count": len(top_prop_candidates),
+        "errors": errors,
+        "generated_at": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+    }
+
+
 @router.get("/daily-odds/models")
-def daily_odds_models(date: Optional[str] = None) -> Dict[str, Any]:
+def daily_odds_models(date: Optional[str] = None, include_unified: bool = False) -> Dict[str, Any]:
     target_date = date or datetime.date.today().isoformat()
     errors: List[Dict[str, Any]] = []
 
@@ -613,13 +538,11 @@ def daily_odds_models(date: Optional[str] = None) -> Dict[str, Any]:
                 "missing_inputs": ["matched_mlb_game"],
             })
             continue
-
         try:
             models = build_game_models(matchup, event)
         except Exception as exc:
             models = None
             errors.append({"stage": "build_game_models", "event_id": event.get("event_id"), "match_key": key, "error": _safe_error(exc)})
-
         outputs.append({
             "game_pk": matchup.get("game_pk"),
             "event_id": event.get("event_id"),
@@ -634,16 +557,17 @@ def daily_odds_models(date: Optional[str] = None) -> Dict[str, Any]:
         outputs = _models_from_unpriced_matchups(matchups)
 
     top_prop_candidates = _build_global_prop_candidates(events, matchup_index, matchups, limit=20)
+    response = _base_response(target_date, outputs, events, odds_payload if isinstance(odds_payload, dict) else {}, top_prop_candidates, errors)
+
+    if not include_unified:
+        response["unified_available"] = True
+        response["unified_loaded"] = False
+        return response
+
     dashboard_summary = _load_dashboard_summary(target_date, errors)
     projection_summary = dashboard_summary.get("model_projection_summary") or _empty_projection_summary()
-    daily_recap = _build_daily_recap(
-        outputs=outputs,
-        dashboard_summary=dashboard_summary,
-        odds_status=odds_payload.get("status") if isinstance(odds_payload, dict) else None,
-        odds_event_count=len(events),
-    )
+    daily_recap = _build_daily_recap(outputs, dashboard_summary, response.get("odds_status"), len(events))
     missing_inputs = _collect_missing_inputs(outputs, dashboard_summary, projection_summary, errors)
-
     fallbacks_used: List[str] = []
     if not events:
         fallbacks_used.append("internal_matchups_no_odds_provider")
@@ -656,26 +580,16 @@ def daily_odds_models(date: Optional[str] = None) -> Dict[str, Any]:
         "sources_used": _sources_used(odds_payload if isinstance(odds_payload, dict) else {}, dashboard_summary),
         "missing_inputs": missing_inputs,
         "fallbacks_used": fallbacks_used,
-        "odds_status": odds_payload.get("status") if isinstance(odds_payload, dict) else None,
+        "odds_status": response.get("odds_status"),
         "matchup_count": len(matchups),
         "projection_count": projection_summary.get("projection_count", 0),
         "dashboard_solver_components_used": dashboard_summary.get("components_used", []),
         "batter_vs_arsenal_count": dashboard_summary.get("batter_vs_arsenal_count", 0),
         "generated_at": daily_recap.get("generated_at"),
     }
-
-    return {
-        "date": target_date,
-        "count": len(outputs),
-        "matched_count": sum(1 for row in outputs if row.get("matched")),
-        "unmatched_count": sum(1 for row in outputs if not row.get("matched")),
-        "odds_status": odds_payload.get("status") if isinstance(odds_payload, dict) else None,
-        "last_updated": odds_payload.get("last_updated") if isinstance(odds_payload, dict) else None,
-        "odds_event_count": len(events),
-        "models": outputs,
-        "games": outputs,
-        "top_prop_model_candidates": top_prop_candidates,
-        "top_prop_candidate_count": len(top_prop_candidates),
+    response.update({
+        "unified_available": True,
+        "unified_loaded": True,
         "daily_recap": daily_recap,
         "model_projection_summary": projection_summary,
         "dashboard_solver_summary": dashboard_summary.get("components", {}),
@@ -689,7 +603,8 @@ def daily_odds_models(date: Optional[str] = None) -> Dict[str, Any]:
         "fallbacks_used": fallbacks_used,
         "errors": errors,
         "generated_at": data_quality["generated_at"],
-    }
+    })
+    return response
 
 
 @router.get("/daily-odds/event/{event_id}/prop-models")
