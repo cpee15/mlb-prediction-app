@@ -74,13 +74,19 @@ def _check_matchups(data: Any, path: str) -> None:
         raise SmokeFailure(f"Expected matchup list for {path}, got {type(data).__name__}")
 
 
-def _check_daily_odds(data: Any, path: str) -> None:
+def _check_daily_odds_fast(data: Any, path: str) -> None:
     payload = _expect_dict(data, path)
     missing = [key for key in ["date", "errors"] if key not in payload]
     if missing:
-        raise SmokeFailure(f"Daily Odds payload missing {missing} for {path}")
+        raise SmokeFailure(f"Daily Odds fast payload missing {missing} for {path}")
     if not any(key in payload for key in ["models", "games", "model_games"]):
-        raise SmokeFailure("Daily Odds payload missing models/games/model_games container")
+        raise SmokeFailure("Daily Odds fast payload missing models/games/model_games container")
+    if payload.get("unified_loaded") is not False:
+        raise SmokeFailure("Daily Odds fast payload should not load unified model/dashboard sections by default")
+
+
+def _check_daily_odds_unified(data: Any, path: str) -> None:
+    payload = _expect_dict(data, path)
     enhanced_keys = [
         "daily_recap",
         "model_projection_summary",
@@ -93,6 +99,8 @@ def _check_daily_odds(data: Any, path: str) -> None:
     missing_enhanced = [key for key in enhanced_keys if key not in payload]
     if missing_enhanced:
         raise SmokeFailure(f"Daily Odds unified payload missing {missing_enhanced}")
+    if payload.get("unified_loaded") is not True:
+        raise SmokeFailure("Daily Odds unified payload should set unified_loaded=true")
     data_quality = _expect_dict(payload.get("data_quality"), f"{path}.data_quality")
     for key in ["matchup_count", "projection_count", "dashboard_solver_components_used", "batter_vs_arsenal_count", "generated_at"]:
         if key not in data_quality:
@@ -138,13 +146,15 @@ def main() -> int:
 
     date = args.date[:10]
     query_date = urllib.parse.urlencode({"date": date})
+    unified_query = urllib.parse.urlencode({"date": date, "include_unified": "true"})
     dashboard_hitter_query = urllib.parse.urlencode({"date": date, "component": "hitters"})
     dashboard_pitcher_query = urllib.parse.urlencode({"date": date, "component": "pitchers"})
 
     checks: list[tuple[str, str, Callable[[Any, str], None]]] = [
         ("health", "/health", _check_health),
         ("matchups", f"/matchups?{query_date}", _check_matchups),
-        ("daily_odds_models", f"/daily-odds/models?{query_date}", _check_daily_odds),
+        ("daily_odds_models_fast", f"/daily-odds/models?{query_date}", _check_daily_odds_fast),
+        ("daily_odds_models_unified", f"/daily-odds/models?{unified_query}", _check_daily_odds_unified),
         ("model_projections", f"/models/projections?{query_date}", _check_model_projections),
         ("ai_data_assistant_health", "/ai-data-assistant/health", _check_health),
         ("my_dashboard_health", "/my-dashboard/health", _check_health),
