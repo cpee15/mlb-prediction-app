@@ -57,6 +57,34 @@ def sample_pa_outcome(probabilities: Dict[str, float], rng: Optional[random.Rand
     return "out"
 
 
+def _validate_transition_rates(
+    transition_rates: Optional[Dict[str, float]],
+) -> None:
+    if transition_rates is None:
+        return
+
+    valid_keys = {
+        "sac_fly_rate",
+        "double_play_rate",
+        "first_to_third_single_rate",
+        "first_to_home_double_rate",
+    }
+
+    for key, value in transition_rates.items():
+        if key not in valid_keys:
+            continue
+
+        if not isinstance(value, (int, float)):
+            raise ValueError(
+                f"Invalid transition rate type for {key}: {value}"
+            )
+
+        if value < 0.0 or value > 1.0:
+            raise ValueError(
+                f"Invalid transition rate range for {key}: {value}"
+            )
+
+
 def advance_runners(
     bases: tuple[bool, bool, bool],
     outcome: str,
@@ -109,6 +137,7 @@ def advance_runners_realism_candidate(
     outcome: str,
     outs: int,
     rng: Optional[random.Random] = None,
+    transition_rates: Optional[Dict[str, float]] = None,
 ) -> Tuple[Tuple[bool, bool, bool], int, int]:
     """
     Candidate transition realism helper.
@@ -119,6 +148,33 @@ def advance_runners_realism_candidate(
 
     rng = rng or random.Random()
 
+    sac_fly_rate = (
+        transition_rates.get("sac_fly_rate", SAC_FLY_RATE)
+        if transition_rates
+        else SAC_FLY_RATE
+    )
+    double_play_rate = (
+        transition_rates.get("double_play_rate", DOUBLE_PLAY_RATE)
+        if transition_rates
+        else DOUBLE_PLAY_RATE
+    )
+    first_to_third_single_rate = (
+        transition_rates.get(
+            "first_to_third_single_rate",
+            FIRST_TO_THIRD_SINGLE_RATE,
+        )
+        if transition_rates
+        else FIRST_TO_THIRD_SINGLE_RATE
+    )
+    first_to_home_double_rate = (
+        transition_rates.get(
+            "first_to_home_double_rate",
+            FIRST_TO_HOME_DOUBLE_RATE,
+        )
+        if transition_rates
+        else FIRST_TO_HOME_DOUBLE_RATE
+    )
+
     first, second, third = bases
     runs = 0
     extra_outs = 0
@@ -126,12 +182,12 @@ def advance_runners_realism_candidate(
     if outcome == "out":
 
         if third and outs < 2:
-            if rng.random() < SAC_FLY_RATE:
+            if rng.random() < sac_fly_rate:
                 third = False
                 runs += 1
 
         if first and outs < 2:
-            if rng.random() < DOUBLE_PLAY_RATE:
+            if rng.random() < double_play_rate:
                 first = False
                 extra_outs += 1
 
@@ -149,7 +205,7 @@ def advance_runners_realism_candidate(
             runs += 1
 
         if first:
-            if rng.random() < FIRST_TO_THIRD_SINGLE_RATE:
+            if rng.random() < first_to_third_single_rate:
                 new_third = True
                 new_second = False
             else:
@@ -174,7 +230,7 @@ def advance_runners_realism_candidate(
             runs += 1
 
         if first:
-            if rng.random() < FIRST_TO_HOME_DOUBLE_RATE:
+            if rng.random() < first_to_home_double_rate:
                 runs += 1
                 new_third = False
             else:
@@ -207,8 +263,11 @@ def simulate_half_inning(
     initial_bases: Tuple[bool, bool, bool] = (False, False, False),
     initial_outs: int = 0,
     transition_mode: str = "current",
+    transition_rates: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     rng = rng or random.Random()
+
+    _validate_transition_rates(transition_rates)
 
     if transition_mode not in {
         "current",
@@ -260,6 +319,7 @@ def simulate_half_inning(
                         outcome=outcome,
                         outs=outs,
                         rng=rng,
+                        transition_rates=transition_rates,
                     )
                 )
 
