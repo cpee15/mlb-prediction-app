@@ -15,6 +15,15 @@ V1 is intentionally simple:
 from __future__ import annotations
 
 import random
+
+from mlb_app.simulation.outcome_subtypes import (
+    derive_outcome_subtype_probabilities,
+)
+
+from mlb_app.simulation.subtype_transitions import (
+    advance_runners_by_subtype,
+)
+
 from collections import Counter
 from typing import Dict, Optional, Any
 
@@ -264,6 +273,7 @@ def simulate_half_inning(
     initial_outs: int = 0,
     transition_mode: str = "current",
     transition_rates: Optional[Dict[str, float]] = None,
+    subtype_transition_mode: str = "off",
 ) -> Dict[str, Any]:
     rng = rng or random.Random()
 
@@ -275,6 +285,14 @@ def simulate_half_inning(
     }:
         raise ValueError(
             "transition_mode must be 'current' or 'realism_candidate'"
+        )
+
+    if subtype_transition_mode not in {
+        "off",
+        "prototype",
+    }:
+        raise ValueError(
+            "subtype_transition_mode must be 'off' or 'prototype'"
         )
 
     bases = tuple(bool(x) for x in initial_bases)
@@ -298,12 +316,44 @@ def simulate_half_inning(
     pa_count = 0
     outcomes = []
 
+    if subtype_transition_mode == "prototype":
+        outcome_probabilities = derive_outcome_subtype_probabilities(
+            probabilities
+        )
+    else:
+        outcome_probabilities = probabilities
+
     while outs < 3 and pa_count < max_plate_appearances:
 
-        outcome = sample_pa_outcome(probabilities, rng)
+        outcome = sample_pa_outcome(outcome_probabilities, rng)
 
         pa_count += 1
         outcomes.append(outcome)
+
+        if (
+            subtype_transition_mode == "prototype"
+            and outcome
+            in {
+                "strikeout",
+                "groundout",
+                "flyout",
+                "lineout_popout",
+                "other_out",
+            }
+        ):
+            bases, scored, outs_added = advance_runners_by_subtype(
+                bases=bases,
+                outcome_subtype=outcome,
+                outs=outs,
+                rng=rng,
+            )
+
+            runs += scored
+            outs = min(
+                3,
+                outs + outs_added,
+            )
+            continue
 
         if outcome == "k":
             outs += 1
