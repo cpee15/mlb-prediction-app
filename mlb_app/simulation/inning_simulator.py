@@ -21,6 +21,11 @@ from typing import Dict, Optional, Any
 
 OUTCOMES = ["k", "bb", "hbp", "single", "double", "triple", "hr", "reached_on_error", "out"]
 
+SAC_FLY_RATE = 0.30
+DOUBLE_PLAY_RATE = 0.11
+FIRST_TO_THIRD_SINGLE_RATE = 0.30
+FIRST_TO_HOME_DOUBLE_RATE = 0.40
+
 
 def _normalize_probabilities(probabilities: Dict[str, float]) -> Dict[str, float]:
     cleaned = {key: max(0.0, float(probabilities.get(key, 0.0) or 0.0)) for key in OUTCOMES}
@@ -99,14 +104,119 @@ def advance_runners(
     return bases, 0
 
 
+def advance_runners_realism_candidate(
+    bases: Tuple[bool, bool, bool],
+    outcome: str,
+    outs: int,
+    rng: Optional[random.Random] = None,
+) -> Tuple[Tuple[bool, bool, bool], int, int]:
+    """
+    Candidate transition realism helper.
+
+    Returns:
+        (new_bases, runs_scored, extra_outs)
+    """
+
+    rng = rng or random.Random()
+
+    first, second, third = bases
+    runs = 0
+    extra_outs = 0
+
+    if outcome == "out":
+
+        if third and outs < 2:
+            if rng.random() < SAC_FLY_RATE:
+                third = False
+                runs += 1
+
+        if first and outs < 2:
+            if rng.random() < DOUBLE_PLAY_RATE:
+                first = False
+                extra_outs += 1
+
+        return (first, second, third), runs, extra_outs
+
+    if outcome in {"single", "reached_on_error"}:
+
+        if third:
+            runs += 1
+            third = False
+
+        new_third = False
+
+        if second:
+            runs += 1
+
+        if first:
+            if rng.random() < FIRST_TO_THIRD_SINGLE_RATE:
+                new_third = True
+                new_second = False
+            else:
+                new_second = True
+        else:
+            new_second = False
+
+        new_first = True
+
+        return (
+            (new_first, new_second, new_third),
+            runs,
+            extra_outs,
+        )
+
+    if outcome == "double":
+
+        if third:
+            runs += 1
+
+        if second:
+            runs += 1
+
+        if first:
+            if rng.random() < FIRST_TO_HOME_DOUBLE_RATE:
+                runs += 1
+                new_third = False
+            else:
+                new_third = True
+        else:
+            new_third = False
+
+        new_second = True
+        new_first = False
+
+        return (
+            (new_first, new_second, new_third),
+            runs,
+            extra_outs,
+        )
+
+    new_bases, scored = advance_runners(
+        bases,
+        outcome,
+    )
+
+    return new_bases, scored, extra_outs
+
+
+
 def simulate_half_inning(
     probabilities: Dict[str, float],
     rng: Optional[random.Random] = None,
     max_plate_appearances: int = 30,
     initial_bases: Tuple[bool, bool, bool] = (False, False, False),
     initial_outs: int = 0,
+    transition_mode: str = "current",
 ) -> Dict[str, Any]:
     rng = rng or random.Random()
+
+    if transition_mode not in {
+        "current",
+        "realism_candidate",
+    }:
+        raise ValueError(
+            "transition_mode must be 'current' or 'realism_candidate'"
+        )
 
     bases = tuple(bool(x) for x in initial_bases)
 
@@ -130,15 +240,59 @@ def simulate_half_inning(
     outcomes = []
 
     while outs < 3 and pa_count < max_plate_appearances:
+
         outcome = sample_pa_outcome(probabilities, rng)
+
         pa_count += 1
         outcomes.append(outcome)
 
-        if outcome in {"k", "out"}:
+        if outcome == "k":
             outs += 1
             continue
 
-        bases, scored = advance_runners(bases, outcome)
+        if outcome == "out":
+
+            if transition_mode == "realism_candidate":
+
+                bases, scored, extra_outs = (
+                    advance_runners_realism_candidate(
+                        bases=bases,
+                        outcome=outcome,
+                        outs=outs,
+                        rng=rng,
+                    )
+                )
+
+                runs += scored
+
+                outs = min(
+                    3,
+                    outs + 1 + extra_outs,
+                )
+
+            else:
+                outs += 1
+
+            continue
+
+        if transition_mode == "realism_candidate":
+
+            bases, scored, _extra_outs = (
+                advance_runners_realism_candidate(
+                    bases=bases,
+                    outcome=outcome,
+                    outs=outs,
+                    rng=rng,
+                )
+            )
+
+        else:
+
+            bases, scored = advance_runners(
+                bases,
+                outcome,
+            )
+
         runs += scored
 
     return {
