@@ -81,6 +81,22 @@ def _check_daily_odds(data: Any, path: str) -> None:
         raise SmokeFailure(f"Daily Odds payload missing {missing} for {path}")
     if not any(key in payload for key in ["models", "games", "model_games"]):
         raise SmokeFailure("Daily Odds payload missing models/games/model_games container")
+    enhanced_keys = [
+        "daily_recap",
+        "model_projection_summary",
+        "dashboard_solver_summary",
+        "data_quality",
+        "sources_used",
+        "missing_inputs",
+        "fallbacks_used",
+    ]
+    missing_enhanced = [key for key in enhanced_keys if key not in payload]
+    if missing_enhanced:
+        raise SmokeFailure(f"Daily Odds unified payload missing {missing_enhanced}")
+    data_quality = _expect_dict(payload.get("data_quality"), f"{path}.data_quality")
+    for key in ["matchup_count", "projection_count", "dashboard_solver_components_used", "batter_vs_arsenal_count", "generated_at"]:
+        if key not in data_quality:
+            raise SmokeFailure(f"Daily Odds data_quality missing {key}")
 
 
 def _check_model_projections(data: Any, path: str) -> None:
@@ -122,7 +138,8 @@ def main() -> int:
 
     date = args.date[:10]
     query_date = urllib.parse.urlencode({"date": date})
-    dashboard_query = urllib.parse.urlencode({"date": date, "component": "hitters"})
+    dashboard_hitter_query = urllib.parse.urlencode({"date": date, "component": "hitters"})
+    dashboard_pitcher_query = urllib.parse.urlencode({"date": date, "component": "pitchers"})
 
     checks: list[tuple[str, str, Callable[[Any, str], None]]] = [
         ("health", "/health", _check_health),
@@ -131,7 +148,8 @@ def main() -> int:
         ("model_projections", f"/models/projections?{query_date}", _check_model_projections),
         ("ai_data_assistant_health", "/ai-data-assistant/health", _check_health),
         ("my_dashboard_health", "/my-dashboard/health", _check_health),
-        ("my_dashboard_solver", f"/my-dashboard/solver?{dashboard_query}", _check_dashboard_solver),
+        ("my_dashboard_solver_hitters", f"/my-dashboard/solver?{dashboard_hitter_query}", _check_dashboard_solver),
+        ("my_dashboard_solver_pitchers", f"/my-dashboard/solver?{dashboard_pitcher_query}", _check_dashboard_solver),
     ]
 
     print(f"Backend base URL: {args.base_url.rstrip('/')}")
