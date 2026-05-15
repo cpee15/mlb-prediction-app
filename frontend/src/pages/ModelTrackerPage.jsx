@@ -107,10 +107,37 @@ export default function ModelTrackerPage() {
   function refreshSnapshot() {
     setRefreshing(true)
     setError(null)
+
     fetch(`${API}/model-tracker/snapshot?date=${date}`, { method: 'POST' })
-      .then(async r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`); return r.json() })
-      .then(() => { setRefreshing(false); load() })
-      .catch(err => { setError(String(err?.message || err)); setRefreshing(false) })
+      .then(async r => {
+        const text = await r.text()
+        let json = null
+
+        try {
+          json = text ? JSON.parse(text) : null
+        } catch {
+          json = { raw: text }
+        }
+
+        if (!r.ok) {
+          throw new Error(`${r.status} ${r.statusText}: ${text}`)
+        }
+
+        if (!json || Number(json.rows_collected || 0) === 0) {
+          const errorText = JSON.stringify(json?.errors || json || {}, null, 2)
+          throw new Error(`Snapshot saved 0 rows. Backend response:\n${errorText}`)
+        }
+
+        return json
+      })
+      .then(() => {
+        setRefreshing(false)
+        load()
+      })
+      .catch(err => {
+        setError(String(err?.message || err))
+        setRefreshing(false)
+      })
   }
 
   function refreshResults() {
