@@ -6,11 +6,13 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from .best_plays_engine import build_best_plays_payload, normalize_best_play_rows
 from .database import create_tables, get_engine, get_session
 from .model_tracker import (
     build_tracker_snapshot,
     list_tracker_rows,
     refresh_tracker_results,
+    upsert_tracker_rows,
 )
 
 router = APIRouter(prefix="/model-tracker", tags=["model-tracker"])
@@ -32,6 +34,30 @@ def _target_date(value: Optional[str]) -> str:
     return target
 
 
+def _append_best_plays_snapshot(session, target: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Add Best Plays rows to the existing additive tracker snapshot response."""
+    try:
+        best_plays_payload = build_best_plays_payload(session, target)
+        best_play_rows = normalize_best_play_rows(best_plays_payload, target)
+        best_play_upsert = upsert_tracker_rows(session, best_play_rows)
+        payload["rows_collected"] = int(payload.get("rows_collected") or 0) + len(best_play_rows)
+        payload.setdefault("upsert", {})["best_plays"] = best_play_upsert
+        payload["best_plays"] = {
+            "rows_collected": len(best_play_rows),
+            "summary": best_plays_payload.get("summary") or {},
+            "errors": best_plays_payload.get("errors") or [],
+        }
+        if best_plays_payload.get("errors"):
+            payload.setdefault("errors", []).extend(
+                {"source": "best_plays", **error} if isinstance(error, dict) else {"source": "best_plays", "error": str(error)}
+                for error in best_plays_payload.get("errors") or []
+            )
+        return payload
+    except Exception as exc:
+        payload.setdefault("errors", []).append({"source": "best_plays", "error": str(exc), "type": exc.__class__.__name__})
+        return payload
+
+
 @router.get("/health")
 def model_tracker_health() -> Dict[str, Any]:
     return {
@@ -48,7 +74,8 @@ def model_tracker_snapshot(date: Optional[str] = Query(default=None)) -> Dict[st
     try:
         Session = _session_factory()
         with Session() as session:
-            return build_tracker_snapshot(session, target)
+            payload = build_tracker_snapshot(session, target)
+            return _append_best_plays_snapshot(session, target, payload)
     except HTTPException:
         raise
     except Exception as exc:
