@@ -105,6 +105,7 @@ from .daily_odds_routes import router as daily_odds_router
 from .simulation.inning_simulator import simulate_half_innings
 from .model_projection_routes import router as model_projection_router
 from .ai_data_assistant_routes import router as ai_data_assistant_router
+from .news_routes import router as news_router
 from .starting_pitcher_arsenal_refresh import refresh_starting_pitcher_arsenal
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
@@ -1382,6 +1383,7 @@ def create_app():
     app.include_router(daily_odds_router)
     app.include_router(model_projection_router)
     app.include_router(ai_data_assistant_router)
+    app.include_router(news_router)
 
     @app.get("/health")
     def health():
