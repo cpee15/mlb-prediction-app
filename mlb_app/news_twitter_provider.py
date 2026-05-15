@@ -4,8 +4,10 @@ import asyncio
 import datetime as dt
 import hashlib
 import inspect
+import json
 import os
 import re
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from .news_classifier import classify_text, score_importance
@@ -110,11 +112,30 @@ class TwikitNewsProvider:
         selected = os.getenv("NEWS_PROVIDER", "").strip().lower()
         return _env_bool("NEWS_ENABLE_TWIKIT") or selected in {"twikit", "twitter"}
 
+    def _cookie_file_from_json(self) -> str:
+        cookies_json = os.getenv("TWIKIT_COOKIES_JSON", "").strip()
+        if not cookies_json:
+            return ""
+        path = Path(os.getenv("TWIKIT_RUNTIME_COOKIES_FILE", "/tmp/twikit_cookies.json"))
+        try:
+            parsed = json.loads(cookies_json)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(parsed), encoding="utf-8")
+            return str(path)
+        except Exception as exc:
+            self.last_error = f"Invalid TWIKIT_COOKIES_JSON: {exc}"
+            return ""
+
+    def _configured_cookie_file(self) -> str:
+        cookies_file = os.getenv("TWIKIT_COOKIES_FILE", "").strip()
+        if cookies_file and os.path.exists(cookies_file):
+            return cookies_file
+        return self._cookie_file_from_json()
+
     def configured(self) -> bool:
         if not self.enabled():
             return False
-        cookies_file = os.getenv("TWIKIT_COOKIES_FILE")
-        has_cookies = bool(cookies_file and os.path.exists(cookies_file))
+        has_cookies = bool(self._configured_cookie_file())
         has_login = bool(os.getenv("TWIKIT_USERNAME") and os.getenv("TWIKIT_PASSWORD"))
         return has_cookies or has_login
 
@@ -127,6 +148,8 @@ class TwikitNewsProvider:
             "twikit_installed": self.twikit_installed(),
             "twikit_enabled": self.enabled(),
             "twikit_configured": self.configured(),
+            "twikit_cookie_json_supported": True,
+            "twikit_cookie_json_present": bool(os.getenv("TWIKIT_COOKIES_JSON", "").strip()),
         }
 
     def _not_configured(self, date: Optional[str] = None, items_key: str = "items") -> Dict[str, Any]:
@@ -134,17 +157,20 @@ class TwikitNewsProvider:
         if self.enabled() and self.configured() and not self.twikit_installed():
             status = "provider_missing_dependency"
         message = (
-            "Twitter/X provider is disabled or missing credentials. Configure NEWS_ENABLE_TWIKIT and TWIKIT_* env vars to enable matchup intel."
+            "Twitter/X provider is disabled or missing credentials. Configure NEWS_ENABLE_TWIKIT and TWIKIT_COOKIES_JSON or TWIKIT_* login env vars to enable matchup intel."
             if status == "provider_not_configured"
             else "Twitter/X provider is configured, but the twikit dependency is not installed."
         )
+        errors = [message]
+        if self.last_error:
+            errors.append(self.last_error)
         payload = {
             "date": (date or dt.date.today().isoformat())[:10],
             "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
             "provider": self.name,
             "status": status,
             "message": message,
-            "errors": [message],
+            "errors": errors,
         }
         payload[items_key] = []
         return payload
@@ -156,7 +182,7 @@ class TwikitNewsProvider:
             raise RuntimeError("twikit dependency is not installed") from exc
 
         client = Client(self.language)
-        cookies_file = os.getenv("TWIKIT_COOKIES_FILE")
+        cookies_file = self._configured_cookie_file()
         if cookies_file and os.path.exists(cookies_file):
             loader = getattr(client, "load_cookies", None)
             if callable(loader):
@@ -175,13 +201,13 @@ class TwikitNewsProvider:
         except TypeError:
             _run_maybe_await(login(username, email or username, password), self.timeout_seconds)
 
-        if cookies_file:
-            saver = getattr(client, "save_cookies", None)
-            if callable(saver):
-                try:
-                    _run_maybe_await(saver(cookies_file), self.timeout_seconds)
-                except Exception:
-                    pass
+        cookie_save_path = os.getenv("TWIKIT_COOKIES_FILE") or os.getenv("TWIKIT_RUNTIME_COOKIES_FILE", "/tmp/twikit_cookies.json")
+        saver = getattr(client, "save_cookies", None)
+        if callable(saver) and cookie_save_path:
+            try:
+                _run_maybe_await(saver(cookie_save_path), self.timeout_seconds)
+            except Exception:
+                pass
         return client
 
     def _raw_search(self, query: str, limit: int) -> List[Any]:
