@@ -13,6 +13,7 @@ pybaseball>=2.2.5
 requests>=2.31.0
 apify-client>=1.8.0
 feedparser
+twikit>=2.3.3
 
 # Scheduling / utils
 python-dotenv>=1.0.0
