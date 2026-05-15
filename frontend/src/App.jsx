@@ -14,6 +14,7 @@ import LiveGamePageRestored from './pages/LiveGamePageRestored'
 import DailyOddsPage from './pages/DailyOddsPage'
 import ModelProjectionsPage from './pages/ModelProjectionsPage'
 import MyDashboardPage from './pages/MyDashboardPage'
+import ModelTrackerPage from './pages/ModelTrackerPage'
 
 // Set VITE_ENABLE_BATTER_PAGE=true in Railway env vars to re-enable the Batter routes.
 // Keep false until the leaderboard endpoint is validated stable in production.
@@ -56,12 +57,14 @@ export default function App() {
           <NavLink to="/calendar" className={navLinkClass}>Calendar</NavLink>
           <NavLink to="/ai-data-assistant" className={navLinkClass}>AI Data Assistant</NavLink>
           <NavLink to="/live" className={navLinkClass}>Live</NavLink>
+          <NavLink to="/model-tracker" className={navLinkClass}>Model Tracker</NavLink>
         </nav>
         <main className="app-main">
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/daily-odds" element={<DailyOddsPage />} />
             <Route path="/models/projections" element={<ModelProjectionsPage />} />
+            <Route path="/model-tracker" element={<ModelTrackerPage />} />
             <Route path="/my-dashboard" element={<MyDashboardPage />} />
             <Route path="/matchup/:game_pk" element={<MatchupDetailPage />} />
             <Route path="/matchup/:game_pk/competitive" element={<CompetitiveAnalysisPage />} />
