@@ -4,29 +4,58 @@ import { API_BASE, getMlbLiveDate } from '../lib/api'
 const API = API_BASE
 
 const s = {
-  page: { display: 'grid', gap: 18 },
-  hero: { border: '1px solid var(--border-subtle)', borderRadius: 18, padding: 22, background: 'rgba(15, 23, 42, 0.72)' },
-  header: { display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' },
+  page: { display: 'grid', gap: 18, minWidth: 0, overflowX: 'hidden' },
+  hero: { border: '1px solid var(--border-subtle)', borderRadius: 18, padding: 22, background: 'rgba(15, 23, 42, 0.72)', minWidth: 0 },
+  header: { display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', minWidth: 0 },
   controls: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 },
-  card: { border: '1px solid var(--border-subtle)', borderRadius: 14, padding: 14, background: 'rgba(7, 11, 18, 0.55)' },
+  statsScroller: {
+    overflowX: 'auto',
+    overflowY: 'hidden',
+    WebkitOverflowScrolling: 'touch',
+    scrollbarGutter: 'stable',
+    padding: '2px 2px 10px',
+    margin: '-2px -2px 0',
+    scrollSnapType: 'x proximity',
+  },
+  statRail: { display: 'flex', gap: 12, width: 'max-content', minWidth: '100%' },
+  card: { border: '1px solid var(--border-subtle)', borderRadius: 14, padding: 14, background: 'rgba(7, 11, 18, 0.55)', flex: '0 0 170px', minWidth: 170, scrollSnapAlign: 'start' },
   value: { fontSize: 28, fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.05em' },
   label: { fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 850 },
-  section: { border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 16, background: 'rgba(15, 23, 42, 0.56)' },
-  sectionHeader: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 },
+  section: { border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 16, background: 'rgba(15, 23, 42, 0.56)', minWidth: 0, overflow: 'hidden' },
+  sectionHeader: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12, minWidth: 0 },
   sectionTitle: { fontSize: 18, fontWeight: 900, color: 'var(--text-primary)' },
   filters: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 },
   input: { width: '100%', boxSizing: 'border-box' },
   button: { cursor: 'pointer' },
-  gameCard: { border: '1px solid var(--border-subtle)', borderRadius: 14, padding: 14, background: 'rgba(7, 11, 18, 0.42)', marginTop: 12 },
-  gameTop: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' },
+  gameCard: { border: '1px solid var(--border-subtle)', borderRadius: 14, padding: 14, background: 'rgba(7, 11, 18, 0.42)', marginTop: 12, minWidth: 0, overflow: 'hidden' },
+  gameTop: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', minWidth: 0 },
   gameTitle: { fontSize: 17, fontWeight: 900, color: 'var(--text-primary)' },
-  miniGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginTop: 12 },
-  rowCard: { border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 11, background: 'rgba(17, 24, 39, 0.72)' },
+  scrollHint: { color: 'var(--text-muted)', fontSize: 11, marginTop: 8, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 800 },
+  miniScroller: {
+    overflowX: 'auto',
+    overflowY: 'hidden',
+    WebkitOverflowScrolling: 'touch',
+    scrollbarGutter: 'stable',
+    padding: '2px 2px 10px',
+    margin: '10px -2px -2px',
+    scrollSnapType: 'x proximity',
+  },
+  miniRail: { display: 'flex', gap: 10, width: 'max-content', minWidth: '100%', alignItems: 'stretch' },
+  rowCard: {
+    border: '1px solid var(--border-subtle)',
+    borderRadius: 12,
+    padding: 11,
+    background: 'rgba(17, 24, 39, 0.72)',
+    flex: '0 0 clamp(250px, 28vw, 330px)',
+    maxWidth: 330,
+    minWidth: 250,
+    scrollSnapAlign: 'start',
+    boxSizing: 'border-box',
+  },
   rowTitle: { color: 'var(--text-primary)', fontSize: 13, fontWeight: 850, overflowWrap: 'anywhere' },
   rowMeta: { color: 'var(--text-muted)', fontSize: 12, marginTop: 5, lineHeight: 1.45, overflowWrap: 'anywhere' },
-  tableWrap: { overflowX: 'auto', border: '1px solid var(--border-subtle)', borderRadius: 14 },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 12 },
+  tableWrap: { overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch', border: '1px solid var(--border-subtle)', borderRadius: 14, scrollbarGutter: 'stable' },
+  table: { width: 'max-content', minWidth: '100%', borderCollapse: 'collapse', fontSize: 12 },
   th: { textAlign: 'left', padding: '9px 10px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', whiteSpace: 'nowrap' },
   td: { padding: '9px 10px', borderBottom: '1px solid rgba(148, 163, 184, 0.14)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' },
   detail: { marginTop: 8, whiteSpace: 'pre-wrap', color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.45 },
@@ -71,14 +100,17 @@ function GameTrackerCard({ game }) {
       </div>
       <span className="status-badge">{Object.entries(game.grades || {}).map(([k, v]) => `${k}: ${v}`).join(' · ') || 'No grades'}</span>
     </div>
-    <div style={s.miniGrid}>
-      {previewRows.length === 0 && <div style={s.rowMeta}>No model rows available for this game.</div>}
-      {previewRows.map(row => <div key={row.id || row.tracker_key} style={s.rowCard}>
-        <div style={s.rowTitle}>{row.pick_label || row.player_name || row.team_name || row.model_name || 'Tracked output'}</div>
-        <div style={s.rowMeta}>{row.source} / {row.source_component} · {row.market_type || 'model'} · {gradeLabel(row)}</div>
-        <div style={s.rowMeta}>Score {fmt(row.score)} · Confidence {fmt(row.confidence)} · Edge {fmt(row.edge)}</div>
-        {row.primary_reason && <details style={s.detail}><summary>Reason</summary>{row.primary_reason}</details>}
-      </div>)}
+    {previewRows.length > 3 && <div style={s.scrollHint}>Swipe horizontally to review all preview cards</div>}
+    <div style={s.miniScroller}>
+      <div style={s.miniRail}>
+        {previewRows.length === 0 && <div style={s.rowMeta}>No model rows available for this game.</div>}
+        {previewRows.map(row => <div key={row.id || row.tracker_key} style={s.rowCard}>
+          <div style={s.rowTitle}>{row.pick_label || row.player_name || row.team_name || row.model_name || 'Tracked output'}</div>
+          <div style={s.rowMeta}>{row.source} / {row.source_component} · {row.market_type || 'model'} · {gradeLabel(row)}</div>
+          <div style={s.rowMeta}>Score {fmt(row.score)} · Confidence {fmt(row.confidence)} · Edge {fmt(row.edge)}</div>
+          {row.primary_reason && <details style={s.detail}><summary>Reason</summary>{row.primary_reason}</details>}
+        </div>)}
+      </div>
     </div>
   </article>
 }
@@ -196,15 +228,17 @@ export default function ModelTrackerPage() {
     {error && <div className="state-panel error">{error}</div>}
     {loading && <div className="state-panel">Loading tracker rows...</div>}
 
-    <section style={s.grid}>
-      <StatCard label="Tracked Rows" value={summary.total_rows || filteredRows.length} />
-      <StatCard label="Games Tracked" value={summary.games_tracked} />
-      <StatCard label="Pending" value={summary.pending_rows} />
-      <StatCard label="Live" value={summary.live_rows} />
-      <StatCard label="Graded" value={summary.graded_rows} />
-      <StatCard label="Won" value={summary.won} />
-      <StatCard label="Lost" value={summary.lost} />
-      <StatCard label="Ungraded" value={summary.ungraded_rows} />
+    <section style={s.statsScroller} aria-label="Model Tracker summary cards">
+      <div style={s.statRail}>
+        <StatCard label="Tracked Rows" value={summary.total_rows || filteredRows.length} />
+        <StatCard label="Games Tracked" value={summary.games_tracked} />
+        <StatCard label="Pending" value={summary.pending_rows} />
+        <StatCard label="Live" value={summary.live_rows} />
+        <StatCard label="Graded" value={summary.graded_rows} />
+        <StatCard label="Won" value={summary.won} />
+        <StatCard label="Lost" value={summary.lost} />
+        <StatCard label="Ungraded" value={summary.ungraded_rows} />
+      </div>
     </section>
 
     <section style={s.section}>
@@ -230,7 +264,7 @@ export default function ModelTrackerPage() {
 
     <section style={s.section}>
       <div style={s.sectionHeader}>
-        <div><div style={s.sectionTitle}>Table View</div><div style={s.rowMeta}>Every stored model output, including ungraded watchlist rows and final comparison state.</div></div>
+        <div><div style={s.sectionTitle}>Table View</div><div style={s.rowMeta}>Every stored model output, including ungraded watchlist rows and final comparison state. Scroll horizontally to inspect every column.</div></div>
       </div>
       <div style={s.tableWrap}>
         <table style={s.table}>
@@ -250,7 +284,7 @@ export default function ModelTrackerPage() {
               <td style={s.td}>{fmt(row.price, 0)}</td>
               <td style={s.td}>{row.result_status}</td>
               <td style={s.td}>{row.grade}</td>
-              <td style={{ ...s.td, whiteSpace: 'normal', minWidth: 260 }}>{row.grade_reason || row.primary_reason || 'N/A'}</td>
+              <td style={{ ...s.td, whiteSpace: 'normal', minWidth: 300, maxWidth: 520 }}>{row.grade_reason || row.primary_reason || 'N/A'}</td>
             </tr>)}
           </tbody>
         </table>
