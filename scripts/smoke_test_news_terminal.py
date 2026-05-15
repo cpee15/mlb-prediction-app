@@ -58,6 +58,14 @@ def _check_health(data: Any, path: str) -> None:
     payload = _expect_dict(data, path)
     if payload.get("component") != "news_terminal" or payload.get("status") != "ok":
         raise SmokeFailure(f"Unexpected News health payload for {path}: {payload}")
+    env_vars = payload.get("env_vars_supported") or []
+    for key in ["NEWS_PROVIDER", "NEWS_ENABLE_RSS_PROVIDER", "NEWS_CACHE_TTL_SECONDS", "NEWS_MAX_ITEMS_PER_BUCKET", "NEWS_DEFAULT_LOOKBACK_HOURS", "NEWS_API_KEY", "NEWS_ENABLE_X_PROVIDER", "X_BEARER_TOKEN"]:
+        if key not in env_vars:
+            raise SmokeFailure(f"News health missing supported env var {key}")
+    if payload.get("rss_supported") is not True:
+        raise SmokeFailure("News health must indicate RSS support")
+    if payload.get("active_provider") in {"rss", "rss_network", "rss_feed_network"} and payload.get("requires_api_key") is not False:
+        raise SmokeFailure("RSS provider must not require NEWS_API_KEY")
 
 
 def _check_all(data: Any, path: str) -> None:
@@ -73,30 +81,46 @@ def _check_all(data: Any, path: str) -> None:
         raise SmokeFailure(f"News buckets missing {missing}")
     if not isinstance(payload.get("ticker"), list):
         raise SmokeFailure("News ticker must be an array")
+    if not isinstance(payload.get("errors"), list):
+        raise SmokeFailure("News errors must be an array")
+    if payload.get("status") == "provider_not_configured" and payload.get("provider") in {"rss", "rss_network", "rss_feed_network"}:
+        raise SmokeFailure("RSS provider returned provider_not_configured")
 
 
 def _check_ticker(data: Any, path: str) -> None:
     payload = _expect_dict(data, path)
     if "ticker" not in payload or not isinstance(payload.get("ticker"), list):
         raise SmokeFailure("Ticker payload missing ticker array")
+    if not isinstance(payload.get("errors", []), list):
+        raise SmokeFailure("Ticker payload errors must be an array")
 
 
 def _check_items(data: Any, path: str) -> None:
     payload = _expect_dict(data, path)
     if "items" not in payload or not isinstance(payload.get("items"), list):
         raise SmokeFailure(f"Expected items array for {path}")
+    if not isinstance(payload.get("errors", []), list):
+        raise SmokeFailure(f"Expected errors array for {path}")
 
 
 def _check_team_intel(data: Any, path: str) -> None:
     payload = _expect_dict(data, path)
     if "team_intel" not in payload or not isinstance(payload.get("team_intel"), dict):
         raise SmokeFailure("Team intel payload missing team_intel object")
+    if not isinstance(payload.get("errors", []), list):
+        raise SmokeFailure("Team intel errors must be an array")
 
 
 def _check_sources(data: Any, path: str) -> None:
     payload = _expect_dict(data, path)
     if "sources" not in payload or not isinstance(payload.get("sources"), list):
         raise SmokeFailure("Sources payload missing sources array")
+    if "rss_sources" not in payload or not isinstance(payload.get("rss_sources"), list):
+        raise SmokeFailure("Sources payload missing rss_sources array")
+    if payload["sources"]:
+        first = payload["sources"][0]
+        if "rss_sources" not in first:
+            raise SmokeFailure("Team source missing rss_sources")
 
 
 def _run(base_url: str, label: str, path: str, validator) -> bool:
