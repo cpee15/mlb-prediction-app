@@ -130,6 +130,10 @@ def _check_tracker_snapshot(data: Any, path: str) -> None:
             raise SmokeFailure(f"Model Tracker snapshot payload missing {key}")
     if not isinstance(payload.get("errors"), list):
         raise SmokeFailure("Model Tracker snapshot errors must be a list")
+    if payload.get("errors"):
+        raise SmokeFailure(f"Model Tracker snapshot returned source errors: {payload.get('errors')[:3]}")
+    if int(payload.get("rows_collected") or 0) <= 0:
+        raise SmokeFailure(f"Model Tracker snapshot collected zero rows: {payload}")
 
 
 def _check_tracker_list(data: Any, path: str) -> None:
@@ -141,6 +145,15 @@ def _check_tracker_list(data: Any, path: str) -> None:
         raise SmokeFailure("Model Tracker rows must be a list")
     if not isinstance(payload.get("games"), list):
         raise SmokeFailure("Model Tracker games must be a list")
+
+
+def _check_tracker_list_nonempty(data: Any, path: str) -> None:
+    _check_tracker_list(data, path)
+    payload = _expect_dict(data, path)
+    rows = payload.get("rows") or []
+    summary = payload.get("summary") or {}
+    if len(rows) <= 0:
+        raise SmokeFailure(f"Model Tracker list returned zero rows after snapshot for {path}: {summary}")
 
 
 def _run_check(base_url: str, label: str, path: str, validator: Callable[[Any, str], None], method: str = "GET") -> bool:
@@ -182,7 +195,7 @@ def main() -> int:
     ]
     if args.include_mutating_tracker_checks:
         checks.append(("model_tracker_snapshot", f"/model-tracker/snapshot?{query_date}", _check_tracker_snapshot, "POST"))
-        checks.append(("model_tracker_list_after_snapshot", f"/model-tracker?{query_date}", _check_tracker_list, "GET"))
+        checks.append(("model_tracker_list_after_snapshot", f"/model-tracker?{query_date}", _check_tracker_list_nonempty, "GET"))
 
     print(f"Backend base URL: {args.base_url.rstrip('/')}")
     print(f"Smoke-test date: {date}")
