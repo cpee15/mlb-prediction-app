@@ -46,11 +46,26 @@ function asArray(value) { return Array.isArray(value) ? value : [] }
 function fmtTime(iso) { if (!iso) return 'Pending'; try { return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) } catch { return 'Pending' } }
 function score(v) { const n = Number(v); return Number.isFinite(n) ? n.toFixed(0) : '0' }
 function bucketCount(payload) { return BUCKETS.reduce((sum, bucket) => sum + asArray(payload?.buckets?.[bucket]).length, 0) }
+function providerLabel(provider) { return ['rss', 'rss_network', 'rss_feed_network'].includes(provider) ? 'RSS Feed Network' : (provider || 'loading') }
+function statusLabel(status) {
+  if (status === 'ok') return 'Connected'
+  if (status === 'empty') return 'Connected, no items returned'
+  if (status === 'provider_not_configured') return 'Provider Missing'
+  return status || 'loading'
+}
+function emptyMessage(payload) {
+  if (['rss', 'rss_network', 'rss_feed_network'].includes(payload?.provider) && payload?.status === 'empty') return 'RSS provider is connected, but no matching MLB news items were returned for this date/filter.'
+  if (payload?.status === 'provider_not_configured') return 'Provider missing. Enable RSS on the backend or configure a paid provider.'
+  return `No items in this bucket yet. Status: ${statusLabel(payload?.status)}.`
+}
 
-function Ticker({ rows, status }) {
+function Ticker({ rows, status, provider }) {
+  const emptyText = ['rss', 'rss_network', 'rss_feed_network'].includes(provider)
+    ? 'RSS provider is connected, but no matching MLB news items were returned for this date/filter.'
+    : 'No provider items yet. Enable RSS or configure a paid provider to light up the terminal.'
   return <section style={s.ticker}>
-    <div style={s.tickerHead}><span style={s.hot}>Live Wire</span><span>MLB News Terminal</span><span style={s.badge}>{status || 'loading'}</span></div>
-    <div style={s.tickerRow}>{rows.length === 0 ? <span style={s.tickerItem}>No configured provider items yet. Add NEWS_PROVIDER and NEWS_API_KEY to light up the terminal.</span> : rows.map(row => <a key={row.id} href={row.url || '#'} target="_blank" rel="noreferrer" style={s.tickerItem}><span style={s.hot}>{row.tag || 'news'}</span><strong>{row.headline}</strong><span>{row.source}</span><span>{row.time_ago}</span></a>)}</div>
+    <div style={s.tickerHead}><span style={s.hot}>Live Wire</span><span>MLB News Terminal</span><span style={s.badge}>{statusLabel(status)}</span></div>
+    <div style={s.tickerRow}>{rows.length === 0 ? <span style={s.tickerItem}>{emptyText}</span> : rows.map(row => <a key={row.id} href={row.url || '#'} target="_blank" rel="noreferrer" style={s.tickerItem}><span style={s.hot}>{row.tag || 'news'}</span><strong>{row.headline}</strong><span>{row.source}</span><span>{row.time_ago}</span></a>)}</div>
   </section>
 }
 
@@ -68,7 +83,7 @@ function TeamIntel({ boards }) {
   const rows = Object.values(boards || {})
   if (!rows.length) return <div style={s.empty}>No team intel board available yet.</div>
   return <div style={s.grid}>{rows.map(board => <div key={board.team} style={s.card}>
-    <div style={s.row}><strong style={{ color: '#e6edf3' }}>{board.team}</strong><span style={s.badge}>{board.confidence_provider_status}</span></div>
+    <div style={s.row}><strong style={{ color: '#e6edf3' }}>{board.team}</strong><span style={s.badge}>{statusLabel(board.confidence_provider_status)}</span></div>
     <div style={s.meta}>{board.team_name}</div>
     <div style={s.meta}>Beat/local: {board.beat_report_count} · National: {board.national_headline_count} · Local sources: {board.local_source_count}</div>
     <div style={s.meta}>Latest local: {board.latest_local_item?.title || 'None configured'}</div>
@@ -131,22 +146,22 @@ export default function NewsPage() {
   }, [payload, activeBucket, team, tag, sourceType, search, breakingOnly, bettingOnly, localOnly])
 
   return <div style={s.page}>
-    <Ticker rows={asArray(payload?.ticker)} status={payload?.status} />
+    <Ticker rows={asArray(payload?.ticker)} status={payload?.status} provider={payload?.provider} />
     <section style={s.hero}>
       <div style={s.row}>
         <div><div style={s.eyebrow}>Bloomberg style MLB clubhouse and betting intelligence</div><h1 style={s.title}>News</h1><div style={s.subtitle}>A command center for injuries, lineup hints, starter changes, bullpen availability, local beat context, weather chatter, and betting-market relevant items. Provider placeholders are intentionally safe when credentials are missing.</div></div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}><input style={s.input} type="date" value={date} onChange={e => setDate(e.target.value)} /><button style={s.button} type="button" onClick={load} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh'}</button></div>
       </div>
       <div style={s.stats}>
-        <div style={s.stat}><div style={s.statLabel}>Provider</div><div style={s.statValue}>{payload?.provider || 'loading'}</div></div>
-        <div style={s.stat}><div style={s.statLabel}>Status</div><div style={s.statValue}>{payload?.status || 'loading'}</div></div>
+        <div style={s.stat}><div style={s.statLabel}>Provider</div><div style={s.statValue}>{providerLabel(payload?.provider)}</div></div>
+        <div style={s.stat}><div style={s.statLabel}>Status</div><div style={s.statValue}>{statusLabel(payload?.status)}</div></div>
         <div style={s.stat}><div style={s.statLabel}>Items</div><div style={s.statValue}>{bucketCount(payload)}</div></div>
         <div style={s.stat}><div style={s.statLabel}>Last Updated</div><div style={s.statValue}>{fmtTime(payload?.generated_at)}</div></div>
         <div style={s.stat}><div style={s.statLabel}>Cache</div><div style={s.statValue}>{payload?.cache_hit ? 'Hit' : 'Fresh'}</div></div>
       </div>
     </section>
     {error && <div style={s.error}>{error}</div>}
-    {asArray(payload?.errors).length > 0 && <div style={s.error}>{payload.errors.join(' · ')}</div>}
+    {asArray(payload?.errors).length > 0 && <div style={s.error}>{payload.errors.slice(0, 3).map(err => String(err).slice(0, 180)).join(' · ')}</div>}
     <section style={s.section}>
       <div style={s.row}><div><div style={s.sectionTitle}>Filters</div><div style={s.meta}>Team, tag, source, breaking, betting, local, and text search.</div></div><button type="button" style={s.muted} onClick={() => { setTeam(''); setTag(''); setSourceType(''); setSearch(''); setBreakingOnly(false); setBettingOnly(false); setLocalOnly(false) }}>Reset Filters</button></div>
       <div style={s.filters}>
@@ -159,7 +174,7 @@ export default function NewsPage() {
     </section>
     <section style={s.section}>
       <div style={s.row}><div><div style={s.sectionTitle}>Terminal Buckets</div><div style={s.meta}>Exclusive buckets prevent national wire spam from flooding every section.</div></div><div style={s.tabs}>{[...BUCKETS, 'team_intel'].map(bucket => <button key={bucket} type="button" style={s.tab(activeBucket === bucket)} onClick={() => setActiveBucket(bucket)}>{bucket.replace('_', ' ')}</button>)}</div></div>
-      {activeBucket === 'team_intel' ? <TeamIntel boards={intel?.team_intel} /> : visible.length === 0 ? <div style={s.empty}>No items in this bucket yet. Status: {payload?.status || 'loading'}. Missing provider config is a clean empty terminal state, not a broken app.</div> : <div style={s.grid}>{visible.map(item => <NewsCard key={item.id} item={item} />)}</div>}
+      {activeBucket === 'team_intel' ? <TeamIntel boards={intel?.team_intel} /> : visible.length === 0 ? <div style={s.empty}>{emptyMessage(payload)}</div> : <div style={s.grid}>{visible.map(item => <NewsCard key={item.id} item={item} />)}</div>}
     </section>
   </div>
 }

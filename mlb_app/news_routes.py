@@ -7,14 +7,21 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from .news_cache import get_cache, set_cache, ttl_for
-from .news_provider import BUCKETS, build_news_payload, build_team_intel, empty_response
-from .news_sources import get_news_sources
+from .news_provider import BUCKETS, build_news_payload, build_team_intel, empty_response, get_provider
+from .news_sources import get_global_rss_sources, get_news_sources
 
 router = APIRouter()
 
 
 def _date(value: Optional[str]) -> str:
     return (value or dt.date.today().isoformat())[:10]
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _cached(key: str, ttl_key: str, builder):
@@ -33,17 +40,34 @@ def _cached(key: str, ttl_key: str, builder):
 
 @router.get("/news/health")
 def news_health():
-    configured = bool(os.getenv("NEWS_API_KEY") or os.getenv("RAPIDAPI_KEY") or os.getenv("X_BEARER_TOKEN"))
+    provider = get_provider()
+    rss_enabled = os.getenv("NEWS_PROVIDER", "").strip().lower() in {"rss", "rss_network", "rss_feed_network"} or _env_bool("NEWS_ENABLE_RSS_PROVIDER")
     return {
         "component": "news_terminal",
         "status": "ok",
-        "provider_configured": configured,
+        "provider_configured": provider.configured(),
+        "active_provider": provider.name,
+        "rss_enabled": rss_enabled,
+        "rss_supported": True,
+        "requires_api_key": bool(getattr(provider, "requires_api_key", False)),
         "env_vars_supported": [
-            "NEWS_PROVIDER", "NEWS_API_KEY", "NEWS_CACHE_TTL_SECONDS", "NEWS_DEFAULT_QUERY",
-            "RAPIDAPI_KEY", "RAPIDAPI_NEWS_HOST", "X_BEARER_TOKEN", "X_API_KEY", "X_API_SECRET",
-            "X_ACCESS_TOKEN", "X_ACCESS_TOKEN_SECRET", "NEWS_ENABLE_X_PROVIDER", "NEWS_ENABLE_RSS_PROVIDER",
-            "NEWS_ENABLE_BETTING_WIRE", "NEWS_ENABLE_LOCAL_SOURCES", "NEWS_MAX_ITEMS_PER_BUCKET",
+            "NEWS_PROVIDER",
+            "NEWS_ENABLE_RSS_PROVIDER",
+            "NEWS_CACHE_TTL_SECONDS",
+            "NEWS_MAX_ITEMS_PER_BUCKET",
             "NEWS_DEFAULT_LOOKBACK_HOURS",
+            "NEWS_API_KEY",
+            "NEWS_ENABLE_X_PROVIDER",
+            "X_BEARER_TOKEN",
+            "NEWS_DEFAULT_QUERY",
+            "RAPIDAPI_KEY",
+            "RAPIDAPI_NEWS_HOST",
+            "X_API_KEY",
+            "X_API_SECRET",
+            "X_ACCESS_TOKEN",
+            "X_ACCESS_TOKEN_SECRET",
+            "NEWS_ENABLE_BETTING_WIRE",
+            "NEWS_ENABLE_LOCAL_SOURCES",
         ],
     }
 
@@ -127,4 +151,9 @@ def news_team_intel(team: Optional[str] = None, date: Optional[str] = None):
 
 @router.get("/news/sources")
 def news_sources(team: Optional[str] = None):
-    return {"status": "ok", "team": team, "sources": get_news_sources(team)}
+    return {
+        "status": "ok",
+        "team": team,
+        "sources": get_news_sources(team),
+        "rss_sources": get_global_rss_sources(),
+    }
