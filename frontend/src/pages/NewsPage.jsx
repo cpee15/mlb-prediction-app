@@ -51,6 +51,7 @@ function statusLabel(status) {
   if (status === 'ok') return 'Connected'
   if (status === 'empty') return 'Connected, no items returned'
   if (status === 'provider_not_configured') return 'Provider Missing'
+  if (status === 'provider_missing_dependency') return 'Dependency Missing'
   return status || 'loading'
 }
 function emptyMessage(payload) {
@@ -79,6 +80,16 @@ function NewsCard({ item }) {
   </article>
 }
 
+function TweetCard({ item }) {
+  const handle = item.handle || item.author || 'X/Twitter'
+  return <article style={{ ...s.card, minHeight: 0 }}>
+    <div style={s.row}><strong style={{ color: '#e6edf3' }}>{handle}</strong><span style={s.badge}>X/Twitter</span></div>
+    <div style={s.meta}>{item.author && item.handle ? item.author : 'Twitter/X post'} · {fmtTime(item.published_at)}</div>
+    <div style={{ color: '#c9d1d9', fontSize: 13, lineHeight: 1.45, marginTop: 9 }}>{item.summary || item.title || 'No post text returned.'}</div>
+    <div style={s.tagRow}>{asArray(item.tags).slice(0, 6).map(tag => <span key={tag} style={s.tag}>{tag}</span>)}{item.url && <a href={item.url} target="_blank" rel="noreferrer" style={s.tag}>Open</a>}</div>
+  </article>
+}
+
 function TeamIntel({ boards }) {
   const rows = Object.values(boards || {})
   if (!rows.length) return <div style={s.empty}>No team intel board available yet.</div>
@@ -90,6 +101,61 @@ function TeamIntel({ boards }) {
     <div style={s.meta}>Injury/lineup/starter: {board.latest_injury_lineup_starter_item?.title || 'No item'}</div>
     <div style={s.tagRow}>{asArray(board.top_tags).slice(0, 6).map(tag => <span key={tag} style={s.tag}>{tag}</span>)}</div>
   </div>)}</div>
+}
+
+function MatchupTwitterIntel({ date, teams }) {
+  const [mode, setMode] = useState('matchups')
+  const [payload, setPayload] = useState(null)
+  const [team, setTeam] = useState('CHC')
+  const [query, setQuery] = useState('Cubs lineup')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  function endpoint() {
+    if (mode === 'betting') return `${API}/news/twitter/betting?date=${date}&limit=10`
+    if (mode === 'team') return `${API}/news/twitter/team?team=${encodeURIComponent(team || 'CHC')}&date=${date}&limit=10`
+    if (mode === 'search') return `${API}/news/twitter/search?query=${encodeURIComponent(query || 'MLB lineup')}&date=${date}&limit=10`
+    return `${API}/news/twitter/matchups?date=${date}&limit=10`
+  }
+
+  function loadTwitter() {
+    setLoading(true)
+    setError(null)
+    fetch(endpoint())
+      .then(async r => { if (!r.ok) throw new Error(`/news/twitter/${mode} failed ${r.status}: ${await r.text()}`); return r.json() })
+      .then(data => { setPayload(data); setLoading(false) })
+      .catch(err => { setPayload(null); setError(String(err?.message || err)); setLoading(false) })
+  }
+
+  useEffect(() => { loadTwitter() }, [date, mode])
+
+  const message = payload?.message || asArray(payload?.errors)[0]
+  const blocks = asArray(payload?.matchups)
+  const flatItems = asArray(payload?.items)
+  const disabled = ['provider_not_configured', 'provider_missing_dependency'].includes(payload?.status)
+
+  return <section style={s.section}>
+    <div style={s.row}>
+      <div><div style={s.sectionTitle}>Matchup Twitter Intel</div><div style={s.meta}>Optional Twikit-backed X/Twitter layer for matchup, team, and betting chatter. It is isolated from the core News provider.</div></div>
+      <div style={s.tabs}>
+        {['matchups', 'betting', 'team', 'search'].map(name => <button key={name} type="button" style={s.tab(mode === name)} onClick={() => setMode(name)}>{name === 'matchups' ? 'Twitter Matchups' : name === 'betting' ? 'Twitter Betting' : name === 'team' ? 'Twitter Team Search' : 'Twitter Search'}</button>)}
+        <button type="button" style={s.muted} onClick={loadTwitter} disabled={loading}>{loading ? 'Loading...' : 'Refresh Twitter'}</button>
+      </div>
+    </div>
+    {mode === 'team' && <div style={{ ...s.filters, marginTop: 12 }}><label><div style={s.label}>Team</div><select style={s.select} value={team} onChange={e => setTeam(e.target.value)}>{asArray(teams).map(t => <option key={t} value={t}>{t}</option>)}</select></label><div style={{ display: 'flex', alignItems: 'end' }}><button type="button" style={s.button} onClick={loadTwitter}>Search Team</button></div></div>}
+    {mode === 'search' && <div style={{ ...s.filters, marginTop: 12 }}><label><div style={s.label}>Keyword Search</div><input style={s.input} value={query} onChange={e => setQuery(e.target.value)} placeholder="Cubs lineup, MLB sharp money" /></label><div style={{ display: 'flex', alignItems: 'end' }}><button type="button" style={s.button} onClick={loadTwitter}>Search X/Twitter</button></div></div>}
+    {error && <div style={{ ...s.error, marginTop: 12 }}>{error}</div>}
+    {disabled && <div style={{ ...s.empty, marginTop: 12 }}>Twitter/X provider is disabled or missing credentials. Configure NEWS_ENABLE_TWIKIT and TWIKIT_* env vars to enable matchup intel.</div>}
+    {!disabled && message && <div style={{ ...s.error, marginTop: 12 }}>{message}</div>}
+    {!disabled && mode === 'matchups' && blocks.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No matchup Twitter intel returned yet.</div>}
+    {!disabled && mode === 'matchups' && blocks.length > 0 && <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>{blocks.map(block => <article key={block.game_id} style={s.card}>
+      <div style={s.row}><div><div style={s.cardTitle}>{block.away_team || 'Away'} at {block.home_team || 'Home'}</div><div style={s.meta}>{block.away_pitcher || 'Away pitcher pending'} vs {block.home_pitcher || 'Home pitcher pending'}</div></div><span style={s.badge}>{asArray(block.items).length} posts</span></div>
+      <div style={s.tagRow}>{asArray(block.queries).map(q => <span key={q} style={s.tag}>{q}</span>)}</div>
+      {asArray(block.items).length === 0 ? <div style={s.empty}>No posts returned for this matchup.</div> : <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{asArray(block.items).slice(0, 10).map(item => <TweetCard key={item.id} item={item} />)}</div>}
+    </article>)}</div>}
+    {!disabled && mode !== 'matchups' && flatItems.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No Twitter/X posts returned for this search.</div>}
+    {!disabled && mode !== 'matchups' && flatItems.length > 0 && <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{flatItems.slice(0, 10).map(item => <TweetCard key={item.id} item={item} />)}</div>}
+  </section>
 }
 
 export default function NewsPage() {
@@ -172,6 +238,7 @@ export default function NewsPage() {
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}><button style={breakingOnly ? s.button : s.muted} type="button" onClick={() => setBreakingOnly(v => !v)}>Breaking Only</button><button style={bettingOnly ? s.button : s.muted} type="button" onClick={() => setBettingOnly(v => !v)}>Betting Relevant</button><button style={localOnly ? s.button : s.muted} type="button" onClick={() => setLocalOnly(v => !v)}>Beat/Local Only</button><Link style={s.muted} to="/daily-odds">Daily Odds</Link><Link style={s.muted} to="/models/projections">Model Projections</Link></div>
     </section>
+    <MatchupTwitterIntel date={date} teams={teams.length ? teams : ['CHC', 'CWS', 'STL', 'MIL']} />
     <section style={s.section}>
       <div style={s.row}><div><div style={s.sectionTitle}>Terminal Buckets</div><div style={s.meta}>Exclusive buckets prevent national wire spam from flooding every section.</div></div><div style={s.tabs}>{[...BUCKETS, 'team_intel'].map(bucket => <button key={bucket} type="button" style={s.tab(activeBucket === bucket)} onClick={() => setActiveBucket(bucket)}>{bucket.replace('_', ' ')}</button>)}</div></div>
       {activeBucket === 'team_intel' ? <TeamIntel boards={intel?.team_intel} /> : visible.length === 0 ? <div style={s.empty}>{emptyMessage(payload)}</div> : <div style={s.grid}>{visible.map(item => <NewsCard key={item.id} item={item} />)}</div>}
