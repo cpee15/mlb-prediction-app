@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.sqltypes import Date, DateTime, Float, Integer, Numeric, String, Text
 
 from .best_plays_engine import build_best_plays_payload, normalize_best_play_rows
 from .matchup_generator import generate_matchups_for_date
@@ -54,7 +56,57 @@ def _json(value: Any) -> str | None:
         return json.dumps(str(value))
 
 
-def _coerce_value(key: str, value: Any) -> Any:
+def _stringify(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list, tuple, set)):
+        return _json(value)
+    return str(value)
+
+
+def _db_column_types(session: Session) -> Dict[str, Any]:
+    """Return the live database column types for model_tracker_snapshots.
+
+    Production can keep an older physical table even if the ORM definition changed.
+    The snapshot insert path must therefore coerce values based on the actual DB
+    column type, not only the Python model attribute name.
+    """
+    try:
+        bind = session.get_bind()
+        inspector = inspect(bind)
+        columns = inspector.get_columns(ModelTrackerSnapshot.__tablename__)
+        return {str(column.get("name")): column.get("type") for column in columns}
+    except Exception:
+        return {}
+
+
+def _coerce_by_db_type(key: str, value: Any, db_type: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(db_type, Integer):
+        return _safe_int(value)
+    if isinstance(db_type, (Float, Numeric)):
+        return _safe_float(value)
+    if isinstance(db_type, DateTime):
+        return value
+    if isinstance(db_type, Date):
+        if isinstance(value, str):
+            return dt.date.fromisoformat(value[:10])
+        return value
+    if isinstance(db_type, (Text, String)):
+        return _stringify(value)
+    if key in JSON_COLUMNS:
+        return _json(value)
+    if isinstance(value, (dict, list, tuple, set)):
+        return _json(value)
+    return value
+
+
+def _coerce_value(key: str, value: Any, db_types: Dict[str, Any]) -> Any:
+    if key in db_types:
+        return _coerce_by_db_type(key, value, db_types[key])
     if key == "snapshot_date" and isinstance(value, str):
         return dt.date.fromisoformat(value[:10])
     if key in INTEGER_COLUMNS:
@@ -68,10 +120,22 @@ def _coerce_value(key: str, value: Any) -> Any:
     return value
 
 
+def _schema_mismatches(db_types: Dict[str, Any]) -> List[Dict[str, str]]:
+    expected_text = {"player_name", "team_name", "opponent_name", "away_team", "home_team", "pick_label", "primary_reason", "grade_reason"}
+    mismatches: List[Dict[str, str]] = []
+    for column in expected_text:
+        db_type = db_types.get(column)
+        if db_type is not None and not isinstance(db_type, (Text, String)):
+            mismatches.append({"column": column, "expected": "text/string", "actual": str(db_type)})
+    return mismatches
+
+
 def safe_upsert_tracker_rows(session: Session, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     inserted = 0
     updated = 0
     now = dt.datetime.utcnow()
+    db_types = _db_column_types(session)
+    mismatches = _schema_mismatches(db_types)
     for row in rows:
         tracker_key = row.get("tracker_key") or _tracker_key(row)
         existing = session.query(ModelTrackerSnapshot).filter(ModelTrackerSnapshot.tracker_key == tracker_key).first()
@@ -85,10 +149,15 @@ def safe_upsert_tracker_rows(session: Session, rows: List[Dict[str, Any]]) -> Di
         for key, value in row.items():
             if not hasattr(target, key):
                 continue
-            setattr(target, key, _coerce_value(key, value))
+            setattr(target, key, _coerce_value(key, value, db_types))
         target.updated_at = now
     session.commit()
-    return {"inserted": inserted, "updated": updated, "total_rows_seen": len(rows)}
+    return {
+        "inserted": inserted,
+        "updated": updated,
+        "total_rows_seen": len(rows),
+        "schema_mismatches": mismatches,
+    }
 
 
 def build_tracker_snapshot_safe(session: Session, target_date: str) -> Dict[str, Any]:
@@ -155,6 +224,12 @@ def build_tracker_snapshot_safe(session: Session, target_date: str) -> Dict[str,
         errors.append({"source": "best_plays", "error": str(exc), "type": exc.__class__.__name__})
 
     upsert_result = safe_upsert_tracker_rows(session, rows)
+    if upsert_result.get("schema_mismatches"):
+        errors.append({
+            "source": "model_tracker_schema",
+            "error": "Production model_tracker_snapshots schema does not match ORM expectations; incompatible values were coerced to prevent snapshot failure.",
+            "mismatches": upsert_result.get("schema_mismatches"),
+        })
     return {
         "date": target_date,
         "rows_collected": len(rows),
