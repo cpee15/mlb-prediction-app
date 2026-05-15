@@ -13,6 +13,7 @@ import LiveScoreboardPage from './pages/LiveScoreboardPage'
 import LiveGamePageRestored from './pages/LiveGamePageRestored'
 import DailyOddsPage from './pages/DailyOddsPage'
 import ModelProjectionsPage from './pages/ModelProjectionsPage'
+import NewsPage from './pages/NewsPage'
 import MyDashboardPage from './pages/MyDashboardPage'
 import ModelTrackerPage from './pages/ModelTrackerPage'
 
@@ -48,6 +49,7 @@ export default function App() {
           </NavLink>
           <NavLink to="/" end className={navLinkClass}>Matchups</NavLink>
           <NavLink to="/daily-odds" className={navLinkClass}>Daily Odds</NavLink>
+          <NavLink to="/news" className={navLinkClass}>News</NavLink>
           <NavLink to="/models/projections" className={navLinkClass}>Model Projections</NavLink>
           <NavLink to="/my-dashboard" className={navLinkClass}>My Dashboard</NavLink>
           <NavLink to="/standings" className={navLinkClass}>Standings</NavLink>
@@ -63,6 +65,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/daily-odds" element={<DailyOddsPage />} />
+            <Route path="/news" element={<NewsPage />} />
             <Route path="/models/projections" element={<ModelProjectionsPage />} />
             <Route path="/model-tracker" element={<ModelTrackerPage />} />
             <Route path="/my-dashboard" element={<MyDashboardPage />} />
