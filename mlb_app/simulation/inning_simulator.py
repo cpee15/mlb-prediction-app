@@ -66,6 +66,51 @@ def sample_pa_outcome(probabilities: Dict[str, float], rng: Optional[random.Rand
     return "out"
 
 
+
+def _validate_subtype_transition_rates(
+    subtype_transition_rates,
+):
+
+    if subtype_transition_rates is None:
+        return
+
+    valid_keys = {
+        "groundout_double_play_rate",
+        "groundout_runner_third_scores_rate",
+        "groundout_runner_second_advances_rate",
+        "flyout_runner_third_scores_rate",
+        "flyout_runner_second_advances_rate",
+        "lineout_popout_runner_third_scores_rate",
+        "lineout_popout_runner_second_advances_rate",
+    }
+
+    for key, value in subtype_transition_rates.items():
+
+        if key not in valid_keys:
+            raise ValueError(
+                (
+                    "Invalid subtype transition "
+                    f"rate key: {key}"
+                )
+            )
+
+        if not isinstance(value, (int, float)):
+            raise ValueError(
+                (
+                    "Invalid subtype transition "
+                    f"rate type for {key}: {value}"
+                )
+            )
+
+        if value < 0.0 or value > 1.0:
+            raise ValueError(
+                (
+                    "Invalid subtype transition "
+                    f"rate range for {key}: {value}"
+                )
+            )
+
+
 def _validate_transition_rates(
     transition_rates: Optional[Dict[str, float]],
 ) -> None:
@@ -274,6 +319,7 @@ def simulate_half_inning(
     transition_mode: str = "current",
     transition_rates: Optional[Dict[str, float]] = None,
     subtype_transition_mode: str = "off",
+    subtype_transition_rates: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     rng = rng or random.Random()
 
@@ -293,6 +339,11 @@ def simulate_half_inning(
     }:
         raise ValueError(
             "subtype_transition_mode must be 'off' or 'prototype'"
+        )
+
+    if subtype_transition_mode == "prototype":
+        _validate_subtype_transition_rates(
+            subtype_transition_rates
         )
 
     bases = tuple(bool(x) for x in initial_bases)
@@ -346,6 +397,7 @@ def simulate_half_inning(
                 outcome_subtype=outcome,
                 outs=outs,
                 rng=rng,
+                transition_rates=subtype_transition_rates,
             )
 
             runs += scored
