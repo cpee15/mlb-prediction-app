@@ -4,6 +4,9 @@ import datetime as dt
 import hashlib
 import os
 import re
+import urllib.parse
+import urllib.request
+import json
 from typing import Any, Dict, Iterable, List, Optional
 
 from .news_classifier import classify_text, score_importance
@@ -64,7 +67,7 @@ def _post_datetime(value: Any) -> str:
         return text
 
 
-def _load_matchups(date: str) -> List[Dict[str, Any]]:
+def _load_matchups_from_generator(date: str) -> List[Dict[str, Any]]:
     # Same safe read-only path used by the existing Twikit provider and news keyword layer.
     try:
         from .app import _get_session
@@ -76,6 +79,67 @@ def _load_matchups(date: str) -> List[Dict[str, Any]]:
             return data if isinstance(data, list) else []
     except Exception:
         return []
+
+
+def _load_matchups_from_mlb_schedule(date: str) -> List[Dict[str, Any]]:
+    """Fallback schedule source for News Twitter Intel only.
+
+    This intentionally does not change /matchups or the production matchup analyzer. It gives the
+    Twitter/X intel layer enough team/pitcher context to build search queries when the internal
+    matchup generator returns an empty list.
+    """
+    target_date = (date or dt.date.today().isoformat())[:10]
+    params = urllib.parse.urlencode({
+        "sportId": 1,
+        "date": target_date,
+        "hydrate": "probablePitcher,team,venue",
+    })
+    url = f"https://statsapi.mlb.com/api/v1/schedule?{params}"
+    try:
+        with urllib.request.urlopen(url, timeout=12) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return []
+
+    games: List[Dict[str, Any]] = []
+    for day in payload.get("dates") or []:
+        for game in day.get("games") or []:
+            teams = game.get("teams") or {}
+            away = teams.get("away") or {}
+            home = teams.get("home") or {}
+            away_team = away.get("team") or {}
+            home_team = home.get("team") or {}
+            away_pitcher = away.get("probablePitcher") or {}
+            home_pitcher = home.get("probablePitcher") or {}
+            games.append({
+                "game_id": game.get("gamePk"),
+                "gamePk": game.get("gamePk"),
+                "game_pk": game.get("gamePk"),
+                "game_date": game.get("gameDate") or target_date,
+                "away_team_name": away_team.get("name"),
+                "away_team": away_team.get("abbreviation") or away_team.get("name"),
+                "away_name": away_team.get("name"),
+                "home_team_name": home_team.get("name"),
+                "home_team": home_team.get("abbreviation") or home_team.get("name"),
+                "home_name": home_team.get("name"),
+                "away_pitcher_name": away_pitcher.get("fullName"),
+                "away_probable_pitcher": away_pitcher.get("fullName"),
+                "home_pitcher_name": home_pitcher.get("fullName"),
+                "home_probable_pitcher": home_pitcher.get("fullName"),
+                "venue": (game.get("venue") or {}).get("name"),
+                "source": "mlb_schedule_fallback",
+            })
+    return games
+
+
+def _load_matchups(date: str) -> tuple[List[Dict[str, Any]], str]:
+    generated = _load_matchups_from_generator(date)
+    if generated:
+        return generated, "matchup_generator"
+    fallback = _load_matchups_from_mlb_schedule(date)
+    if fallback:
+        return fallback, "mlb_schedule_fallback"
+    return [], "empty"
 
 
 class ApifyXNewsProvider:
@@ -120,6 +184,7 @@ class ApifyXNewsProvider:
             "apify_x_enabled": self.enabled(),
             "apify_x_configured": self.configured(),
             "apify_x_actor_configured": self.actor_configured(),
+            "apify_x_matchup_schedule_fallback": True,
         }
 
     def _not_configured(self, date: Optional[str] = None, items_key: str = "items") -> Dict[str, Any]:
@@ -361,7 +426,7 @@ class ApifyXNewsProvider:
         target_date = date[:10]
         if not self.available():
             return self._not_configured(target_date, items_key="matchups")
-        matchup_rows = _load_matchups(target_date)
+        matchup_rows, matchup_source = _load_matchups(target_date)
         blocks: List[Dict[str, Any]] = []
         for matchup in matchup_rows:
             game_id = _first_present(matchup, ["game_id", "gamePk", "game_pk", "id"])
@@ -388,8 +453,19 @@ class ApifyXNewsProvider:
                 "queries": queries,
                 "items": items,
                 "errors": errors[:3],
+                "matchup_source": matchup_source,
             })
-        return {"date": target_date, "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"), "provider": self.name, "status": "ok" if blocks else "empty", "matchups": blocks, "errors": []}
+        return {
+            "date": target_date,
+            "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "provider": self.name,
+            "status": "ok" if blocks else "empty",
+            "matchups": blocks,
+            "errors": [],
+            "matchup_count": len(blocks),
+            "matchup_source": matchup_source,
+            "message": "No matchup rows loaded from generator or MLB schedule fallback." if not blocks else None,
+        }
 
     def search_betting(self, date: str, limit: int = 10) -> Dict[str, Any]:
         target_date = date[:10]
