@@ -7,8 +7,8 @@ from typing import Any, Dict, Optional, Tuple
 
 from . import ai_data_assistant as core
 from .model_projections import build_model_projection_payload as uncached_build_model_projection_payload
+from .shared_payload_cache import env_ttl, make_cache_key
 
-AI_CONTEXT_TTL_SECONDS = 600
 AI_RESPONSE_TTL_SECONDS = 180
 
 _projection_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
@@ -31,7 +31,7 @@ def _cache_get(cache: Dict[Any, Tuple[float, Any]], key: Any, ttl_seconds: int) 
     if not record:
         return None
     created_at, value = record
-    if _now() - created_at > ttl_seconds:
+    if ttl_seconds <= 0 or _now() - created_at > ttl_seconds:
         cache.pop(key, None)
         return None
     return copy.deepcopy(value)
@@ -59,8 +59,8 @@ def cached_build_model_projection_payload(session, target_date: str) -> Dict[str
     all existing v2 builders keep their current code path while sharing one
     cached projection payload by date.
     """
-    cache_key = f"ai_projection_payload:{target_date}"
-    cached = _cache_get(_projection_cache, cache_key, AI_CONTEXT_TTL_SECONDS)
+    cache_key = make_cache_key("model_projection", "full", target_date)
+    cached = _cache_get(_projection_cache, cache_key, env_ttl("MODEL_PROJECTION_CACHE_TTL_SECONDS"))
     if cached is not None:
         timing = _timing()
         if timing is not None:
