@@ -4,6 +4,7 @@ import { API_BASE, getMlbLiveDate } from '../lib/api'
 
 const BUCKETS = ['hourly', 'daily', 'weekly', 'monthly', 'beat', 'betting']
 const API = API_BASE
+const TWITTER_TIMEOUT_MS = 15000
 
 const s = {
   page: { display: 'grid', gap: 16 },
@@ -39,6 +40,7 @@ const s = {
   tagRow: { display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 },
   tag: { color: '#58a6ff', border: '1px solid rgba(88,166,255,.35)', background: 'rgba(88,166,255,.08)', borderRadius: 999, padding: '3px 7px', fontSize: 10, fontWeight: 900 },
   empty: { color: '#8b949e', textAlign: 'center', padding: 28, border: '1px solid #30363d', borderRadius: 14, background: '#0d1117' },
+  loading: { color: '#8b949e', textAlign: 'center', padding: 28, border: '1px solid #30363d', borderRadius: 14, background: '#0d1117' },
   error: { color: '#f85149', background: '#1f1116', border: '1px solid #3b2222', borderRadius: 12, padding: 13 },
 }
 
@@ -46,13 +48,14 @@ function asArray(value) { return Array.isArray(value) ? value : [] }
 function fmtTime(iso) { if (!iso) return 'Pending'; try { return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) } catch { return 'Pending' } }
 function score(v) { const n = Number(v); return Number.isFinite(n) ? n.toFixed(0) : '0' }
 function bucketCount(payload) { return BUCKETS.reduce((sum, bucket) => sum + asArray(payload?.buckets?.[bucket]).length, 0) }
-function providerLabel(provider) { return ['rss', 'rss_network', 'rss_feed_network'].includes(provider) ? 'RSS Feed Network' : (provider || 'loading') }
-function statusLabel(status) {
+function providerLabel(provider, loading) { if (loading) return 'Loading'; return ['rss', 'rss_network', 'rss_feed_network'].includes(provider) ? 'RSS Feed Network' : (provider || 'Not loaded') }
+function statusLabel(status, loading) {
+  if (loading) return 'Loading'
   if (status === 'ok') return 'Connected'
   if (status === 'empty') return 'Connected, no items returned'
   if (status === 'provider_not_configured') return 'Provider Missing'
   if (status === 'provider_missing_dependency') return 'Dependency Missing'
-  return status || 'loading'
+  return status || 'Not loaded'
 }
 function emptyMessage(payload) {
   if (['rss', 'rss_network', 'rss_feed_network'].includes(payload?.provider) && payload?.status === 'empty') return 'RSS provider is connected, but no matching MLB news items were returned for this date/filter.'
@@ -62,6 +65,29 @@ function emptyMessage(payload) {
 function compactNumber(v) { const n = Number(v || 0); return Number.isFinite(n) ? n.toLocaleString() : '0' }
 function tweetTime(item) { const t = Date.parse(item?.published_at || ''); return Number.isFinite(t) ? t : 0 }
 function newestFirst(items) { return asArray(items).slice().sort((a, b) => tweetTime(b) - tweetTime(a)) }
+function dedupeKey(item) { return String(item?.url || item?.id || `${item?.title || item?.headline || ''}:${item?.source || ''}`).trim().toLowerCase() }
+function dedupeByStableKey(items) {
+  const seen = new Set()
+  return asArray(items).filter(item => {
+    const key = dedupeKey(item)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+function fetchJson(url, timeoutMs) {
+  const controller = new AbortController()
+  const timer = timeoutMs ? window.setTimeout(() => controller.abort(), timeoutMs) : null
+  return fetch(url, { signal: controller.signal }).then(async r => {
+    if (timer) window.clearTimeout(timer)
+    if (!r.ok) throw new Error(`${url} failed ${r.status}: ${await r.text()}`)
+    return r.json()
+  }).catch(err => {
+    if (timer) window.clearTimeout(timer)
+    if (err?.name === 'AbortError') throw new Error('Twitter Intel is still processing. Try refresh in a moment.')
+    throw err
+  })
+}
 function engagementText(item) {
   const e = item?.engagement || {}
   const parts = []
@@ -73,13 +99,14 @@ function engagementText(item) {
   return parts.join(' · ')
 }
 
-function Ticker({ rows, status, provider }) {
+function Ticker({ rows, status, provider, loading }) {
+  const dedupedRows = dedupeByStableKey(rows)
   const emptyText = ['rss', 'rss_network', 'rss_feed_network'].includes(provider)
     ? 'RSS provider is connected, but no matching MLB news items were returned for this date/filter.'
     : 'No provider items yet. Enable RSS or configure a paid provider to light up the terminal.'
   return <section style={s.ticker}>
-    <div style={s.tickerHead}><span style={s.hot}>Live Wire</span><span>MLB News Terminal</span><span style={s.badge}>{statusLabel(status)}</span></div>
-    <div style={s.tickerRow}>{rows.length === 0 ? <span style={s.tickerItem}>{emptyText}</span> : rows.map(row => <a key={row.id} href={row.url || '#'} target="_blank" rel="noreferrer" style={s.tickerItem}><span style={s.hot}>{row.tag || 'news'}</span><strong>{row.headline}</strong><span>{row.source}</span><span>{row.time_ago}</span></a>)}</div>
+    <div style={s.tickerHead}><span style={s.hot}>Live Wire</span><span>MLB News Terminal</span><span style={s.badge}>{statusLabel(status, loading)}</span></div>
+    <div style={s.tickerRow}>{loading ? <span style={s.tickerItem}>Loading MLB news wire...</span> : dedupedRows.length === 0 ? <span style={s.tickerItem}>{emptyText}</span> : dedupedRows.map(row => <a key={dedupeKey(row)} href={row.url || '#'} target="_blank" rel="noreferrer" style={s.tickerItem}><span style={s.hot}>{row.tag || 'news'}</span><strong>{row.headline || row.title}</strong><span>{row.source}</span><span>{row.time_ago}</span></a>)}</div>
   </section>
 }
 
@@ -104,8 +131,9 @@ function TweetCard({ item }) {
   </article>
 }
 
-function TeamIntel({ boards }) {
+function TeamIntel({ boards, loading }) {
   const rows = Object.values(boards || {})
+  if (loading) return <div style={s.loading}>Loading team intel board...</div>
   if (!rows.length) return <div style={s.empty}>No team intel board available yet.</div>
   return <div style={s.grid}>{rows.map(board => <div key={board.team} style={s.card}>
     <div style={s.row}><strong style={{ color: '#e6edf3' }}>{board.team}</strong><span style={s.badge}>{statusLabel(board.confidence_provider_status)}</span></div>
@@ -125,60 +153,68 @@ function MatchupTwitterIntel({ date, teams }) {
   const [query, setQuery] = useState('Cubs lineup')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [hasLoaded, setHasLoaded] = useState(false)
 
-  function endpoint() {
-    if (mode === 'betting') return `${API}/news/twitter/betting?date=${date}&limit=50`
-    if (mode === 'team') return `${API}/news/twitter/team?team=${encodeURIComponent(team || 'CHC')}&date=${date}&limit=50`
-    if (mode === 'search') return `${API}/news/twitter/search?query=${encodeURIComponent(query || 'MLB lineup')}&date=${date}&limit=50`
-    if (mode === 'baseball_feed') return `${API}/news/twitter/baseball-feed?date=${date}&limit=50`
+  function endpoint(nextMode = mode) {
+    if (nextMode === 'betting') return `${API}/news/twitter/betting?date=${date}&limit=50`
+    if (nextMode === 'team') return `${API}/news/twitter/team?team=${encodeURIComponent(team || 'CHC')}&date=${date}&limit=50`
+    if (nextMode === 'search') return `${API}/news/twitter/search?query=${encodeURIComponent(query || 'MLB lineup')}&date=${date}&limit=50`
+    if (nextMode === 'baseball_feed') return `${API}/news/twitter/baseball-feed?date=${date}&limit=50`
     return `${API}/news/twitter/matchups?date=${date}&limit=20`
   }
 
-  function loadTwitter() {
+  function loadTwitter(nextMode = mode) {
     setLoading(true)
     setError(null)
-    fetch(endpoint())
-      .then(async r => { if (!r.ok) throw new Error(`/news/twitter/${mode} failed ${r.status}: ${await r.text()}`); return r.json() })
+    setHasLoaded(true)
+    fetchJson(endpoint(nextMode), TWITTER_TIMEOUT_MS)
       .then(data => { setPayload(data); setLoading(false) })
       .catch(err => { setPayload(null); setError(String(err?.message || err)); setLoading(false) })
   }
 
-  useEffect(() => { loadTwitter() }, [date, mode])
+  useEffect(() => {
+    setPayload(null)
+    setError(null)
+    setHasLoaded(false)
+    setLoading(false)
+  }, [date])
 
   const message = payload?.message || asArray(payload?.errors)[0]
   const blocks = asArray(payload?.matchups)
-  const flatItems = asArray(payload?.items)
+  const flatItems = dedupeByStableKey(payload?.items)
   const disabled = ['provider_not_configured', 'provider_missing_dependency'].includes(payload?.status)
   const flatCap = mode === 'matchups' ? 20 : 50
-  const timelineItems = newestFirst(mode === 'matchups'
+  const timelineItems = newestFirst(dedupeByStableKey(mode === 'matchups'
     ? blocks.flatMap(block => newestFirst(block.items).map(item => ({ ...item, matchup_label: `${block.away_team || 'Away'} at ${block.home_team || 'Home'}` })))
-    : flatItems)
+    : flatItems))
 
   return <section style={s.section}>
     <div style={s.row}>
-      <div><div style={s.sectionTitle}>Matchup Twitter Intel</div><div style={s.meta}>Latest-first X/Twitter intel ranked for quality. Timeline always shows the newest posts first; matchup cards stay capped at 20 tweets per game.</div></div>
+      <div><div style={s.sectionTitle}>Matchup Twitter Intel</div><div style={s.meta}>Deferred Apify-backed X/Twitter intel. Matchup mode no longer fires on initial News page open.</div></div>
       <div style={s.tabs}>
-        {['matchups', 'betting', 'team', 'search', 'baseball_feed'].map(name => <button key={name} type="button" style={s.tab(mode === name)} onClick={() => { setMode(name); setView(name === 'matchups' ? 'cards' : 'timeline') }}>{name === 'matchups' ? 'Twitter Matchups' : name === 'betting' ? 'Twitter Betting' : name === 'team' ? 'Twitter Team Search' : name === 'baseball_feed' ? 'Baseball Feed' : 'Twitter Search'}</button>)}
+        {['matchups', 'betting', 'team', 'search', 'baseball_feed'].map(name => <button key={name} type="button" style={s.tab(mode === name)} onClick={() => { setMode(name); setView(name === 'matchups' ? 'cards' : 'timeline'); setPayload(null); setError(null); setHasLoaded(false) }}>{name === 'matchups' ? 'Twitter Matchups' : name === 'betting' ? 'Twitter Betting' : name === 'team' ? 'Twitter Team Search' : name === 'baseball_feed' ? 'Baseball Feed' : 'Twitter Search'}</button>)}
         <button type="button" style={s.tab(view === 'timeline')} onClick={() => setView(view === 'timeline' ? 'cards' : 'timeline')}>Timeline</button>
-        <button type="button" style={s.muted} onClick={loadTwitter} disabled={loading}>{loading ? 'Loading...' : 'Refresh Twitter'}</button>
+        <button type="button" style={s.muted} onClick={() => loadTwitter()} disabled={loading}>{loading ? 'Loading...' : hasLoaded ? 'Refresh Twitter' : 'Load Twitter Intel'}</button>
       </div>
     </div>
-    <div style={s.meta}>Display: {view === 'timeline' ? 'Latest-first timeline' : 'Game cards'} · Ranking: newest first after quality filtering · Cache: {payload?.cache_hit ? 'Hit' : 'Fresh'} · Cap: {payload?.tweet_cap_per_game || payload?.tweet_cap || flatCap}</div>
-    {mode === 'team' && <div style={{ ...s.filters, marginTop: 12 }}><label><div style={s.label}>Team</div><select style={s.select} value={team} onChange={e => setTeam(e.target.value)}>{asArray(teams).map(t => <option key={t} value={t}>{t}</option>)}</select></label><div style={{ display: 'flex', alignItems: 'end' }}><button type="button" style={s.button} onClick={loadTwitter}>Search Team</button></div></div>}
-    {mode === 'search' && <div style={{ ...s.filters, marginTop: 12 }}><label><div style={s.label}>Keyword Search</div><input style={s.input} value={query} onChange={e => setQuery(e.target.value)} placeholder="Cubs lineup, MLB sharp money" /></label><div style={{ display: 'flex', alignItems: 'end' }}><button type="button" style={s.button} onClick={loadTwitter}>Search X/Twitter</button></div></div>}
+    <div style={s.meta}>Display: {view === 'timeline' ? 'Latest-first timeline' : 'Game cards'} · Ranking: newest first after quality filtering · Cache: {payload?.cache_hit ? 'Hit' : payload ? 'Fresh' : 'Idle'} · Cap: {payload?.tweet_cap_per_game || payload?.tweet_cap || flatCap}</div>
+    {mode === 'team' && <div style={{ ...s.filters, marginTop: 12 }}><label><div style={s.label}>Team</div><select style={s.select} value={team} onChange={e => setTeam(e.target.value)}>{asArray(teams).map(t => <option key={t} value={t}>{t}</option>)}</select></label><div style={{ display: 'flex', alignItems: 'end' }}><button type="button" style={s.button} onClick={() => loadTwitter()}>Search Team</button></div></div>}
+    {mode === 'search' && <div style={{ ...s.filters, marginTop: 12 }}><label><div style={s.label}>Keyword Search</div><input style={s.input} value={query} onChange={e => setQuery(e.target.value)} placeholder="Cubs lineup, MLB sharp money" /></label><div style={{ display: 'flex', alignItems: 'end' }}><button type="button" style={s.button} onClick={() => loadTwitter()}>Search X/Twitter</button></div></div>}
+    {!hasLoaded && !loading && <div style={{ ...s.empty, marginTop: 12 }}>Twitter Intel ready. Click Load Twitter Intel.</div>}
+    {loading && <div style={{ ...s.loading, marginTop: 12 }}>Loading Twitter Intel...</div>}
     {error && <div style={{ ...s.error, marginTop: 12 }}>{error}</div>}
     {disabled && <div style={{ ...s.empty, marginTop: 12 }}>Twitter/X provider is disabled or missing credentials. Configure NEWS_X_PROVIDER=apify, APIFY_TOKEN, and TWITTER_X_ACTOR_ID to enable matchup intel.</div>}
     {!disabled && message && <div style={{ ...s.error, marginTop: 12 }}>{message}</div>}
-    {!disabled && view === 'timeline' && timelineItems.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No timeline tweets returned yet.</div>}
-    {!disabled && view === 'timeline' && timelineItems.length > 0 && <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{timelineItems.slice(0, mode === 'matchups' ? 100 : 50).map(item => <TweetCard key={`${item.id}-${item.matchup_label || ''}`} item={item} />)}</div>}
-    {!disabled && view !== 'timeline' && mode === 'matchups' && blocks.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No matchup Twitter intel returned yet.</div>}
+    {hasLoaded && !loading && !disabled && view === 'timeline' && timelineItems.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No timeline tweets returned yet.</div>}
+    {!disabled && view === 'timeline' && timelineItems.length > 0 && <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{timelineItems.slice(0, mode === 'matchups' ? 100 : 50).map(item => <TweetCard key={`${item.id || item.url}-${item.matchup_label || ''}`} item={item} />)}</div>}
+    {hasLoaded && !loading && !disabled && view !== 'timeline' && mode === 'matchups' && blocks.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No matchup Twitter intel returned yet.</div>}
     {!disabled && view !== 'timeline' && mode === 'matchups' && blocks.length > 0 && <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>{blocks.map(block => <article key={block.game_id} style={s.card}>
       <div style={s.row}><div><div style={s.cardTitle}>{block.away_team || 'Away'} at {block.home_team || 'Home'}</div><div style={s.meta}>{block.away_pitcher || 'Away pitcher pending'} vs {block.home_pitcher || 'Home pitcher pending'} · {block.matchup_source || 'source pending'}</div></div><span style={s.badge}>{asArray(block.items).length}/20 posts</span></div>
       <div style={s.tagRow}>{asArray(block.queries).map(q => <span key={q} style={s.tag}>{q}</span>)}</div>
-      {asArray(block.items).length === 0 ? <div style={s.empty}>No high-quality posts returned for this matchup yet.</div> : <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{newestFirst(block.items).slice(0, 20).map(item => <TweetCard key={item.id} item={item} />)}</div>}
+      {asArray(block.items).length === 0 ? <div style={s.empty}>No high-quality posts returned for this matchup yet.</div> : <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{newestFirst(dedupeByStableKey(block.items)).slice(0, 20).map(item => <TweetCard key={item.id || item.url} item={item} />)}</div>}
     </article>)}</div>}
-    {!disabled && view !== 'timeline' && mode !== 'matchups' && flatItems.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No Twitter/X posts returned for this search.</div>}
-    {!disabled && view !== 'timeline' && mode !== 'matchups' && flatItems.length > 0 && <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{newestFirst(flatItems).slice(0, 50).map(item => <TweetCard key={item.id} item={item} />)}</div>}
+    {hasLoaded && !loading && !disabled && view !== 'timeline' && mode !== 'matchups' && flatItems.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No Twitter/X posts returned for this search.</div>}
+    {!disabled && view !== 'timeline' && mode !== 'matchups' && flatItems.length > 0 && <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{newestFirst(flatItems).slice(0, 50).map(item => <TweetCard key={item.id || item.url} item={item} />)}</div>}
   </section>
 }
 
@@ -195,32 +231,54 @@ export default function NewsPage() {
   const [breakingOnly, setBreakingOnly] = useState(false)
   const [bettingOnly, setBettingOnly] = useState(false)
   const [localOnly, setLocalOnly] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [newsLoading, setNewsLoading] = useState(false)
+  const [intelLoading, setIntelLoading] = useState(false)
+  const [sourcesLoading, setSourcesLoading] = useState(false)
+  const [newsError, setNewsError] = useState(null)
+  const [intelError, setIntelError] = useState(null)
+  const [sourcesError, setSourcesError] = useState(null)
+
+  function loadNews() {
+    setNewsLoading(true)
+    setNewsError(null)
+    fetchJson(`${API}/news/all?date=${date}`)
+      .then(news => setPayload(news))
+      .catch(err => { setPayload(null); setNewsError(String(err?.message || err)) })
+      .finally(() => setNewsLoading(false))
+  }
+
+  function loadTeamIntel() {
+    setIntelLoading(true)
+    setIntelError(null)
+    fetchJson(`${API}/news/team-intel?date=${date}`)
+      .then(boards => setIntel(boards))
+      .catch(err => { setIntel(null); setIntelError(String(err?.message || err)) })
+      .finally(() => setIntelLoading(false))
+  }
+
+  function loadSources() {
+    setSourcesLoading(true)
+    setSourcesError(null)
+    fetchJson(`${API}/news/sources`)
+      .then(sourcePayload => setSources(asArray(sourcePayload.sources)))
+      .catch(err => { setSources([]); setSourcesError(String(err?.message || err)) })
+      .finally(() => setSourcesLoading(false))
+  }
 
   function load() {
-    setLoading(true)
-    setError(null)
-    Promise.all([
-      fetch(`${API}/news/all?date=${date}`).then(async r => { if (!r.ok) throw new Error(`/news/all failed ${r.status}: ${await r.text()}`); return r.json() }),
-      fetch(`${API}/news/team-intel?date=${date}`).then(async r => { if (!r.ok) throw new Error(`/news/team-intel failed ${r.status}: ${await r.text()}`); return r.json() }),
-      fetch(`${API}/news/sources`).then(async r => { if (!r.ok) throw new Error(`/news/sources failed ${r.status}: ${await r.text()}`); return r.json() }),
-    ]).then(([news, boards, sourcePayload]) => {
-      setPayload(news)
-      setIntel(boards)
-      setSources(asArray(sourcePayload.sources))
-      setLoading(false)
-    }).catch(err => { setError(String(err?.message || err)); setLoading(false) })
+    loadNews()
+    loadTeamIntel()
+    loadSources()
   }
 
   useEffect(() => { load() }, [date])
 
   const teams = useMemo(() => asArray(sources).map(row => row.team).filter(Boolean), [sources])
-  const allItems = useMemo(() => BUCKETS.flatMap(bucket => asArray(payload?.buckets?.[bucket])), [payload])
+  const allItems = useMemo(() => dedupeByStableKey(BUCKETS.flatMap(bucket => asArray(payload?.buckets?.[bucket]))), [payload])
   const tags = useMemo(() => Array.from(new Set(allItems.flatMap(item => asArray(item.tags)))).sort(), [allItems])
   const sourceTypes = useMemo(() => Array.from(new Set(allItems.map(item => item.source_type).filter(Boolean))).sort(), [allItems])
   const visible = useMemo(() => {
-    const base = activeBucket === 'team_intel' ? [] : asArray(payload?.buckets?.[activeBucket])
+    const base = activeBucket === 'team_intel' ? [] : dedupeByStableKey(payload?.buckets?.[activeBucket])
     const q = search.trim().toLowerCase()
     return base.filter(item => {
       const text = `${item.title || ''} ${item.summary || ''} ${item.source || ''}`.toLowerCase()
@@ -236,21 +294,23 @@ export default function NewsPage() {
   }, [payload, activeBucket, team, tag, sourceType, search, breakingOnly, bettingOnly, localOnly])
 
   return <div style={s.page}>
-    <Ticker rows={asArray(payload?.ticker)} status={payload?.status} provider={payload?.provider} />
+    <Ticker rows={asArray(payload?.ticker)} status={payload?.status} provider={payload?.provider} loading={newsLoading && !payload} />
     <section style={s.hero}>
       <div style={s.row}>
         <div><div style={s.eyebrow}>Bloomberg style MLB clubhouse and betting intelligence</div><h1 style={s.title}>News</h1><div style={s.subtitle}>A command center for injuries, lineup hints, starter changes, bullpen availability, local beat context, weather chatter, and betting-market relevant items. Provider placeholders are intentionally safe when credentials are missing.</div></div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}><input style={s.input} type="date" value={date} onChange={e => setDate(e.target.value)} /><button style={s.button} type="button" onClick={load} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh'}</button></div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}><input style={s.input} type="date" value={date} onChange={e => setDate(e.target.value)} /><button style={s.button} type="button" onClick={load} disabled={newsLoading || intelLoading || sourcesLoading}>{newsLoading || intelLoading || sourcesLoading ? 'Refreshing...' : 'Refresh'}</button></div>
       </div>
       <div style={s.stats}>
-        <div style={s.stat}><div style={s.statLabel}>Provider</div><div style={s.statValue}>{providerLabel(payload?.provider)}</div></div>
-        <div style={s.stat}><div style={s.statLabel}>Status</div><div style={s.statValue}>{statusLabel(payload?.status)}</div></div>
-        <div style={s.stat}><div style={s.statLabel}>Items</div><div style={s.statValue}>{bucketCount(payload)}</div></div>
+        <div style={s.stat}><div style={s.statLabel}>Provider</div><div style={s.statValue}>{providerLabel(payload?.provider, newsLoading && !payload)}</div></div>
+        <div style={s.stat}><div style={s.statLabel}>Status</div><div style={s.statValue}>{statusLabel(payload?.status, newsLoading && !payload)}</div></div>
+        <div style={s.stat}><div style={s.statLabel}>Items</div><div style={s.statValue}>{newsLoading && !payload ? '...' : bucketCount(payload)}</div></div>
         <div style={s.stat}><div style={s.statLabel}>Last Updated</div><div style={s.statValue}>{fmtTime(payload?.generated_at)}</div></div>
-        <div style={s.stat}><div style={s.statLabel}>Cache</div><div style={s.statValue}>{payload?.cache_hit ? 'Hit' : 'Fresh'}</div></div>
+        <div style={s.stat}><div style={s.statLabel}>Cache</div><div style={s.statValue}>{payload?.cache_hit ? 'Hit' : payload ? 'Fresh' : 'Idle'}</div></div>
       </div>
     </section>
-    {error && <div style={s.error}>{error}</div>}
+    {newsError && <div style={s.error}>{newsError}</div>}
+    {intelError && <div style={s.error}>{intelError}</div>}
+    {sourcesError && <div style={s.error}>{sourcesError}</div>}
     {asArray(payload?.errors).length > 0 && <div style={s.error}>{payload.errors.slice(0, 3).map(err => String(err).slice(0, 180)).join(' · ')}</div>}
     <section style={s.section}>
       <div style={s.row}><div><div style={s.sectionTitle}>Filters</div><div style={s.meta}>Team, tag, source, breaking, betting, local, and text search.</div></div><button type="button" style={s.muted} onClick={() => { setTeam(''); setTag(''); setSourceType(''); setSearch(''); setBreakingOnly(false); setBettingOnly(false); setLocalOnly(false) }}>Reset Filters</button></div>
@@ -265,7 +325,7 @@ export default function NewsPage() {
     <MatchupTwitterIntel date={date} teams={teams.length ? teams : ['CHC', 'CWS', 'STL', 'MIL']} />
     <section style={s.section}>
       <div style={s.row}><div><div style={s.sectionTitle}>Terminal Buckets</div><div style={s.meta}>Exclusive buckets prevent national wire spam from flooding every section.</div></div><div style={s.tabs}>{[...BUCKETS, 'team_intel'].map(bucket => <button key={bucket} type="button" style={s.tab(activeBucket === bucket)} onClick={() => setActiveBucket(bucket)}>{bucket.replace('_', ' ')}</button>)}</div></div>
-      {activeBucket === 'team_intel' ? <TeamIntel boards={intel?.team_intel} /> : visible.length === 0 ? <div style={s.empty}>{emptyMessage(payload)}</div> : <div style={s.grid}>{visible.map(item => <NewsCard key={item.id} item={item} />)}</div>}
+      {activeBucket === 'team_intel' ? <TeamIntel boards={intel?.team_intel} loading={intelLoading && !intel} /> : newsLoading && !payload ? <div style={s.loading}>Loading news bucket...</div> : visible.length === 0 ? <div style={s.empty}>{emptyMessage(payload)}</div> : <div style={s.grid}>{visible.map(item => <NewsCard key={dedupeKey(item)} item={item} />)}</div>}
     </section>
   </div>
 }
