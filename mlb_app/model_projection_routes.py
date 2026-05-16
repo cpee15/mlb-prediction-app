@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from .database import create_tables, get_engine, get_session
 from .model_projections import build_model_projection_payload
 from .model_tracker_routes import router as model_tracker_router
+from .shared_payload_cache import env_ttl, get_or_set, make_cache_key
 from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 
 router = APIRouter()
@@ -22,13 +23,22 @@ def _session_factory():
     return get_session(engine)
 
 
+def _build_uncached_projection_payload(target_date: str) -> Dict[str, Any]:
+    session_factory = _session_factory()
+    with session_factory() as session:
+        return build_model_projection_payload(session, target_date)
+
+
 @router.get("/models/projections")
 def model_projections(date: Optional[str] = None) -> Dict[str, Any]:
     target_date = date or datetime.date.today().isoformat()
+    cache_key = make_cache_key("model_projection", "full", target_date)
     try:
-        session_factory = _session_factory()
-        with session_factory() as session:
-            return build_model_projection_payload(session, target_date)
+        return get_or_set(
+            cache_key,
+            env_ttl("MODEL_PROJECTION_CACHE_TTL_SECONDS"),
+            lambda: _build_uncached_projection_payload(target_date),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
