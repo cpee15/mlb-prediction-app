@@ -8,7 +8,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from .database import create_tables, get_engine, get_session
-from .my_dashboard_solver import build_dashboard_solver_payload, SUPPORTED_COMPONENTS
+from .my_dashboard_solver import build_dashboard_solver_payload, normalize_filter_payload, SUPPORTED_COMPONENTS
+from .shared_payload_cache import env_ttl, get_or_set, make_cache_key, stable_hash
 
 router = APIRouter()
 
@@ -52,15 +53,27 @@ def my_dashboard_solver_post(payload: MyDashboardSolverRequest) -> Dict[str, Any
 
 def _run_solver(date: Optional[str], component: str, filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     target_date = (date or dt.date.today().isoformat())[:10]
+    normalized_component = (component or "").strip().lower()
+    normalized_filters = normalize_filter_payload(filters)
+    filters_hash = stable_hash(normalized_filters)
+    cache_key = make_cache_key("dashboard_solver", "component", target_date, normalized_component, filters_hash)
     try:
         dt.date.fromisoformat(target_date)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid date: {date}") from exc
 
     try:
-        factory = session_factory()
-        with factory() as session:
-            return build_dashboard_solver_payload(session=session, date=target_date, component=component, filters=filters)
+        def build() -> Dict[str, Any]:
+            factory = session_factory()
+            with factory() as session:
+                return build_dashboard_solver_payload(
+                    session=session,
+                    date=target_date,
+                    component=normalized_component,
+                    filters=normalized_filters,
+                )
+
+        return get_or_set(cache_key, env_ttl("DASHBOARD_SOLVER_CACHE_TTL_SECONDS"), build)
     except HTTPException:
         raise
     except Exception as exc:
