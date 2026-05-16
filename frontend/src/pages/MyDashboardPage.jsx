@@ -12,6 +12,8 @@ const COMPONENTS = [
   { key: 'overall_players', title: 'My Top Overall Players Today', description: 'Combined unique player board blending hitter and pitcher model-solver scores.' },
 ]
 
+const ACTIVE_LINEUP_COMPONENTS = new Set(['hitters', 'overall_players'])
+
 const DEFAULT_METRICS = {
   hitters: ['xwOBA', 'xBA', 'EV', 'LA', 'HardHit', 'Usage', 'Pitcher xwOBA'],
   pitchers: ['K%', 'BB%', 'xwOBA Allowed', 'HardHit Allowed', 'Opp K%', 'Opp ISO', 'Score'],
@@ -78,6 +80,14 @@ function activeFilterChips(filters) {
   return chips
 }
 
+function lineupFilterMessage(result) {
+  const filter = result?.lineup_filter
+  if (!filter?.enabled) return null
+  if (filter.lineup_status === 'unavailable') return 'Starting lineup data is not available yet. Active-lineup solver did not include unverified hitters.'
+  const removed = Number(filter.removed_unconfirmed_count || 0)
+  return `Filtered to confirmed starting-lineup hitters from today's matchup cards. Removed ${removed} unconfirmed hitter${removed === 1 ? '' : 's'}.`
+}
+
 export default function MyDashboardPage() {
   const today = new Date().toISOString().slice(0, 10)
   const [date, setDate] = useState(today)
@@ -86,6 +96,7 @@ export default function MyDashboardPage() {
   const [filters, setFilters] = useState({})
   const [enabled, setEnabled] = useState(Object.fromEntries(COMPONENTS.map(c => [c.key, true])))
   const [loading, setLoading] = useState({})
+  const [activeLineupLoading, setActiveLineupLoading] = useState({})
   const [errors, setErrors] = useState({})
   const [savedDashboards, setSavedDashboards] = useState([])
   const [dashboardName, setDashboardName] = useState('')
@@ -117,6 +128,27 @@ export default function MyDashboardPage() {
       setErrors(prev => ({ ...prev, [component]: err.message || 'Solver failed' }))
     } finally {
       setLoading(prev => ({ ...prev, [component]: false }))
+    }
+  }
+
+  async function runActiveLineupSolver(component, overrideFilters = filters[component] || {}) {
+    setActiveLineupLoading(prev => ({ ...prev, [component]: true }))
+    setErrors(prev => ({ ...prev, [component]: null }))
+    try {
+      const payload = { date: effectiveDate, component, filters: cleanFilters(overrideFilters) }
+      const res = await fetch(`${API}/my-dashboard/solver/active-lineups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(JSON.stringify(json.detail || json))
+      setResults(prev => ({ ...prev, [component]: json }))
+    } catch (err) {
+      console.error('Active-lineup solver failed:', err)
+      setErrors(prev => ({ ...prev, [component]: err.message || 'Active-lineup solver failed' }))
+    } finally {
+      setActiveLineupLoading(prev => ({ ...prev, [component]: false }))
     }
   }
 
@@ -266,12 +298,14 @@ export default function MyDashboardPage() {
             component={component}
             result={results[component.key]}
             loading={loading[component.key]}
+            activeLineupLoading={activeLineupLoading[component.key]}
             error={errors[component.key]}
             filters={filters[component.key] || {}}
             enabled={enabled[component.key]}
             onEnabledChange={(value) => setEnabled(prev => ({ ...prev, [component.key]: value }))}
             onFilterChange={(next) => updateComponentFilters(component.key, next)}
             onRun={() => runSolver(component.key)}
+            onRunActiveLineups={() => runActiveLineupSolver(component.key)}
             onReset={() => resetComponentFilters(component.key)}
           />
         ))}
@@ -318,7 +352,7 @@ function SavedDashboardsPanel({ savedDashboards, dashboardName, setDashboardName
   )
 }
 
-function DashboardCard({ component, result, loading, error, filters, enabled, onEnabledChange, onFilterChange, onRun, onReset }) {
+function DashboardCard({ component, result, loading, activeLineupLoading, error, filters, enabled, onEnabledChange, onFilterChange, onRun, onRunActiveLineups, onReset }) {
   const [showFilters, setShowFilters] = useState(false)
   const items = result?.items || []
   const metricNames = useMemo(() => {
@@ -327,6 +361,8 @@ function DashboardCard({ component, result, loading, error, filters, enabled, on
     return fromResult.length ? fromResult : fromItems.length ? fromItems : (DEFAULT_METRICS[component.key] || [])
   }, [result, items, component.key])
   const chips = activeFilterChips(filters)
+  const canRunActiveLineups = ACTIVE_LINEUP_COMPONENTS.has(component.key)
+  const lineupMessage = lineupFilterMessage(result)
   return (
     <div style={{ ...cardStyle, opacity: enabled ? 1 : 0.68 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start' }}>
@@ -342,13 +378,15 @@ function DashboardCard({ component, result, loading, error, filters, enabled, on
         <button onClick={() => setShowFilters(!showFilters)} style={miniButtonStyle}>{showFilters ? 'Hide Filters' : 'Edit Filters'}</button>
       </div>
 
-      <button onClick={onRun} disabled={loading || !enabled} style={solverButtonStyle}>{loading ? 'Solving...' : 'Use Model Solver To Populate Top 10 Today'}</button>
+      <button onClick={onRun} disabled={loading || activeLineupLoading || !enabled} style={solverButtonStyle}>{loading ? 'Solving...' : 'Use Model Solver To Populate Top 10 Today'}</button>
+      {canRunActiveLineups && <button onClick={onRunActiveLineups} disabled={loading || activeLineupLoading || !enabled} style={activeLineupButtonStyle}>{activeLineupLoading ? 'Checking active lineups...' : 'Run Refreshed Solver for Active Lineups'}</button>}
+      {lineupMessage && <div style={lineupNoteStyle}>{lineupMessage}</div>}
       {chips.length > 0 && <div style={chipWrapStyle}>{chips.map(chip => <span key={chip} style={filterChipStyle}>{chip}</span>)}</div>}
       {showFilters && <FilterPanel component={component} filters={filters} metricNames={metricNames} available={result?.available_filters} onChange={onFilterChange} onApply={onRun} onReset={onReset} />}
       {error && <div style={errorStyle}>{error}</div>}
-      {!result && !loading && !error && <div style={emptyStyle}>No saved results yet. Run the model solver to populate this component from existing app-owned data.</div>}
+      {!result && !loading && !activeLineupLoading && !error && <div style={emptyStyle}>No saved results yet. Run the model solver to populate this component from existing app-owned data.</div>}
       <div style={{ display: 'grid', gap: '10px', marginTop: '14px' }}>{items.map(item => <ResultItem key={item.dedupe_key || `${item.entity_type}-${item.entity_id}-${item.rank}`} item={item} />)}</div>
-      {result && <details style={{ marginTop: '14px' }}><summary style={summaryStyle}>Data quality, filters, and missing data</summary><pre style={preStyle}>{JSON.stringify({ filters_applied: result.filters_applied, available_filters: result.available_filters, result_count_before_filters: result.result_count_before_filters, result_count_after_filters: result.result_count_after_filters, filter_warnings: result.filter_warnings, data_quality: result.data_quality, missing_data: result.missing_data }, null, 2)}</pre></details>}
+      {result && <details style={{ marginTop: '14px' }}><summary style={summaryStyle}>Data quality, filters, and missing data</summary><pre style={preStyle}>{JSON.stringify({ filters_applied: result.filters_applied, available_filters: result.available_filters, result_count_before_filters: result.result_count_before_filters, result_count_after_filters: result.result_count_after_filters, result_count_after_lineup_filter: result.result_count_after_lineup_filter, lineup_filter: result.lineup_filter, filter_warnings: result.filter_warnings, data_quality: result.data_quality, missing_data: result.missing_data }, null, 2)}</pre></details>}
     </div>
   )
 }
@@ -384,7 +422,7 @@ function ResultItem({ item }) {
   const metrics = item.metrics || {}
   const chart = item.chart_data || { labels: [], values: [] }
   const maxValue = Math.max(...(chart.values || []).map(v => Math.abs(Number(v) || 0)), 1)
-  return <div style={itemStyle}><div style={itemHeaderStyle}><div><div style={rankStyle}>#{item.rank} {item.entity_name || item.entity_id}</div><div style={metaStyle}>{item.player_type ? `${item.player_type} | ` : ''}{item.team || 'Team missing'} vs {item.opponent || 'Opponent missing'} {item.game_pk ? `| Game ${item.game_pk}` : ''}</div></div><div style={{ textAlign: 'right' }}><div style={scoreStyle}>{formatNumber(item.score)}</div><div style={confidenceStyle(item.confidence)}>{item.confidence || 'low'}</div></div></div><p style={reasonStyle}>{item.primary_reason || 'Model solver ranked this item from app-owned data.'}</p>{item.weight_explanation?.length > 0 && <div style={smallTextStyle}>{item.weight_explanation.join(' | ')}</div>}<ScoreBar value={Number(item.score) || 0} />{chart.labels?.length > 0 && <div style={barsWrapStyle}>{chart.labels.map((label, idx) => { const value = Number(chart.values[idx]) || 0; const width = Math.max(8, Math.min(100, Math.abs(value) / maxValue * 100)); return <div key={`${label}-${idx}`} style={metricRowStyle}><span style={metricLabelStyle}>{label}</span><div style={metricTrackStyle}><div style={{ ...metricFillStyle, width: `${width}%` }} /></div><span style={metricValueStyle}>{formatNumber(value)}</span></div> })}</div>}{item.best_pitch_angles?.length > 0 && <div style={pitchAnglesStyle}><strong>Best pitch angles:</strong>{item.best_pitch_angles.map((angle, idx) => <div key={`${angle.pitch_type}-${idx}`} style={smallTextStyle}>• {angle.reason}</div>)}</div>}<details><summary style={summaryStyle}>View reasoning</summary><ul style={reasonListStyle}>{(item.reasoning || []).map((reason, idx) => <li key={idx}>{reason}</li>)}</ul><pre style={preStyle}>{JSON.stringify({ metrics, base_score: item.base_score, adjusted_score: item.adjusted_score, missing_data: item.missing_data || [], source: item.source, dedupe_key: item.dedupe_key }, null, 2)}</pre></details><div style={actionsStyle}><button disabled style={placeholderButtonStyle}>Save</button><button disabled style={placeholderButtonStyle}>Tag</button><button disabled style={placeholderButtonStyle}>Add Note</button></div></div>
+  return <div style={itemStyle}><div style={itemHeaderStyle}><div><div style={rankStyle}>#{item.rank} {item.entity_name || item.entity_id}</div><div style={metaStyle}>{item.player_type ? `${item.player_type} | ` : ''}{item.team || 'Team missing'} vs {item.opponent || 'Opponent missing'} {item.game_pk ? `| Game ${item.game_pk}` : ''} {item.lineup_verified ? '| Starting lineup verified' : ''}</div></div><div style={{ textAlign: 'right' }}><div style={scoreStyle}>{formatNumber(item.score)}</div><div style={confidenceStyle(item.confidence)}>{item.confidence || 'low'}</div></div></div><p style={reasonStyle}>{item.primary_reason || 'Model solver ranked this item from app-owned data.'}</p>{item.weight_explanation?.length > 0 && <div style={smallTextStyle}>{item.weight_explanation.join(' | ')}</div>}<ScoreBar value={Number(item.score) || 0} />{chart.labels?.length > 0 && <div style={barsWrapStyle}>{chart.labels.map((label, idx) => { const value = Number(chart.values[idx]) || 0; const width = Math.max(8, Math.min(100, Math.abs(value) / maxValue * 100)); return <div key={`${label}-${idx}`} style={metricRowStyle}><span style={metricLabelStyle}>{label}</span><div style={metricTrackStyle}><div style={{ ...metricFillStyle, width: `${width}%` }} /></div><span style={metricValueStyle}>{formatNumber(value)}</span></div> })}</div>}{item.best_pitch_angles?.length > 0 && <div style={pitchAnglesStyle}><strong>Best pitch angles:</strong>{item.best_pitch_angles.map((angle, idx) => <div key={`${angle.pitch_type}-${idx}`} style={smallTextStyle}>• {angle.reason}</div>)}</div>}<details><summary style={summaryStyle}>View reasoning</summary><ul style={reasonListStyle}>{(item.reasoning || []).map((reason, idx) => <li key={idx}>{reason}</li>)}</ul><pre style={preStyle}>{JSON.stringify({ metrics, base_score: item.base_score, adjusted_score: item.adjusted_score, missing_data: item.missing_data || [], source: item.source, lineup_verified: item.lineup_verified, lineup_source: item.lineup_source, dedupe_key: item.dedupe_key }, null, 2)}</pre></details><div style={actionsStyle}><button disabled style={placeholderButtonStyle}>Save</button><button disabled style={placeholderButtonStyle}>Tag</button><button disabled style={placeholderButtonStyle}>Add Note</button></div></div>
 }
 
 function ScoreBar({ value }) { const width = Math.max(4, Math.min(100, Math.abs(value) * 35)); return <div style={scoreTrackStyle}><div style={{ ...scoreFillStyle, width: `${width}%` }} /></div> }
@@ -414,6 +452,8 @@ const countBadgeStyle = { background: '#0d1117', border: '1px solid #30363d', bo
 const toolbarStyle = { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center', marginTop: '12px' }
 const checkLabelStyle = { color: '#8b949e', fontSize: '12px' }
 const solverButtonStyle = { width: '100%', marginTop: '12px', background: '#58a6ff', color: '#07111f', border: 0, borderRadius: '8px', padding: '10px', fontWeight: 800, cursor: 'pointer' }
+const activeLineupButtonStyle = { width: '100%', marginTop: '8px', background: '#238636', color: '#fff', border: 0, borderRadius: '8px', padding: '10px', fontWeight: 800, cursor: 'pointer' }
+const lineupNoteStyle = { marginTop: '10px', padding: '10px', background: '#0f1a2e', border: '1px solid #1f6feb55', borderRadius: '8px', color: '#c9d1d9', fontSize: '12px', lineHeight: 1.45 }
 const chipWrapStyle = { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }
 const filterChipStyle = { background: '#0f1a2e', border: '1px solid #1f6feb55', borderRadius: '999px', color: '#c9d1d9', padding: '4px 8px', fontSize: '11px' }
 const filterPanelStyle = { marginTop: '12px', background: '#0d1117', border: '1px solid #30363d', borderRadius: '10px', padding: '12px' }
