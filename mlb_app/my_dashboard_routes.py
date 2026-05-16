@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from .active_lineup_solver import build_active_lineup_solver_payload
 from .database import create_tables, get_engine, get_session
 from .my_dashboard_solver import build_dashboard_solver_payload, normalize_filter_payload, SUPPORTED_COMPONENTS
 from .shared_payload_cache import env_ttl, get_or_set, make_cache_key, stable_hash
@@ -51,16 +52,31 @@ def my_dashboard_solver_post(payload: MyDashboardSolverRequest) -> Dict[str, Any
     return _run_solver(date=payload.date, component=payload.component, filters=payload.filters)
 
 
-def _run_solver(date: Optional[str], component: str, filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+@router.post("/my-dashboard/solver/active-lineups")
+def my_dashboard_active_lineup_solver_post(payload: MyDashboardSolverRequest) -> Dict[str, Any]:
+    return _run_active_lineup_solver(date=payload.date, component=payload.component, filters=payload.filters)
+
+
+def _normalize_request(date: Optional[str], component: str, filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     target_date = (date or dt.date.today().isoformat())[:10]
-    normalized_component = (component or "").strip().lower()
-    normalized_filters = normalize_filter_payload(filters)
-    filters_hash = stable_hash(normalized_filters)
-    cache_key = make_cache_key("dashboard_solver", "component", target_date, normalized_component, filters_hash)
     try:
         dt.date.fromisoformat(target_date)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid date: {date}") from exc
+    return {
+        "target_date": target_date,
+        "component": (component or "").strip().lower(),
+        "filters": normalize_filter_payload(filters),
+    }
+
+
+def _run_solver(date: Optional[str], component: str, filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    normalized = _normalize_request(date, component, filters)
+    target_date = normalized["target_date"]
+    normalized_component = normalized["component"]
+    normalized_filters = normalized["filters"]
+    filters_hash = stable_hash(normalized_filters)
+    cache_key = make_cache_key("dashboard_solver", "component", target_date, normalized_component, filters_hash)
 
     try:
         def build() -> Dict[str, Any]:
@@ -78,3 +94,29 @@ def _run_solver(date: Optional[str], component: str, filters: Optional[Dict[str,
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail={"message": "My Dashboard solver failed", "error": str(exc)}) from exc
+
+
+def _run_active_lineup_solver(date: Optional[str], component: str, filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    normalized = _normalize_request(date, component, filters)
+    target_date = normalized["target_date"]
+    normalized_component = normalized["component"]
+    normalized_filters = normalized["filters"]
+    filters_hash = stable_hash(normalized_filters)
+    cache_key = make_cache_key("dashboard_solver", "active_lineups", target_date, normalized_component, filters_hash)
+
+    try:
+        def build() -> Dict[str, Any]:
+            factory = session_factory()
+            with factory() as session:
+                return build_active_lineup_solver_payload(
+                    session=session,
+                    date=target_date,
+                    component=normalized_component,
+                    filters=normalized_filters,
+                )
+
+        return get_or_set(cache_key, env_ttl("DASHBOARD_SOLVER_CACHE_TTL_SECONDS"), build)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"message": "Active-lineup solver failed", "error": str(exc)}) from exc
