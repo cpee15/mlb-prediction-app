@@ -2,17 +2,74 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import json
+import math
 import os
 import re
 import urllib.parse
 import urllib.request
-import json
 from typing import Any, Dict, Iterable, List, Optional
 
 from .news_classifier import classify_text, score_importance
 from .news_keywords import BETTING_TERMS
 from .news_provider import stable_id, utc_now
 from .news_sources import get_news_sources, team_lookup
+
+DEFAULT_BASEBALL_FEED_QUERIES = [
+    "from:PitchingNinja",
+    "from:CodifyBaseball",
+    "from:baseballsavant",
+    "from:MLBPipeline",
+    "from:fangraphs",
+    "from:enosarris",
+    "from:BenLindbergh",
+    "from:TheAthleticMLB",
+    "from:MLBNetwork",
+    "baseball biomechanics pitching mechanics",
+    "MLB Statcast barrel rate xwOBA",
+]
+
+CLICKBAIT_TERMS = {
+    "you won't believe",
+    "shocking",
+    "destroyed",
+    "cooked",
+    "exposed",
+    "fraud",
+    "ratio",
+    "clown",
+    "hot take",
+    "insane parlay",
+    "lock of the day",
+}
+
+QUALITY_TERMS = {
+    "statcast",
+    "xwoba",
+    "barrel",
+    "hard-hit",
+    "hard hit",
+    "savant",
+    "release point",
+    "extension",
+    "ivb",
+    "sweeper",
+    "arsenal",
+    "pitch design",
+    "biomechanics",
+    "mechanics",
+    "swing decision",
+    "run value",
+    "stuff+",
+    "location+",
+    "lineup",
+    "injury",
+    "scratch",
+    "bullpen",
+    "weather",
+    "odds",
+    "line movement",
+}
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -34,6 +91,42 @@ def _safe_text(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
+def _to_int(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return max(0, int(value))
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return 0
+    multiplier = 1
+    lowered = text.lower()
+    if lowered.endswith("k"):
+        multiplier = 1_000
+        text = text[:-1]
+    elif lowered.endswith("m"):
+        multiplier = 1_000_000
+        text = text[:-1]
+    try:
+        return max(0, int(float(text) * multiplier))
+    except Exception:
+        return 0
+
+
+def _tweet_epoch(value: Any) -> float:
+    if not value:
+        return 0.0
+    try:
+        parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed.timestamp()
+    except Exception:
+        return 0.0
+
+
 def _nested_get(row: Any, *keys: str) -> Any:
     current = row
     for key in keys:
@@ -44,6 +137,14 @@ def _nested_get(row: Any, *keys: str) -> Any:
         if current is None:
             return None
     return current
+
+
+def _first_from_paths(row: Dict[str, Any], paths: Iterable[tuple[str, ...]]) -> Any:
+    for path in paths:
+        value = _nested_get(row, *path)
+        if value is not None and value != "":
+            return value
+    return None
 
 
 def _first_present(row: Dict[str, Any], keys: Iterable[str]) -> str:
@@ -68,7 +169,6 @@ def _post_datetime(value: Any) -> str:
 
 
 def _load_matchups_from_generator(date: str) -> List[Dict[str, Any]]:
-    # Same safe read-only path used by the existing Twikit provider and news keyword layer.
     try:
         from .app import _get_session
         from .matchup_generator import generate_matchups_for_date
@@ -82,12 +182,6 @@ def _load_matchups_from_generator(date: str) -> List[Dict[str, Any]]:
 
 
 def _load_matchups_from_mlb_schedule(date: str) -> List[Dict[str, Any]]:
-    """Fallback schedule source for News Twitter Intel only.
-
-    This intentionally does not change /matchups or the production matchup analyzer. It gives the
-    Twitter/X intel layer enough team/pitcher context to build search queries when the internal
-    matchup generator returns an empty list.
-    """
     target_date = (date or dt.date.today().isoformat())[:10]
     params = urllib.parse.urlencode({
         "sportId": 1,
@@ -148,8 +242,11 @@ class ApifyXNewsProvider:
 
     def __init__(self) -> None:
         self.timeout_seconds = _int_env("TWITTER_X_TIMEOUT_SECONDS", _int_env("TWIKIT_TIMEOUT_SECONDS", 20, 3, 60), 3, 120)
-        self.max_results = _int_env("TWITTER_X_MAX_RESULTS", _int_env("TWIKIT_MAX_RESULTS", 10, 1, 25), 1, 50)
+        self.max_results = _int_env("TWITTER_X_MAX_RESULTS", _int_env("TWIKIT_MAX_RESULTS", 50, 1, 50), 1, 50)
+        self.matchup_cap = _int_env("TWITTER_X_MATCHUP_TWEET_CAP", 20, 1, 50)
+        self.general_cap = _int_env("TWITTER_X_GENERAL_TWEET_CAP", 50, 1, 100)
         self.max_queries_per_matchup = _int_env("TWITTER_X_MAX_QUERIES_PER_MATCHUP", _int_env("TWIKIT_MAX_QUERIES_PER_MATCHUP", 5, 1, 8), 1, 8)
+        self.min_engagement = _int_env("TWITTER_X_MIN_ENGAGEMENT", 0, 0, 1000000)
         self.last_error: Optional[str] = None
 
     @staticmethod
@@ -185,6 +282,11 @@ class ApifyXNewsProvider:
             "apify_x_configured": self.configured(),
             "apify_x_actor_configured": self.actor_configured(),
             "apify_x_matchup_schedule_fallback": True,
+            "apify_x_engagement_ranking": True,
+            "apify_x_newest_first": True,
+            "apify_x_matchup_tweet_cap": self.matchup_cap,
+            "apify_x_general_tweet_cap": self.general_cap,
+            "apify_x_min_engagement": self.min_engagement,
         }
 
     def _not_configured(self, date: Optional[str] = None, items_key: str = "items") -> Dict[str, Any]:
@@ -231,15 +333,15 @@ class ApifyXNewsProvider:
         if not actor_id:
             raise RuntimeError("TWITTER_X_ACTOR_ID is not configured")
         client = self._client()
-        run_input = self._actor_input(query, limit)
-        timeout_secs = self.timeout_seconds
+        pull_limit = max(limit, min(100, limit * 3))
+        run_input = self._actor_input(query, pull_limit)
         actor = client.actor(actor_id)
-        run = actor.call(run_input=run_input, timeout_secs=timeout_secs)
+        run = actor.call(run_input=run_input, timeout_secs=self.timeout_seconds)
         dataset_id = (run or {}).get("defaultDatasetId") or (run or {}).get("default_dataset_id")
         if not dataset_id:
             return []
         dataset_client = client.dataset(dataset_id)
-        rows = dataset_client.list_items(limit=limit).items
+        rows = dataset_client.list_items(limit=pull_limit).items
         return [row for row in rows if isinstance(row, dict)]
 
     def _extract_author(self, row: Dict[str, Any]) -> tuple[str, str]:
@@ -268,6 +370,46 @@ class ApifyXNewsProvider:
         if handle_text and not handle_text.startswith("@"):
             handle_text = f"@{handle_text}"
         return author_text, handle_text
+
+    def _engagement_metrics(self, row: Dict[str, Any]) -> Dict[str, int]:
+        likes = _to_int(_first_from_paths(row, [("likeCount",), ("likes",), ("favoriteCount",), ("favorite_count",), ("public_metrics", "like_count"), ("metrics", "likes")]))
+        replies = _to_int(_first_from_paths(row, [("replyCount",), ("replies",), ("reply_count",), ("public_metrics", "reply_count"), ("metrics", "replies")]))
+        reposts = _to_int(_first_from_paths(row, [("retweetCount",), ("retweets",), ("retweet_count",), ("repostCount",), ("public_metrics", "retweet_count"), ("metrics", "retweets")]))
+        quotes = _to_int(_first_from_paths(row, [("quoteCount",), ("quotes",), ("quote_count",), ("public_metrics", "quote_count"), ("metrics", "quotes")]))
+        views = _to_int(_first_from_paths(row, [("viewCount",), ("views",), ("view_count",), ("impressionCount",), ("public_metrics", "impression_count"), ("metrics", "views")]))
+        bookmarks = _to_int(_first_from_paths(row, [("bookmarkCount",), ("bookmarks",), ("bookmark_count",), ("public_metrics", "bookmark_count"), ("metrics", "bookmarks")]))
+        weighted = likes + (2 * replies) + (3 * reposts) + (2 * quotes) + (2 * bookmarks) + min(views // 100, 500)
+        raw = likes + replies + reposts + quotes + bookmarks
+        return {
+            "likes": likes,
+            "replies": replies,
+            "reposts": reposts,
+            "quotes": quotes,
+            "views": views,
+            "bookmarks": bookmarks,
+            "engagement_total": raw,
+            "weighted_engagement": weighted,
+        }
+
+    def _quality_score(self, text: str, tags: List[str], metrics: Dict[str, int], query: str) -> float:
+        lower = text.lower()
+        score = float(metrics.get("weighted_engagement") or 0)
+        if metrics.get("engagement_total", 0) > 0:
+            score += math.log1p(metrics["engagement_total"]) * 8
+        if any(term in lower for term in QUALITY_TERMS):
+            score += 25
+        if any(term in lower for term in BETTING_TERMS):
+            score += 12
+        if set(tags).intersection({"injury", "lineup", "starter", "weather", "odds", "betting", "scratch"}):
+            score += 20
+        for token in query.lower().split():
+            if len(token) >= 4 and token in lower:
+                score += 2
+        if any(term in lower for term in CLICKBAIT_TERMS):
+            score -= 35
+        if len(text) < 20:
+            score -= 20
+        return round(score, 3)
 
     def _detect_teams(self, text: str, preferred: Optional[List[str]] = None) -> List[str]:
         found: List[str] = []
@@ -300,7 +442,9 @@ class ApifyXNewsProvider:
             url = f"https://x.com/{username}/status/{tweet_id}"
         published_at = _post_datetime(row.get("createdAt") or row.get("created_at") or row.get("date") or row.get("timestamp"))
         tags = classify_text(text[:140], text, "X/Twitter")
+        metrics = self._engagement_metrics(row)
         is_betting = bool(set(tags).intersection({"odds", "betting"})) or any(term in text.lower() for term in BETTING_TERMS)
+        quality_score = self._quality_score(text, tags, metrics, query)
         item = {
             "id": stable_id(tweet_id, url, text, query),
             "title": text[:140] or "X/Twitter post",
@@ -317,6 +461,8 @@ class ApifyXNewsProvider:
             "players": [],
             "games": games or [],
             "importance_score": 0.0,
+            "twitter_quality_score": quality_score,
+            "engagement": metrics,
             "is_breaking": False,
             "is_local": True,
             "is_beat_report": True,
@@ -339,7 +485,23 @@ class ApifyXNewsProvider:
             out.append(item)
         return out
 
-    def search(self, query: str, limit: int = 10, date: Optional[str] = None, bucket: str = "beat", teams: Optional[List[str]] = None, games: Optional[List[str]] = None) -> Dict[str, Any]:
+    def _rank_items(self, items: Iterable[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
+        deduped = self._dedupe(items)
+        filtered = [item for item in deduped if (item.get("engagement") or {}).get("engagement_total", 0) >= self.min_engagement]
+        if not filtered and deduped:
+            filtered = deduped
+        return sorted(
+            filtered,
+            key=lambda row: (
+                _tweet_epoch(row.get("published_at")),
+                row.get("twitter_quality_score") or 0,
+                (row.get("engagement") or {}).get("weighted_engagement") or 0,
+                row.get("importance_score") or 0,
+            ),
+            reverse=True,
+        )[:limit]
+
+    def search(self, query: str, limit: int = 50, date: Optional[str] = None, bucket: str = "beat", teams: Optional[List[str]] = None, games: Optional[List[str]] = None) -> Dict[str, Any]:
         target_date = (date or dt.date.today().isoformat())[:10]
         safe_limit = max(1, min(50, int(limit or self.max_results)))
         query = _safe_text(query)
@@ -350,7 +512,7 @@ class ApifyXNewsProvider:
         try:
             rows = self._raw_search(query, safe_limit)
             items = [self._normalize(row, query=query, bucket=bucket, teams=teams, games=games) for row in rows]
-            items = self._dedupe(items)[:safe_limit]
+            items = self._rank_items(items, safe_limit)
             return {
                 "date": target_date,
                 "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -359,6 +521,7 @@ class ApifyXNewsProvider:
                 "query": query,
                 "items": items,
                 "errors": [],
+                "ranking": "published_at_desc_quality_tiebreaker",
             }
         except Exception as exc:
             self.last_error = str(exc)
@@ -378,7 +541,7 @@ class ApifyXNewsProvider:
         if not row:
             row = next((src for src in get_news_sources() if wanted in {src.get("team"), str(src.get("team_name", "")).upper()}), None)
         if not row:
-            return [f"{team} lineup", f"{team} injury", f"{team} beat writer"]
+            return [f"{team} lineup", f"{team} injury", f"{team} beat writer", f"{team} Statcast"]
         name = row.get("team_name") or wanted
         alias = (row.get("aliases") or [name])[0]
         return [
@@ -386,21 +549,23 @@ class ApifyXNewsProvider:
             f"{alias} injury",
             f"{alias} probable starter",
             f"{alias} beat writer",
+            f"{alias} Statcast",
             f"{alias} pregame",
         ]
 
-    def search_team(self, team: str, date: str, limit: int = 10) -> Dict[str, Any]:
+    def search_team(self, team: str, date: str, limit: int = 50) -> Dict[str, Any]:
+        safe_limit = max(1, min(50, int(limit or self.max_results)))
         queries = self.team_queries(team)[: self.max_queries_per_matchup]
         items: List[Dict[str, Any]] = []
         errors: List[str] = []
         for query in queries:
-            result = self.search(query, limit=limit, date=date, teams=[str(team).upper()])
+            result = self.search(query, limit=safe_limit, date=date, teams=[str(team).upper()])
             items.extend(result.get("items") or [])
             errors.extend(result.get("errors") or [])
             if result.get("status") == "provider_not_configured":
                 return result
-        items = sorted(self._dedupe(items), key=lambda row: (row.get("importance_score") or 0, row.get("published_at") or ""), reverse=True)[:limit]
-        return {"date": date[:10], "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"), "provider": self.name, "status": "ok" if items else "empty", "team": team, "queries": queries, "items": items, "errors": errors[:3]}
+        items = self._rank_items(items, safe_limit)
+        return {"date": date[:10], "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"), "provider": self.name, "status": "ok" if items else "empty", "team": team, "queries": queries, "items": items, "errors": errors[:3], "ranking": "published_at_desc_quality_tiebreaker"}
 
     def _matchup_queries(self, matchup: Dict[str, Any]) -> List[str]:
         away = _first_present(matchup, ["away_team_name", "away_team", "away_name", "away"]) or "Away"
@@ -410,11 +575,9 @@ class ApifyXNewsProvider:
         short_away = away.split()[-1]
         short_home = home.split()[-1]
         queries = [
-            f"{short_away} {short_home} lineup",
-            f"{short_away} {short_home} injury",
-            f"{short_away} {short_home} bullpen",
-            f"{short_away} {short_home} weather",
-            f"{short_away} {short_home} odds",
+            f"{short_away} {short_home} lineup injury starter",
+            f"{short_away} {short_home} bullpen weather odds",
+            f"{short_away} {short_home} Statcast",
         ]
         if away_pitcher:
             queries.append(f"{away_pitcher} {short_home}")
@@ -422,8 +585,9 @@ class ApifyXNewsProvider:
             queries.append(f"{home_pitcher} {short_away}")
         return list(dict.fromkeys(q for q in queries if q and "Away Home" not in q))[: self.max_queries_per_matchup]
 
-    def search_matchups(self, date: str, limit: int = 10) -> Dict[str, Any]:
+    def search_matchups(self, date: str, limit: int = 20) -> Dict[str, Any]:
         target_date = date[:10]
+        cap = max(1, min(self.matchup_cap, int(limit or self.matchup_cap)))
         if not self.available():
             return self._not_configured(target_date, items_key="matchups")
         matchup_rows, matchup_source = _load_matchups(target_date)
@@ -440,10 +604,10 @@ class ApifyXNewsProvider:
             teams = [str(away).upper(), str(home).upper()]
             games = [game_id] if game_id else []
             for query in queries:
-                result = self.search(query, limit=limit, date=target_date, teams=teams, games=games)
+                result = self.search(query, limit=cap, date=target_date, teams=teams, games=games)
                 items.extend(result.get("items") or [])
                 errors.extend(result.get("errors") or [])
-            items = sorted(self._dedupe(items), key=lambda row: (row.get("importance_score") or 0, row.get("published_at") or ""), reverse=True)[:limit]
+            items = self._rank_items(items, cap)
             blocks.append({
                 "game_id": game_id or stable_id(target_date, away, home),
                 "away_team": away,
@@ -454,6 +618,8 @@ class ApifyXNewsProvider:
                 "items": items,
                 "errors": errors[:3],
                 "matchup_source": matchup_source,
+                "tweet_cap": cap,
+                "ranking": "published_at_desc_quality_tiebreaker",
             })
         return {
             "date": target_date,
@@ -464,25 +630,60 @@ class ApifyXNewsProvider:
             "errors": [],
             "matchup_count": len(blocks),
             "matchup_source": matchup_source,
+            "tweet_cap_per_game": cap,
+            "ranking": "published_at_desc_quality_tiebreaker",
             "message": "No matchup rows loaded from generator or MLB schedule fallback." if not blocks else None,
         }
 
-    def search_betting(self, date: str, limit: int = 10) -> Dict[str, Any]:
+    def search_betting(self, date: str, limit: int = 50) -> Dict[str, Any]:
         target_date = date[:10]
+        safe_limit = max(1, min(50, int(limit or self.max_results)))
         queries = [
-            "MLB odds steam",
-            "MLB line movement",
-            "MLB prop injury",
-            "MLB lineup scratch odds",
-            "MLB sharp money",
+            "MLB odds steam line movement",
+            "MLB prop injury lineup scratch odds",
+            "MLB sharp money baseball",
         ][: self.max_queries_per_matchup]
         items: List[Dict[str, Any]] = []
         errors: List[str] = []
         for query in queries:
-            result = self.search(query, limit=limit, date=target_date, bucket="betting")
+            result = self.search(query, limit=safe_limit, date=target_date, bucket="betting")
             items.extend(result.get("items") or [])
             errors.extend(result.get("errors") or [])
             if result.get("status") == "provider_not_configured":
                 return result
-        items = sorted(self._dedupe(items), key=lambda row: (row.get("importance_score") or 0, row.get("published_at") or ""), reverse=True)[:limit]
-        return {"date": target_date, "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"), "provider": self.name, "status": "ok" if items else "empty", "queries": queries, "items": items, "errors": errors[:3]}
+        items = self._rank_items(items, safe_limit)
+        return {"date": target_date, "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"), "provider": self.name, "status": "ok" if items else "empty", "queries": queries, "items": items, "errors": errors[:3], "ranking": "published_at_desc_quality_tiebreaker"}
+
+    def baseball_feed_queries(self) -> List[str]:
+        raw = os.getenv("TWITTER_X_BASEBALL_FEED_QUERIES", "").strip()
+        if raw:
+            queries = [part.strip() for part in raw.split(",") if part.strip()]
+            if queries:
+                return queries[:25]
+        return DEFAULT_BASEBALL_FEED_QUERIES
+
+    def search_baseball_feed(self, date: str, limit: int = 50) -> Dict[str, Any]:
+        target_date = date[:10]
+        safe_limit = max(1, min(self.general_cap, int(limit or self.general_cap)))
+        if not self.available():
+            return self._not_configured(target_date)
+        queries = self.baseball_feed_queries()
+        items: List[Dict[str, Any]] = []
+        errors: List[str] = []
+        per_query_limit = max(10, min(25, safe_limit))
+        for query in queries:
+            result = self.search(query, limit=per_query_limit, date=target_date, bucket="baseball_feed")
+            items.extend(result.get("items") or [])
+            errors.extend(result.get("errors") or [])
+        items = self._rank_items(items, safe_limit)
+        return {
+            "date": target_date,
+            "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "provider": self.name,
+            "status": "ok" if items else "empty",
+            "queries": queries,
+            "items": items,
+            "errors": errors[:5],
+            "ranking": "published_at_desc_quality_tiebreaker",
+            "tweet_cap": safe_limit,
+        }

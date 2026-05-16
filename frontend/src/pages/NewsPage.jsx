@@ -59,6 +59,19 @@ function emptyMessage(payload) {
   if (payload?.status === 'provider_not_configured') return 'Provider missing. Enable RSS on the backend or configure a paid provider.'
   return `No items in this bucket yet. Status: ${statusLabel(payload?.status)}.`
 }
+function compactNumber(v) { const n = Number(v || 0); return Number.isFinite(n) ? n.toLocaleString() : '0' }
+function tweetTime(item) { const t = Date.parse(item?.published_at || ''); return Number.isFinite(t) ? t : 0 }
+function newestFirst(items) { return asArray(items).slice().sort((a, b) => tweetTime(b) - tweetTime(a)) }
+function engagementText(item) {
+  const e = item?.engagement || {}
+  const parts = []
+  if (e.likes) parts.push(`${compactNumber(e.likes)} likes`)
+  if (e.reposts) parts.push(`${compactNumber(e.reposts)} reposts`)
+  if (e.replies) parts.push(`${compactNumber(e.replies)} replies`)
+  if (e.views) parts.push(`${compactNumber(e.views)} views`)
+  if (!parts.length && e.engagement_total) parts.push(`${compactNumber(e.engagement_total)} interactions`)
+  return parts.join(' · ')
+}
 
 function Ticker({ rows, status, provider }) {
   const emptyText = ['rss', 'rss_network', 'rss_feed_network'].includes(provider)
@@ -82,9 +95,10 @@ function NewsCard({ item }) {
 
 function TweetCard({ item }) {
   const handle = item.handle || item.author || 'X/Twitter'
+  const eText = engagementText(item)
   return <article style={{ ...s.card, minHeight: 0 }}>
-    <div style={s.row}><strong style={{ color: '#e6edf3' }}>{handle}</strong><span style={s.badge}>X/Twitter</span></div>
-    <div style={s.meta}>{item.author && item.handle ? item.author : 'Twitter/X post'} · {fmtTime(item.published_at)}</div>
+    <div style={s.row}><strong style={{ color: '#e6edf3' }}>{handle}</strong><span style={s.badge}>Quality {score(item.twitter_quality_score)}</span></div>
+    <div style={s.meta}>{item.matchup_label ? `${item.matchup_label} · ` : ''}{item.author && item.handle ? item.author : 'Twitter/X post'} · {fmtTime(item.published_at)}{eText ? ` · ${eText}` : ''}</div>
     <div style={{ color: '#c9d1d9', fontSize: 13, lineHeight: 1.45, marginTop: 9 }}>{item.summary || item.title || 'No post text returned.'}</div>
     <div style={s.tagRow}>{asArray(item.tags).slice(0, 6).map(tag => <span key={tag} style={s.tag}>{tag}</span>)}{item.url && <a href={item.url} target="_blank" rel="noreferrer" style={s.tag}>Open</a>}</div>
   </article>
@@ -105,6 +119,7 @@ function TeamIntel({ boards }) {
 
 function MatchupTwitterIntel({ date, teams }) {
   const [mode, setMode] = useState('matchups')
+  const [view, setView] = useState('cards')
   const [payload, setPayload] = useState(null)
   const [team, setTeam] = useState('CHC')
   const [query, setQuery] = useState('Cubs lineup')
@@ -112,10 +127,11 @@ function MatchupTwitterIntel({ date, teams }) {
   const [error, setError] = useState(null)
 
   function endpoint() {
-    if (mode === 'betting') return `${API}/news/twitter/betting?date=${date}&limit=10`
-    if (mode === 'team') return `${API}/news/twitter/team?team=${encodeURIComponent(team || 'CHC')}&date=${date}&limit=10`
-    if (mode === 'search') return `${API}/news/twitter/search?query=${encodeURIComponent(query || 'MLB lineup')}&date=${date}&limit=10`
-    return `${API}/news/twitter/matchups?date=${date}&limit=10`
+    if (mode === 'betting') return `${API}/news/twitter/betting?date=${date}&limit=50`
+    if (mode === 'team') return `${API}/news/twitter/team?team=${encodeURIComponent(team || 'CHC')}&date=${date}&limit=50`
+    if (mode === 'search') return `${API}/news/twitter/search?query=${encodeURIComponent(query || 'MLB lineup')}&date=${date}&limit=50`
+    if (mode === 'baseball_feed') return `${API}/news/twitter/baseball-feed?date=${date}&limit=50`
+    return `${API}/news/twitter/matchups?date=${date}&limit=20`
   }
 
   function loadTwitter() {
@@ -133,28 +149,36 @@ function MatchupTwitterIntel({ date, teams }) {
   const blocks = asArray(payload?.matchups)
   const flatItems = asArray(payload?.items)
   const disabled = ['provider_not_configured', 'provider_missing_dependency'].includes(payload?.status)
+  const flatCap = mode === 'matchups' ? 20 : 50
+  const timelineItems = newestFirst(mode === 'matchups'
+    ? blocks.flatMap(block => newestFirst(block.items).map(item => ({ ...item, matchup_label: `${block.away_team || 'Away'} at ${block.home_team || 'Home'}` })))
+    : flatItems)
 
   return <section style={s.section}>
     <div style={s.row}>
-      <div><div style={s.sectionTitle}>Matchup Twitter Intel</div><div style={s.meta}>Optional Twikit-backed X/Twitter layer for matchup, team, and betting chatter. It is isolated from the core News provider.</div></div>
+      <div><div style={s.sectionTitle}>Matchup Twitter Intel</div><div style={s.meta}>Latest-first X/Twitter intel ranked for quality. Timeline always shows the newest posts first; matchup cards stay capped at 20 tweets per game.</div></div>
       <div style={s.tabs}>
-        {['matchups', 'betting', 'team', 'search'].map(name => <button key={name} type="button" style={s.tab(mode === name)} onClick={() => setMode(name)}>{name === 'matchups' ? 'Twitter Matchups' : name === 'betting' ? 'Twitter Betting' : name === 'team' ? 'Twitter Team Search' : 'Twitter Search'}</button>)}
+        {['matchups', 'betting', 'team', 'search', 'baseball_feed'].map(name => <button key={name} type="button" style={s.tab(mode === name)} onClick={() => { setMode(name); setView(name === 'matchups' ? 'cards' : 'timeline') }}>{name === 'matchups' ? 'Twitter Matchups' : name === 'betting' ? 'Twitter Betting' : name === 'team' ? 'Twitter Team Search' : name === 'baseball_feed' ? 'Baseball Feed' : 'Twitter Search'}</button>)}
+        <button type="button" style={s.tab(view === 'timeline')} onClick={() => setView(view === 'timeline' ? 'cards' : 'timeline')}>Timeline</button>
         <button type="button" style={s.muted} onClick={loadTwitter} disabled={loading}>{loading ? 'Loading...' : 'Refresh Twitter'}</button>
       </div>
     </div>
+    <div style={s.meta}>Display: {view === 'timeline' ? 'Latest-first timeline' : 'Game cards'} · Ranking: newest first after quality filtering · Cache: {payload?.cache_hit ? 'Hit' : 'Fresh'} · Cap: {payload?.tweet_cap_per_game || payload?.tweet_cap || flatCap}</div>
     {mode === 'team' && <div style={{ ...s.filters, marginTop: 12 }}><label><div style={s.label}>Team</div><select style={s.select} value={team} onChange={e => setTeam(e.target.value)}>{asArray(teams).map(t => <option key={t} value={t}>{t}</option>)}</select></label><div style={{ display: 'flex', alignItems: 'end' }}><button type="button" style={s.button} onClick={loadTwitter}>Search Team</button></div></div>}
     {mode === 'search' && <div style={{ ...s.filters, marginTop: 12 }}><label><div style={s.label}>Keyword Search</div><input style={s.input} value={query} onChange={e => setQuery(e.target.value)} placeholder="Cubs lineup, MLB sharp money" /></label><div style={{ display: 'flex', alignItems: 'end' }}><button type="button" style={s.button} onClick={loadTwitter}>Search X/Twitter</button></div></div>}
     {error && <div style={{ ...s.error, marginTop: 12 }}>{error}</div>}
-    {disabled && <div style={{ ...s.empty, marginTop: 12 }}>Twitter/X provider is disabled or missing credentials. Configure NEWS_ENABLE_TWIKIT and TWIKIT_* env vars to enable matchup intel.</div>}
+    {disabled && <div style={{ ...s.empty, marginTop: 12 }}>Twitter/X provider is disabled or missing credentials. Configure NEWS_X_PROVIDER=apify, APIFY_TOKEN, and TWITTER_X_ACTOR_ID to enable matchup intel.</div>}
     {!disabled && message && <div style={{ ...s.error, marginTop: 12 }}>{message}</div>}
-    {!disabled && mode === 'matchups' && blocks.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No matchup Twitter intel returned yet.</div>}
-    {!disabled && mode === 'matchups' && blocks.length > 0 && <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>{blocks.map(block => <article key={block.game_id} style={s.card}>
-      <div style={s.row}><div><div style={s.cardTitle}>{block.away_team || 'Away'} at {block.home_team || 'Home'}</div><div style={s.meta}>{block.away_pitcher || 'Away pitcher pending'} vs {block.home_pitcher || 'Home pitcher pending'}</div></div><span style={s.badge}>{asArray(block.items).length} posts</span></div>
+    {!disabled && view === 'timeline' && timelineItems.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No timeline tweets returned yet.</div>}
+    {!disabled && view === 'timeline' && timelineItems.length > 0 && <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{timelineItems.slice(0, mode === 'matchups' ? 100 : 50).map(item => <TweetCard key={`${item.id}-${item.matchup_label || ''}`} item={item} />)}</div>}
+    {!disabled && view !== 'timeline' && mode === 'matchups' && blocks.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No matchup Twitter intel returned yet.</div>}
+    {!disabled && view !== 'timeline' && mode === 'matchups' && blocks.length > 0 && <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>{blocks.map(block => <article key={block.game_id} style={s.card}>
+      <div style={s.row}><div><div style={s.cardTitle}>{block.away_team || 'Away'} at {block.home_team || 'Home'}</div><div style={s.meta}>{block.away_pitcher || 'Away pitcher pending'} vs {block.home_pitcher || 'Home pitcher pending'} · {block.matchup_source || 'source pending'}</div></div><span style={s.badge}>{asArray(block.items).length}/20 posts</span></div>
       <div style={s.tagRow}>{asArray(block.queries).map(q => <span key={q} style={s.tag}>{q}</span>)}</div>
-      {asArray(block.items).length === 0 ? <div style={s.empty}>No posts returned for this matchup.</div> : <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{asArray(block.items).slice(0, 10).map(item => <TweetCard key={item.id} item={item} />)}</div>}
+      {asArray(block.items).length === 0 ? <div style={s.empty}>No high-quality posts returned for this matchup yet.</div> : <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{newestFirst(block.items).slice(0, 20).map(item => <TweetCard key={item.id} item={item} />)}</div>}
     </article>)}</div>}
-    {!disabled && mode !== 'matchups' && flatItems.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No Twitter/X posts returned for this search.</div>}
-    {!disabled && mode !== 'matchups' && flatItems.length > 0 && <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{flatItems.slice(0, 10).map(item => <TweetCard key={item.id} item={item} />)}</div>}
+    {!disabled && view !== 'timeline' && mode !== 'matchups' && flatItems.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No Twitter/X posts returned for this search.</div>}
+    {!disabled && view !== 'timeline' && mode !== 'matchups' && flatItems.length > 0 && <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>{newestFirst(flatItems).slice(0, 50).map(item => <TweetCard key={item.id} item={item} />)}</div>}
   </section>
 }
 

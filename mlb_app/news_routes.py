@@ -58,11 +58,11 @@ def _twitter_ttl() -> int:
         return 120
 
 
-def _limit(value: int = 10) -> int:
+def _limit(value: int = 10, maximum: int = 50) -> int:
     try:
-        return max(1, min(25, int(value)))
+        return max(1, min(maximum, int(value)))
     except Exception:
-        return 10
+        return min(10, maximum)
 
 
 @router.get("/news/health")
@@ -111,6 +111,10 @@ def news_health():
             "TWITTER_X_CACHE_TTL_SECONDS",
             "TWITTER_X_TIMEOUT_SECONDS",
             "TWITTER_X_MAX_RESULTS",
+            "TWITTER_X_MATCHUP_TWEET_CAP",
+            "TWITTER_X_GENERAL_TWEET_CAP",
+            "TWITTER_X_MIN_ENGAGEMENT",
+            "TWITTER_X_BASEBALL_FEED_QUERIES",
             "TWITTER_X_MAX_QUERIES_PER_MATCHUP",
             "NEWS_ENABLE_TWIKIT",
             "TWIKIT_USERNAME",
@@ -205,9 +209,9 @@ def news_team_intel(team: Optional[str] = None, date: Optional[str] = None):
 
 
 @router.get("/news/twitter/search")
-def news_twitter_search(query: str = Query("MLB lineup"), date: Optional[str] = None, limit: int = Query(10)):
+def news_twitter_search(query: str = Query("MLB lineup"), date: Optional[str] = None, limit: int = Query(50)):
     target_date = _date(date)
-    safe_limit = _limit(limit)
+    safe_limit = _limit(limit, maximum=50)
     safe_query = str(query or "").strip()
     return _cached(
         f"twitter:{_x_provider_name()}:search:{safe_query}:{target_date}:{safe_limit}",
@@ -218,9 +222,9 @@ def news_twitter_search(query: str = Query("MLB lineup"), date: Optional[str] = 
 
 
 @router.get("/news/twitter/team")
-def news_twitter_team(team: str = Query(...), date: Optional[str] = None, limit: int = Query(10)):
+def news_twitter_team(team: str = Query(...), date: Optional[str] = None, limit: int = Query(50)):
     target_date = _date(date)
-    safe_limit = _limit(limit)
+    safe_limit = _limit(limit, maximum=50)
     safe_team = str(team or "").strip().upper()
     return _cached(
         f"twitter:{_x_provider_name()}:team:{safe_team}:{target_date}:{safe_limit}",
@@ -231,9 +235,9 @@ def news_twitter_team(team: str = Query(...), date: Optional[str] = None, limit:
 
 
 @router.get("/news/twitter/matchups")
-def news_twitter_matchups(date: Optional[str] = None, limit: int = Query(10)):
+def news_twitter_matchups(date: Optional[str] = None, limit: int = Query(20)):
     target_date = _date(date)
-    safe_limit = _limit(limit)
+    safe_limit = _limit(limit, maximum=20)
     return _cached(
         f"twitter:{_x_provider_name()}:matchups:{target_date}:{safe_limit}",
         "twitter",
@@ -243,13 +247,25 @@ def news_twitter_matchups(date: Optional[str] = None, limit: int = Query(10)):
 
 
 @router.get("/news/twitter/betting")
-def news_twitter_betting(date: Optional[str] = None, limit: int = Query(10)):
+def news_twitter_betting(date: Optional[str] = None, limit: int = Query(50)):
     target_date = _date(date)
-    safe_limit = _limit(limit)
+    safe_limit = _limit(limit, maximum=50)
     return _cached(
         f"twitter:{_x_provider_name()}:betting:{target_date}:{safe_limit}",
         "twitter",
         lambda: _twitter_provider().search_betting(target_date, limit=safe_limit),
+        ttl_override=_twitter_ttl(),
+    )
+
+
+@router.get("/news/twitter/baseball-feed")
+def news_twitter_baseball_feed(date: Optional[str] = None, limit: int = Query(50)):
+    target_date = _date(date)
+    safe_limit = _limit(limit, maximum=100)
+    return _cached(
+        f"twitter:{_x_provider_name()}:baseball-feed:{target_date}:{safe_limit}",
+        "twitter",
+        lambda: _twitter_provider().search_baseball_feed(target_date, limit=safe_limit) if hasattr(_twitter_provider(), "search_baseball_feed") else _twitter_provider().search("MLB Statcast baseball", limit=safe_limit, date=target_date),
         ttl_override=_twitter_ttl(),
     )
 
