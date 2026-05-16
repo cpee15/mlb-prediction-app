@@ -115,6 +115,18 @@ def _to_int(value: Any) -> int:
         return 0
 
 
+def _tweet_epoch(value: Any) -> float:
+    if not value:
+        return 0.0
+    try:
+        parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed.timestamp()
+    except Exception:
+        return 0.0
+
+
 def _nested_get(row: Any, *keys: str) -> Any:
     current = row
     for key in keys:
@@ -271,6 +283,7 @@ class ApifyXNewsProvider:
             "apify_x_actor_configured": self.actor_configured(),
             "apify_x_matchup_schedule_fallback": True,
             "apify_x_engagement_ranking": True,
+            "apify_x_newest_first": True,
             "apify_x_matchup_tweet_cap": self.matchup_cap,
             "apify_x_general_tweet_cap": self.general_cap,
             "apify_x_min_engagement": self.min_engagement,
@@ -303,7 +316,7 @@ class ApifyXNewsProvider:
             payload = {"queries": [query], max_key: limit}
         else:
             payload = {"searchTerms": [query], max_key: limit}
-        raw_sort = os.getenv("TWITTER_X_ACTOR_SORT", "Top").strip()
+        raw_sort = os.getenv("TWITTER_X_ACTOR_SORT", "Latest").strip()
         if raw_sort:
             payload.setdefault("sort", raw_sort)
         return payload
@@ -480,10 +493,10 @@ class ApifyXNewsProvider:
         return sorted(
             filtered,
             key=lambda row: (
+                _tweet_epoch(row.get("published_at")),
                 row.get("twitter_quality_score") or 0,
                 (row.get("engagement") or {}).get("weighted_engagement") or 0,
                 row.get("importance_score") or 0,
-                row.get("published_at") or "",
             ),
             reverse=True,
         )[:limit]
@@ -508,7 +521,7 @@ class ApifyXNewsProvider:
                 "query": query,
                 "items": items,
                 "errors": [],
-                "ranking": "twitter_quality_score_desc",
+                "ranking": "published_at_desc_quality_tiebreaker",
             }
         except Exception as exc:
             self.last_error = str(exc)
@@ -552,7 +565,7 @@ class ApifyXNewsProvider:
             if result.get("status") == "provider_not_configured":
                 return result
         items = self._rank_items(items, safe_limit)
-        return {"date": date[:10], "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"), "provider": self.name, "status": "ok" if items else "empty", "team": team, "queries": queries, "items": items, "errors": errors[:3], "ranking": "twitter_quality_score_desc"}
+        return {"date": date[:10], "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"), "provider": self.name, "status": "ok" if items else "empty", "team": team, "queries": queries, "items": items, "errors": errors[:3], "ranking": "published_at_desc_quality_tiebreaker"}
 
     def _matchup_queries(self, matchup: Dict[str, Any]) -> List[str]:
         away = _first_present(matchup, ["away_team_name", "away_team", "away_name", "away"]) or "Away"
@@ -606,7 +619,7 @@ class ApifyXNewsProvider:
                 "errors": errors[:3],
                 "matchup_source": matchup_source,
                 "tweet_cap": cap,
-                "ranking": "twitter_quality_score_desc",
+                "ranking": "published_at_desc_quality_tiebreaker",
             })
         return {
             "date": target_date,
@@ -618,7 +631,7 @@ class ApifyXNewsProvider:
             "matchup_count": len(blocks),
             "matchup_source": matchup_source,
             "tweet_cap_per_game": cap,
-            "ranking": "twitter_quality_score_desc",
+            "ranking": "published_at_desc_quality_tiebreaker",
             "message": "No matchup rows loaded from generator or MLB schedule fallback." if not blocks else None,
         }
 
@@ -639,7 +652,7 @@ class ApifyXNewsProvider:
             if result.get("status") == "provider_not_configured":
                 return result
         items = self._rank_items(items, safe_limit)
-        return {"date": target_date, "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"), "provider": self.name, "status": "ok" if items else "empty", "queries": queries, "items": items, "errors": errors[:3], "ranking": "twitter_quality_score_desc"}
+        return {"date": target_date, "generated_at": utc_now().replace(microsecond=0).isoformat().replace("+00:00", "Z"), "provider": self.name, "status": "ok" if items else "empty", "queries": queries, "items": items, "errors": errors[:3], "ranking": "published_at_desc_quality_tiebreaker"}
 
     def baseball_feed_queries(self) -> List[str]:
         raw = os.getenv("TWITTER_X_BASEBALL_FEED_QUERIES", "").strip()
@@ -671,6 +684,6 @@ class ApifyXNewsProvider:
             "queries": queries,
             "items": items,
             "errors": errors[:5],
-            "ranking": "twitter_quality_score_desc",
+            "ranking": "published_at_desc_quality_tiebreaker",
             "tweet_cap": safe_limit,
         }
