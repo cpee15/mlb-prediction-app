@@ -10,6 +10,7 @@ from .news_cache import get_cache, set_cache, ttl_for
 from .news_provider import BUCKETS, build_news_payload, build_team_intel, empty_response, get_provider
 from .news_sources import get_global_rss_sources, get_news_sources
 from .news_twitter_provider import TwikitNewsProvider
+from .news_x_apify_provider import ApifyXNewsProvider
 
 router = APIRouter()
 
@@ -39,13 +40,20 @@ def _cached(key: str, ttl_key: str, builder, ttl_override: Optional[int] = None)
     return data
 
 
-def _twitter_provider() -> TwikitNewsProvider:
+def _x_provider_name() -> str:
+    return os.getenv("NEWS_X_PROVIDER", os.getenv("NEWS_PROVIDER", "twikit")).strip().lower() or "twikit"
+
+
+def _twitter_provider():
+    if _x_provider_name() == "apify":
+        return ApifyXNewsProvider()
     return TwikitNewsProvider()
 
 
 def _twitter_ttl() -> int:
+    raw = os.getenv("TWITTER_X_CACHE_TTL_SECONDS") or os.getenv("NEWS_TWITTER_CACHE_TTL_SECONDS") or "120"
     try:
-        return int(os.getenv("NEWS_TWITTER_CACHE_TTL_SECONDS", "120"))
+        return int(raw)
     except Exception:
         return 120
 
@@ -61,7 +69,9 @@ def _limit(value: int = 10) -> int:
 def news_health():
     provider = get_provider()
     rss_enabled = os.getenv("NEWS_PROVIDER", "").strip().lower() in {"rss", "rss_network", "rss_feed_network"} or _env_bool("NEWS_ENABLE_RSS_PROVIDER")
-    twikit = _twitter_provider()
+    twikit = TwikitNewsProvider()
+    apify_x = ApifyXNewsProvider()
+    selected_x = _twitter_provider()
     return {
         "component": "news_terminal",
         "status": "ok",
@@ -69,7 +79,10 @@ def news_health():
         "active_provider": provider.name,
         "rss_enabled": rss_enabled,
         "rss_supported": True,
+        "x_provider": _x_provider_name(),
+        "x_provider_configured": selected_x.configured(),
         **twikit.health(),
+        **apify_x.health(),
         "requires_api_key": bool(getattr(provider, "requires_api_key", False)),
         "env_vars_supported": [
             "NEWS_PROVIDER",
@@ -89,11 +102,22 @@ def news_health():
             "X_ACCESS_TOKEN_SECRET",
             "NEWS_ENABLE_BETTING_WIRE",
             "NEWS_ENABLE_LOCAL_SOURCES",
+            "NEWS_X_PROVIDER",
+            "APIFY_TOKEN",
+            "TWITTER_X_ACTOR_ID",
+            "TWITTER_X_ACTOR_INPUT_MODE",
+            "TWITTER_X_ACTOR_MAX_ITEMS_KEY",
+            "TWITTER_X_ACTOR_SORT",
+            "TWITTER_X_CACHE_TTL_SECONDS",
+            "TWITTER_X_TIMEOUT_SECONDS",
+            "TWITTER_X_MAX_RESULTS",
+            "TWITTER_X_MAX_QUERIES_PER_MATCHUP",
             "NEWS_ENABLE_TWIKIT",
             "TWIKIT_USERNAME",
             "TWIKIT_EMAIL",
             "TWIKIT_PASSWORD",
             "TWIKIT_COOKIES_FILE",
+            "TWIKIT_COOKIES_JSON",
             "TWIKIT_LANGUAGE",
             "TWIKIT_MAX_RESULTS",
             "TWIKIT_TIMEOUT_SECONDS",
@@ -186,7 +210,7 @@ def news_twitter_search(query: str = Query("MLB lineup"), date: Optional[str] = 
     safe_limit = _limit(limit)
     safe_query = str(query or "").strip()
     return _cached(
-        f"twitter:search:{safe_query}:{target_date}:{safe_limit}",
+        f"twitter:{_x_provider_name()}:search:{safe_query}:{target_date}:{safe_limit}",
         "twitter",
         lambda: _twitter_provider().search(safe_query, limit=safe_limit, date=target_date),
         ttl_override=_twitter_ttl(),
@@ -199,7 +223,7 @@ def news_twitter_team(team: str = Query(...), date: Optional[str] = None, limit:
     safe_limit = _limit(limit)
     safe_team = str(team or "").strip().upper()
     return _cached(
-        f"twitter:team:{safe_team}:{target_date}:{safe_limit}",
+        f"twitter:{_x_provider_name()}:team:{safe_team}:{target_date}:{safe_limit}",
         "twitter",
         lambda: _twitter_provider().search_team(safe_team, target_date, limit=safe_limit),
         ttl_override=_twitter_ttl(),
@@ -211,7 +235,7 @@ def news_twitter_matchups(date: Optional[str] = None, limit: int = Query(10)):
     target_date = _date(date)
     safe_limit = _limit(limit)
     return _cached(
-        f"twitter:matchups:{target_date}:{safe_limit}",
+        f"twitter:{_x_provider_name()}:matchups:{target_date}:{safe_limit}",
         "twitter",
         lambda: _twitter_provider().search_matchups(target_date, limit=safe_limit),
         ttl_override=_twitter_ttl(),
@@ -223,7 +247,7 @@ def news_twitter_betting(date: Optional[str] = None, limit: int = Query(10)):
     target_date = _date(date)
     safe_limit = _limit(limit)
     return _cached(
-        f"twitter:betting:{target_date}:{safe_limit}",
+        f"twitter:{_x_provider_name()}:betting:{target_date}:{safe_limit}",
         "twitter",
         lambda: _twitter_provider().search_betting(target_date, limit=safe_limit),
         ttl_override=_twitter_ttl(),
