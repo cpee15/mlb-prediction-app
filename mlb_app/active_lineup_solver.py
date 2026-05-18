@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from .lineup_profile import fetch_boxscore_lineup
 from .matchup_generator import generate_matchups_for_date
 from .my_dashboard_solver import build_dashboard_solver_payload
+from .shared_payload_cache import env_ttl, get_or_set, make_cache_key
 
 HITTER_COMPONENTS = {"hitters", "overall_players"}
 
@@ -55,7 +56,23 @@ def _lineup_match_keys(player: Dict[str, Any], team_id: Any, team_name: Any) -> 
     return ids, names
 
 
-def _build_confirmed_lineup_index(session: Session, target_date: str) -> Dict[str, Any]:
+def _serialize_lineup_index(lineup_index: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "confirmed_ids": sorted(lineup_index.get("confirmed_ids") or []),
+        "confirmed_names": [list(item) for item in sorted(lineup_index.get("confirmed_names") or [])],
+        "metadata": lineup_index.get("metadata") or {},
+    }
+
+
+def _deserialize_lineup_index(lineup_index: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "confirmed_ids": set(lineup_index.get("confirmed_ids") or []),
+        "confirmed_names": set(tuple(item) for item in (lineup_index.get("confirmed_names") or [])),
+        "metadata": lineup_index.get("metadata") or {},
+    }
+
+
+def _build_confirmed_lineup_index_uncached(session: Session, target_date: str) -> Dict[str, Any]:
     warnings: List[str] = []
     confirmed_ids: Set[str] = set()
     confirmed_names: Set[Tuple[str, str]] = set()
@@ -135,6 +152,17 @@ def _build_confirmed_lineup_index(session: Session, target_date: str) -> Dict[st
             "warnings": warnings,
         },
     }
+
+
+def _build_confirmed_lineup_index(session: Session, target_date: str) -> Dict[str, Any]:
+    cache_key = make_cache_key("dashboard_context", "active_lineup_index", target_date)
+    ttl_seconds = env_ttl("DASHBOARD_CONTEXT_CACHE_TTL_SECONDS")
+
+    def build() -> Dict[str, Any]:
+        return _serialize_lineup_index(_build_confirmed_lineup_index_uncached(session, target_date))
+
+    cached_serialized = get_or_set(cache_key, ttl_seconds, build)
+    return _deserialize_lineup_index(cached_serialized)
 
 
 def _item_confirmed_in_lineup(item: Dict[str, Any], confirmed_ids: Set[str], confirmed_names: Set[Tuple[str, str]]) -> bool:
