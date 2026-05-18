@@ -129,7 +129,6 @@ def _team_offense_prior_pa_model(
     environment_profile: Dict[str, Any],
     offense_profile: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    # Use provided offense profile (lineup-based if available)
     if not offense_profile:
         offense_profile = build_team_offense_prior(team_id=team_id, team_name=team_name)
 
@@ -168,16 +167,8 @@ def _pitcher_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
             "pitch_arsenal_source": team.get("pitch_arsenal_source"),
             "profile_granularity": "probable_pitcher",
         },
-        "bat_missing": {
-            "k_rate": k_rate,
-            "whiff_rate": None,
-            "csw_rate": None,
-        },
-        "command_control": {
-            "bb_rate": bb_rate,
-            "zone_rate": None,
-            "first_pitch_strike_rate": None,
-        },
+        "bat_missing": {"k_rate": k_rate, "whiff_rate": None, "csw_rate": None},
+        "command_control": {"bb_rate": bb_rate, "zone_rate": None, "first_pitch_strike_rate": None},
         "contact_management": {
             "hard_hit_rate_allowed": hard_hit,
             "xwoba_allowed": xwoba,
@@ -185,11 +176,7 @@ def _pitcher_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
             "avg_exit_velocity_allowed": safe_float(features.get("avg_exit_velocity")),
             "avg_launch_angle_allowed": safe_float(features.get("avg_launch_angle")),
         },
-        "arsenal": {
-            "pitch_mix": arsenal,
-            "avg_velocity": safe_float(features.get("avg_velocity")),
-            "avg_spin_rate": safe_float(features.get("avg_spin_rate")),
-        },
+        "arsenal": {"pitch_mix": arsenal, "avg_velocity": safe_float(features.get("avg_velocity")), "avg_spin_rate": safe_float(features.get("avg_spin_rate"))},
     }
 
 
@@ -206,15 +193,8 @@ def _offense_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
             "profile_granularity": inputs.get("profile_granularity") or "team_offense",
             "sample_blend": inputs.get("sample_blend"),
         },
-        "contact_skill": {
-            "k_rate": safe_float(inputs.get("k_pct")),
-            "batting_avg": safe_float(inputs.get("batting_avg")),
-            "contact_rate": None,
-        },
-        "plate_discipline": {
-            "bb_rate": safe_float(inputs.get("bb_pct")),
-            "on_base_pct": safe_float(inputs.get("on_base_pct")),
-        },
+        "contact_skill": {"k_rate": safe_float(inputs.get("k_pct")), "batting_avg": safe_float(inputs.get("batting_avg")), "contact_rate": None},
+        "plate_discipline": {"bb_rate": safe_float(inputs.get("bb_pct")), "on_base_pct": safe_float(inputs.get("on_base_pct"))},
         "power": {
             "iso": safe_float(inputs.get("iso")),
             "slugging_pct": safe_float(inputs.get("slugging_pct")),
@@ -222,12 +202,7 @@ def _offense_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
             "doubles": safe_float(inputs.get("doubles")),
             "triples": safe_float(inputs.get("triples")),
         },
-        "run_creation": {
-            "pa": safe_float(inputs.get("pa")),
-            "hits": safe_float(inputs.get("hits")),
-            "walks": safe_float(inputs.get("walks")),
-            "strikeouts": safe_float(inputs.get("strikeouts")),
-        },
+        "run_creation": {"pa": safe_float(inputs.get("pa")), "hits": safe_float(inputs.get("hits")), "walks": safe_float(inputs.get("walks")), "strikeouts": safe_float(inputs.get("strikeouts"))},
     }
 
     for passthrough_key in (
@@ -268,10 +243,7 @@ def _matchup_workspace_analysis(offense_team: Dict[str, Any], opposing_pitcher: 
 
     biggest_edge = None
     if pitch_edges:
-        biggest_edge = max(
-            pitch_edges,
-            key=lambda row: (row.get("usage_pct") or 0) + (row.get("whiff_pct") or 0),
-        ).get("pitch_type")
+        biggest_edge = max(pitch_edges, key=lambda row: (row.get("usage_pct") or 0) + (row.get("whiff_pct") or 0)).get("pitch_type")
 
     return {
         "metadata": {
@@ -289,25 +261,12 @@ def _matchup_workspace_analysis(offense_team: Dict[str, Any], opposing_pitcher: 
             "biggest_edge": biggest_edge,
             "confidence": 0.5 if arsenal else 0.25,
         },
-        "plate_discipline_matchup": {
-            "offense_k_rate": offense_k,
-            "offense_bb_rate": offense_bb,
-            "pitcher_k_rate": pitcher_k,
-            "pitcher_bb_rate": pitcher_bb,
-        },
-        "arsenal_matchup": {
-            "pitch_edges": pitch_edges,
-            "biggest_edge": biggest_edge,
-            "pitch_count_used": len(pitch_edges),
-        },
+        "plate_discipline_matchup": {"offense_k_rate": offense_k, "offense_bb_rate": offense_bb, "pitcher_k_rate": pitcher_k, "pitcher_bb_rate": pitcher_bb},
+        "arsenal_matchup": {"pitch_edges": pitch_edges, "biggest_edge": biggest_edge, "pitch_count_used": len(pitch_edges)},
     }
 
 
-def _build_projection_simulation_cards(
-    matchup: Dict[str, Any],
-    away: Dict[str, Any],
-    home: Dict[str, Any],
-) -> Dict[str, List[Dict[str, Any]]]:
+def _build_projection_simulation_cards(matchup: Dict[str, Any], away: Dict[str, Any], home: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
     away_team_id = away.get("team_id")
     home_team_id = home.get("team_id")
     away_team_name = away.get("team_name")
@@ -325,34 +284,13 @@ def _build_projection_simulation_cards(
 
     away_pitcher_profile = {}
     home_pitcher_profile = {}
-
     away_bullpen_profile = build_bullpen_profile(team_id=away_team_id, team_name=away_team_name)
     home_bullpen_profile = build_bullpen_profile(team_id=home_team_id, team_name=home_team_name)
 
-    away_vs_home_starter_pa = _team_offense_prior_pa_model(
-        team_id=away_team_id,
-        team_name=away_team_name,
-        opposing_pitcher_profile=home_pitcher_profile,
-        environment_profile=environment_profile,
-    )
-    home_vs_away_starter_pa = _team_offense_prior_pa_model(
-        team_id=home_team_id,
-        team_name=home_team_name,
-        opposing_pitcher_profile=away_pitcher_profile,
-        environment_profile=environment_profile,
-    )
-    away_vs_home_bullpen_pa = _team_offense_prior_pa_model(
-        team_id=away_team_id,
-        team_name=away_team_name,
-        opposing_pitcher_profile=home_bullpen_profile,
-        environment_profile=environment_profile,
-    )
-    home_vs_away_bullpen_pa = _team_offense_prior_pa_model(
-        team_id=home_team_id,
-        team_name=home_team_name,
-        opposing_pitcher_profile=away_bullpen_profile,
-        environment_profile=environment_profile,
-    )
+    away_vs_home_starter_pa = _team_offense_prior_pa_model(away_team_id, away_team_name, home_pitcher_profile, environment_profile)
+    home_vs_away_starter_pa = _team_offense_prior_pa_model(home_team_id, home_team_name, away_pitcher_profile, environment_profile)
+    away_vs_home_bullpen_pa = _team_offense_prior_pa_model(away_team_id, away_team_name, home_bullpen_profile, environment_profile)
+    home_vs_away_bullpen_pa = _team_offense_prior_pa_model(home_team_id, home_team_name, away_bullpen_profile, environment_profile)
 
     sim = simulate_game_with_bullpen(
         away_starter_probabilities=away_vs_home_starter_pa.get("probabilities") or {},
@@ -372,13 +310,13 @@ def _build_projection_simulation_cards(
     team_total_probs = sim.get("calibrated_team_total_probabilities") or sim.get("team_total_probabilities") or {}
 
     away_card = _probability_model_card(
-        model_name="Simulation: Away Team Run/Win Projection",
+        model_name="Diagnostic Simulation: Away Team Run Projection",
         score=sim.get("away_expected_runs"),
-        formula="Team offense prior PA probabilities + opponent starter/bullpen profiles + environment + dynamic starter exit",
+        formula="Diagnostic team offense prior PA probabilities + opponent starter/bullpen profiles + environment + dynamic starter exit",
         inputs={
             "expected_runs": sim.get("away_expected_runs"),
             "raw_expected_runs": sim.get("raw_away_expected_runs"),
-            "win_probability": sim.get("away_win_probability"),
+            "diagnostic_win_probability": sim.get("away_win_probability"),
             "team_3_plus_runs": team_total_probs.get("away_3_plus"),
             "team_4_plus_runs": team_total_probs.get("away_4_plus"),
             "team_5_plus_runs": team_total_probs.get("away_5_plus"),
@@ -392,20 +330,20 @@ def _build_projection_simulation_cards(
             "Simulate regulation games with starter-to-bullpen transition and calibrated run distribution.",
         ],
         notes=[
-            "Uses low-confidence team priors until confirmed lineups and player-level projections are wired into this endpoint.",
-            "Raw and calibrated outputs are both retained in the simulation object; this card displays calibrated probabilities where available.",
+            "Diagnostic only: canonical home_win_prob/away_win_prob from /matchups are the final app-wide side probabilities.",
+            "This simulation remains useful for run distribution, totals context, and debugging.",
         ],
         confidence="low",
     )
 
     home_card = _probability_model_card(
-        model_name="Simulation: Home Team Run/Win Projection",
+        model_name="Diagnostic Simulation: Home Team Run Projection",
         score=sim.get("home_expected_runs"),
-        formula="Team offense prior PA probabilities + opponent starter/bullpen profiles + environment + dynamic starter exit",
+        formula="Diagnostic team offense prior PA probabilities + opponent starter/bullpen profiles + environment + dynamic starter exit",
         inputs={
             "expected_runs": sim.get("home_expected_runs"),
             "raw_expected_runs": sim.get("raw_home_expected_runs"),
-            "win_probability": sim.get("home_win_probability"),
+            "diagnostic_win_probability": sim.get("home_win_probability"),
             "team_3_plus_runs": team_total_probs.get("home_3_plus"),
             "team_4_plus_runs": team_total_probs.get("home_4_plus"),
             "team_5_plus_runs": team_total_probs.get("home_5_plus"),
@@ -419,14 +357,14 @@ def _build_projection_simulation_cards(
             "Simulate regulation games with starter-to-bullpen transition and calibrated run distribution.",
         ],
         notes=[
-            "Uses low-confidence team priors until confirmed lineups and player-level projections are wired into this endpoint.",
-            "Raw and calibrated outputs are both retained in the simulation object; this card displays calibrated probabilities where available.",
+            "Diagnostic only: canonical home_win_prob/away_win_prob from /matchups are the final app-wide side probabilities.",
+            "This simulation remains useful for run distribution, totals context, and debugging.",
         ],
         confidence="low",
     )
 
     game_total_card = _probability_model_card(
-        model_name="Simulation: Game Total Projection",
+        model_name="Diagnostic Simulation: Game Total Projection",
         score=sim.get("total_expected_runs"),
         formula="Monte Carlo total runs from away/home PA distributions, bullpen priors, environment, and calibrated distribution",
         inputs={
@@ -448,7 +386,7 @@ def _build_projection_simulation_cards(
             "Apply existing game-simulation calibration to expected runs and probability distribution.",
         ],
         notes=[
-            "This is the first Model Projections integration of the sandbox simulation engine.",
+            "Totals simulation is diagnostic and does not override canonical side probabilities.",
             "Confidence is low until lineup-level and starter-profile inputs are connected directly into this endpoint.",
         ],
         confidence="low",
@@ -469,12 +407,22 @@ def _build_projection_simulation_cards(
         "awayMatchupAnalysis": _matchup_workspace_analysis(away, home),
         "homeMatchupAnalysis": _matchup_workspace_analysis(home, away),
         "bullpenAdjustedGameSimulation": sim,
-        "debug_marker": "SIM_CONTRACT_V1",
-        # -----------------------------
-        # Simulation Contract (DEBUG)
-        # -----------------------------
+        "simulationDiagnostics": {
+            "status": "diagnostic_only",
+            "not_final_probability": True,
+            "final_probability_source": "matchups.home_win_prob_and_away_win_prob",
+            "simulation_model_version": sim.get("model_version"),
+            "away_diagnostic_win_probability": sim.get("away_win_probability"),
+            "home_diagnostic_win_probability": sim.get("home_win_probability"),
+            "away_expected_runs": sim.get("away_expected_runs"),
+            "home_expected_runs": sim.get("home_expected_runs"),
+            "total_expected_runs": sim.get("total_expected_runs"),
+        },
+        "debug_marker": "SIM_CONTRACT_V1_DIAGNOSTIC_ONLY",
         "simulationContract": {
             "source_builder": "model_projections._build_projection_simulation_cards",
+            "probability_role": "diagnostic_only_not_final_side_probability",
+            "final_probability_source": "matchups.canonical_matchup_win_probability_v2",
             "away_offense_source": ((away.get("offense_inputs") or {}).get("source")),
             "home_offense_source": ((home.get("offense_inputs") or {}).get("source")),
             "away_lineup_available": bool(matchup.get("away_lineup") or matchup.get("awayLineup") or matchup.get("away_projected_lineup")),
@@ -490,15 +438,10 @@ def _build_projection_simulation_cards(
             "away_bullpen_pa_model_version": (away_vs_home_bullpen_pa or {}).get("model_version"),
             "home_bullpen_pa_model_version": (home_vs_away_bullpen_pa or {}).get("model_version"),
         },
-
-        # -----------------------------
-        # PA Model Snapshots
-        # -----------------------------
         "awayStarterPAOutcomeModel": away_vs_home_starter_pa,
         "homeStarterPAOutcomeModel": home_vs_away_starter_pa,
         "awayBullpenPAOutcomeModel": away_vs_home_bullpen_pa,
         "homeBullpenPAOutcomeModel": home_vs_away_bullpen_pa,
-
         "metadata": {
             "workspace_version": "model_projection_workspace_v1",
             "generated_from": "model_projections._build_projection_simulation_cards",
@@ -506,16 +449,12 @@ def _build_projection_simulation_cards(
             "notes": [
                 "Workspace is generated from production model projection inputs.",
                 "Lineup-level detail is not fully wired here yet; team offense priors are used where necessary.",
-                "This object is intended to power the full Model Projections workspace UI.",
+                "Simulation outputs are diagnostic only; canonical /matchups probabilities are the final side probabilities.",
             ],
         },
     }
 
-    return {
-        "away": [away_card, game_total_card],
-        "home": [home_card],
-        "workspace": workspace,
-    }
+    return {"away": [away_card, game_total_card], "home": [home_card], "workspace": workspace}
 
 
 def _side_context(matchup: Dict[str, Any], side: str, session: Session, season: int) -> Dict[str, Any]:
@@ -549,6 +488,36 @@ def _side_context(matchup: Dict[str, Any], side: str, session: Session, season: 
     return ctx
 
 
+def _canonical_probability_payload(matchup: Dict[str, Any], projection_sim: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    home_prob = safe_float(matchup.get("home_win_prob"))
+    away_prob = safe_float(matchup.get("away_win_prob"))
+    legacy_home = safe_float(matchup.get("legacy_home_win_prob"))
+    legacy_away = safe_float(matchup.get("legacy_away_win_prob"))
+    return {
+        "away_win_prob": away_prob,
+        "home_win_prob": home_prob,
+        "away_win_probability": away_prob,
+        "home_win_probability": home_prob,
+        "source": "matchups.canonical_matchup_win_probability_v2",
+        "model_version": matchup.get("model_version") or "canonical_matchup_win_probability_v2",
+        "legacy_model_version": matchup.get("legacy_model_version") or "legacy_matchup_win_probability_v1",
+        "legacy_away_win_prob": legacy_away,
+        "legacy_home_win_prob": legacy_home,
+        "lineup_status": matchup.get("lineup_status"),
+        "data_confidence": matchup.get("data_confidence"),
+        "missing_inputs": matchup.get("missing_inputs") or [],
+        "probability_components": matchup.get("probability_components") or {},
+        "pitcher_overview": matchup.get("pitcher_overview") or {},
+        "batter_vs_arsenal_summary": matchup.get("batter_vs_arsenal_summary") or {},
+        "simulation_diagnostic": {
+            "status": "diagnostic_only_not_final_probability",
+            "away_win_probability": (projection_sim or {}).get("away_win_probability"),
+            "home_win_probability": (projection_sim or {}).get("home_win_probability"),
+            "model_version": (projection_sim or {}).get("model_version"),
+        } if projection_sim else None,
+    }
+
+
 def build_model_projection_payload(session: Session, target_date: str) -> Dict[str, Any]:
     try:
         date_obj = datetime.datetime.strptime(target_date, "%Y-%m-%d").date()
@@ -561,12 +530,9 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
         try:
             away = _side_context(matchup, "away", session, date_obj.year)
             home = _side_context(matchup, "home", session, date_obj.year)
-
             simulation_cards = _build_projection_simulation_cards(matchup, away, home)
-
             away["models"].extend(simulation_cards.get("away", []))
             home["models"].extend(simulation_cards.get("home", []))
-
             workspace = simulation_cards.get("workspace") or {}
 
             try:
@@ -578,25 +544,25 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                         "seed": 42,
                         "starter_exit_enabled": True,
                         "source_route": "/models/projections",
-                        "matchup": {
-                            "raw": matchup,
-                            "game_date": matchup.get("game_date") or target_date,
-                        },
+                        "matchup": {"raw": matchup, "game_date": matchup.get("game_date") or target_date},
                     },
                 )
             except Exception as shared_exc:
-                shared_simulation = {
-                    "status": "error",
-                    "error": str(shared_exc),
-                    "meta": {
-                        "game_pk": matchup.get("game_pk") or matchup.get("gamePk"),
-                        "source_route": "/models/projections",
-                    },
-                }
+                shared_simulation = {"status": "error", "error": str(shared_exc), "meta": {"game_pk": matchup.get("game_pk") or matchup.get("gamePk"), "source_route": "/models/projections"}}
+
             shared_outputs = shared_simulation.get("derived_outputs", {}) if isinstance(shared_simulation, dict) else {}
             shared_game_sim = shared_outputs.get("game_simulation", {}) or {}
             shared_bullpen_sim = shared_outputs.get("bullpen_adjusted_game_simulation", {}) or {}
             projection_sim = shared_bullpen_sim or shared_game_sim
+            canonical_probabilities = _canonical_probability_payload(matchup, projection_sim=projection_sim)
+            workspace["canonicalMatchupProbability"] = canonical_probabilities
+            workspace["sharedSimulationDiagnostics"] = {
+                "status": "diagnostic_only_not_final_probability",
+                "source": "sharedSimulation.derived_outputs",
+                "selected_simulation_model_version": projection_sim.get("model_version") if isinstance(projection_sim, dict) else None,
+                "away_diagnostic_win_probability": projection_sim.get("away_win_probability") if isinstance(projection_sim, dict) else None,
+                "home_diagnostic_win_probability": projection_sim.get("home_win_probability") if isinstance(projection_sim, dict) else None,
+            }
 
             games.append({
                 "game_pk": matchup.get("game_pk"),
@@ -610,16 +576,35 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 "home_team": {"id": home.get("team_id"), "name": home.get("team_name")},
                 "away_pitcher": {"id": away.get("pitcher_id"), "name": away.get("pitcher_name")},
                 "home_pitcher": {"id": home.get("pitcher_id"), "name": home.get("pitcher_name")},
-                "main_matchup_probabilities": {
-                    "away_win_prob": projection_sim.get("away_win_probability"),
-                    "home_win_prob": projection_sim.get("home_win_probability"),
-                    "source": "sharedSimulation.derived_outputs.bullpen_adjusted_game_simulation",
-                    "legacy_away_win_prob": safe_float(matchup.get("away_win_prob")),
-                    "legacy_home_win_prob": safe_float(matchup.get("home_win_prob")),
-                },
+                "away_win_prob": canonical_probabilities.get("away_win_prob"),
+                "home_win_prob": canonical_probabilities.get("home_win_prob"),
+                "away_win_probability": canonical_probabilities.get("away_win_probability"),
+                "home_win_probability": canonical_probabilities.get("home_win_probability"),
+                "model_version": canonical_probabilities.get("model_version"),
+                "legacy_model_version": canonical_probabilities.get("legacy_model_version"),
+                "legacy_away_win_prob": canonical_probabilities.get("legacy_away_win_prob"),
+                "legacy_home_win_prob": canonical_probabilities.get("legacy_home_win_prob"),
+                "probability_components": canonical_probabilities.get("probability_components"),
+                "lineup_status": canonical_probabilities.get("lineup_status"),
+                "data_confidence": canonical_probabilities.get("data_confidence"),
+                "missing_inputs": canonical_probabilities.get("missing_inputs"),
+                "pitcher_overview": canonical_probabilities.get("pitcher_overview"),
+                "batter_vs_arsenal_summary": canonical_probabilities.get("batter_vs_arsenal_summary"),
+                "main_matchup_probabilities": canonical_probabilities,
                 "teams": {"away": away, "home": home},
                 "workspace": workspace,
             })
         except Exception as exc:
             errors.append({"game_pk": matchup.get("game_pk"), "error": str(exc)})
-    return {"date": target_date, "count": len(games), "games": games, "errors": errors, "source_notes": ["Daily games are loaded through main generate_matchups_for_date.", "Scores use available real production inputs only.", "Missing inputs are returned explicitly and are not fabricated."]}
+    return {
+        "date": target_date,
+        "count": len(games),
+        "games": games,
+        "errors": errors,
+        "source_notes": [
+            "Daily games are loaded through main generate_matchups_for_date.",
+            "home_win_prob and away_win_prob are canonical v2 from /matchups.",
+            "Simulation outputs remain available as diagnostics and do not define final side probability.",
+            "Missing inputs are returned explicitly and are not fabricated.",
+        ],
+    }
