@@ -15,6 +15,7 @@ from .canonical_matchup_probability import compute_canonical_matchup_probability
 from .db_utils import get_batter_aggregate, get_pitch_arsenal, get_pitcher_aggregate, get_player_split, get_team_split
 from .etl import fetch_schedule
 from .lineup_profile import build_lineup_offense_diagnostics, build_lineup_offense_inputs
+from .shared_payload_cache import env_ttl, get_cache, make_cache_key, set_cache
 
 log = logging.getLogger(__name__)
 
@@ -237,7 +238,7 @@ def _apply_canonical_probability(session: Session, base_matchup: Dict, season: i
         base_matchup[key] = canonical.get(key)
 
 
-def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
+def _generate_matchups_for_date_uncached(session: Session, date_str: str) -> List[Dict]:
     try:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
@@ -392,6 +393,36 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
         matchups.append(base_matchup)
 
     return matchups
+
+
+def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
+    """Generate daily matchup slate with a process-local TTL cache.
+
+    This restores the Friday fast-load pattern without touching app.py. The first
+    request for a date performs the expensive schedule, lineup, canonical model,
+    simulation, and starter-overview work. Repeated homepage/model calls for the
+    same date reuse the cached slate for MATCHUPS_CACHE_TTL_SECONDS.
+    """
+    cache_key = make_cache_key("matchups", "date", date_str)
+    ttl_seconds = env_ttl("MATCHUPS_CACHE_TTL_SECONDS")
+    cached = get_cache(cache_key, ttl_seconds)
+    if cached is not None:
+        if isinstance(cached, list):
+            for game in cached:
+                if isinstance(game, dict):
+                    game.setdefault("cache_hit", True)
+                    game.setdefault("cache_key", cache_key)
+                    game.setdefault("ttl_seconds", ttl_seconds)
+        return cached
+
+    matchups = _generate_matchups_for_date_uncached(session, date_str)
+    if isinstance(matchups, list):
+        for game in matchups:
+            if isinstance(game, dict):
+                game.setdefault("cache_hit", False)
+                game.setdefault("cache_key", cache_key)
+                game.setdefault("ttl_seconds", ttl_seconds)
+    return set_cache(cache_key, matchups)
 
 
 __all__ = ["generate_matchups_for_date"]
