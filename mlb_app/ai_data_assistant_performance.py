@@ -7,12 +7,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import ai_data_assistant as core
 from .model_projections import build_model_projection_payload as uncached_build_model_projection_payload
-from .shared_payload_cache import env_ttl, make_cache_key
+from .shared_payload_cache import clear_shared_payload_cache, env_ttl, get_cache, get_or_set, make_cache_key, set_cache, stable_hash
 
 AI_RESPONSE_TTL_SECONDS = 180
 
-_projection_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
-_response_cache: Dict[Tuple[Any, ...], Tuple[float, Dict[str, Any]]] = {}
 _timing_var: ContextVar[Optional[Dict[str, float]]] = ContextVar("ai_data_assistant_timing", default=None)
 _original_projection_builder = uncached_build_model_projection_payload
 _patch_applied = False
@@ -24,21 +22,6 @@ def _now() -> float:
 
 def _ms(start: float) -> int:
     return int(round((_now() - start) * 1000))
-
-
-def _cache_get(cache: Dict[Any, Tuple[float, Any]], key: Any, ttl_seconds: int) -> Optional[Any]:
-    record = cache.get(key)
-    if not record:
-        return None
-    created_at, value = record
-    if ttl_seconds <= 0 or _now() - created_at > ttl_seconds:
-        cache.pop(key, None)
-        return None
-    return copy.deepcopy(value)
-
-
-def _cache_set(cache: Dict[Any, Tuple[float, Any]], key: Any, value: Any) -> None:
-    cache[key] = (_now(), copy.deepcopy(value))
 
 
 def _timing() -> Optional[Dict[str, float]]:
@@ -53,28 +36,40 @@ def _add_timing(name: str, elapsed_ms: int) -> None:
 
 
 def cached_build_model_projection_payload(session, target_date: str) -> Dict[str, Any]:
-    """Process-local TTL cache for the expensive model projection payload.
+    """Shared TTL cache for the expensive model projection payload.
 
     This monkey-patches the imported symbol inside `mlb_app.ai_data_assistant`, so
-    all existing v2 builders keep their current code path while sharing one
-    cached projection payload by date.
+    all existing v2 builders keep their current code path while sharing the same
+    process-local projection cache contract as `/models/projections`.
     """
     cache_key = make_cache_key("model_projection", "full", target_date)
-    cached = _cache_get(_projection_cache, cache_key, env_ttl("MODEL_PROJECTION_CACHE_TTL_SECONDS"))
+    ttl_seconds = env_ttl("MODEL_PROJECTION_CACHE_TTL_SECONDS")
+
+    cached = get_cache(cache_key, ttl_seconds)
     if cached is not None:
         timing = _timing()
         if timing is not None:
             timing["projection_cache_hit"] = timing.get("projection_cache_hit", 0) + 1
+        if isinstance(cached, dict):
+            cached.setdefault("cache_hit", True)
+            cached.setdefault("cache_key", cache_key)
+            cached.setdefault("ttl_seconds", ttl_seconds)
         return cached
 
     start = _now()
     payload = _original_projection_builder(session, target_date)
-    _add_timing("projection_payload_ms", _ms(start))
-    _cache_set(_projection_cache, cache_key, payload)
+    elapsed_ms = _ms(start)
+    _add_timing("projection_payload_ms", elapsed_ms)
+    stored = set_cache(cache_key, payload)
     timing = _timing()
     if timing is not None:
         timing["projection_cache_miss"] = timing.get("projection_cache_miss", 0) + 1
-    return copy.deepcopy(payload)
+    if isinstance(stored, dict):
+        stored.setdefault("cache_hit", False)
+        stored.setdefault("cache_key", cache_key)
+        stored.setdefault("ttl_seconds", ttl_seconds)
+        stored.setdefault("built_ms", elapsed_ms)
+    return stored
 
 
 def apply_performance_patch() -> None:
@@ -90,9 +85,17 @@ def apply_performance_patch() -> None:
     _patch_applied = True
 
 
-def _response_cache_key(message: str, date: Optional[str], game_pk: Optional[int], player_id: Optional[int], team_id: Optional[int], use_llm: bool) -> Tuple[Any, ...]:
+def _response_cache_key(message: str, date: Optional[str], game_pk: Optional[int], player_id: Optional[int], team_id: Optional[int], use_llm: bool) -> str:
     normalized_message = " ".join((message or "").strip().lower().split())
-    return (normalized_message, date, game_pk, player_id, team_id, bool(use_llm))
+    payload = {
+        "message": normalized_message,
+        "date": date,
+        "game_pk": game_pk,
+        "player_id": player_id,
+        "team_id": team_id,
+        "use_llm": bool(use_llm),
+    }
+    return make_cache_key("ai_data_assistant", "response", stable_hash(payload))
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -223,6 +226,40 @@ def _enrich_result_with_canonical_context(result: Dict[str, Any], canonical_cont
     return enriched
 
 
+def _build_ai_data_assistant_response_uncached(
+    session,
+    message: str,
+    date: Optional[str] = None,
+    game_pk: Optional[int] = None,
+    player_id: Optional[int] = None,
+    team_id: Optional[int] = None,
+    use_llm: bool = False,
+) -> Dict[str, Any]:
+    context_start = _now()
+    context = core.build_assistant_context(
+        session=session,
+        message=message,
+        date=date,
+        game_pk=game_pk,
+        player_id=player_id,
+        team_id=team_id,
+    )
+    timing = _timing()
+    if timing is not None:
+        timing["context_build_ms"] = _ms(context_start)
+
+    canonical_context = _build_canonical_probability_context(session, context, game_pk=game_pk)
+
+    answer_start = _now()
+    result = core.answer_with_optional_llm(message, context, use_llm=use_llm)
+    if timing is not None:
+        timing["answer_render_ms"] = _ms(answer_start)
+        timing["llm_requested"] = 1 if use_llm else 0
+
+    result = _enrich_result_with_canonical_context(result, canonical_context)
+    return result
+
+
 def build_ai_data_assistant_response(
     session,
     message: str,
@@ -235,8 +272,8 @@ def build_ai_data_assistant_response(
     """Fast wrapper for the existing AI Data Assistant service.
 
     Adds:
-    - process-level TTL response cache for repeated chip clicks
-    - process-level TTL Model Projection cache by date
+    - shared process-local TTL response cache for repeated chip clicks
+    - shared process-local TTL Model Projection cache by date
     - deterministic answers by default
     - canonical probability context on every response
     - timing metadata on every response
@@ -245,46 +282,48 @@ def build_ai_data_assistant_response(
     total_start = _now()
     timing: Dict[str, float] = {}
     token = _timing_var.set(timing)
-    key = _response_cache_key(message, date, game_pk, player_id, team_id, use_llm)
+    cache_key = _response_cache_key(message, date, game_pk, player_id, team_id, use_llm)
+    ttl_seconds = env_ttl("AI_DATA_ASSISTANT_RESPONSE_CACHE_TTL_SECONDS")
     try:
-        cached = _cache_get(_response_cache, key, AI_RESPONSE_TTL_SECONDS)
+        cached = get_cache(cache_key, ttl_seconds)
         if cached is not None:
             cached.setdefault("timing", {})
             cached["timing"].update({"response_cache_hit": 1, "total_ms": _ms(total_start)})
             cached["cache_status"] = "response_cache_hit"
+            cached.setdefault("cache_key", cache_key)
+            cached.setdefault("ttl_seconds", ttl_seconds)
             return cached
 
-        context_start = _now()
-        context = core.build_assistant_context(
-            session=session,
-            message=message,
-            date=date,
-            game_pk=game_pk,
-            player_id=player_id,
-            team_id=team_id,
+        result = get_or_set(
+            cache_key,
+            ttl_seconds,
+            lambda: _build_ai_data_assistant_response_uncached(
+                session=session,
+                message=message,
+                date=date,
+                game_pk=game_pk,
+                player_id=player_id,
+                team_id=team_id,
+                use_llm=use_llm,
+            ),
         )
-        timing["context_build_ms"] = _ms(context_start)
-
-        canonical_context = _build_canonical_probability_context(session, context, game_pk=game_pk)
-
-        answer_start = _now()
-        result = core.answer_with_optional_llm(message, context, use_llm=use_llm)
-        timing["answer_render_ms"] = _ms(answer_start)
-        timing["llm_requested"] = 1 if use_llm else 0
-        timing["total_ms"] = _ms(total_start)
-
-        result = _enrich_result_with_canonical_context(result, canonical_context)
         result["timing"] = dict(timing)
+        result["timing"]["total_ms"] = _ms(total_start)
         result["cache_status"] = "miss"
-        _cache_set(_response_cache, key, result)
+        result.setdefault("cache_key", cache_key)
+        result.setdefault("ttl_seconds", ttl_seconds)
         return result
     finally:
         _timing_var.reset(token)
 
 
 def clear_ai_data_assistant_caches() -> Dict[str, Any]:
-    projection_count = len(_projection_cache)
-    response_count = len(_response_cache)
-    _projection_cache.clear()
-    _response_cache.clear()
-    return {"cleared": True, "projection_cache_entries": projection_count, "response_cache_entries": response_count}
+    ai_response = clear_shared_payload_cache("ai_data_assistant:response")
+    model_projection = clear_shared_payload_cache("model_projection:full")
+    return {
+        "cleared": True,
+        "shared_cache": {
+            "ai_data_assistant_response": ai_response,
+            "model_projection": model_projection,
+        },
+    }
