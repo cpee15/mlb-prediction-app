@@ -153,10 +153,30 @@ export default function MyDashboardPage() {
   }
 
   async function runAll() {
-    for (const component of COMPONENTS) {
-      if (!enabled[component.key]) continue
-      // eslint-disable-next-line no-await-in-loop
-      await runSolver(component.key)
+    const selected = COMPONENTS.filter(component => enabled[component.key]).map(component => component.key)
+    if (selected.length === 0) return
+    setLoading(prev => ({ ...prev, ...Object.fromEntries(selected.map(component => [component, true])) }))
+    setErrors(prev => ({ ...prev, ...Object.fromEntries(selected.map(component => [component, null])) }))
+    try {
+      const payload = {
+        date: effectiveDate,
+        components: selected,
+        filters_by_component: Object.fromEntries(selected.map(component => [component, cleanFilters(filters[component] || {})])),
+        active_lineups: false,
+      }
+      const res = await fetch(`${API}/my-dashboard/solver/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(JSON.stringify(json.detail || json))
+      setResults(prev => ({ ...prev, ...(json.results || {}) }))
+    } catch (err) {
+      console.error('My Dashboard batch solver failed:', err)
+      setErrors(prev => ({ ...prev, _all: err.message || 'Batch solver failed' }))
+    } finally {
+      setLoading(prev => ({ ...prev, ...Object.fromEntries(selected.map(component => [component, false])) }))
     }
   }
 
@@ -227,28 +247,36 @@ export default function MyDashboardPage() {
   async function rerunSavedDashboard(row) {
     loadSavedDashboard(row)
     const runDate = row.date_mode === 'fixed' && row.fixed_date ? row.fixed_date : today
-    const nextResults = {}
-    for (const component of COMPONENTS) {
-      const config = row.config?.components?.[component.key]
-      if (!config || config.enabled === false) continue
-      setLoading(prev => ({ ...prev, [component.key]: true }))
-      try {
-        const payload = { date: runDate, component: component.key, filters: config.filters || {} }
-        const res = await fetch(`${API}/my-dashboard/solver`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-        const json = await res.json()
-        if (!res.ok) throw new Error(JSON.stringify(json.detail || json))
-        nextResults[component.key] = json
-      } catch (err) {
-        setErrors(prev => ({ ...prev, [component.key]: err.message || 'Saved dashboard rerun failed' }))
-      } finally {
-        setLoading(prev => ({ ...prev, [component.key]: false }))
+    const selected = COMPONENTS
+      .filter(component => row.config?.components?.[component.key]?.enabled !== false)
+      .map(component => component.key)
+    if (selected.length === 0) return
+    setLoading(prev => ({ ...prev, ...Object.fromEntries(selected.map(component => [component, true])) }))
+    setErrors(prev => ({ ...prev, ...Object.fromEntries(selected.map(component => [component, null])) }))
+    try {
+      const payload = {
+        date: runDate,
+        components: selected,
+        filters_by_component: Object.fromEntries(selected.map(component => [component, row.config?.components?.[component]?.filters || {}])),
+        active_lineups: false,
       }
+      const res = await fetch(`${API}/my-dashboard/solver/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(JSON.stringify(json.detail || json))
+      setResults(prev => ({ ...prev, ...(json.results || {}) }))
+      const now = new Date().toISOString()
+      const next = savedDashboards.map(item => item.id === row.id ? { ...item, last_run_at: now } : item)
+      setSavedDashboards(next)
+      saveSavedDashboards(next)
+    } catch (err) {
+      setErrors(prev => ({ ...prev, _saved: err.message || 'Saved dashboard batch rerun failed' }))
+    } finally {
+      setLoading(prev => ({ ...prev, ...Object.fromEntries(selected.map(component => [component, false])) }))
     }
-    setResults(prev => ({ ...prev, ...nextResults }))
-    const now = new Date().toISOString()
-    const next = savedDashboards.map(item => item.id === row.id ? { ...item, last_run_at: now } : item)
-    setSavedDashboards(next)
-    saveSavedDashboards(next)
   }
 
   return (
@@ -278,6 +306,9 @@ export default function MyDashboardPage() {
         </div>
         <button disabled style={disabledButtonStyle}>Real sign-in coming soon</button>
       </section>
+
+      {errors._all && <div style={errorStyle}>{errors._all}</div>}
+      {errors._saved && <div style={errorStyle}>{errors._saved}</div>}
 
       <SavedDashboardsPanel
         savedDashboards={savedDashboards}
