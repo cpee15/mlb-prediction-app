@@ -4,8 +4,7 @@ import datetime as dt
 import hashlib
 import json
 import re
-import time
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 from sqlalchemy import Column, Date, DateTime, Float, Index, Integer, String, Text, UniqueConstraint
@@ -25,10 +24,17 @@ AI_TRACKER_PROMPTS = (
     "Top pitcher leans",
     "What data is stale or weak?",
 )
+CANONICAL_MODEL_VERSION = "canonical_matchup_win_probability_v2"
+LEGACY_MODEL_VERSION = "legacy_matchup_win_probability_v1"
 
 
 class ModelTrackerSnapshot(Base):
-    """Persistent, additive record of what an existing model surface said at snapshot time."""
+    """Persistent, additive record of what an existing model surface said at snapshot time.
+
+    Canonical probability v2 diagnostics are intentionally stored in the existing
+    JSON text columns instead of adding production-risky physical columns. This
+    keeps the tracker schema guarded while preserving backtest/debug detail.
+    """
 
     __tablename__ = "model_tracker_snapshots"
 
@@ -133,6 +139,8 @@ def _short_reason(value: Any, fallback: str = "") -> str:
         return fallback
     if isinstance(value, list):
         return "; ".join(str(v) for v in value[:3])[:1000] or fallback
+    if isinstance(value, dict):
+        return json.dumps(value, default=str)[:1000] or fallback
     return str(value)[:1000] or fallback
 
 
@@ -142,18 +150,9 @@ def _normalize_name(name: Any) -> str:
 
 def _tracker_key(row: Dict[str, Any]) -> str:
     parts = [
-        row.get("snapshot_date"),
-        row.get("source"),
-        row.get("source_component"),
-        row.get("game_pk"),
-        row.get("event_id"),
-        row.get("player_id"),
-        row.get("team_id"),
-        row.get("market_type"),
-        row.get("pick_type"),
-        row.get("pick_label"),
-        row.get("model_name"),
-        row.get("line"),
+        row.get("snapshot_date"), row.get("source"), row.get("source_component"), row.get("game_pk"),
+        row.get("event_id"), row.get("player_id"), row.get("team_id"), row.get("market_type"),
+        row.get("pick_type"), row.get("pick_label"), row.get("model_name"), row.get("line"),
     ]
     raw = "|".join(str(part or "") for part in parts)
     if len(raw) <= 450:
@@ -210,14 +209,81 @@ def _base_row(source: str, target_date: str, **kwargs: Any) -> Dict[str, Any]:
     return row
 
 
-def _team_pick_from_probs(matchup: Dict[str, Any]) -> tuple[Optional[str], Optional[float]]:
-    home_prob = _safe_float(matchup.get("home_win_prob") or matchup.get("home_win_probability"))
-    away_prob = _safe_float(matchup.get("away_win_prob") or matchup.get("away_win_probability"))
-    home_team = matchup.get("home_team_name") or matchup.get("home_team")
-    away_team = matchup.get("away_team_name") or matchup.get("away_team")
+def _team_name(value: Any) -> Optional[str]:
+    if isinstance(value, dict):
+        return value.get("name") or value.get("team_name")
+    return value
+
+
+def _canonical_probability_bundle(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract canonical v2 diagnostics from any matchup/projection-shaped payload.
+
+    This intentionally returns a JSON-safe bundle that can be stored in the
+    existing text columns. No schema migration is required.
+    """
+    probs = payload.get("main_matchup_probabilities") if isinstance(payload.get("main_matchup_probabilities"), dict) else payload
+    workspace = payload.get("workspace") or {}
+    canonical_workspace = workspace.get("canonicalMatchupProbability") or {}
+    if canonical_workspace:
+        probs = {**canonical_workspace, **(probs or {})}
+    home_prob = _safe_float(probs.get("home_win_prob") or probs.get("home_win_probability") or payload.get("home_win_prob") or payload.get("home_win_probability"))
+    away_prob = _safe_float(probs.get("away_win_prob") or probs.get("away_win_probability") or payload.get("away_win_prob") or payload.get("away_win_probability"))
+    legacy_home = _safe_float(probs.get("legacy_home_win_prob") or payload.get("legacy_home_win_prob"))
+    legacy_away = _safe_float(probs.get("legacy_away_win_prob") or payload.get("legacy_away_win_prob"))
+    components = probs.get("probability_components") or payload.get("probability_components") or {}
+    missing_inputs = probs.get("missing_inputs") or payload.get("missing_inputs") or []
+    sim_diag = probs.get("simulation_diagnostic") or workspace.get("sharedSimulationDiagnostics") or workspace.get("simulationDiagnostics") or {}
+    return {
+        "canonical_home_win_prob": home_prob,
+        "canonical_away_win_prob": away_prob,
+        "legacy_home_win_prob": legacy_home,
+        "legacy_away_win_prob": legacy_away,
+        "model_version": probs.get("model_version") or payload.get("model_version") or CANONICAL_MODEL_VERSION,
+        "legacy_model_version": probs.get("legacy_model_version") or payload.get("legacy_model_version") or LEGACY_MODEL_VERSION,
+        "lineup_status": probs.get("lineup_status") or payload.get("lineup_status"),
+        "data_confidence": probs.get("data_confidence") or payload.get("data_confidence"),
+        "missing_inputs": missing_inputs,
+        "probability_components": components,
+        "probability_component_keys": sorted(components.keys()) if isinstance(components, dict) else [],
+        "pitcher_overview": probs.get("pitcher_overview") or payload.get("pitcher_overview") or {},
+        "batter_vs_arsenal_summary": probs.get("batter_vs_arsenal_summary") or payload.get("batter_vs_arsenal_summary") or {},
+        "simulation_diagnostic": sim_diag,
+        "final_probability_source": probs.get("source") or "matchups.canonical_matchup_win_probability_v2",
+        "simulation_role": (sim_diag or {}).get("status") or "diagnostic_only_not_final_probability",
+    }
+
+
+def _canonical_features(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [
+        {"name": "home_win_prob", "value": bundle.get("canonical_home_win_prob"), "source": bundle.get("final_probability_source"), "role": "canonical_final_probability"},
+        {"name": "away_win_prob", "value": bundle.get("canonical_away_win_prob"), "source": bundle.get("final_probability_source"), "role": "canonical_final_probability"},
+        {"name": "legacy_home_win_prob", "value": bundle.get("legacy_home_win_prob"), "source": bundle.get("legacy_model_version"), "role": "legacy_comparison_only"},
+        {"name": "legacy_away_win_prob", "value": bundle.get("legacy_away_win_prob"), "source": bundle.get("legacy_model_version"), "role": "legacy_comparison_only"},
+        {"name": "lineup_status", "value": bundle.get("lineup_status"), "source": "canonical_probability_diagnostics"},
+        {"name": "data_confidence", "value": bundle.get("data_confidence"), "source": "canonical_probability_diagnostics"},
+        {"name": "probability_component_keys", "value": bundle.get("probability_component_keys"), "source": "canonical_probability_diagnostics"},
+    ]
+
+
+def _canonical_reasoning(bundle: Dict[str, Any], extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    return {
+        "canonical_probability": bundle,
+        "contract": {
+            "final_probability_fields": ["home_win_prob", "away_win_prob"],
+            "legacy_probability_fields": ["legacy_home_win_prob", "legacy_away_win_prob"],
+            "simulation_role": "diagnostic_only_not_final_probability",
+            "schema_guard": "stored_in_existing_json_text_columns_no_physical_migration",
+        },
+        "extra": extra or {},
+    }
+
+
+def _team_pick_from_canonical(bundle: Dict[str, Any], home_team: Any, away_team: Any) -> tuple[Optional[str], Optional[float]]:
+    home_prob = _safe_float(bundle.get("canonical_home_win_prob"))
+    away_prob = _safe_float(bundle.get("canonical_away_win_prob"))
     if home_prob is None or away_prob is None:
         return None, None
-    return (home_team, home_prob) if home_prob >= away_prob else (away_team, away_prob)
+    return (_team_name(home_team), home_prob) if home_prob >= away_prob else (_team_name(away_team), away_prob)
 
 
 def normalize_matchup_rows(matchups: List[Dict[str, Any]], target_date: str) -> List[Dict[str, Any]]:
@@ -225,22 +291,26 @@ def normalize_matchup_rows(matchups: List[Dict[str, Any]], target_date: str) -> 
     for matchup in matchups or []:
         home_team = matchup.get("home_team_name") or matchup.get("home_team")
         away_team = matchup.get("away_team_name") or matchup.get("away_team")
-        pick, probability = _team_pick_from_probs(matchup)
+        bundle = _canonical_probability_bundle(matchup)
+        pick, probability = _team_pick_from_canonical(bundle, home_team, away_team)
         rows.append(_base_row(
-            "matchups",
-            target_date,
+            "matchups", target_date,
             source_endpoint="/matchups",
-            source_component="game_snapshot",
+            source_component="canonical_game_snapshot",
             game_pk=matchup.get("game_pk"),
             away_team=away_team,
             home_team=home_team,
             market_type="game",
-            pick_type="game_snapshot",
+            pick_type="canonical_game_snapshot",
             pick_label=f"{away_team} @ {home_team}",
             model_name="daily_matchup_snapshot",
-            home_win_probability=_safe_float(matchup.get("home_win_prob")),
-            away_win_probability=_safe_float(matchup.get("away_win_prob")),
-            primary_reason="Daily matchup snapshot captured for tracker comparison.",
+            model_version=bundle.get("model_version"),
+            home_win_probability=bundle.get("canonical_home_win_prob"),
+            away_win_probability=bundle.get("canonical_away_win_prob"),
+            primary_reason="Canonical matchup snapshot captured for tracker comparison.",
+            reasoning_json=_json(_canonical_reasoning(bundle)),
+            features_used_json=_json(_canonical_features(bundle)),
+            missing_inputs_json=_json(bundle.get("missing_inputs") or []),
             raw_payload_json=_json(matchup),
             game_status_at_snapshot=matchup.get("status"),
             grade="ungraded",
@@ -248,10 +318,9 @@ def normalize_matchup_rows(matchups: List[Dict[str, Any]], target_date: str) -> 
         ))
         if pick:
             rows.append(_base_row(
-                "matchups",
-                target_date,
+                "matchups", target_date,
                 source_endpoint="/matchups",
-                source_component="moneyline_side",
+                source_component="canonical_moneyline_side",
                 game_pk=matchup.get("game_pk"),
                 away_team=away_team,
                 home_team=home_team,
@@ -259,18 +328,17 @@ def normalize_matchup_rows(matchups: List[Dict[str, Any]], target_date: str) -> 
                 market_type="moneyline",
                 pick_type="side",
                 pick_label=pick,
-                model_name="matchup_win_probability",
+                model_name="canonical_matchup_win_probability",
+                model_version=bundle.get("model_version"),
                 model_probability=probability,
                 score=probability,
                 confidence=probability,
-                home_win_probability=_safe_float(matchup.get("home_win_prob")),
-                away_win_probability=_safe_float(matchup.get("away_win_prob")),
-                primary_reason=f"Model side from matchup win probability: {pick}",
-                features_used_json=_json([
-                    {"name": "home_win_prob", "value": matchup.get("home_win_prob")},
-                    {"name": "away_win_prob", "value": matchup.get("away_win_prob")},
-                ]),
-                missing_inputs_json=_json(matchup.get("missing_inputs") or []),
+                home_win_probability=bundle.get("canonical_home_win_prob"),
+                away_win_probability=bundle.get("canonical_away_win_prob"),
+                primary_reason=f"Canonical v2 side from matchup win probability: {pick}",
+                reasoning_json=_json(_canonical_reasoning(bundle, {"selected_side": pick})),
+                features_used_json=_json(_canonical_features(bundle)),
+                missing_inputs_json=_json(bundle.get("missing_inputs") or []),
                 raw_payload_json=_json(matchup),
                 game_status_at_snapshot=matchup.get("status"),
                 grade="pending",
@@ -286,13 +354,19 @@ def normalize_daily_odds_rows(payload: Dict[str, Any], target_date: str) -> List
             continue
         away_team = game.get("away_team") or game.get("away_team_name")
         home_team = game.get("home_team") or game.get("home_team_name")
+        bundle = _canonical_probability_bundle(game)
         models = game.get("models") or {}
         for market_key, model in models.items() if isinstance(models, dict) else []:
             if not isinstance(model, dict):
                 continue
+            model_features = list(model.get("features_used") or []) + _canonical_features(bundle)
+            reasoning = {
+                "drivers": model.get("drivers") or model.get("reasoning") or [],
+                "canonical_probability": bundle,
+                "market_context_note": "Daily Odds compares sportsbook implied probability against canonical probability; odds do not define canonical probability.",
+            }
             rows.append(_base_row(
-                "daily_odds",
-                target_date,
+                "daily_odds", target_date,
                 source_endpoint="/daily-odds/models",
                 source_component=str(market_key),
                 game_pk=game.get("game_pk"),
@@ -303,6 +377,7 @@ def normalize_daily_odds_rows(payload: Dict[str, Any], target_date: str) -> List
                 pick_type=market_key,
                 pick_label=model.get("pick") or model.get("selection"),
                 model_name=model.get("model") or "daily_odds_model",
+                model_version=bundle.get("model_version") if market_key == "moneyline" else model.get("model_version"),
                 model_probability=_safe_float(model.get("model_probability")),
                 market_implied_probability=_safe_float(model.get("market_implied_probability")),
                 edge=_safe_float(model.get("edge")),
@@ -311,11 +386,13 @@ def normalize_daily_odds_rows(payload: Dict[str, Any], target_date: str) -> List
                 line=_safe_float(model.get("line")),
                 price=_safe_float(model.get("price")),
                 expected_value=_safe_float(model.get("expected_value")),
+                home_win_probability=bundle.get("canonical_home_win_prob"),
+                away_win_probability=bundle.get("canonical_away_win_prob"),
                 primary_reason=_short_reason(model.get("drivers") or model.get("reasoning") or model.get("primary_reason"), "Daily Odds model output."),
-                reasoning_json=_json(model.get("drivers") or model.get("reasoning") or []),
-                features_used_json=_json(model.get("features_used") or []),
-                missing_inputs_json=_json(model.get("missing_inputs") or game.get("missing_inputs") or []),
-                raw_payload_json=_json({"game": game, "model": model}),
+                reasoning_json=_json(reasoning),
+                features_used_json=_json(model_features),
+                missing_inputs_json=_json((model.get("missing_inputs") or []) + (bundle.get("missing_inputs") or [])),
+                raw_payload_json=_json({"game": game, "model": model, "canonical_probability": bundle}),
                 grade="pending" if model.get("pick") else "ungraded",
                 result_status="pending",
             ))
@@ -323,8 +400,7 @@ def normalize_daily_odds_rows(payload: Dict[str, Any], target_date: str) -> List
         if not isinstance(candidate, dict):
             continue
         rows.append(_base_row(
-            "daily_odds",
-            target_date,
+            "daily_odds", target_date,
             source_endpoint="/daily-odds/models",
             source_component="top_prop_model_candidates",
             game_pk=candidate.get("game_pk"),
@@ -364,23 +440,28 @@ def normalize_model_projection_rows(payload: Dict[str, Any], target_date: str) -
             continue
         workspace = game.get("workspace") or {}
         simulation = workspace.get("bullpenAdjustedGameSimulation") or workspace.get("gameSimulation") or game.get("gameSimulation") or {}
-        away_team = game.get("away_team") or game.get("away_team_name")
-        home_team = game.get("home_team") or game.get("home_team_name")
-        home_prob = _safe_float(simulation.get("home_win_probability") or game.get("home_win_probability") or game.get("home_win_prob"))
-        away_prob = _safe_float(simulation.get("away_win_probability") or game.get("away_win_probability") or game.get("away_win_prob"))
+        away_team = _team_name(game.get("away_team") or game.get("away_team_name"))
+        home_team = _team_name(game.get("home_team") or game.get("home_team_name"))
+        bundle = _canonical_probability_bundle(game)
+        home_prob = _safe_float(bundle.get("canonical_home_win_prob"))
+        away_prob = _safe_float(bundle.get("canonical_away_win_prob"))
         projected_total = _safe_float(simulation.get("total_expected_runs") or game.get("total_expected_runs"))
         projected_home = _safe_float(simulation.get("home_expected_runs") or game.get("home_expected_runs"))
         projected_away = _safe_float(simulation.get("away_expected_runs") or game.get("away_expected_runs"))
-        pick = None
-        pick_prob = None
-        if home_prob is not None and away_prob is not None:
-            pick, pick_prob = (home_team, home_prob) if home_prob >= away_prob else (away_team, away_prob)
+        pick, pick_prob = _team_pick_from_canonical(bundle, home_team, away_team)
+        sim_diag = {
+            "status": "diagnostic_only_not_final_probability",
+            "home_diagnostic_win_probability": simulation.get("home_win_probability"),
+            "away_diagnostic_win_probability": simulation.get("away_win_probability"),
+            "total_expected_runs": projected_total,
+            "home_expected_runs": projected_home,
+            "away_expected_runs": projected_away,
+        }
         if pick:
             rows.append(_base_row(
-                "model_projections",
-                target_date,
+                "model_projections", target_date,
                 source_endpoint="/models/projections",
-                source_component="projected_side",
+                source_component="canonical_projected_side",
                 game_pk=game.get("game_pk"),
                 away_team=away_team,
                 home_team=home_team,
@@ -388,7 +469,8 @@ def normalize_model_projection_rows(payload: Dict[str, Any], target_date: str) -
                 market_type="moneyline",
                 pick_type="side",
                 pick_label=pick,
-                model_name="model_projection_win_probability",
+                model_name="canonical_model_projection_win_probability",
+                model_version=bundle.get("model_version"),
                 model_probability=pick_prob,
                 score=pick_prob,
                 confidence=pick_prob,
@@ -397,34 +479,38 @@ def normalize_model_projection_rows(payload: Dict[str, Any], target_date: str) -
                 projected_away_runs=projected_away,
                 home_win_probability=home_prob,
                 away_win_probability=away_prob,
-                primary_reason="Model Projection side captured from simulation win probability.",
-                missing_inputs_json=_json(game.get("missing_inputs") or workspace.get("missing_inputs") or []),
-                raw_payload_json=_json(game),
+                primary_reason="Model Projection side captured from canonical v2 probability. Simulation is diagnostic only.",
+                reasoning_json=_json(_canonical_reasoning(bundle, {"selected_side": pick, "simulation_diagnostic": sim_diag})),
+                features_used_json=_json(_canonical_features(bundle)),
+                missing_inputs_json=_json(bundle.get("missing_inputs") or []),
+                raw_payload_json=_json({"game": game, "canonical_probability": bundle, "simulation_diagnostic": sim_diag}),
                 grade="pending",
                 result_status="pending",
             ))
         if projected_total is not None:
             rows.append(_base_row(
-                "model_projections",
-                target_date,
+                "model_projections", target_date,
                 source_endpoint="/models/projections",
-                source_component="projected_total",
+                source_component="diagnostic_projected_total",
                 game_pk=game.get("game_pk"),
                 away_team=away_team,
                 home_team=home_team,
                 market_type="total",
                 pick_type="projected_total",
                 pick_label=f"Projected total {projected_total}",
-                model_name="model_projection_total_runs",
+                model_name="diagnostic_model_projection_total_runs",
+                model_version=(simulation or {}).get("model_version"),
                 score=projected_total,
                 projected_total=projected_total,
                 projected_home_runs=projected_home,
                 projected_away_runs=projected_away,
                 home_win_probability=home_prob,
                 away_win_probability=away_prob,
-                primary_reason="Model Projection total expected runs captured for comparison.",
-                missing_inputs_json=_json(game.get("missing_inputs") or workspace.get("missing_inputs") or []),
-                raw_payload_json=_json(game),
+                primary_reason="Diagnostic total expected runs captured for comparison; side probability remains canonical v2.",
+                reasoning_json=_json({"canonical_probability": bundle, "simulation_diagnostic": sim_diag}),
+                features_used_json=_json(_canonical_features(bundle)),
+                missing_inputs_json=_json(bundle.get("missing_inputs") or []),
+                raw_payload_json=_json({"game": game, "canonical_probability": bundle, "simulation_diagnostic": sim_diag}),
                 grade="ungraded",
                 grade_reason="Projected total stored for after-the-fact comparison; sportsbook line may be absent.",
                 result_status="pending",
@@ -438,16 +524,16 @@ def normalize_dashboard_rows(component: str, payload: Dict[str, Any], target_dat
         if not isinstance(item, dict):
             continue
         metrics = item.get("metrics") or {}
+        entity_type = item.get("entity_type")
         rows.append(_base_row(
-            "my_dashboard",
-            target_date,
+            "my_dashboard", target_date,
             source_endpoint="/my-dashboard/solver",
             source_component=component,
             game_pk=item.get("game_pk"),
-            team_id=item.get("team_id") or item.get("entity_id") if item.get("entity_type") == "team" else item.get("team_id"),
-            player_id=item.get("player_id") or item.get("entity_id") if item.get("entity_type") in {"hitter", "pitcher", "player"} else item.get("player_id"),
-            player_name=item.get("player_name") or item.get("entity_name") if item.get("entity_type") in {"hitter", "pitcher", "player"} else item.get("player_name"),
-            team_name=item.get("team") or item.get("team_name") or item.get("entity_name") if item.get("entity_type") == "team" else item.get("team") or item.get("team_name"),
+            team_id=(item.get("team_id") or item.get("entity_id")) if entity_type == "team" else item.get("team_id"),
+            player_id=(item.get("player_id") or item.get("entity_id")) if entity_type in {"hitter", "pitcher", "player"} else item.get("player_id"),
+            player_name=(item.get("player_name") or item.get("entity_name")) if entity_type in {"hitter", "pitcher", "player"} else item.get("player_name"),
+            team_name=(item.get("team") or item.get("team_name") or item.get("entity_name")) if entity_type == "team" else (item.get("team") or item.get("team_name")),
             opponent_name=item.get("opponent"),
             market_type=component,
             pick_type="dashboard_watchlist",
@@ -469,9 +555,9 @@ def normalize_dashboard_rows(component: str, payload: Dict[str, Any], target_dat
 
 
 def normalize_ai_data_assistant_rows(payload: Dict[str, Any], target_date: str, prompt: str) -> List[Dict[str, Any]]:
+    canonical_context = payload.get("canonical_probability_context") or {}
     return [_base_row(
-        "ai_data_assistant",
-        target_date,
+        "ai_data_assistant", target_date,
         source_endpoint="/ai-data-assistant",
         source_component="deterministic_summary",
         game_pk=payload.get("game_pk"),
@@ -479,8 +565,9 @@ def normalize_ai_data_assistant_rows(payload: Dict[str, Any], target_date: str, 
         pick_type="ai_summary",
         pick_label=prompt,
         model_name="ai_data_assistant_deterministic",
+        model_version=canonical_context.get("model_version") or CANONICAL_MODEL_VERSION,
         primary_reason=_short_reason(payload.get("answer"), "AI Data Assistant deterministic answer captured."),
-        reasoning_json=_json(payload.get("sections") or []),
+        reasoning_json=_json({"canonical_probability_context": canonical_context, "sections": payload.get("sections") or []}),
         features_used_json=_json(payload.get("sources_used") or []),
         missing_inputs_json=_json(payload.get("missing_data") or []),
         raw_payload_json=_json(payload),
@@ -567,15 +654,16 @@ def build_tracker_snapshot(session: Session, target_date: str) -> Dict[str, Any]
         errors.append({"source": "ai_data_assistant", "error": str(exc), "type": exc.__class__.__name__})
 
     upsert_result = upsert_tracker_rows(session, rows)
-    return {
-        "date": target_date,
-        "rows_collected": len(rows),
-        "upsert": upsert_result,
-        "errors": errors,
-    }
+    return {"date": target_date, "rows_collected": len(rows), "upsert": upsert_result, "errors": errors}
 
 
 def _row_payload(row: ModelTrackerSnapshot) -> Dict[str, Any]:
+    reasoning = _loads(row.reasoning_json) or []
+    features = _loads(row.features_used_json) or []
+    raw_payload = _loads(row.raw_payload_json)
+    canonical_diagnostics = None
+    if isinstance(reasoning, dict):
+        canonical_diagnostics = reasoning.get("canonical_probability") or reasoning.get("canonical_probability_context")
     return {
         "id": row.id,
         "tracker_key": row.tracker_key,
@@ -613,10 +701,11 @@ def _row_payload(row: ModelTrackerSnapshot) -> Dict[str, Any]:
         "home_win_probability": row.home_win_probability,
         "away_win_probability": row.away_win_probability,
         "primary_reason": row.primary_reason,
-        "reasoning": _loads(row.reasoning_json) or [],
-        "features_used": _loads(row.features_used_json) or [],
+        "reasoning": reasoning,
+        "features_used": features,
         "missing_inputs": _loads(row.missing_inputs_json) or [],
-        "raw_payload": _loads(row.raw_payload_json),
+        "canonical_diagnostics": canonical_diagnostics,
+        "raw_payload": raw_payload,
         "game_status_at_snapshot": row.game_status_at_snapshot,
         "result_status": row.result_status,
         "actual_result": _loads(row.actual_result_json),
@@ -637,13 +726,8 @@ def list_tracker_rows(session: Session, target_date: str, game_pk: Optional[int]
     for row in rows:
         key = str(row.get("game_pk") or "ungrouped")
         game = games.setdefault(key, {
-            "game_pk": row.get("game_pk"),
-            "away_team": row.get("away_team"),
-            "home_team": row.get("home_team"),
-            "row_count": 0,
-            "grades": {},
-            "sources": set(),
-            "rows": [],
+            "game_pk": row.get("game_pk"), "away_team": row.get("away_team"), "home_team": row.get("home_team"),
+            "row_count": 0, "grades": {}, "sources": set(), "rows": [],
         })
         game["row_count"] += 1
         game["grades"][row.get("grade") or "unknown"] = game["grades"].get(row.get("grade") or "unknown", 0) + 1
@@ -654,6 +738,7 @@ def list_tracker_rows(session: Session, target_date: str, game_pk: Optional[int]
     for game in games.values():
         game["sources"] = sorted(game["sources"])
         game_payloads.append(game)
+    canonical_rows = [r for r in rows if r.get("canonical_diagnostics") or r.get("model_version") == CANONICAL_MODEL_VERSION]
     summary = {
         "total_rows": len(rows),
         "games_tracked": len([g for g in game_payloads if g.get("game_pk")]),
@@ -666,23 +751,15 @@ def list_tracker_rows(session: Session, target_date: str, game_pk: Optional[int]
         "ungraded_rows": sum(1 for r in rows if r.get("grade") in {"ungraded", "watchlist_only"}),
         "source_count": len({r.get("source") for r in rows if r.get("source")}),
         "sources": sorted({r.get("source") for r in rows if r.get("source")}),
+        "canonical_probability_rows": len(canonical_rows),
+        "canonical_model_version": CANONICAL_MODEL_VERSION,
+        "schema_guard": "canonical diagnostics persisted in existing JSON text columns",
     }
-    return {
-        "date": parsed.isoformat(),
-        "snapshot_count": len({r.get("created_at") for r in rows if r.get("created_at")}),
-        "rows": rows,
-        "games": game_payloads,
-        "summary": summary,
-        "errors": [],
-    }
+    return {"date": parsed.isoformat(), "snapshot_count": len({r.get("created_at") for r in rows if r.get("created_at")}), "rows": rows, "games": game_payloads, "summary": summary, "errors": []}
 
 
 def _fetch_schedule_results(target_date: str) -> Dict[int, Dict[str, Any]]:
-    response = requests.get(
-        f"{MLB_STATS_BASE}/schedule",
-        params={"sportId": 1, "date": target_date, "hydrate": "linescore,team"},
-        timeout=20,
-    )
+    response = requests.get(f"{MLB_STATS_BASE}/schedule", params={"sportId": 1, "date": target_date, "hydrate": "linescore,team"}, timeout=20)
     response.raise_for_status()
     payload = response.json()
     results: Dict[int, Dict[str, Any]] = {}
@@ -706,17 +783,11 @@ def _fetch_schedule_results(target_date: str) -> Dict[int, Dict[str, Any]]:
             if home_score is not None and away_score is not None and home_score != away_score:
                 winner = home_team if int(home_score) > int(away_score) else away_team
             results[int(game_pk)] = {
-                "game_pk": int(game_pk),
-                "status": detailed_state or abstract_state,
-                "abstract_state": abstract_state,
-                "is_final": is_final,
-                "home_team": home_team,
-                "away_team": away_team,
-                "home_score": home_score,
-                "away_score": away_score,
+                "game_pk": int(game_pk), "status": detailed_state or abstract_state, "abstract_state": abstract_state,
+                "is_final": is_final, "home_team": home_team, "away_team": away_team,
+                "home_score": home_score, "away_score": away_score,
                 "total_runs": int(home_score) + int(away_score) if home_score is not None and away_score is not None else None,
-                "winner": winner,
-                "raw": game,
+                "winner": winner, "raw": game,
             }
     return results
 
@@ -771,10 +842,4 @@ def refresh_tracker_results(session: Session, target_date: str) -> Dict[str, Any
         row.updated_at = now
         compared += 1
     session.commit()
-    return {
-        "date": parsed.isoformat(),
-        "rows_compared": compared,
-        "games_found": len(actual_by_game),
-        "final_game_rows_seen": final_games,
-        "compared_at": now.isoformat() + "Z",
-    }
+    return {"date": parsed.isoformat(), "rows_compared": compared, "games_found": len(actual_by_game), "final_game_rows_seen": final_games, "compared_at": now.isoformat() + "Z"}
