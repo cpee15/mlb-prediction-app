@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from .active_lineup_solver import build_active_lineup_solver_payload
 from .database import create_tables, get_engine, get_session
+from .my_dashboard_context_cache import install_dashboard_context_cache
 from .my_dashboard_solver import build_dashboard_solver_payload, normalize_filter_payload, SUPPORTED_COMPONENTS
 from .shared_payload_cache import env_ttl, get_or_set, make_cache_key, stable_hash
 
@@ -71,6 +72,7 @@ def _normalize_request(date: Optional[str], component: str, filters: Optional[Di
 
 
 def _run_solver(date: Optional[str], component: str, filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    install_dashboard_context_cache()
     normalized = _normalize_request(date, component, filters)
     target_date = normalized["target_date"]
     normalized_component = normalized["component"]
@@ -97,6 +99,7 @@ def _run_solver(date: Optional[str], component: str, filters: Optional[Dict[str,
 
 
 def _run_active_lineup_solver(date: Optional[str], component: str, filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    install_dashboard_context_cache()
     normalized = _normalize_request(date, component, filters)
     target_date = normalized["target_date"]
     normalized_component = normalized["component"]
