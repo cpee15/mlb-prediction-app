@@ -47,13 +47,6 @@ def _feature(features: List[Dict[str, Any]], name: str, value: Any, source: Opti
     return numeric
 
 
-def _score_from_features(values: List[Optional[float]]) -> Tuple[float, int]:
-    nums = [v for v in values if v is not None]
-    if not nums:
-        return 0.5, 0
-    return round(sum(nums) / len(nums), 4), len(nums)
-
-
 def _confidence(used: int, expected: int, model_depth: float = 1.0) -> float:
     if expected <= 0:
         return 0.0
@@ -85,7 +78,7 @@ def _pick_selection_by_team(market: Optional[Dict[str, Any]], team_name: str) ->
     return None
 
 
-def _model_output(model: str, market: str, pick: str, score: float, model_probability: Optional[float], market_probability: Optional[float], features: List[Dict[str, Any]], missing: List[str], drivers: List[str]) -> Dict[str, Any]:
+def _model_output(model: str, market: str, pick: str, score: float, model_probability: Optional[float], market_probability: Optional[float], features: List[Dict[str, Any]], missing: List[str], drivers: List[str], diagnostics: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     used = len(features)
     expected = used + len(missing)
     edge = None
@@ -103,7 +96,8 @@ def _model_output(model: str, market: str, pick: str, score: float, model_probab
         "features_used": features,
         "missing_inputs": missing,
         "drivers": drivers,
-        "available": used >= 3,
+        "diagnostics": diagnostics or {},
+        "available": used >= 1 and model_probability is not None,
     }
 
 
@@ -130,36 +124,30 @@ def build_game_models(matchup: Dict[str, Any], event: Dict[str, Any]) -> Dict[st
 
 
 def build_moneyline_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]], ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a moneyline edge model using canonical v2 as the model probability.
+
+    Sportsbook odds are converted to market implied probability for comparison only.
+    They are not blended into or used to define the model probability.
+    """
     features: List[Dict[str, Any]] = []
     missing: List[str] = []
     drivers: List[str] = []
 
-    home_prob_raw, home_prob_src = _get(matchup, ["home_win_probability", "home_win_prob", "probabilities.home", "prediction.home_win_probability"])
-    away_prob_raw, away_prob_src = _get(matchup, ["away_win_probability", "away_win_prob", "probabilities.away", "prediction.away_win_probability"])
-    home_prob = _feature(features, "home_internal_win_probability", home_prob_raw, home_prob_src)
-    away_prob = _feature(features, "away_internal_win_probability", away_prob_raw, away_prob_src)
+    home_prob_raw, home_prob_src = _get(matchup, ["home_win_prob", "home_win_probability", "probabilities.home", "prediction.home_win_probability"])
+    away_prob_raw, away_prob_src = _get(matchup, ["away_win_prob", "away_win_probability", "probabilities.away", "prediction.away_win_probability"])
+    home_prob = _feature(features, "home_canonical_win_probability", home_prob_raw, home_prob_src or "home_win_prob", "canonical_v2")
+    away_prob = _feature(features, "away_canonical_win_probability", away_prob_raw, away_prob_src or "away_win_prob", "canonical_v2")
     if home_prob is None:
-        missing.append("home_internal_win_probability")
+        missing.append("home_canonical_win_probability")
     if away_prob is None:
-        missing.append("away_internal_win_probability")
+        missing.append("away_canonical_win_probability")
 
-    home_pitch_raw, home_pitch_src = _get(matchup, ["home_pitcher_score", "home_pitcher_rating", "home_pitcher_xwoba", "home_pitcher_era", "home_pitcher_stats.xwoba"])
-    away_pitch_raw, away_pitch_src = _get(matchup, ["away_pitcher_score", "away_pitcher_rating", "away_pitcher_xwoba", "away_pitcher_era", "away_pitcher_stats.xwoba"])
-    home_pitch = _feature(features, "home_pitcher_quality", home_pitch_raw, home_pitch_src)
-    away_pitch = _feature(features, "away_pitcher_quality", away_pitch_raw, away_pitch_src)
-    if home_pitch is None:
-        missing.append("home_pitcher_quality")
-    if away_pitch is None:
-        missing.append("away_pitcher_quality")
-
-    home_off_raw, home_off_src = _get(matchup, ["home_offense_score", "home_team_strength", "home_hitting_score", "home_team_stats.ops"])
-    away_off_raw, away_off_src = _get(matchup, ["away_offense_score", "away_team_strength", "away_hitting_score", "away_team_stats.ops"])
-    home_off = _feature(features, "home_offense_strength", home_off_raw, home_off_src)
-    away_off = _feature(features, "away_offense_strength", away_off_raw, away_off_src)
-    if home_off is None:
-        missing.append("home_offense_strength")
-    if away_off is None:
-        missing.append("away_offense_strength")
+    model_version = matchup.get("model_version")
+    probability_components = matchup.get("probability_components") or {}
+    if model_version:
+        drivers.append(f"canonical model version: {model_version}")
+    if probability_components:
+        drivers.append("canonical probability component diagnostics available")
 
     home_sel = _pick_selection_by_team(market, ctx.get("home_team") or "")
     away_sel = _pick_selection_by_team(market, ctx.get("away_team") or "")
@@ -174,21 +162,37 @@ def build_moneyline_model(matchup: Dict[str, Any], market: Optional[Dict[str, An
     else:
         missing.append("away_market_implied_probability")
 
-    signals = []
-    if home_prob is not None and away_prob is not None:
-        signals.append(_clamp(0.5 + (home_prob - away_prob) / 2.0))
-        drivers.append("internal win probability gap")
-    if home_off is not None and away_off is not None:
-        signals.append(_clamp(0.5 + (home_off - away_off) / 2.0))
-        drivers.append("team offense gap")
-    if home_pitch is not None and away_pitch is not None:
-        signals.append(_clamp(0.5 + (home_pitch - away_pitch) / 2.0))
-        drivers.append("starting pitcher gap")
-    model_home_prob, _ = _score_from_features(signals)
-    pick_home = model_home_prob >= 0.5
+    if home_prob is None or away_prob is None:
+        return _model_output("moneyline_canonical_v2", "moneyline", "No pick", 0.0, None, None, features, missing, drivers, {"model_version": model_version})
+
+    pick_home = home_prob >= away_prob
     pick = ctx.get("home_team") if pick_home else ctx.get("away_team")
+    model_prob = home_prob if pick_home else away_prob
     market_prob = home_market if pick_home else away_market
-    return _model_output("moneyline_real_v1", "moneyline", str(pick or "No pick"), model_home_prob, model_home_prob if pick_home else round(1 - model_home_prob, 4), market_prob, features, missing, drivers)
+    drivers.append("final side probability comes from canonical matchup home_win_prob/away_win_prob")
+    if market_prob is not None:
+        drivers.append("edge equals canonical probability minus sportsbook implied probability")
+
+    return _model_output(
+        "moneyline_canonical_v2",
+        "moneyline",
+        str(pick or "No pick"),
+        model_prob,
+        model_prob,
+        market_prob,
+        features,
+        missing,
+        drivers,
+        {
+            "model_version": model_version,
+            "lineup_status": matchup.get("lineup_status"),
+            "data_confidence": matchup.get("data_confidence"),
+            "probability_components": probability_components,
+            "legacy_home_win_prob": matchup.get("legacy_home_win_prob"),
+            "legacy_away_win_prob": matchup.get("legacy_away_win_prob"),
+            "market_context_note": "Odds compare against canonical probability; odds do not define the model.",
+        },
+    )
 
 
 def build_spread_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]], ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -204,36 +208,22 @@ def build_spread_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]]
     if away_runs is None:
         missing.append("away_projected_runs")
 
-    home_off_raw, home_off_src = _get(matchup, ["home_offense_score", "home_team_strength", "home_hitting_score", "home_team_stats.ops"])
-    away_off_raw, away_off_src = _get(matchup, ["away_offense_score", "away_team_strength", "away_hitting_score", "away_team_stats.ops"])
-    home_off = _feature(features, "home_offense_strength", home_off_raw, home_off_src)
-    away_off = _feature(features, "away_offense_strength", away_off_raw, away_off_src)
-    if home_off is None:
-        missing.append("home_offense_strength")
-    if away_off is None:
-        missing.append("away_offense_strength")
-
-    home_pitch_raw, home_pitch_src = _get(matchup, ["home_pitcher_volatility", "home_pitcher_xwoba", "home_pitcher_hard_hit_pct", "home_pitcher_stats.xwoba"])
-    away_pitch_raw, away_pitch_src = _get(matchup, ["away_pitcher_volatility", "away_pitcher_xwoba", "away_pitcher_hard_hit_pct", "away_pitcher_stats.xwoba"])
-    home_pitch_risk = _feature(features, "home_pitcher_run_risk", home_pitch_raw, home_pitch_src)
-    away_pitch_risk = _feature(features, "away_pitcher_run_risk", away_pitch_raw, away_pitch_src)
-    if home_pitch_risk is None:
-        missing.append("home_pitcher_run_risk")
-    if away_pitch_risk is None:
-        missing.append("away_pitcher_run_risk")
+    home_prob = _safe_float(matchup.get("home_win_prob"))
+    away_prob = _safe_float(matchup.get("away_win_prob"))
+    if home_prob is not None and away_prob is not None:
+        features.append({"name": "canonical_home_win_probability", "value": home_prob, "source": "home_win_prob", "transform": "canonical_v2"})
+        features.append({"name": "canonical_away_win_probability", "value": away_prob, "source": "away_win_prob", "transform": "canonical_v2"})
 
     if home_runs is not None and away_runs is not None:
         run_diff = home_runs - away_runs
         drivers.append("projected run differential")
+    elif home_prob is not None and away_prob is not None:
+        run_diff = (home_prob - away_prob) * 4.0
+        drivers.append("canonical win probability differential proxy")
     else:
-        pieces = []
-        if home_off is not None and away_off is not None:
-            pieces.append(home_off - away_off)
-            drivers.append("offense differential proxy")
-        if home_pitch_risk is not None and away_pitch_risk is not None:
-            pieces.append(away_pitch_risk - home_pitch_risk)
-            drivers.append("pitcher run-risk proxy")
-        run_diff = sum(pieces) if pieces else 0.0
+        run_diff = 0.0
+        missing.append("spread_projection_or_canonical_probability")
+
     home_sel = _pick_selection_by_team(market, ctx.get("home_team") or "")
     away_sel = _pick_selection_by_team(market, ctx.get("away_team") or "")
     home_line = _safe_float(home_sel.get("line") if home_sel else None)
@@ -279,14 +269,6 @@ def build_total_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]],
         missing.append("home_offense_strength")
     if away_off is None:
         missing.append("away_offense_strength")
-    home_pitch_raw, home_pitch_src = _get(matchup, ["home_pitcher_run_prevention", "home_pitcher_xwoba", "home_pitcher_era", "home_pitcher_stats.xwoba"])
-    away_pitch_raw, away_pitch_src = _get(matchup, ["away_pitcher_run_prevention", "away_pitcher_xwoba", "away_pitcher_era", "away_pitcher_stats.xwoba"])
-    home_pitch = _feature(features, "home_pitcher_run_prevention", home_pitch_raw, home_pitch_src)
-    away_pitch = _feature(features, "away_pitcher_run_prevention", away_pitch_raw, away_pitch_src)
-    if home_pitch is None:
-        missing.append("home_pitcher_run_prevention")
-    if away_pitch is None:
-        missing.append("away_pitcher_run_prevention")
 
     total_sel = None
     over_sel = None
@@ -325,9 +307,6 @@ def build_total_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]],
     if home_off is not None and away_off is not None:
         env += (home_off + away_off - 1.0)
         drivers.append("combined offense")
-    if home_pitch is not None and away_pitch is not None:
-        env -= (home_pitch + away_pitch - 1.0)
-        drivers.append("starting pitcher suppression")
     projected_total = (market_total if market_total is not None else 8.5) + env
     pick_over = projected_total >= (market_total if market_total is not None else 8.5)
     pick = f"Over {market_total}" if pick_over else f"Under {market_total}"
@@ -348,7 +327,6 @@ def _prop_market_family(market_name: str) -> str:
 def _prop_baseline_probability(market_name: str, line: Optional[float]) -> float:
     name = market_name.lower()
     line_value = line if line is not None else 0.5
-
     if name == "pitcher_strikeouts":
         return _clamp(0.58 - max(0.0, line_value - 4.5) * 0.045, 0.34, 0.68)
     if name == "batter_hits":
@@ -370,27 +348,24 @@ def _prop_model_probability(market_name: str, selection_name: str, line: Optiona
     missing: List[str] = []
 
     baseline = _prop_baseline_probability(market_name, line)
-    features.append({"name": "market_baseline_probability", "value": baseline, "source": "market_type_line_baseline", "transform": "heuristic"})
-    drivers.append("market type baseline")
+    features.append({"name": "prop_type_line_model_baseline", "value": baseline, "source": "market_type_line_baseline", "transform": "heuristic_not_market_price"})
+    drivers.append("prop type and line baseline")
 
     home_prob = _safe_float(matchup.get("home_win_prob") or matchup.get("home_win_probability"))
     away_prob = _safe_float(matchup.get("away_win_prob") or matchup.get("away_win_probability"))
     if home_prob is not None and away_prob is not None:
         game_balance = 1.0 - abs(home_prob - away_prob)
-        features.append({"name": "game_competitiveness", "value": game_balance, "source": "matchup.win_probability_gap", "transform": "1_minus_abs_gap"})
-        drivers.append("game competitiveness")
+        features.append({"name": "game_competitiveness", "value": game_balance, "source": "canonical_matchup_probability_gap", "transform": "1_minus_abs_gap"})
+        drivers.append("canonical game competitiveness")
     else:
         game_balance = 0.5
         missing.append("game_competitiveness")
 
-    total_prob_context = _clamp((baseline * 0.70) + (game_balance * 0.08) + 0.11, 0.03, 0.82)
-
+    model_probability = round(_clamp((baseline * 0.82) + (game_balance * 0.08) + 0.05, 0.03, 0.85), 4)
     if implied is not None:
-        model_probability = round(_clamp((total_prob_context * 0.65) + (implied * 0.35), 0.03, 0.85), 4)
-        features.append({"name": "sportsbook_implied_probability", "value": implied, "source": "draftkings.price", "transform": "american_to_implied"})
-        drivers.append("sportsbook implied probability")
+        features.append({"name": "sportsbook_implied_probability", "value": implied, "source": "draftkings.price", "transform": "american_to_implied_market_context_only"})
+        drivers.append("sportsbook implied probability retained for edge comparison only")
     else:
-        model_probability = round(total_prob_context, 4)
         missing.append("sportsbook_implied_probability")
 
     lowered = selection_name.lower()
@@ -423,7 +398,6 @@ def build_prop_models(matchup: Dict[str, Any], prop_markets: List[Dict[str, Any]
                 confidence += 0.05
             confidence = round(_clamp(confidence, 0.10, 0.82), 3)
             score = abs(edge) if edge is not None else model_probability or 0.0
-
             features_used = [
                 {"name": "prop_price", "value": sel.get("price"), "source": "draftkings.props.price", "transform": "american"},
                 {"name": "prop_line", "value": line, "source": "draftkings.props.line", "transform": "raw"},
