@@ -165,6 +165,15 @@ def _aggregate_to_dict(agg) -> Optional[Dict[str, Any]]:
     }
 
 
+@router.get("/data/freshness")
+def data_freshness() -> Dict[str, Any]:
+    from .data_freshness import build_data_freshness_payload
+
+    Session = _get_session()
+    with Session() as session:
+        return build_data_freshness_payload(session)
+
+
 @router.get("/batters/leaderboards")
 def batters_leaderboards(
     season: Optional[int] = None,
