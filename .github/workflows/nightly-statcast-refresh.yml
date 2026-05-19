@@ -1,0 +1,64 @@
+name: Nightly Statcast Refresh
+
+on:
+  schedule:
+    - cron: '15 8 * * *'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Optional single date to refresh, YYYY-MM-DD'
+        required: false
+        type: string
+      days:
+        description: 'Recent MLB dates to refresh when date is omitted'
+        required: false
+        default: '2'
+        type: string
+      include_today:
+        description: 'Include current MLB Eastern date'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  refresh-statcast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile refresh code
+        run: python -m compileall mlb_app scripts
+
+      - name: Refresh Statcast data
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.date || '' }}" ]; then
+            python scripts/nightly_statcast_refresh.py --date "${{ github.event.inputs.date }}" | tee nightly_statcast_refresh_summary.json
+          else
+            DAYS="${{ github.event.inputs.days || '2' }}"
+            INCLUDE_TODAY="${{ github.event.inputs.include_today || 'true' }}"
+            if [ "$INCLUDE_TODAY" = "true" ]; then
+              python scripts/nightly_statcast_refresh.py --days "$DAYS" --include-today | tee nightly_statcast_refresh_summary.json
+            else
+              python scripts/nightly_statcast_refresh.py --days "$DAYS" | tee nightly_statcast_refresh_summary.json
+            fi
+          fi
+
+      - name: Upload refresh summary
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightly-statcast-refresh-summary
+          path: nightly_statcast_refresh_summary.json
+          if-no-files-found: ignore
