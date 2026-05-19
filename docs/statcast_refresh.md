@@ -14,17 +14,25 @@ The production refresh command is:
 python scripts/nightly_statcast_refresh.py --days 2 --include-today
 ```
 
-This is wired through `.github/workflows/nightly-statcast-refresh.yml` and can also be triggered manually through GitHub Actions.
+This command should run as a Railway cron job or Railway scheduled service so it executes inside the Railway environment that already has the production `DATABASE_URL`. Do not use GitHub Actions for this job unless a separate GitHub Actions database secret is intentionally created.
 
-## Required production secret
+## Railway cron setup
 
-The workflow requires:
+Create a Railway cron or scheduled job attached to the same project/environment as the production backend.
+
+Command:
+
+```bash
+python scripts/nightly_statcast_refresh.py --days 2 --include-today
+```
+
+Required environment:
 
 ```text
 DATABASE_URL
 ```
 
-The refresh script refuses to silently use local SQLite unless `--allow-sqlite-local` is passed explicitly for local validation.
+Railway already provides `DATABASE_URL` to services in the environment when the database is attached. The refresh script refuses to silently use local SQLite unless `--allow-sqlite-local` is passed explicitly for local validation.
 
 ## Tables refreshed
 
