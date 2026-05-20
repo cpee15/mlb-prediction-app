@@ -24,15 +24,12 @@ def _format_pitcher_features(session: Session, pitcher_id: int) -> Dict[str, Opt
     agg = get_pitcher_aggregate(session, pitcher_id, "90d")
     if not agg:
         return {k: None for k in [
-            "pa", "walks", "strikeouts",
             "avg_velocity", "avg_spin_rate", "hard_hit_pct", "k_pct", "bb_pct",
             "xwoba", "xba", "avg_horiz_break", "avg_vert_break",
             "avg_release_pos_x", "avg_release_pos_z", "avg_release_extension",
+            "source_window",
         ]}
     return {
-        "pa": agg.pa,
-        "walks": agg.walks,
-        "strikeouts": agg.strikeouts,
         "avg_velocity": agg.avg_velocity,
         "avg_spin_rate": agg.avg_spin_rate,
         "hard_hit_pct": agg.hard_hit_pct,
@@ -45,6 +42,7 @@ def _format_pitcher_features(session: Session, pitcher_id: int) -> Dict[str, Opt
         "avg_release_pos_x": agg.avg_release_pos_x,
         "avg_release_pos_z": agg.avg_release_pos_z,
         "avg_release_extension": agg.avg_release_extension,
+        "source_window": agg.window,
     }
 
 
