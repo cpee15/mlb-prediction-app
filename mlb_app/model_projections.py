@@ -147,15 +147,59 @@ def _weather_context(value: Any) -> Dict[str, Any]:
     return {}
 
 
+def _normalize_rate(value: Any) -> Optional[float]:
+    rate = safe_float(value)
+    if rate is None:
+        return None
+    if rate > 1.0:
+        return round(rate / 100.0, 4)
+    return round(rate, 4)
+
+
+def _rate_from_count(numerator: Any, denominator: Any) -> Optional[float]:
+    num = safe_float(numerator)
+    den = safe_float(denominator)
+    if num is None or den is None or den <= 0:
+        return None
+    return round(num / den, 4)
+
+
+def _choose_count_derived_rate(
+    raw_rate: Any,
+    numerator: Any,
+    denominator: Any,
+    plausible_low: float,
+    plausible_high: float,
+) -> tuple[Optional[float], str]:
+    normalized = _normalize_rate(raw_rate)
+    derived = _rate_from_count(numerator, denominator)
+
+    if derived is not None and plausible_low <= derived <= plausible_high:
+        return derived, "derived_from_count_totals"
+
+    if normalized is not None:
+        return normalized, "normalized_source_rate"
+
+    return None, "missing_rate"
+
+
+
+
 def _pitcher_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
     features = team.get("pitcher_features") or {}
     arsenal = team.get("pitch_arsenal") or {}
 
-    k_rate = safe_float(features.get("k_pct"))
-    bb_rate = safe_float(features.get("bb_pct"))
-    hard_hit = safe_float(features.get("hard_hit_pct"))
+    k_rate = _normalize_rate(features.get("k_pct"))
+    bb_rate = _normalize_rate(features.get("bb_pct"))
+    hard_hit = _normalize_rate(features.get("hard_hit_pct"))
     xwoba = safe_float(features.get("xwoba"))
     xba = safe_float(features.get("xba"))
+
+    rate_source_notes = {
+        "k_rate_source": "normalized_from_pitcher_features.k_pct" if k_rate is not None else "missing_pitcher_features.k_pct",
+        "bb_rate_source": "normalized_from_pitcher_features.bb_pct" if bb_rate is not None else "missing_pitcher_features.bb_pct",
+        "hard_hit_rate_source": "normalized_from_pitcher_features.hard_hit_pct" if hard_hit is not None else "missing_pitcher_features.hard_hit_pct",
+    }
 
     return {
         "metadata": {
@@ -166,6 +210,7 @@ def _pitcher_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
             "pitcher_name": team.get("pitcher_name"),
             "pitch_arsenal_source": team.get("pitch_arsenal_source"),
             "profile_granularity": "probable_pitcher",
+            "rate_source_notes": rate_source_notes,
         },
         "bat_missing": {"k_rate": k_rate, "whiff_rate": None, "csw_rate": None},
         "command_control": {"bb_rate": bb_rate, "zone_rate": None, "first_pitch_strike_rate": None},
@@ -182,6 +227,22 @@ def _pitcher_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
 
 def _offense_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
     inputs = team.get("offense_inputs") or {}
+
+    k_rate, k_rate_source = _choose_count_derived_rate(
+        inputs.get("k_pct"),
+        inputs.get("strikeouts"),
+        inputs.get("pa"),
+        plausible_low=0.10,
+        plausible_high=0.40,
+    )
+    bb_rate, bb_rate_source = _choose_count_derived_rate(
+        inputs.get("bb_pct"),
+        inputs.get("walks"),
+        inputs.get("pa"),
+        plausible_low=0.03,
+        plausible_high=0.18,
+    )
+
     profile = {
         "metadata": {
             "source_type": inputs.get("source") or "team_split_or_prior",
@@ -192,9 +253,18 @@ def _offense_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
             "lineup_source": inputs.get("lineup_source"),
             "profile_granularity": inputs.get("profile_granularity") or "team_offense",
             "sample_blend": inputs.get("sample_blend"),
+            "rate_source_notes": {
+                "k_rate_source": k_rate_source,
+                "bb_rate_source": bb_rate_source,
+                "raw_k_pct": safe_float(inputs.get("k_pct")),
+                "raw_bb_pct": safe_float(inputs.get("bb_pct")),
+                "pa": safe_float(inputs.get("pa")),
+                "strikeouts": safe_float(inputs.get("strikeouts")),
+                "walks": safe_float(inputs.get("walks")),
+            },
         },
-        "contact_skill": {"k_rate": safe_float(inputs.get("k_pct")), "batting_avg": safe_float(inputs.get("batting_avg")), "contact_rate": None},
-        "plate_discipline": {"bb_rate": safe_float(inputs.get("bb_pct")), "on_base_pct": safe_float(inputs.get("on_base_pct"))},
+        "contact_skill": {"k_rate": k_rate, "batting_avg": safe_float(inputs.get("batting_avg")), "contact_rate": None},
+        "plate_discipline": {"bb_rate": bb_rate, "on_base_pct": safe_float(inputs.get("on_base_pct"))},
         "power": {
             "iso": safe_float(inputs.get("iso")),
             "slugging_pct": safe_float(inputs.get("slugging_pct")),
@@ -224,10 +294,22 @@ def _matchup_workspace_analysis(offense_team: Dict[str, Any], opposing_pitcher: 
     pitcher_features = opposing_pitcher.get("pitcher_features") or {}
     arsenal = opposing_pitcher.get("pitch_arsenal") or {}
 
-    offense_k = safe_float(offense_inputs.get("k_pct"))
-    offense_bb = safe_float(offense_inputs.get("bb_pct"))
-    pitcher_k = safe_float(pitcher_features.get("k_pct"))
-    pitcher_bb = safe_float(pitcher_features.get("bb_pct"))
+    offense_k, _ = _choose_count_derived_rate(
+        offense_inputs.get("k_pct"),
+        offense_inputs.get("strikeouts"),
+        offense_inputs.get("pa"),
+        plausible_low=0.10,
+        plausible_high=0.40,
+    )
+    offense_bb, _ = _choose_count_derived_rate(
+        offense_inputs.get("bb_pct"),
+        offense_inputs.get("walks"),
+        offense_inputs.get("pa"),
+        plausible_low=0.03,
+        plausible_high=0.18,
+    )
+    pitcher_k = _normalize_rate(pitcher_features.get("k_pct"))
+    pitcher_bb = _normalize_rate(pitcher_features.get("bb_pct"))
 
     pitch_edges = []
     for pitch_type, row in (arsenal or {}).items():
