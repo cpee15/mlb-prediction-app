@@ -15,20 +15,55 @@ from .canonical_matchup_probability import compute_canonical_matchup_probability
 from .db_utils import get_batter_aggregate, get_pitch_arsenal, get_pitcher_aggregate, get_player_split, get_team_split
 from .etl import fetch_schedule
 from .lineup_profile import build_lineup_offense_diagnostics, build_lineup_offense_inputs
+from .pitcher_profile_store import get_pitcher_profile_overview
 from .shared_payload_cache import env_ttl, get_cache, make_cache_key, set_cache
 
 log = logging.getLogger(__name__)
 
 
+def _empty_pitcher_features() -> Dict[str, Optional[float]]:
+    return {k: None for k in [
+        "avg_velocity", "avg_spin_rate", "hard_hit_pct", "k_pct", "bb_pct",
+        "xwoba", "xba", "avg_horiz_break", "avg_vert_break",
+        "avg_release_pos_x", "avg_release_pos_z", "avg_release_extension",
+        "source_window", "source_type", "source_priority",
+    ]}
+
+
 def _format_pitcher_features(session: Session, pitcher_id: int) -> Dict[str, Optional[float]]:
+    season = datetime.utcnow().year
+
+    try:
+        overview = get_pitcher_profile_overview(session, pitcher_id, season) or {}
+    except Exception:
+        overview = {}
+
+    if any(
+        overview.get(key) is not None
+        for key in ["k_pct", "bb_pct", "hard_hit_pct", "xwoba_allowed", "xba_allowed", "avg_velocity", "avg_spin_rate"]
+    ):
+        return {
+            "avg_velocity": overview.get("avg_velocity"),
+            "avg_spin_rate": overview.get("avg_spin_rate"),
+            "hard_hit_pct": overview.get("hard_hit_pct"),
+            "k_pct": overview.get("k_pct"),
+            "bb_pct": overview.get("bb_pct"),
+            "xwoba": overview.get("xwoba_allowed"),
+            "xba": overview.get("xba_allowed"),
+            "avg_horiz_break": overview.get("avg_horiz_break"),
+            "avg_vert_break": overview.get("avg_vert_break"),
+            "avg_release_pos_x": overview.get("avg_release_pos_x"),
+            "avg_release_pos_z": overview.get("avg_release_pos_z"),
+            "avg_release_extension": overview.get("avg_release_extension"),
+            "source_window": overview.get("data_window_used"),
+            "source_type": overview.get("profile_source") or "pitcher_profile_overview",
+            "source_priority": overview.get("source_priority_json"),
+        }
+
     agg = get_pitcher_aggregate(session, pitcher_id, "90d")
     if not agg:
-        return {k: None for k in [
-            "avg_velocity", "avg_spin_rate", "hard_hit_pct", "k_pct", "bb_pct",
-            "xwoba", "xba", "avg_horiz_break", "avg_vert_break",
-            "avg_release_pos_x", "avg_release_pos_z", "avg_release_extension",
-            "source_window",
-        ]}
+        return _empty_pitcher_features()
+
     return {
         "avg_velocity": agg.avg_velocity,
         "avg_spin_rate": agg.avg_spin_rate,
@@ -43,6 +78,8 @@ def _format_pitcher_features(session: Session, pitcher_id: int) -> Dict[str, Opt
         "avg_release_pos_z": agg.avg_release_pos_z,
         "avg_release_extension": agg.avg_release_extension,
         "source_window": agg.window,
+        "source_type": "pitcher_aggregates_90d",
+        "source_priority": ["pitcher_aggregates"],
     }
 
 
