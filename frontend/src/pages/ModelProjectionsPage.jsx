@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { API_BASE } from '../lib/api'
 
-const API = import.meta.env.VITE_API_BASE_URL || ''
+const API = API_BASE
 
 const s = {
   page: { color: '#e6edf3' },
