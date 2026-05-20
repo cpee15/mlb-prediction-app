@@ -4,6 +4,6 @@
     "builder": "DOCKERFILE"
   },
   "deploy": {
-    "startCommand": "python scripts/nightly_statcast_refresh.py --days 20 --include-today"
+    "startCommand": "python scripts/nightly_statcast_refresh.py --days 10 --include-today"
   }
 }
