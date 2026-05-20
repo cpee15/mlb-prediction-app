@@ -177,8 +177,11 @@ def _choose_count_derived_rate(
     if derived is not None and plausible_low <= derived <= plausible_high:
         return derived, "derived_from_count_totals"
 
-    if normalized is not None:
+    if normalized is not None and plausible_low <= normalized <= plausible_high:
         return normalized, "normalized_source_rate"
+
+    if normalized is not None:
+        return normalized, "normalized_source_rate_outside_expected_range"
 
     return None, "missing_rate"
 
