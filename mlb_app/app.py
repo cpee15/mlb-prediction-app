@@ -1710,12 +1710,11 @@ def create_app():
             season=season,
             game_date_iso=game_date_iso,
         )
-
         home_record = home.get("leagueRecord", {}) or {}
         away_record = away.get("leagueRecord", {}) or {}
 
-            Session = _get_session()
-            with Session() as session:
+        Session = _get_session()
+        with Session() as session:
 
             def pitcher_detail(pid: Optional[int]) -> Dict[str, Any]:
                 if not pid:
@@ -1780,7 +1779,6 @@ def create_app():
                     "profile_arsenal": serialize_pitcher_profile_arsenal(profile_arsenal_rows),
                     "profile_recent_games": serialize_pitcher_profile_recent_games(profile_recent_game_rows),
                 }
-
             def team_splits(team_id: Optional[int]) -> Dict[str, Any]:
                 if not team_id:
                     return {"vsL": None, "vsR": None}
