@@ -293,9 +293,46 @@ function edgeLabel(score) {
 }
 
 function PitcherCard({ side, pitcherName, pitcherId, detail }) {
+  const profileOverview = detail?.profile_overview || null
   const agg = detail?.aggregate || {}
-  const arsenal = detail?.arsenal || []
-  const gameLog = detail?.game_log || []
+  const arsenal = (detail?.profile_arsenal && detail.profile_arsenal.length > 0)
+    ? detail.profile_arsenal
+    : (detail?.arsenal || [])
+  const gameLog = (detail?.profile_recent_games && detail.profile_recent_games.length > 0)
+    ? detail.profile_recent_games
+    : (detail?.game_log || [])
+
+  const sourceLabelText = profileOverview?.profile_source || agg.data_source || 'No data'
+
+  const overviewRows = profileOverview
+    ? [
+        ['ERA', dec(profileOverview.era)],
+        ['WHIP', dec(profileOverview.whip)],
+        ['FIP', dec(profileOverview.fip)],
+        ['SIERA', dec(profileOverview.siera)],
+        ['K%', pct(pickMetric(profileOverview, ['k_pct'], agg.k_pct))],
+        ['BB%', pct(pickMetric(profileOverview, ['bb_pct'], agg.bb_pct))],
+        ['K-BB%', pct(pickMetric(profileOverview, ['k_minus_bb_pct']))],
+        ['HR/9', dec(profileOverview.hr_per_9)],
+        ['xwOBA', dec(pickMetric(profileOverview, ['xwoba_allowed'], agg.xwoba))],
+        ['xBA', dec(profileOverview.xba_allowed)],
+        ['Hard Hit%', pct(pickMetric(profileOverview, ['hard_hit_pct', 'hard_hit_rate_allowed'], agg.hard_hit_pct))],
+        ['Barrel%', pct(pickMetric(profileOverview, ['barrel_pct', 'barrel_rate_allowed']))],
+        ['Velocity', pickMetric(profileOverview, ['avg_velocity'], agg.avg_velocity) != null ? `${Number(pickMetric(profileOverview, ['avg_velocity'], agg.avg_velocity)).toFixed(1)} mph` : '—'],
+        ['Spin Rate', pickMetric(profileOverview, ['avg_spin_rate'], agg.avg_spin_rate) != null ? `${Math.round(Number(pickMetric(profileOverview, ['avg_spin_rate'], agg.avg_spin_rate)))} rpm` : '—'],
+        ['IP', profileOverview.innings_pitched != null ? Number(profileOverview.innings_pitched).toFixed(1) : '—'],
+        ['Batters Faced', intVal(profileOverview.batters_faced)],
+      ]
+    : [
+        ['K%', pct(agg.k_pct)],
+        ['BB%', pct(agg.bb_pct)],
+        ['xwOBA', dec(agg.xwoba)],
+        ['Hard Hit%', pct(agg.hard_hit_pct)],
+        ['Velocity', agg.avg_velocity != null ? `${Number(agg.avg_velocity).toFixed(1)} mph` : '—'],
+        ['Spin Rate', agg.avg_spin_rate != null ? `${Math.round(Number(agg.avg_spin_rate))} rpm` : '—'],
+        ['Horiz Break', agg.avg_horiz_break != null ? `${Number(agg.avg_horiz_break).toFixed(2)}"` : '—'],
+        ['Vert Break', agg.avg_vert_break != null ? `${Number(agg.avg_vert_break).toFixed(2)}"` : '—'],
+      ]
 
   return (
     <div style={t.pitcherCard}>
@@ -305,21 +342,12 @@ function PitcherCard({ side, pitcherName, pitcherId, detail }) {
           ? <Link to={`/pitcher/${pitcherId}`} style={{ color: '#e6edf3', textDecoration: 'none' }}>{pitcherName || `ID ${pitcherId}`}</Link>
           : <span style={{ color: '#8b949e' }}>TBD</span>}
       </div>
-      <div style={t.dataSource}>{agg.data_source || 'No data'}</div>
+      <div style={t.dataSource}>{sourceLabelText}</div>
 
-      {[
-        ['K%', pct(agg.k_pct)],
-        ['BB%', pct(agg.bb_pct)],
-        ['xwOBA', dec(agg.xwoba)],
-        ['Hard Hit%', pct(agg.hard_hit_pct)],
-        ['Velocity', mph(agg.avg_velocity) + (agg.avg_velocity ? ' mph' : '')],
-        ['Spin Rate', agg.avg_spin_rate ? `${Math.round(agg.avg_spin_rate)} rpm` : '—'],
-        ['Horiz Break', agg.avg_horiz_break != null ? `${Number(agg.avg_horiz_break).toFixed(2)}"` : '—'],
-        ['Vert Break', agg.avg_vert_break != null ? `${Number(agg.avg_vert_break).toFixed(2)}"` : '—'],
-      ].map(([k, v]) => (
+      {overviewRows.map(([k, v]) => (
         <div key={k} style={t.statRow}>
           <span style={t.statKey}>{k}</span>
-          <span style={t.statVal}>{v}</span>
+          <span style={t.statVal}>{v ?? '—'}</span>
         </div>
       ))}
 
@@ -339,7 +367,9 @@ function PitcherCard({ side, pitcherName, pitcherId, detail }) {
               </thead>
               <tbody>
                 {arsenal.map((p, i) => {
-                  const flags = Array.isArray(p.quality_flags) ? p.quality_flags : []
+                  const flags = Array.isArray(p.quality_flags)
+                    ? p.quality_flags
+                    : (Array.isArray(p.quality_flags_json) ? p.quality_flags_json : [])
                   const pitchLabel = PITCH_NAMES[p.pitch_type] || p.pitch_name || p.pitch_type || '—'
 
                   return (
@@ -392,7 +422,9 @@ function PitcherCard({ side, pitcherName, pitcherId, detail }) {
 
       {gameLog.length > 0 && (
         <>
-          <div style={{ fontSize: '12px', color: '#8b949e', marginTop: '14px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Recent Outings</div>
+          <div style={{ fontSize: '12px', color: '#8b949e', marginTop: '14px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Recent Outings
+          </div>
           <table style={t.logTable}>
             <thead>
               <tr>
@@ -402,12 +434,12 @@ function PitcherCard({ side, pitcherName, pitcherId, detail }) {
             <tbody>
               {gameLog.map((g, i) => (
                 <tr key={i}>
-                  <td style={t.td}>{g.game_date?.slice(5)}</td>
-                  <td style={t.td}>{g.pitch_count}</td>
-                  <td style={t.td}>{g.plate_appearances}</td>
-                  <td style={t.td}>{g.strikeouts}</td>
-                  <td style={t.td}>{g.walks}</td>
-                  <td style={t.td}>{g.home_runs}</td>
+                  <td style={t.td}>{g.game_date?.slice ? g.game_date.slice(5) : String(g.game_date || '').slice(5)}</td>
+                  <td style={t.td}>{g.pitch_count ?? '—'}</td>
+                  <td style={t.td}>{g.plate_appearances ?? g.batters_faced ?? '—'}</td>
+                  <td style={t.td}>{g.strikeouts ?? '—'}</td>
+                  <td style={t.td}>{g.walks ?? '—'}</td>
+                  <td style={t.td}>{g.home_runs ?? '—'}</td>
                   <td style={t.td}>{pct(g.hard_hit_pct)}</td>
                 </tr>
               ))}
