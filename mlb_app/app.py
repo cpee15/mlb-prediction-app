@@ -32,6 +32,7 @@ import datetime
 import os
 import re
 import time
+import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests as _req
@@ -1517,6 +1518,38 @@ def create_app():
             live_only=live_only,
             state=state,
         )
+
+
+    @app.get("/debug/routes")
+    def debug_routes() -> Dict[str, Any]:
+        """Return mounted route visibility for deployment diagnostics."""
+        route_paths = sorted(
+            {
+                getattr(route, "path", "")
+                for route in app.routes
+                if getattr(route, "path", "")
+            }
+        )
+
+        try:
+            git_sha = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip()
+        except Exception:
+            git_sha = os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("GIT_SHA")
+
+        return {
+            "status": "ok",
+            "version": "0.5.2",
+            "git_sha": git_sha,
+            "route_count": len(route_paths),
+            "has_models_projections": "/models/projections" in route_paths,
+            "has_matchups": "/matchups" in route_paths,
+            "has_daily_odds": any(route.startswith("/daily-odds") for route in route_paths),
+            "routes": route_paths,
+        }
 
     @app.get("/matchups")
     def list_matchups(date: Optional[str] = None) -> List[Dict[str, Any]]:
