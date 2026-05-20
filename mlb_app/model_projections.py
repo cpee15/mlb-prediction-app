@@ -189,16 +189,33 @@ def _pitcher_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
     features = team.get("pitcher_features") or {}
     arsenal = team.get("pitch_arsenal") or {}
 
-    k_rate = _normalize_rate(features.get("k_pct"))
-    bb_rate = _normalize_rate(features.get("bb_pct"))
+    k_rate, k_rate_source = _choose_count_derived_rate(
+        features.get("k_pct"),
+        features.get("strikeouts"),
+        features.get("pa"),
+        plausible_low=0.08,
+        plausible_high=0.45,
+    )
+    bb_rate, bb_rate_source = _choose_count_derived_rate(
+        features.get("bb_pct"),
+        features.get("walks"),
+        features.get("pa"),
+        plausible_low=0.015,
+        plausible_high=0.20,
+    )
     hard_hit = _normalize_rate(features.get("hard_hit_pct"))
     xwoba = safe_float(features.get("xwoba"))
     xba = safe_float(features.get("xba"))
 
     rate_source_notes = {
-        "k_rate_source": "normalized_from_pitcher_features.k_pct" if k_rate is not None else "missing_pitcher_features.k_pct",
-        "bb_rate_source": "normalized_from_pitcher_features.bb_pct" if bb_rate is not None else "missing_pitcher_features.bb_pct",
+        "k_rate_source": k_rate_source,
+        "bb_rate_source": bb_rate_source,
         "hard_hit_rate_source": "normalized_from_pitcher_features.hard_hit_pct" if hard_hit is not None else "missing_pitcher_features.hard_hit_pct",
+        "raw_k_pct": safe_float(features.get("k_pct")),
+        "raw_bb_pct": safe_float(features.get("bb_pct")),
+        "pa": safe_float(features.get("pa")),
+        "strikeouts": safe_float(features.get("strikeouts")),
+        "walks": safe_float(features.get("walks")),
     }
 
     return {
@@ -308,8 +325,20 @@ def _matchup_workspace_analysis(offense_team: Dict[str, Any], opposing_pitcher: 
         plausible_low=0.03,
         plausible_high=0.18,
     )
-    pitcher_k = _normalize_rate(pitcher_features.get("k_pct"))
-    pitcher_bb = _normalize_rate(pitcher_features.get("bb_pct"))
+    pitcher_k, _ = _choose_count_derived_rate(
+        pitcher_features.get("k_pct"),
+        pitcher_features.get("strikeouts"),
+        pitcher_features.get("pa"),
+        plausible_low=0.08,
+        plausible_high=0.45,
+    )
+    pitcher_bb, _ = _choose_count_derived_rate(
+        pitcher_features.get("bb_pct"),
+        pitcher_features.get("walks"),
+        pitcher_features.get("pa"),
+        plausible_low=0.015,
+        plausible_high=0.20,
+    )
 
     pitch_edges = []
     for pitch_type, row in (arsenal or {}).items():
