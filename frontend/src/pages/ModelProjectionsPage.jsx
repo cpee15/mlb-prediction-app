@@ -804,7 +804,11 @@ function GameProjectionCard({ game }) {
         ))}
       </div>
 
-      {!awayRunModel || !homeRunModel || !totalModel ? (
+      {(
+        !awayRunModel ||
+        !homeRunModel ||
+        !totalModel
+      ) && !Object.keys(getSharedDerivedSimulation(game) || {}).length ? (
         <div style={s.noData}>Simulation projections are not available for this game yet.</div>
       ) : renderTab()}
     </article>
