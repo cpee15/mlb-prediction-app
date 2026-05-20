@@ -1715,7 +1715,7 @@ def create_app():
         away_record = away.get("leagueRecord", {}) or {}
 
             Session = _get_session()
-        with Session() as session:
+            with Session() as session:
 
             def pitcher_detail(pid: Optional[int]) -> Dict[str, Any]:
                 if not pid:
