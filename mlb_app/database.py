@@ -3,7 +3,7 @@ Database models and utilities for the MLB prediction app.
 
 This module defines the SQLAlchemy ORM models used to store raw Statcast
 events, aggregated pitch-arsenal statistics, platoon splits, rolling/seasonal
-metrics and game-level matchups.  It also provides helper functions to
+metrics and game-level matchups. It also provides helper functions to
 instantiate a database engine and session maker based on a connection URL.
 """
 
@@ -13,12 +13,15 @@ from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
+    JSON,
+    Boolean,
     Column,
     Date,
     DateTime,
     Float,
     Integer,
     String,
+    Text,
     create_engine,
     Index,
     inspect,
@@ -255,6 +258,81 @@ class Matchup(Base):
     prediction: Optional[float] = Column(Float, nullable=True)
 
     __table_args__ = (Index("ix_matchups_date_home_away", "game_date", "home_team_id", "away_team_id"),)
+
+
+class AppUser(Base):
+    __tablename__ = "app_users"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    email: str = Column(String(255), nullable=False, unique=True, index=True)
+    username: str = Column(String(80), nullable=False, index=True)
+    password_hash: Optional[str] = Column(String(255), nullable=True)
+    created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AppUserPreference(Base):
+    __tablename__ = "app_user_preferences"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    user_id: int = Column(Integer, nullable=False, unique=True, index=True)
+    wants_newsletter: bool = Column(Boolean, nullable=False, default=False)
+    feature_interests_json = Column(JSON, nullable=True)
+    plan_type: Optional[str] = Column(String(64), nullable=True)
+    created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AppDashboardFolder(Base):
+    __tablename__ = "app_dashboard_folders"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    user_id: int = Column(Integer, nullable=False, index=True)
+    folder_name: str = Column(String(255), nullable=False)
+    folder_date: Optional[date] = Column(Date, nullable=True, index=True)
+    is_default: bool = Column(Boolean, nullable=False, default=False)
+    created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_app_dashboard_folders_user_default", "user_id", "is_default"),
+        Index("ix_app_dashboard_folders_user_date", "user_id", "folder_date"),
+    )
+
+
+class AppDashboardItem(Base):
+    __tablename__ = "app_dashboard_items"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    user_id: int = Column(Integer, nullable=False, index=True)
+    folder_id: int = Column(Integer, nullable=False, index=True)
+    source_tab: str = Column(String(100), nullable=False, index=True)
+    source_type: str = Column(String(100), nullable=False, index=True)
+    title: str = Column(String(255), nullable=False)
+    subtitle: Optional[str] = Column(String(255), nullable=True)
+    payload_json = Column(JSON, nullable=False)
+    filter_json = Column(JSON, nullable=True)
+    sort_json = Column(JSON, nullable=True)
+    pin_order: Optional[int] = Column(Integer, nullable=True)
+    notes: Optional[str] = Column(Text, nullable=True)
+    created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_app_dashboard_items_user_folder", "user_id", "folder_id"),
+        Index("ix_app_dashboard_items_source", "source_tab", "source_type"),
+    )
+
+
+class AppSession(Base):
+    __tablename__ = "app_sessions"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    user_id: int = Column(Integer, nullable=False, index=True)
+    session_token: str = Column(String(128), nullable=False, unique=True, index=True)
+    expires_at: datetime = Column(DateTime, nullable=False, index=True)
+    created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 STATCAST_EVENT_SAFE_COLUMNS = {
