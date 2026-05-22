@@ -26,15 +26,6 @@ function cleanFilters(filters) {
   )
 }
 
-function formatDateTime(value) {
-  if (!value) return '—'
-  try {
-    return new Date(value).toLocaleString()
-  } catch {
-    return value
-  }
-}
-
 function formatNumber(value) {
   const num = Number(value)
   if (!Number.isFinite(num)) return '—'
@@ -52,6 +43,7 @@ export default function MyDashboardWorkspacePage() {
   const [runErrors, setRunErrors] = useState({})
   const [loading, setLoading] = useState({})
   const [saveMessage, setSaveMessage] = useState(null)
+  const [isHydratingBoards, setIsHydratingBoards] = useState(false)
   const [form, setForm] = useState({
     email: '',
     username: '',
@@ -72,6 +64,7 @@ export default function MyDashboardWorkspacePage() {
         if (json.authenticated) {
           setProfile(json.user)
           await loadWorkspace()
+          await runAllBoards({ silent: true })
         }
       } catch (err) {
         console.error('My Dashboard bootstrap failed', err)
@@ -105,6 +98,8 @@ export default function MyDashboardWorkspacePage() {
       if (!res.ok) throw new Error(typeof json.detail === 'string' ? json.detail : JSON.stringify(json.detail || json))
       setProfile(json.user)
       await loadWorkspace()
+      await runAllBoards({ silent: true })
+      setSaveMessage('Dashboard profile created. Your free boards have been loaded for today.')
     } catch (err) {
       setAuthError(err.message || 'Failed to create dashboard profile')
     } finally {
@@ -146,10 +141,14 @@ export default function MyDashboardWorkspacePage() {
     }
   }
 
-  async function runAllBoards() {
+  async function runAllBoards(options = {}) {
+    const { silent = false } = options
     const keys = COMPONENTS.map(component => component.key)
     setLoading(prev => ({ ...prev, ...Object.fromEntries(keys.map(key => [key, true])) }))
     setRunErrors({})
+    if (silent) {
+      setIsHydratingBoards(true)
+    }
     try {
       const res = await fetch(`${API}/my-dashboard/solver/batch`, {
         method: 'POST',
@@ -169,11 +168,17 @@ export default function MyDashboardWorkspacePage() {
       setRunErrors(prev => ({ ...prev, _all: err.message || 'Populate all failed' }))
     } finally {
       setLoading(prev => ({ ...prev, ...Object.fromEntries(keys.map(key => [key, false])) }))
+      if (silent) {
+        setIsHydratingBoards(false)
+      }
     }
   }
 
   async function saveItemToToday(component, item) {
-    if (!workspace?.today_folder_id) return
+    if (!workspace?.today_folder_id) {
+      setSaveMessage('Your dashboard folder is not ready yet. Refresh the workspace and try again.')
+      return
+    }
     setSaveMessage(null)
     try {
       const res = await fetch(`${API}/my-dashboard/items`, {
@@ -208,8 +213,9 @@ export default function MyDashboardWorkspacePage() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(typeof json.detail === 'string' ? json.detail : JSON.stringify(json.detail || json))
-      await loadWorkspace()
-      setSaveMessage(`Saved ${item.entity_name || item.title || 'item'} to today's folder.`)
+      const refreshedWorkspace = await loadWorkspace()
+      const savedCount = refreshedWorkspace?.folders?.find(folder => folder.id === refreshedWorkspace?.today_folder_id)?.item_count
+      setSaveMessage(`Saved ${item.entity_name || item.title || 'item'} to Today’s Folder.${savedCount != null ? ` Folder now has ${savedCount} item${savedCount === 1 ? '' : 's'}.` : ''}`)
     } catch (err) {
       setSaveMessage(err.message || 'Failed to save item')
     }
@@ -356,7 +362,7 @@ export default function MyDashboardWorkspacePage() {
                   <div style={savedBodyStyle}>{item.subtitle || 'Saved dashboard item'}</div>
                   <div style={metaStyle}>Source: {item.source_tab} • {item.source_type}</div>
                 </div>
-              ))
+              ))}
             )}
           </div>
         </div>
@@ -369,8 +375,9 @@ export default function MyDashboardWorkspacePage() {
             <h2 style={cardTitleStyle}>Free daily boards</h2>
             <p style={cardSubtitleStyle}>These still run through the current free solver endpoints. The difference now is that signed-in users can save the discoveries they care about.</p>
           </div>
-          <button onClick={runAllBoards} style={primaryButtonStyle}>Populate all</button>
+          <button onClick={() => runAllBoards()} style={primaryButtonStyle}>Populate all</button>
         </div>
+        {isHydratingBoards && <div style={infoBannerStyle}>Loading your dashboard boards for today…</div>}
         {runErrors._all && <div style={errorStyle}>{runErrors._all}</div>}
         <div style={boardGridStyle}>
           {COMPONENTS.map(component => {
@@ -500,4 +507,5 @@ const scorePillStyle = { background: '#1d4ed8', color: '#fff', borderRadius: '99
 const emptyStyle = { color: '#8b949e', fontSize: '13px', lineHeight: 1.5, padding: '8px 0' }
 const successStyle = { background: '#10261a', border: '1px solid #1f6f43', color: '#7ee787', borderRadius: '10px', padding: '12px' }
 const errorStyle = { background: '#2b1014', border: '1px solid #8b1e2d', color: '#ffb4be', borderRadius: '10px', padding: '12px' }
+const infoBannerStyle = { background: '#12243c', border: '1px solid #274b74', color: '#8ab4ff', borderRadius: '10px', padding: '12px' }
 const stateStyle = { color: '#9aa4b2', padding: '36px', textAlign: 'center' }
