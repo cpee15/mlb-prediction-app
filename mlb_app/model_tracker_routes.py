@@ -31,7 +31,7 @@ from .model_tracker_safe_snapshot import build_tracker_snapshot_safe
 router = APIRouter(tags=["model-tracker", "my-dashboard"])
 
 DASHBOARD_SESSION_COOKIE = "mlb_dashboard_session"
-DASHBOARD_SESSION_DAYS = 30
+DASHBOARD_SESSION_HOURS = 6
 FEATURE_CHOICES = [
     "Matchups",
     "Daily Odds",
@@ -343,7 +343,7 @@ def _upsert_preferences(session, user_id: int, request: DashboardProfileRequest)
 
 def _create_session(session, user_id: int) -> AppSession:
     now = _utcnow()
-    expires_at = now + dt.timedelta(days=DASHBOARD_SESSION_DAYS)
+    expires_at = now + dt.timedelta(hours=DASHBOARD_SESSION_HOURS)
     token = secrets.token_urlsafe(32)
     db_session = AppSession(
         user_id=user_id,
@@ -517,7 +517,7 @@ def my_dashboard_profile_create(request: DashboardProfileRequest, response: Resp
             httponly=True,
             samesite="lax",
             secure=False,
-            max_age=DASHBOARD_SESSION_DAYS * 24 * 60 * 60,
+            max_age=DASHBOARD_SESSION_HOURS * 60 * 60,
             path="/",
         )
         return {
