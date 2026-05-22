@@ -1,0 +1,3 @@
+{"at_bat_number":20,"away_team":"AWY","description":"called_strike","events":"strikeout","game_date":"2026-05-23","game_pk":777005,"home_team":"HOM","inning":7,"inning_topbot":"Top","outs_when_up":1,"pitch_number":1,"pitcher_id":623456}
+{"at_bat_number":20,"away_team":"AWY","description":"duplicate_called_strike","events":"strikeout","game_date":"2026-05-23","game_pk":777005,"home_team":"HOM","inning":7,"inning_topbot":"Top","outs_when_up":1,"pitch_number":1,"pitcher_id":623456}
+{"at_bat_number":20,"away_team":"AWY","description":"swinging_strike","events":"strikeout","game_date":"2026-05-23","game_pk":777005,"home_team":"HOM","inning":7,"inning_topbot":"Top","outs_when_up":1,"pitch_number":2,"pitcher_id":623456}
