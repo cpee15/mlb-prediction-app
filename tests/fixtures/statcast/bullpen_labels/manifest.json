@@ -1,0 +1,40 @@
+{
+  "fixture_version": "bullpen_statcast_fixture_v0.1",
+  "fixture_type": "candidate_bullpen_statcast_label_rows",
+  "root": "tests/fixtures/statcast/bullpen_labels",
+  "dates_directory": "tests/fixtures/statcast/bullpen_labels/dates",
+  "entries": [],
+  "required_manifest_fields": [
+    "fixture_version",
+    "fixture_date",
+    "file_path",
+    "row_count",
+    "sha256",
+    "source_label",
+    "generation_method",
+    "known_limitations",
+    "expected_duplicate_count",
+    "expected_required_field_failures"
+  ],
+  "required_normalized_fields": [
+    "game_date",
+    "game_pk",
+    "inning",
+    "inning_topbot",
+    "at_bat_number",
+    "pitch_number",
+    "outs_when_up",
+    "pitcher_id",
+    "home_team",
+    "away_team",
+    "events",
+    "description"
+  ],
+  "natural_key_fields": [
+    "game_pk",
+    "at_bat_number",
+    "pitch_number",
+    "pitcher_id"
+  ],
+  "created_as_scaffold": true
+}

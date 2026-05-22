@@ -1,0 +1,14 @@
+{
+  "expected_results_version": "bullpen_statcast_fixture_expected_results_v0.1",
+  "default_expectations": {
+    "row_format": "jsonl",
+    "expected_duplicate_count": 0,
+    "expected_required_field_failures": 0,
+    "expected_replay_deterministic": true,
+    "expected_no_external_fetch": true,
+    "expected_no_db_writes": true
+  },
+  "date_expectations": {},
+  "negative_fixture_expectations": {},
+  "created_as_scaffold": true
+}
