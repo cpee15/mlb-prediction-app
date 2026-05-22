@@ -1385,6 +1385,7 @@ def create_app():
         CORSMiddleware,
         allow_origins=["https://mlbgpt.com", "https://www.mlbgpt.com"],
         allow_origin_regex=r"https://.*\.up\.railway\.app",
+        allow_credentials=True
         allow_methods=["*"],
         allow_headers=["*"],
     )
