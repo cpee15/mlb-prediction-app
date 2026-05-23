@@ -362,7 +362,7 @@ export default function MyDashboardWorkspacePage() {
                   <div style={savedBodyStyle}>{item.subtitle || 'Saved dashboard item'}</div>
                   <div style={metaStyle}>Source: {item.source_tab} • {item.source_type}</div>
                 </div>
-              ))}
+              ))
             )}
           </div>
         </div>
