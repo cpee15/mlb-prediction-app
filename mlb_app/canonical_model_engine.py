@@ -264,3 +264,141 @@ def evaluate_usage_weighted_pitcher_vs_hitter(
         "usage_weighted_pitcher_vs_hitter_score": weighted_net,
         "final_pitcher_vs_hitter_recommendation_status": status,
     }
+
+
+def build_team_recent_form_component(
+    season_score: Any,
+    l30_score: Any,
+    l15_score: Any,
+    l7_score: Any = None,
+    *,
+    home_away_context: Any = None,
+    vs_handedness_context: Any = None,
+) -> Dict[str, Any]:
+    season = safe_float(season_score)
+    l30 = safe_float(l30_score)
+    l15 = safe_float(l15_score)
+    l7 = safe_float(l7_score)
+    home_away = safe_float(home_away_context)
+    handedness = safe_float(vs_handedness_context)
+
+    weighted_score = _weighted_average([
+        (season, 0.40),
+        (l30, 0.25),
+        (l15, 0.20),
+        (l7, 0.10),
+        (home_away, 0.03),
+        (handedness, 0.02),
+    ])
+    current = _weighted_average([
+        (l30, 0.45),
+        (l15, 0.35),
+        (l7, 0.20),
+    ])
+    recent_form_delta = None
+    if current is not None and season is not None:
+        recent_form_delta = round(current - season, 4)
+    trend = "stable"
+    if recent_form_delta is not None:
+        if recent_form_delta >= 0.03:
+            trend = "improving"
+        elif recent_form_delta <= -0.03:
+            trend = "declining"
+    missing_inputs = [
+        name for name, value in {
+            "season_score": season,
+            "l30_score": l30,
+            "l15_score": l15,
+            "l7_score": l7,
+            "home_away_context": home_away,
+            "vs_handedness_context": handedness,
+        }.items() if value is None
+    ]
+    data_quality = round(clamp(1.0 - (len(missing_inputs) * 0.12), 0.25, 1.0), 3)
+    return {
+        "team_offense_season_score": round(season, 4) if season is not None else None,
+        "team_offense_l30_score": round(l30, 4) if l30 is not None else None,
+        "team_offense_l15_score": round(l15, 4) if l15 is not None else None,
+        "team_offense_l7_score": round(l7, 4) if l7 is not None else None,
+        "team_home_away_context": round(home_away, 4) if home_away is not None else None,
+        "team_vs_handedness_context": round(handedness, 4) if handedness is not None else None,
+        "team_recent_form_score": round(weighted_score, 4) if weighted_score is not None else None,
+        "team_recent_form_delta": recent_form_delta,
+        "team_recent_form_trend": trend,
+        "team_recent_form_data_quality": data_quality,
+        "missing_inputs": missing_inputs,
+    }
+
+
+def build_starting_pitcher_component(
+    season_baseline_score: Any,
+    recent_form_score: Any,
+    k_bb_score: Any,
+    contact_quality_allowed_score: Any,
+    arsenal_quality_score: Any,
+    platoon_risk_score: Any,
+    expected_workload_score: Any,
+    *,
+    velocity_or_stuff_trend: Any = None,
+    command_trend: Any = None,
+) -> Dict[str, Any]:
+    season = safe_float(season_baseline_score)
+    recent = safe_float(recent_form_score)
+    kbb = safe_float(k_bb_score)
+    contact = safe_float(contact_quality_allowed_score)
+    arsenal = safe_float(arsenal_quality_score)
+    platoon = safe_float(platoon_risk_score)
+    workload = safe_float(expected_workload_score)
+    velocity = safe_float(velocity_or_stuff_trend)
+    command = safe_float(command_trend)
+
+    weighted_score = _weighted_average([
+        (season, 0.24),
+        (recent, 0.20),
+        (kbb, 0.16),
+        (contact, 0.16),
+        (arsenal, 0.10),
+        (-platoon if platoon is not None else None, 0.06),
+        (workload, 0.04),
+        (velocity, 0.02),
+        (command, 0.02),
+    ])
+    recent_delta = None
+    if recent is not None and season is not None:
+        recent_delta = round(recent - season, 4)
+    trend = "stable"
+    if recent_delta is not None:
+        if recent_delta >= 0.03 or (velocity is not None and velocity >= 0.03) or (command is not None and command >= 0.03):
+            trend = "improving"
+        elif recent_delta <= -0.03 or (velocity is not None and velocity <= -0.03) or (command is not None and command <= -0.03):
+            trend = "declining"
+    missing_inputs = [
+        name for name, value in {
+            "season_baseline_score": season,
+            "recent_form_score": recent,
+            "k_bb_score": kbb,
+            "contact_quality_allowed_score": contact,
+            "arsenal_quality_score": arsenal,
+            "platoon_risk_score": platoon,
+            "expected_workload_score": workload,
+            "velocity_or_stuff_trend": velocity,
+            "command_trend": command,
+        }.items() if value is None
+    ]
+    data_quality = round(clamp(1.0 - (len(missing_inputs) * 0.10), 0.25, 1.0), 3)
+    return {
+        "pitcher_season_baseline_score": round(season, 4) if season is not None else None,
+        "pitcher_recent_form_score": round(recent, 4) if recent is not None else None,
+        "pitcher_k_bb_score": round(kbb, 4) if kbb is not None else None,
+        "pitcher_contact_quality_allowed_score": round(contact, 4) if contact is not None else None,
+        "pitcher_arsenal_quality_score": round(arsenal, 4) if arsenal is not None else None,
+        "pitcher_platoon_risk_score": round(platoon, 4) if platoon is not None else None,
+        "pitcher_expected_workload_score": round(workload, 4) if workload is not None else None,
+        "pitcher_velocity_or_stuff_trend": round(velocity, 4) if velocity is not None else None,
+        "pitcher_command_trend": round(command, 4) if command is not None else None,
+        "pitcher_component_score": round(weighted_score, 4) if weighted_score is not None else None,
+        "pitcher_recent_form_delta": recent_delta,
+        "pitcher_trend": trend,
+        "pitcher_data_quality_flags": missing_inputs,
+        "pitcher_data_quality_score": data_quality,
+    }
