@@ -2,14 +2,24 @@
 
 ## What changed in this branch
 
-This branch adds the first safe implementation foundation for a shared canonical model layer without rewriting Model Projections or redesigning any cards.
+This branch now includes both:
+
+1. the first safe canonical model foundation
+2. the first Daily Odds wiring pass into that foundation
+
+It still does **not** rewrite Model Projections or redesign any cards.
 
 ### Added files
 
 - `docs/model_formula_audit.md`
 - `mlb_app/canonical_model_engine.py`
 - `tests/test_canonical_model_engine.py`
+- `tests/test_daily_odds_models.py`
 - `docs/canonical_model_engine_v2_summary.md`
+
+### Updated files
+
+- `mlb_app/daily_odds_models.py`
 
 ## What formulas now exist in the canonical foundation
 
@@ -59,6 +69,41 @@ Purpose:
 - Enforce majority arsenal support.
 - Suppress hitter recommendations when usage-weighted whiff/strikeout risk overwhelms contact quality.
 - Emit detailed diagnostic fields that can later flow into Daily Odds, AI Data Assistant, and Model Tracker.
+
+## Daily Odds wiring added in this branch
+
+`mlb_app/daily_odds_models.py` now uses the canonical foundation utilities for:
+
+- implied probability conversion
+- expected value calculation
+- confidence tier assignment
+- recommendation status
+- data quality score
+- additive batter-prop usage-weighted gating when matchup batter-vs-arsenal data is already present
+
+### New Daily Odds output fields
+
+Daily Odds models now emit additive fields such as:
+
+- `expected_value`
+- `data_quality_score`
+- `confidence_tier`
+- `recommendation_status`
+- `rejection_reason`
+
+These are additive and do not require a card redesign.
+
+### Batter prop gate behavior
+
+For batter props, Daily Odds now attempts a safe optional usage-weighted gate only when the matchup payload already contains usable batter-vs-arsenal diagnostics.
+
+If that gate is present:
+
+- positive majority-usage support can help the over case
+- weak or `NO_BET`/`MONITOR` gate status suppresses over cases
+- low-quality pitch data pushes the candidate toward monitor/no-bet behavior
+
+If matchup batter-vs-arsenal diagnostics are missing, the model does not invent them. It records missing input instead.
 
 ## How pitcher-vs-hitter arsenal usage weighting works
 
@@ -121,27 +166,27 @@ The current diagnostic contract includes:
 - `usage_weighted_pitcher_vs_hitter_score`
 - `final_pitcher_vs_hitter_recommendation_status`
 
-## What this branch does not do yet
+## What this branch still does not do yet
 
-This branch is a foundation layer. It does not yet fully wire the new canonical engine into:
+This branch still does not fully wire the canonical engine into:
 
-- Daily Odds route outputs
 - AI Data Assistant response rendering
-- Model Tracker persistence fields
+- Model Tracker persistence field expansion
 - Model Projections route or page behavior
+- backtest script generation
+- explicit team recent-form component utilities
+- explicit pitcher season-vs-recent-form component utilities
 
-That wiring should happen in the next implementation pass after this shared formula foundation is reviewed.
+## How Daily Odds uses the canonical layer now
 
-## How Daily Odds can use this next
-
-Daily Odds should next consume:
+Daily Odds now directly uses:
 
 - `american_to_implied_probability()`
 - `calculate_expected_value()`
 - `assign_confidence_tier()`
-- `evaluate_usage_weighted_pitcher_vs_hitter()`
+- `evaluate_usage_weighted_pitcher_vs_hitter()` when matchup data supports it
 
-The highest-value next step is replacing local prop gating with canonical usage-weighted hitter diagnostics and shared confidence tiers.
+This means Daily Odds can now surface richer diagnostics without changing the card layout.
 
 ## How AI Data Assistant can use this next
 
@@ -153,6 +198,7 @@ AI Data Assistant should next use the returned usage-weighted diagnostic object 
 - which pitch types hurt the edge
 - whether low-usage pitch warnings blocked the recommendation
 - whether pitch data quality weakened confidence
+- why a Daily Odds candidate is `recommended`, `monitor`, or `no_bet`
 
 ## How Model Tracker can use this next
 
@@ -165,8 +211,12 @@ Model Tracker should next snapshot these pick-time diagnostics inside existing J
 - final pitcher-vs-hitter recommendation status
 - confidence tier
 - expected value
+- data quality score
+- rejection reason
 
 ## Tests added in this branch
+
+### Canonical engine tests
 
 - positive American odds implied probability
 - negative American odds implied probability
@@ -178,30 +228,27 @@ Model Tracker should next snapshot these pick-time diagnostics inside existing J
 - missing pitch usage blocks recommendation
 - low sample pitch data flags `MONITOR` or worse
 
-## Known limitations
+### Daily Odds wiring tests
 
-- No live route integration yet
-- No tracker persistence wiring yet
-- No backtest script yet
-- No canonical game-level team/pitcher scoring object yet
-- No explicit team recent-form windows yet in this module
-- No explicit pitcher season-vs-recent-form decomposition yet in this module
+- moneyline model includes EV, confidence tier, recommendation status, and data quality score
+- batter prop over can be suppressed by a usage-weighted `NO_BET`/`MONITOR` gate
+- batter prop candidates emit EV, confidence tier, and data quality score
 
 ## Next recommended improvements
 
-1. Wire Daily Odds to the canonical utility functions.
-2. Add team recent-form component utilities.
-3. Add starting pitcher baseline vs recent-form utilities.
-4. Expand tracker snapshot metadata.
+1. Expand Model Tracker snapshots with direct canonical confidence tier / rejection fields.
+2. Add AI Data Assistant explanation helpers that directly read the canonical Daily Odds diagnostics.
+3. Add team recent-form component utilities.
+4. Add starting pitcher baseline vs recent-form component utilities.
 5. Add backtest script for edge buckets, tier buckets, usage buckets, and pitch-data quality buckets.
-6. Add AI Data Assistant explanation helpers that directly read the canonical usage-weighted output.
 
 ## Testing and verification
 
-Expected test entry point:
+Expected test entry points:
 
 ```bash
 pytest tests/test_canonical_model_engine.py
+pytest tests/test_daily_odds_models.py
 ```
 
-This branch has not claimed route-level completion. It establishes the shared modeling foundation needed for the stricter cross-surface implementation work in subsequent commits.
+This branch is now beyond scaffolding. It establishes the shared modeling foundation and wires Daily Odds to it in an additive, low-risk way while leaving Model Projections untouched.
