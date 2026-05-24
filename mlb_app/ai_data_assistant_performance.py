@@ -3,10 +3,13 @@ from __future__ import annotations
 import copy
 import time
 from contextvars import ContextVar
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from . import ai_data_assistant as core
+from .daily_odds_models import build_game_models
+from .daily_odds_routes import _build_global_prop_candidates, _build_matchup_index, _load_matchups
 from .model_projections import build_model_projection_payload as uncached_build_model_projection_payload
+from .odds_provider import fetch_draftkings_events
 from .shared_payload_cache import clear_shared_payload_cache, env_ttl, get_cache, get_or_set, make_cache_key, set_cache, stable_hash
 
 AI_RESPONSE_TTL_SECONDS = 180
@@ -36,12 +39,6 @@ def _add_timing(name: str, elapsed_ms: int) -> None:
 
 
 def cached_build_model_projection_payload(session, target_date: str) -> Dict[str, Any]:
-    """Shared TTL cache for the expensive model projection payload.
-
-    This monkey-patches the imported symbol inside `mlb_app.ai_data_assistant`, so
-    all existing v2 builders keep their current code path while sharing the same
-    process-local projection cache contract as `/models/projections`.
-    """
     cache_key = make_cache_key("model_projection", "full", target_date)
     ttl_seconds = env_ttl("MODEL_PROJECTION_CACHE_TTL_SECONDS")
 
@@ -73,11 +70,6 @@ def cached_build_model_projection_payload(session, target_date: str) -> Dict[str
 
 
 def apply_performance_patch() -> None:
-    """Patch the existing v1/v2 service path once per process.
-
-    No new route, page, or duplicate assistant service is created. The existing
-    `ai_data_assistant.py` functions still do the product logic.
-    """
     global _patch_applied
     if _patch_applied:
         return
@@ -177,6 +169,92 @@ def _build_canonical_probability_context(session, context: Dict[str, Any], game_
     }
 
 
+def _compact_daily_odds_game_model(model: Dict[str, Any], label: str, game_pk: Optional[int]) -> Dict[str, Any]:
+    return {
+        "game_pk": game_pk,
+        "label": label,
+        "market": model.get("market"),
+        "pick": model.get("pick"),
+        "model_probability": _safe_float(model.get("model_probability")),
+        "market_implied_probability": _safe_float(model.get("market_implied_probability")),
+        "edge": _safe_float(model.get("edge")),
+        "expected_value": _safe_float(model.get("expected_value")),
+        "confidence_tier": model.get("confidence_tier"),
+        "recommendation_status": model.get("recommendation_status"),
+        "rejection_reason": model.get("rejection_reason"),
+        "drivers": model.get("drivers") or [],
+    }
+
+
+def _compact_daily_odds_prop_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    diagnostics = candidate.get("diagnostics") or {}
+    return {
+        "game_pk": candidate.get("game_pk"),
+        "label": f"{candidate.get('away_team') or 'Away'} @ {candidate.get('home_team') or 'Home'}",
+        "market": candidate.get("market"),
+        "pick": candidate.get("pick"),
+        "player_name": candidate.get("player_name"),
+        "model_probability": _safe_float(candidate.get("model_probability")),
+        "market_implied_probability": _safe_float(candidate.get("market_implied_probability")),
+        "edge": _safe_float(candidate.get("edge")),
+        "expected_value": _safe_float(candidate.get("expected_value")),
+        "confidence_tier": candidate.get("confidence_tier"),
+        "data_quality_score": _safe_float(candidate.get("data_quality_score")),
+        "recommendation_status": candidate.get("recommendation_status"),
+        "rejection_reason": candidate.get("rejection_reason"),
+        "usage_weighted_gate": diagnostics.get("usage_weighted_gate"),
+        "drivers": candidate.get("drivers") or [],
+    }
+
+
+def _build_daily_odds_diagnostics_context(session, context: Dict[str, Any], game_pk: Optional[int] = None) -> Dict[str, Any]:
+    date = context.get("date") or core.today()
+    start = _now()
+    try:
+        matchups, matchup_errors = _load_matchups(date)
+        if game_pk is not None:
+            matchups = [m for m in matchups if str(m.get("game_pk")) == str(game_pk)]
+        matchup_index = _build_matchup_index(matchups)
+        events = fetch_draftkings_events(date) or []
+        game_models: List[Dict[str, Any]] = []
+        for event in events:
+            key = f"{(event.get('away_team') or {}).get('name','').lower()}@{(event.get('home_team') or {}).get('name','').lower()}"
+            matchup = matchup_index.get(key)
+            if not matchup:
+                continue
+            if game_pk is not None and str(matchup.get("game_pk")) != str(game_pk):
+                continue
+            models = build_game_models(matchup, event)
+            label = f"{matchup.get('away_team_name') or matchup.get('away_team')} @ {matchup.get('home_team_name') or matchup.get('home_team')}"
+            for market_name in ("moneyline", "spread", "total"):
+                model = models.get(market_name)
+                if isinstance(model, dict):
+                    game_models.append(_compact_daily_odds_game_model(model, label, matchup.get("game_pk")))
+        game_models.sort(key=lambda row: abs(row.get("edge") or 0.0), reverse=True)
+        prop_candidates = _build_global_prop_candidates(events, matchup_index, matchups, limit=12)
+        if game_pk is not None:
+            prop_candidates = [c for c in prop_candidates if str(c.get("game_pk")) == str(game_pk)]
+        top_prop_candidates = [_compact_daily_odds_prop_candidate(c) for c in prop_candidates[:6]]
+        _add_timing("daily_odds_diagnostics_context_ms", _ms(start))
+        return {
+            "available": bool(game_models or top_prop_candidates),
+            "date": date,
+            "top_game_models": game_models[:6],
+            "top_prop_candidates": top_prop_candidates,
+            "matchup_errors": matchup_errors,
+            "event_count": len(events),
+            "source_note": "Daily Odds diagnostics include EV, confidence tier, data quality, recommendation status, and optional usage-weighted hitter gate output.",
+        }
+    except Exception as exc:
+        return {
+            "available": False,
+            "date": date,
+            "error": str(exc),
+            "top_game_models": [],
+            "top_prop_candidates": [],
+        }
+
+
 def _canonical_answer_prefix(canonical_context: Dict[str, Any]) -> str:
     if not canonical_context.get("available"):
         return (
@@ -199,11 +277,42 @@ def _canonical_answer_prefix(canonical_context: Dict[str, Any]) -> str:
     )
 
 
-def _enrich_result_with_canonical_context(result: Dict[str, Any], canonical_context: Dict[str, Any]) -> Dict[str, Any]:
+def _daily_odds_answer_prefix(daily_odds_context: Dict[str, Any]) -> str:
+    if not daily_odds_context.get("available"):
+        return (
+            "Daily Odds note\n"
+            "Daily Odds diagnostics were not available for this query.\n"
+        )
+    game_models = daily_odds_context.get("top_game_models") or []
+    prop_candidates = daily_odds_context.get("top_prop_candidates") or []
+    lead_game = game_models[0] if game_models else {}
+    lead_prop = prop_candidates[0] if prop_candidates else {}
+    game_line = ""
+    if lead_game:
+        game_line = (
+            f"Top game model: {lead_game.get('label')} | {lead_game.get('market')} | {lead_game.get('pick')} | "
+            f"edge {_pct(lead_game.get('edge')) or lead_game.get('edge')} | EV {lead_game.get('expected_value')} | "
+            f"tier {lead_game.get('confidence_tier') or 'unknown'} | status {lead_game.get('recommendation_status') or 'unknown'}. "
+        )
+    prop_line = ""
+    if lead_prop:
+        gate = lead_prop.get("usage_weighted_gate") or {}
+        gate_status = gate.get("final_pitcher_vs_hitter_recommendation_status") or gate.get("status")
+        prop_line = (
+            f"Top prop candidate: {lead_prop.get('player_name') or 'unknown player'} | {lead_prop.get('market')} | {lead_prop.get('pick')} | "
+            f"EV {lead_prop.get('expected_value')} | tier {lead_prop.get('confidence_tier') or 'unknown'} | "
+            f"status {lead_prop.get('recommendation_status') or 'unknown'}"
+            + (f" | usage gate {gate_status}." if gate_status else ".")
+        )
+    return "Daily Odds note\n" + game_line + prop_line + "\n"
+
+
+def _enrich_result_with_canonical_context(result: Dict[str, Any], canonical_context: Dict[str, Any], daily_odds_context: Dict[str, Any]) -> Dict[str, Any]:
     enriched = copy.deepcopy(result)
     enriched["canonical_probability_context"] = canonical_context
+    enriched["daily_odds_diagnostics_context"] = daily_odds_context
     sources = list(enriched.get("sources_used") or [])
-    for source in ["canonical_matchup_probability_v2", "matchups.home_win_prob_and_away_win_prob"]:
+    for source in ["canonical_matchup_probability_v2", "matchups.home_win_prob_and_away_win_prob", "daily_odds_models"]:
         if source not in sources:
             sources.append(source)
     enriched["sources_used"] = sources
@@ -215,12 +324,17 @@ def _enrich_result_with_canonical_context(result: Dict[str, Any], canonical_cont
             "simulation_role": canonical_context.get("simulation_role"),
             "games_loaded": len(canonical_context.get("games") or []),
         }
-    note = _canonical_answer_prefix(canonical_context)
+        enriched["data_quality"]["daily_odds_diagnostics"] = {
+            "available": daily_odds_context.get("available"),
+            "game_model_count": len(daily_odds_context.get("top_game_models") or []),
+            "prop_candidate_count": len(daily_odds_context.get("top_prop_candidates") or []),
+        }
+    note = _canonical_answer_prefix(canonical_context) + _daily_odds_answer_prefix(daily_odds_context)
     answer = enriched.get("answer") or ""
     if "Canonical probability note" not in answer:
         enriched["answer"] = note + "\n" + answer
     confidence_note = enriched.get("confidence_note") or ""
-    canonical_note = " Canonical v2 is the final side probability; simulations are diagnostic/run-distribution context only."
+    canonical_note = " Canonical v2 is the final side probability; simulations are diagnostic/run-distribution context only. Daily Odds diagnostics include EV, confidence tier, recommendation status, and optional hitter-usage gate output."
     if canonical_note.strip() not in confidence_note:
         enriched["confidence_note"] = confidence_note + canonical_note
     return enriched
@@ -249,6 +363,7 @@ def _build_ai_data_assistant_response_uncached(
         timing["context_build_ms"] = _ms(context_start)
 
     canonical_context = _build_canonical_probability_context(session, context, game_pk=game_pk)
+    daily_odds_context = _build_daily_odds_diagnostics_context(session, context, game_pk=game_pk)
 
     answer_start = _now()
     result = core.answer_with_optional_llm(message, context, use_llm=use_llm)
@@ -256,7 +371,7 @@ def _build_ai_data_assistant_response_uncached(
         timing["answer_render_ms"] = _ms(answer_start)
         timing["llm_requested"] = 1 if use_llm else 0
 
-    result = _enrich_result_with_canonical_context(result, canonical_context)
+    result = _enrich_result_with_canonical_context(result, canonical_context, daily_odds_context)
     return result
 
 
@@ -269,15 +384,6 @@ def build_ai_data_assistant_response(
     team_id: Optional[int] = None,
     use_llm: bool = False,
 ) -> Dict[str, Any]:
-    """Fast wrapper for the existing AI Data Assistant service.
-
-    Adds:
-    - shared process-local TTL response cache for repeated chip clicks
-    - shared process-local TTL Model Projection cache by date
-    - deterministic answers by default
-    - canonical probability context on every response
-    - timing metadata on every response
-    """
     apply_performance_patch()
     total_start = _now()
     timing: Dict[str, float] = {}
