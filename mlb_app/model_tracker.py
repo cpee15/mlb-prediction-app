@@ -216,11 +216,6 @@ def _team_name(value: Any) -> Optional[str]:
 
 
 def _canonical_probability_bundle(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract canonical v2 diagnostics from any matchup/projection-shaped payload.
-
-    This intentionally returns a JSON-safe bundle that can be stored in the
-    existing text columns. No schema migration is required.
-    """
     probs = payload.get("main_matchup_probabilities") if isinstance(payload.get("main_matchup_probabilities"), dict) else payload
     workspace = payload.get("workspace") or {}
     canonical_workspace = workspace.get("canonicalMatchupProbability") or {}
@@ -276,6 +271,20 @@ def _canonical_reasoning(bundle: Dict[str, Any], extra: Optional[Dict[str, Any]]
         },
         "extra": extra or {},
     }
+
+
+def _daily_odds_tracker_extra(model: Dict[str, Any], bundle: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    extra = {
+        "confidence_tier": model.get("confidence_tier"),
+        "data_quality_score": model.get("data_quality_score"),
+        "recommendation_status": model.get("recommendation_status"),
+        "rejection_reason": model.get("rejection_reason"),
+        "expected_value": model.get("expected_value"),
+        "usage_weighted_gate": (model.get("diagnostics") or {}).get("usage_weighted_gate"),
+    }
+    if bundle is not None:
+        extra["canonical_probability"] = bundle
+    return extra
 
 
 def _team_pick_from_canonical(bundle: Dict[str, Any], home_team: Any, away_team: Any) -> tuple[Optional[str], Optional[float]]:
@@ -363,6 +372,7 @@ def normalize_daily_odds_rows(payload: Dict[str, Any], target_date: str) -> List
             reasoning = {
                 "drivers": model.get("drivers") or model.get("reasoning") or [],
                 "canonical_probability": bundle,
+                "daily_odds_diagnostics": _daily_odds_tracker_extra(model, bundle),
                 "market_context_note": "Daily Odds compares sportsbook implied probability against canonical probability; odds do not define canonical probability.",
             }
             rows.append(_base_row(
@@ -390,15 +400,23 @@ def normalize_daily_odds_rows(payload: Dict[str, Any], target_date: str) -> List
                 away_win_probability=bundle.get("canonical_away_win_prob"),
                 primary_reason=_short_reason(model.get("drivers") or model.get("reasoning") or model.get("primary_reason"), "Daily Odds model output."),
                 reasoning_json=_json(reasoning),
-                features_used_json=_json(model_features),
+                features_used_json=_json(model_features + [
+                    {"name": "confidence_tier", "value": model.get("confidence_tier"), "source": "daily_odds_models"},
+                    {"name": "data_quality_score", "value": model.get("data_quality_score"), "source": "daily_odds_models"},
+                    {"name": "recommendation_status", "value": model.get("recommendation_status"), "source": "daily_odds_models"},
+                ]),
                 missing_inputs_json=_json((model.get("missing_inputs") or []) + (bundle.get("missing_inputs") or [])),
-                raw_payload_json=_json({"game": game, "model": model, "canonical_probability": bundle}),
+                raw_payload_json=_json({"game": game, "model": model, "canonical_probability": bundle, "daily_odds_tracker_diagnostics": _daily_odds_tracker_extra(model, bundle)}),
                 grade="pending" if model.get("pick") else "ungraded",
                 result_status="pending",
             ))
     for candidate in payload.get("top_prop_model_candidates") or []:
         if not isinstance(candidate, dict):
             continue
+        reasoning = {
+            "drivers": candidate.get("drivers") or candidate.get("reasoning") or [],
+            "daily_odds_diagnostics": _daily_odds_tracker_extra(candidate),
+        }
         rows.append(_base_row(
             "daily_odds", target_date,
             source_endpoint="/daily-odds/models",
@@ -422,10 +440,14 @@ def normalize_daily_odds_rows(payload: Dict[str, Any], target_date: str) -> List
             price=_safe_float(candidate.get("price")),
             expected_value=_safe_float(candidate.get("expected_value")),
             primary_reason=_short_reason(candidate.get("drivers") or candidate.get("reasoning") or candidate.get("primary_reason"), "Daily Odds prop/watchlist candidate."),
-            reasoning_json=_json(candidate.get("drivers") or candidate.get("reasoning") or []),
-            features_used_json=_json(candidate.get("features_used") or []),
+            reasoning_json=_json(reasoning),
+            features_used_json=_json((candidate.get("features_used") or []) + [
+                {"name": "confidence_tier", "value": candidate.get("confidence_tier"), "source": "daily_odds_models"},
+                {"name": "data_quality_score", "value": candidate.get("data_quality_score"), "source": "daily_odds_models"},
+                {"name": "recommendation_status", "value": candidate.get("recommendation_status"), "source": "daily_odds_models"},
+            ]),
             missing_inputs_json=_json(candidate.get("missing_inputs") or []),
-            raw_payload_json=_json(candidate),
+            raw_payload_json=_json({**candidate, "daily_odds_tracker_diagnostics": _daily_odds_tracker_extra(candidate)}),
             grade="ungraded",
             grade_reason="Stored as watchlist output until explicit player-stat result mapping is available.",
             result_status="pending",
@@ -556,6 +578,7 @@ def normalize_dashboard_rows(component: str, payload: Dict[str, Any], target_dat
 
 def normalize_ai_data_assistant_rows(payload: Dict[str, Any], target_date: str, prompt: str) -> List[Dict[str, Any]]:
     canonical_context = payload.get("canonical_probability_context") or {}
+    daily_odds_context = payload.get("daily_odds_diagnostics_context") or {}
     return [_base_row(
         "ai_data_assistant", target_date,
         source_endpoint="/ai-data-assistant",
@@ -567,7 +590,7 @@ def normalize_ai_data_assistant_rows(payload: Dict[str, Any], target_date: str, 
         model_name="ai_data_assistant_deterministic",
         model_version=canonical_context.get("model_version") or CANONICAL_MODEL_VERSION,
         primary_reason=_short_reason(payload.get("answer"), "AI Data Assistant deterministic answer captured."),
-        reasoning_json=_json({"canonical_probability_context": canonical_context, "sections": payload.get("sections") or []}),
+        reasoning_json=_json({"canonical_probability_context": canonical_context, "daily_odds_diagnostics_context": daily_odds_context, "sections": payload.get("sections") or []}),
         features_used_json=_json(payload.get("sources_used") or []),
         missing_inputs_json=_json(payload.get("missing_data") or []),
         raw_payload_json=_json(payload),
@@ -662,8 +685,10 @@ def _row_payload(row: ModelTrackerSnapshot) -> Dict[str, Any]:
     features = _loads(row.features_used_json) or []
     raw_payload = _loads(row.raw_payload_json)
     canonical_diagnostics = None
+    daily_odds_diagnostics = None
     if isinstance(reasoning, dict):
         canonical_diagnostics = reasoning.get("canonical_probability") or reasoning.get("canonical_probability_context")
+        daily_odds_diagnostics = reasoning.get("daily_odds_diagnostics") or reasoning.get("daily_odds_diagnostics_context")
     return {
         "id": row.id,
         "tracker_key": row.tracker_key,
@@ -705,6 +730,7 @@ def _row_payload(row: ModelTrackerSnapshot) -> Dict[str, Any]:
         "features_used": features,
         "missing_inputs": _loads(row.missing_inputs_json) or [],
         "canonical_diagnostics": canonical_diagnostics,
+        "daily_odds_diagnostics": daily_odds_diagnostics,
         "raw_payload": raw_payload,
         "game_status_at_snapshot": row.game_status_at_snapshot,
         "result_status": row.result_status,
