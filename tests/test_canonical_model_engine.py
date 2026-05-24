@@ -1,6 +1,8 @@
 from mlb_app.canonical_model_engine import (
     american_to_implied_probability,
     assign_confidence_tier,
+    build_starting_pitcher_component,
+    build_team_recent_form_component,
     calculate_expected_value,
     evaluate_usage_weighted_pitcher_vs_hitter,
 )
@@ -15,7 +17,6 @@ def test_american_to_implied_probability_negative_odds():
 
 
 def test_calculate_expected_value_positive_ev():
-    # +150 means 1.5 units profit on 1 staked
     assert calculate_expected_value(0.5, +150) == 0.25
 
 
@@ -91,3 +92,34 @@ def test_low_sample_pitch_data_flags_monitor_or_worse():
     )
     assert result["pitch_data_quality_flags"]
     assert result["final_pitcher_vs_hitter_recommendation_status"] in {"MONITOR", "NO_BET"}
+
+
+def test_team_recent_form_component_identifies_improving_trend():
+    result = build_team_recent_form_component(
+        season_score=0.51,
+        l30_score=0.55,
+        l15_score=0.59,
+        l7_score=0.62,
+        home_away_context=0.57,
+        vs_handedness_context=0.58,
+    )
+    assert result["team_recent_form_trend"] == "improving"
+    assert result["team_recent_form_score"] is not None
+    assert result["team_recent_form_delta"] > 0
+
+
+def test_starting_pitcher_component_identifies_declining_trend():
+    result = build_starting_pitcher_component(
+        season_baseline_score=0.64,
+        recent_form_score=0.57,
+        k_bb_score=0.61,
+        contact_quality_allowed_score=0.52,
+        arsenal_quality_score=0.58,
+        platoon_risk_score=0.14,
+        expected_workload_score=0.55,
+        velocity_or_stuff_trend=-0.05,
+        command_trend=-0.04,
+    )
+    assert result["pitcher_trend"] == "declining"
+    assert result["pitcher_component_score"] is not None
+    assert result["pitcher_recent_form_delta"] < 0
