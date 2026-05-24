@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from .canonical_model_engine import (
+    american_to_implied_probability,
+    assign_confidence_tier,
+    calculate_expected_value,
+    clamp as canonical_clamp,
+    evaluate_usage_weighted_pitcher_vs_hitter,
+)
+
 
 def _safe_float(value: Any) -> Optional[float]:
     try:
@@ -17,12 +25,7 @@ def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
 
 
 def _american_to_implied(price: Any) -> Optional[float]:
-    p = _safe_float(price)
-    if p is None or p == 0:
-        return None
-    if p > 0:
-        return round(100.0 / (p + 100.0), 4)
-    return round(abs(p) / (abs(p) + 100.0), 4)
+    return american_to_implied_probability(price)
 
 
 def _get(obj: Dict[str, Any], paths: List[str]) -> Tuple[Optional[Any], Optional[str]]:
@@ -53,6 +56,37 @@ def _confidence(used: int, expected: int, model_depth: float = 1.0) -> float:
     return round(_clamp((used / expected) * model_depth), 3)
 
 
+def _data_quality_score(used: int, expected: int, diagnostics: Optional[Dict[str, Any]] = None) -> float:
+    base = _confidence(used, expected if expected else 1, model_depth=1.0)
+    diagnostics = diagnostics or {}
+    lineup_status = str(diagnostics.get("lineup_status") or "").lower()
+    data_confidence = str(diagnostics.get("data_confidence") or "").lower()
+
+    if data_confidence == "high":
+        base += 0.12
+    elif data_confidence == "medium":
+        base += 0.06
+    elif data_confidence == "low":
+        base -= 0.02
+
+    if lineup_status == "confirmed":
+        base += 0.05
+    elif "fallback" in lineup_status:
+        base -= 0.05
+    elif lineup_status == "projected":
+        base += 0.02
+
+    return round(_clamp(base, 0.0, 1.0), 3)
+
+
+def _recommendation_status(confidence_tier: str) -> str:
+    if confidence_tier in {"LOCK", "STRONG", "LEAN"}:
+        return "recommended"
+    if confidence_tier == "MONITOR":
+        return "monitor"
+    return "no_bet"
+
+
 def _selection_label(sel: Dict[str, Any]) -> str:
     base = sel.get("description") or sel.get("name") or "Selection"
     line = sel.get("line")
@@ -78,12 +112,80 @@ def _pick_selection_by_team(market: Optional[Dict[str, Any]], team_name: str) ->
     return None
 
 
-def _model_output(model: str, market: str, pick: str, score: float, model_probability: Optional[float], market_probability: Optional[float], features: List[Dict[str, Any]], missing: List[str], drivers: List[str], diagnostics: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _extract_batter_gate(matchup: Dict[str, Any], player_name: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not player_name:
+        return None
+    summary = matchup.get("batter_vs_arsenal_summary") or {}
+    if not isinstance(summary, dict):
+        return None
+
+    normalized_target = str(player_name).strip().lower()
+    for key, value in summary.items():
+        if not isinstance(value, dict):
+            continue
+        key_text = str(key).strip().lower()
+        nested_name = str(value.get("player_name") or value.get("batter_name") or "").strip().lower()
+        if normalized_target not in {key_text, nested_name} and normalized_target not in key_text and key_text not in normalized_target and normalized_target not in nested_name:
+            continue
+        if "pitcher_arsenal_usage" in value and "hitter_metrics_by_pitch_type" in value:
+            return evaluate_usage_weighted_pitcher_vs_hitter(
+                pitcher_arsenal_usage=value.get("pitcher_arsenal_usage") or {},
+                hitter_metrics_by_pitch_type=value.get("hitter_metrics_by_pitch_type") or {},
+            )
+        if "final_pitcher_vs_hitter_recommendation_status" in value:
+            return value
+    return None
+
+
+def _model_output(
+    model: str,
+    market: str,
+    pick: str,
+    score: float,
+    model_probability: Optional[float],
+    market_probability: Optional[float],
+    market_price: Optional[float],
+    features: List[Dict[str, Any]],
+    missing: List[str],
+    drivers: List[str],
+    diagnostics: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    diagnostics = diagnostics or {}
     used = len(features)
     expected = used + len(missing)
     edge = None
     if model_probability is not None and market_probability is not None:
         edge = round(model_probability - market_probability, 4)
+    expected_value = calculate_expected_value(model_probability, market_price) if market_price is not None else None
+    confidence_score = _confidence(used, expected if expected else 1)
+    data_quality_score = _data_quality_score(used, expected if expected else 1, diagnostics)
+    confidence_tier = assign_confidence_tier(
+        data_quality_score=data_quality_score,
+        confidence_score=confidence_score,
+        probability_edge=edge,
+        expected_value=expected_value,
+        missing_inputs=missing,
+    )
+    recommendation_status = _recommendation_status(confidence_tier)
+    rejection_reason = None
+    if recommendation_status == "no_bet":
+        if edge is None or edge <= 0:
+            rejection_reason = "non_positive_edge"
+        elif expected_value is None or expected_value <= 0:
+            rejection_reason = "non_positive_expected_value"
+        else:
+            rejection_reason = "insufficient_confidence_or_data_quality"
+    elif recommendation_status == "monitor":
+        rejection_reason = "monitor_pending_additional_confirmation"
+
+    diagnostics = {
+        **diagnostics,
+        "data_quality_score": data_quality_score,
+        "confidence_tier": confidence_tier,
+        "recommendation_status": recommendation_status,
+        "rejection_reason": rejection_reason,
+    }
+
     return {
         "model": model,
         "market": market,
@@ -92,11 +194,17 @@ def _model_output(model: str, market: str, pick: str, score: float, model_probab
         "model_probability": round(model_probability, 4) if model_probability is not None else None,
         "market_implied_probability": round(market_probability, 4) if market_probability is not None else None,
         "edge": edge,
-        "confidence": _confidence(used, expected if expected else 1),
+        "expected_value": expected_value,
+        "price": market_price,
+        "confidence": confidence_score,
+        "data_quality_score": data_quality_score,
+        "confidence_tier": confidence_tier,
+        "recommendation_status": recommendation_status,
+        "rejection_reason": rejection_reason,
         "features_used": features,
         "missing_inputs": missing,
         "drivers": drivers,
-        "diagnostics": diagnostics or {},
+        "diagnostics": diagnostics,
         "available": used >= 1 and model_probability is not None,
     }
 
@@ -124,11 +232,6 @@ def build_game_models(matchup: Dict[str, Any], event: Dict[str, Any]) -> Dict[st
 
 
 def build_moneyline_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]], ctx: Dict[str, Any]) -> Dict[str, Any]:
-    """Build a moneyline edge model using canonical v2 as the model probability.
-
-    Sportsbook odds are converted to market implied probability for comparison only.
-    They are not blended into or used to define the model probability.
-    """
     features: List[Dict[str, Any]] = []
     missing: List[str] = []
     drivers: List[str] = []
@@ -151,8 +254,10 @@ def build_moneyline_model(matchup: Dict[str, Any], market: Optional[Dict[str, An
 
     home_sel = _pick_selection_by_team(market, ctx.get("home_team") or "")
     away_sel = _pick_selection_by_team(market, ctx.get("away_team") or "")
-    home_market = _american_to_implied(home_sel.get("price") if home_sel else None)
-    away_market = _american_to_implied(away_sel.get("price") if away_sel else None)
+    home_price = _safe_float(home_sel.get("price") if home_sel else None)
+    away_price = _safe_float(away_sel.get("price") if away_sel else None)
+    home_market = _american_to_implied(home_price)
+    away_market = _american_to_implied(away_price)
     if home_market is not None:
         features.append({"name": "home_market_implied_probability", "value": home_market, "source": "draftkings.h2h.home", "transform": "american_to_implied"})
     else:
@@ -163,12 +268,13 @@ def build_moneyline_model(matchup: Dict[str, Any], market: Optional[Dict[str, An
         missing.append("away_market_implied_probability")
 
     if home_prob is None or away_prob is None:
-        return _model_output("moneyline_canonical_v2", "moneyline", "No pick", 0.0, None, None, features, missing, drivers, {"model_version": model_version})
+        return _model_output("moneyline_canonical_v2", "moneyline", "No pick", 0.0, None, None, None, features, missing, drivers, {"model_version": model_version})
 
     pick_home = home_prob >= away_prob
     pick = ctx.get("home_team") if pick_home else ctx.get("away_team")
     model_prob = home_prob if pick_home else away_prob
     market_prob = home_market if pick_home else away_market
+    market_price = home_price if pick_home else away_price
     drivers.append("final side probability comes from canonical matchup home_win_prob/away_win_prob")
     if market_prob is not None:
         drivers.append("edge equals canonical probability minus sportsbook implied probability")
@@ -180,6 +286,7 @@ def build_moneyline_model(matchup: Dict[str, Any], market: Optional[Dict[str, An
         model_prob,
         model_prob,
         market_prob,
+        market_price,
         features,
         missing,
         drivers,
@@ -228,8 +335,10 @@ def build_spread_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]]
     away_sel = _pick_selection_by_team(market, ctx.get("away_team") or "")
     home_line = _safe_float(home_sel.get("line") if home_sel else None)
     away_line = _safe_float(away_sel.get("line") if away_sel else None)
-    home_market = _american_to_implied(home_sel.get("price") if home_sel else None)
-    away_market = _american_to_implied(away_sel.get("price") if away_sel else None)
+    home_price = _safe_float(home_sel.get("price") if home_sel else None)
+    away_price = _safe_float(away_sel.get("price") if away_sel else None)
+    home_market = _american_to_implied(home_price)
+    away_market = _american_to_implied(away_price)
     if home_line is None:
         missing.append("home_spread_line")
     else:
@@ -244,9 +353,25 @@ def build_spread_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]]
         features.append({"name": "away_spread_implied_probability", "value": away_market, "source": "draftkings.spreads.away", "transform": "american_to_implied"})
     pick_home = run_diff + (home_line or 0) > 0
     pick = f"{ctx.get('home_team')} {home_line}" if pick_home else f"{ctx.get('away_team')} {away_line}"
-    model_prob = _clamp(0.5 + abs(run_diff) / 6.0)
+    model_prob = canonical_clamp(0.5 + abs(run_diff) / 6.0)
     market_prob = home_market if pick_home else away_market
-    return _model_output("spread_real_v1", "spread", pick, run_diff, model_prob, market_prob, features, missing, drivers)
+    market_price = home_price if pick_home else away_price
+    return _model_output(
+        "spread_real_v1",
+        "spread",
+        pick,
+        run_diff,
+        model_prob,
+        market_prob,
+        market_price,
+        features,
+        missing,
+        drivers,
+        {
+            "lineup_status": matchup.get("lineup_status"),
+            "data_confidence": matchup.get("data_confidence"),
+        },
+    )
 
 
 def build_total_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]], ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -282,8 +407,10 @@ def build_total_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]],
                 under_sel = sel
         total_sel = over_sel or under_sel or (market.get("selections") or [None])[0]
     market_total = _safe_float(total_sel.get("line") if total_sel else None)
-    over_prob = _american_to_implied(over_sel.get("price") if over_sel else None)
-    under_prob = _american_to_implied(under_sel.get("price") if under_sel else None)
+    over_price = _safe_float(over_sel.get("price") if over_sel else None)
+    under_price = _safe_float(under_sel.get("price") if under_sel else None)
+    over_prob = _american_to_implied(over_price)
+    under_prob = _american_to_implied(under_price)
     if market_total is not None:
         features.append({"name": "market_total", "value": market_total, "source": "draftkings.totals.line", "transform": "raw"})
     else:
@@ -310,9 +437,25 @@ def build_total_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]],
     projected_total = (market_total if market_total is not None else 8.5) + env
     pick_over = projected_total >= (market_total if market_total is not None else 8.5)
     pick = f"Over {market_total}" if pick_over else f"Under {market_total}"
-    model_prob = _clamp(0.5 + abs(projected_total - (market_total or 8.5)) / 5.0)
+    model_prob = canonical_clamp(0.5 + abs(projected_total - (market_total or 8.5)) / 5.0)
     market_prob = over_prob if pick_over else under_prob
-    return _model_output("total_real_v1", "total", pick, projected_total, model_prob, market_prob, features, missing, drivers)
+    market_price = over_price if pick_over else under_price
+    return _model_output(
+        "total_real_v1",
+        "total",
+        pick,
+        projected_total,
+        model_prob,
+        market_prob,
+        market_price,
+        features,
+        missing,
+        drivers,
+        {
+            "lineup_status": matchup.get("lineup_status"),
+            "data_confidence": matchup.get("data_confidence"),
+        },
+    )
 
 
 def _prop_market_family(market_name: str) -> str:
@@ -342,7 +485,14 @@ def _prop_baseline_probability(market_name: str, line: Optional[float]) -> float
     return _clamp(0.40 - max(0.0, line_value - 0.5) * 0.04, 0.18, 0.60)
 
 
-def _prop_model_probability(market_name: str, selection_name: str, line: Optional[float], implied: Optional[float], matchup: Dict[str, Any]) -> tuple[Optional[float], List[str], List[Dict[str, Any]], List[str]]:
+def _prop_model_probability(
+    market_name: str,
+    selection_name: str,
+    player_name: Optional[str],
+    line: Optional[float],
+    implied: Optional[float],
+    matchup: Dict[str, Any],
+) -> tuple[Optional[float], List[str], List[Dict[str, Any]], List[str], Optional[Dict[str, Any]]]:
     drivers: List[str] = []
     features: List[Dict[str, Any]] = []
     missing: List[str] = []
@@ -368,12 +518,42 @@ def _prop_model_probability(market_name: str, selection_name: str, line: Optiona
     else:
         missing.append("sportsbook_implied_probability")
 
-    lowered = selection_name.lower()
-    if lowered.startswith("under"):
+    gate = None
+    lowered_selection = selection_name.lower()
+    if str(market_name).lower().startswith("batter_"):
+        gate = _extract_batter_gate(matchup, player_name)
+        if gate:
+            gate_score = _safe_float(gate.get("usage_weighted_pitcher_vs_hitter_score"))
+            gate_status = str(gate.get("final_pitcher_vs_hitter_recommendation_status") or gate.get("status") or "").upper()
+            features.append({"name": "usage_weighted_pitcher_vs_hitter_score", "value": gate_score, "source": "canonical_model_engine_usage_weighted_gate", "transform": "raw"})
+            features.append({"name": "supported_usage_share", "value": _safe_float(gate.get("supported_usage_share")), "source": "canonical_model_engine_usage_weighted_gate", "transform": "raw"})
+            drivers.append("usage-weighted pitcher-vs-hitter gate evaluated from matchup batter-vs-arsenal summary")
+            if gate.get("pitch_data_quality_flags"):
+                drivers.append("pitch data quality flags present in batter-vs-arsenal evaluation")
+                missing.append("pitch_data_quality_review")
+            is_under = lowered_selection.startswith("under")
+            if gate_status in {"NO_BET", "MONITOR"}:
+                if is_under:
+                    model_probability = round(canonical_clamp(model_probability + 0.03, 0.03, 0.85), 4)
+                    drivers.append("weak batter-side usage-weighted gate slightly supports under outcome")
+                else:
+                    model_probability = round(canonical_clamp(model_probability - 0.08, 0.03, 0.85), 4)
+                    drivers.append("weak batter-side usage-weighted gate suppresses over recommendation")
+            elif gate_status in {"LEAN", "STRONG", "LOCK"}:
+                if is_under:
+                    model_probability = round(canonical_clamp(model_probability - 0.03, 0.03, 0.85), 4)
+                    drivers.append("positive batter-side usage-weighted gate slightly suppresses under outcome")
+                else:
+                    model_probability = round(canonical_clamp(model_probability + 0.05, 0.03, 0.85), 4)
+                    drivers.append("positive batter-side usage-weighted gate supports over recommendation")
+        else:
+            missing.append("usage_weighted_pitcher_vs_hitter_gate")
+
+    if lowered_selection.startswith("under"):
         model_probability = round(_clamp(1.0 - model_probability, 0.03, 0.85), 4)
         drivers.append("under selection inversion")
 
-    return model_probability, drivers, features, missing
+    return model_probability, drivers, features, missing, gate
 
 
 def build_prop_models(matchup: Dict[str, Any], prop_markets: List[Dict[str, Any]], market_filter: Optional[str] = None, limit: int = 20) -> Dict[str, Any]:
@@ -384,44 +564,46 @@ def build_prop_models(matchup: Dict[str, Any], prop_markets: List[Dict[str, Any]
         if market_filter and market_filter != "all" and market_filter not in {market_name, market_key}:
             continue
         for sel in market.get("selections", []) or []:
-            implied = _american_to_implied(sel.get("price"))
+            price = _safe_float(sel.get("price"))
+            implied = _american_to_implied(price)
             line = _safe_float(sel.get("line"))
             selection = _selection_label(sel)
-            model_probability, drivers, model_features, missing = _prop_model_probability(market_key, selection, line, implied, matchup)
-            edge = round(model_probability - implied, 4) if model_probability is not None and implied is not None else None
-            confidence = 0.55
-            if implied is not None:
-                confidence += 0.12
-            if matchup:
-                confidence += 0.08
-            if line is not None:
-                confidence += 0.05
-            confidence = round(_clamp(confidence, 0.10, 0.82), 3)
-            score = abs(edge) if edge is not None else model_probability or 0.0
+            player_name = sel.get("description") or sel.get("name")
+            model_probability, drivers, model_features, missing, gate = _prop_model_probability(market_key, selection, player_name, line, implied, matchup)
+            score = abs((model_probability - implied)) if model_probability is not None and implied is not None else model_probability or 0.0
             features_used = [
-                {"name": "prop_price", "value": sel.get("price"), "source": "draftkings.props.price", "transform": "american"},
+                {"name": "prop_price", "value": price, "source": "draftkings.props.price", "transform": "american"},
                 {"name": "prop_line", "value": line, "source": "draftkings.props.line", "transform": "raw"},
                 *model_features,
             ]
-            candidates.append({
-                "model": "prop_pregame_candidates_v2",
-                "market": market_key,
-                "market_name": market_name,
-                "market_family": _prop_market_family(market_key),
-                "pick": selection,
-                "player_name": sel.get("description") or sel.get("name"),
-                "selection": sel.get("name"),
-                "line": line,
-                "price": sel.get("price"),
-                "score": round(score, 4),
-                "model_probability": model_probability,
-                "market_implied_probability": implied,
-                "edge": edge,
-                "confidence": confidence,
-                "features_used": features_used,
-                "missing_inputs": missing,
-                "drivers": drivers,
-                "available": implied is not None,
-            })
+            diagnostics = {
+                "lineup_status": matchup.get("lineup_status"),
+                "data_confidence": matchup.get("data_confidence"),
+                "model_version": matchup.get("model_version"),
+                "usage_weighted_gate": gate,
+            }
+            output = _model_output(
+                "prop_pregame_candidates_v2",
+                market_key,
+                selection,
+                round(score, 4),
+                model_probability,
+                implied,
+                price,
+                features_used,
+                missing,
+                drivers,
+                diagnostics,
+            )
+            candidates.append(
+                {
+                    **output,
+                    "market_name": market_name,
+                    "market_family": _prop_market_family(market_key),
+                    "player_name": player_name,
+                    "selection": sel.get("name"),
+                    "line": line,
+                }
+            )
     candidates.sort(key=lambda row: ((abs(row.get("edge") or 0.0) * 10.0) + (row.get("confidence") or 0.0) + (row.get("score") or 0.0)), reverse=True)
     return {"top_candidates": candidates[:limit], "candidate_count": len(candidates)}
