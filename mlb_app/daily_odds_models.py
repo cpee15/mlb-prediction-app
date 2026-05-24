@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from .canonical_game_context import build_canonical_game_context
 from .canonical_model_engine import (
     american_to_implied_probability,
     assign_confidence_tier,
@@ -61,6 +62,7 @@ def _data_quality_score(used: int, expected: int, diagnostics: Optional[Dict[str
     diagnostics = diagnostics or {}
     lineup_status = str(diagnostics.get("lineup_status") or "").lower()
     data_confidence = str(diagnostics.get("data_confidence") or "").lower()
+    canonical_game_context = diagnostics.get("canonical_game_context") or {}
 
     if data_confidence == "high":
         base += 0.12
@@ -75,6 +77,10 @@ def _data_quality_score(used: int, expected: int, diagnostics: Optional[Dict[str
         base -= 0.05
     elif lineup_status == "projected":
         base += 0.02
+
+    context_quality = _safe_float(canonical_game_context.get("data_quality_score"))
+    if context_quality is not None:
+        base = (base * 0.55) + (context_quality * 0.45)
 
     return round(_clamp(base, 0.0, 1.0), 3)
 
@@ -135,6 +141,13 @@ def _extract_batter_gate(matchup: Dict[str, Any], player_name: Optional[str]) ->
         if "final_pitcher_vs_hitter_recommendation_status" in value:
             return value
     return None
+
+
+def _game_context_object(matchup: Dict[str, Any]) -> Dict[str, Any]:
+    existing = matchup.get("canonical_game_context")
+    if isinstance(existing, dict) and existing:
+        return existing
+    return build_canonical_game_context(matchup)
 
 
 def _model_output(
@@ -219,12 +232,14 @@ def _game_context(matchup: Dict[str, Any]) -> Dict[str, Any]:
 
 def build_game_models(matchup: Dict[str, Any], event: Dict[str, Any]) -> Dict[str, Any]:
     ctx = _game_context(matchup)
+    canonical_game_context = _game_context_object(matchup)
     moneyline = _find_market(event, ["h2h"])
     spread = _find_market(event, ["spreads"])
     total = _find_market(event, ["totals"])
     return {
         "game_pk": ctx.get("game_pk"),
         "event_id": event.get("event_id"),
+        "canonical_game_context": canonical_game_context,
         "moneyline": build_moneyline_model(matchup, moneyline, ctx),
         "spread": build_spread_model(matchup, spread, ctx),
         "total": build_total_model(matchup, total, ctx),
@@ -235,11 +250,14 @@ def build_moneyline_model(matchup: Dict[str, Any], market: Optional[Dict[str, An
     features: List[Dict[str, Any]] = []
     missing: List[str] = []
     drivers: List[str] = []
+    canonical_game_context = _game_context_object(matchup)
 
     home_prob_raw, home_prob_src = _get(matchup, ["home_win_prob", "home_win_probability", "probabilities.home", "prediction.home_win_probability"])
     away_prob_raw, away_prob_src = _get(matchup, ["away_win_prob", "away_win_probability", "probabilities.away", "prediction.away_win_probability"])
     home_prob = _feature(features, "home_canonical_win_probability", home_prob_raw, home_prob_src or "home_win_prob", "canonical_v2")
     away_prob = _feature(features, "away_canonical_win_probability", away_prob_raw, away_prob_src or "away_win_prob", "canonical_v2")
+    context_gap = _feature(features, "canonical_game_probability_gap", canonical_game_context.get("probability_gap"), "canonical_game_context", "raw")
+    context_quality = _feature(features, "canonical_game_data_quality_score", canonical_game_context.get("data_quality_score"), "canonical_game_context", "raw")
     if home_prob is None:
         missing.append("home_canonical_win_probability")
     if away_prob is None:
@@ -251,6 +269,8 @@ def build_moneyline_model(matchup: Dict[str, Any], market: Optional[Dict[str, An
         drivers.append(f"canonical model version: {model_version}")
     if probability_components:
         drivers.append("canonical probability component diagnostics available")
+    if canonical_game_context:
+        drivers.append("shared canonical game context available for side, projected runs, and pitcher/team decomposition")
 
     home_sel = _pick_selection_by_team(market, ctx.get("home_team") or "")
     away_sel = _pick_selection_by_team(market, ctx.get("away_team") or "")
@@ -268,7 +288,7 @@ def build_moneyline_model(matchup: Dict[str, Any], market: Optional[Dict[str, An
         missing.append("away_market_implied_probability")
 
     if home_prob is None or away_prob is None:
-        return _model_output("moneyline_canonical_v2", "moneyline", "No pick", 0.0, None, None, None, features, missing, drivers, {"model_version": model_version})
+        return _model_output("moneyline_canonical_v2", "moneyline", "No pick", 0.0, None, None, None, features, missing, drivers, {"model_version": model_version, "canonical_game_context": canonical_game_context})
 
     pick_home = home_prob >= away_prob
     pick = ctx.get("home_team") if pick_home else ctx.get("away_team")
@@ -276,6 +296,8 @@ def build_moneyline_model(matchup: Dict[str, Any], market: Optional[Dict[str, An
     market_prob = home_market if pick_home else away_market
     market_price = home_price if pick_home else away_price
     drivers.append("final side probability comes from canonical matchup home_win_prob/away_win_prob")
+    if context_gap is not None:
+        drivers.append("shared canonical game context probability gap informs confidence and diagnostics")
     if market_prob is not None:
         drivers.append("edge equals canonical probability minus sportsbook implied probability")
 
@@ -298,6 +320,7 @@ def build_moneyline_model(matchup: Dict[str, Any], market: Optional[Dict[str, An
             "legacy_home_win_prob": matchup.get("legacy_home_win_prob"),
             "legacy_away_win_prob": matchup.get("legacy_away_win_prob"),
             "market_context_note": "Odds compare against canonical probability; odds do not define the model.",
+            "canonical_game_context": canonical_game_context,
         },
     )
 
@@ -306,10 +329,15 @@ def build_spread_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]]
     features: List[Dict[str, Any]] = []
     missing: List[str] = []
     drivers: List[str] = []
-    home_runs_raw, home_runs_src = _get(matchup, ["home_projected_runs", "home_runs_projected", "projection.home_runs", "home_score_projection"])
-    away_runs_raw, away_runs_src = _get(matchup, ["away_projected_runs", "away_runs_projected", "projection.away_runs", "away_score_projection"])
-    home_runs = _feature(features, "home_projected_runs", home_runs_raw, home_runs_src)
-    away_runs = _feature(features, "away_projected_runs", away_runs_raw, away_runs_src)
+    canonical_game_context = _game_context_object(matchup)
+    home_runs_raw, home_runs_src = _get(matchup, ["home_projected_runs", "home_runs_projected", "projection.home_runs", "home_score_projection", "canonical_game_context.projected_home_runs"])
+    away_runs_raw, away_runs_src = _get(matchup, ["away_projected_runs", "away_runs_projected", "projection.away_runs", "away_score_projection", "canonical_game_context.projected_away_runs"])
+    if home_runs_raw is None:
+        home_runs_raw = canonical_game_context.get("projected_home_runs")
+    if away_runs_raw is None:
+        away_runs_raw = canonical_game_context.get("projected_away_runs")
+    home_runs = _feature(features, "home_projected_runs", home_runs_raw, home_runs_src or "canonical_game_context.projected_home_runs")
+    away_runs = _feature(features, "away_projected_runs", away_runs_raw, away_runs_src or "canonical_game_context.projected_away_runs")
     if home_runs is None:
         missing.append("home_projected_runs")
     if away_runs is None:
@@ -320,6 +348,8 @@ def build_spread_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]]
     if home_prob is not None and away_prob is not None:
         features.append({"name": "canonical_home_win_probability", "value": home_prob, "source": "home_win_prob", "transform": "canonical_v2"})
         features.append({"name": "canonical_away_win_probability", "value": away_prob, "source": "away_win_prob", "transform": "canonical_v2"})
+    if canonical_game_context:
+        drivers.append("shared canonical game context available for projected runs and side decomposition")
 
     if home_runs is not None and away_runs is not None:
         run_diff = home_runs - away_runs
@@ -370,6 +400,7 @@ def build_spread_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]]
         {
             "lineup_status": matchup.get("lineup_status"),
             "data_confidence": matchup.get("data_confidence"),
+            "canonical_game_context": canonical_game_context,
         },
     )
 
@@ -378,6 +409,7 @@ def build_total_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]],
     features: List[Dict[str, Any]] = []
     missing: List[str] = []
     drivers: List[str] = []
+    canonical_game_context = _game_context_object(matchup)
     temp_raw, temp_src = _get(matchup, ["weather.temp_f", "weather.temp", "temp_f"])
     temp = _feature(features, "temperature_f", temp_raw, temp_src)
     if temp is None:
@@ -386,10 +418,14 @@ def build_total_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]],
     wind = _feature(features, "wind_speed", wind_raw, wind_src)
     if wind is None:
         missing.append("wind_speed")
-    home_off_raw, home_off_src = _get(matchup, ["home_offense_score", "home_team_strength", "home_hitting_score", "home_team_stats.ops"])
-    away_off_raw, away_off_src = _get(matchup, ["away_offense_score", "away_team_strength", "away_hitting_score", "away_team_stats.ops"])
-    home_off = _feature(features, "home_offense_strength", home_off_raw, home_off_src)
-    away_off = _feature(features, "away_offense_strength", away_off_raw, away_off_src)
+    home_off_raw, home_off_src = _get(matchup, ["home_offense_score", "home_team_strength", "home_hitting_score", "away_offense_inputs.on_base_pct", "canonical_game_context.team_recent_form_component.home.team_recent_form_score"])
+    away_off_raw, away_off_src = _get(matchup, ["away_offense_score", "away_team_strength", "away_hitting_score", "home_offense_inputs.on_base_pct", "canonical_game_context.team_recent_form_component.away.team_recent_form_score"])
+    if home_off_raw is None:
+        home_off_raw = ((canonical_game_context.get("team_recent_form_component") or {}).get("home") or {}).get("team_recent_form_score")
+    if away_off_raw is None:
+        away_off_raw = ((canonical_game_context.get("team_recent_form_component") or {}).get("away") or {}).get("team_recent_form_score")
+    home_off = _feature(features, "home_offense_strength", home_off_raw, home_off_src or "canonical_game_context.team_recent_form_component.home.team_recent_form_score")
+    away_off = _feature(features, "away_offense_strength", away_off_raw, away_off_src or "canonical_game_context.team_recent_form_component.away.team_recent_form_score")
     if home_off is None:
         missing.append("home_offense_strength")
     if away_off is None:
@@ -433,8 +469,9 @@ def build_total_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]],
         drivers.append("wind run environment")
     if home_off is not None and away_off is not None:
         env += (home_off + away_off - 1.0)
-        drivers.append("combined offense")
-    projected_total = (market_total if market_total is not None else 8.5) + env
+        drivers.append("combined offense or recent-form context")
+    context_total = _safe_float(canonical_game_context.get("projected_total_runs"))
+    projected_total = context_total if context_total is not None else (market_total if market_total is not None else 8.5) + env
     pick_over = projected_total >= (market_total if market_total is not None else 8.5)
     pick = f"Over {market_total}" if pick_over else f"Under {market_total}"
     model_prob = canonical_clamp(0.5 + abs(projected_total - (market_total or 8.5)) / 5.0)
@@ -454,6 +491,7 @@ def build_total_model(matchup: Dict[str, Any], market: Optional[Dict[str, Any]],
         {
             "lineup_status": matchup.get("lineup_status"),
             "data_confidence": matchup.get("data_confidence"),
+            "canonical_game_context": canonical_game_context,
         },
     )
 
@@ -558,6 +596,7 @@ def _prop_model_probability(
 
 def build_prop_models(matchup: Dict[str, Any], prop_markets: List[Dict[str, Any]], market_filter: Optional[str] = None, limit: int = 20) -> Dict[str, Any]:
     candidates: List[Dict[str, Any]] = []
+    canonical_game_context = _game_context_object(matchup)
     for market in prop_markets or []:
         market_name = str(market.get("market_name") or market.get("market_key") or "prop")
         market_key = str(market.get("market_key") or market.get("market_type") or market_name)
@@ -581,6 +620,7 @@ def build_prop_models(matchup: Dict[str, Any], prop_markets: List[Dict[str, Any]
                 "data_confidence": matchup.get("data_confidence"),
                 "model_version": matchup.get("model_version"),
                 "usage_weighted_gate": gate,
+                "canonical_game_context": canonical_game_context,
             }
             output = _model_output(
                 "prop_pregame_candidates_v2",
@@ -603,7 +643,8 @@ def build_prop_models(matchup: Dict[str, Any], prop_markets: List[Dict[str, Any]
                     "player_name": player_name,
                     "selection": sel.get("name"),
                     "line": line,
+                    "canonical_game_context": canonical_game_context,
                 }
             )
     candidates.sort(key=lambda row: ((abs(row.get("edge") or 0.0) * 10.0) + (row.get("confidence") or 0.0) + (row.get("score") or 0.0)), reverse=True)
-    return {"top_candidates": candidates[:limit], "candidate_count": len(candidates)}
+    return {"top_candidates": candidates[:limit], "candidate_count": len(candidates), "canonical_game_context": canonical_game_context}
