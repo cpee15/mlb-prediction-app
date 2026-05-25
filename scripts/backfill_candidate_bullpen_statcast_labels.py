@@ -119,6 +119,12 @@ def _parse_args() -> argparse.Namespace:
         help="Requested write mode. Ignored in scaffold; no DB writes occur.",
     )
     parser.add_argument(
+        "--allow-live-write",
+        action="store_true",
+        default=False,
+        help="Reserved future live write gate. Currently always blocked for --source-mode live.",
+    )
+    parser.add_argument(
         "--skip-existing",
         action="store_true",
         default=True,
@@ -941,7 +947,36 @@ def _layer_6cy_run_live_dry_run_scaffold(args: argparse.Namespace) -> int:
 
 
 def _layer_6cv_run_live_mode(args: argparse.Namespace) -> int:
-    return _layer_6cy_run_live_dry_run_scaffold(args)
+    import re
+
+    label_dates: List[str] = []
+    raw_date_values = [value for value in [args.start_date, args.end_date] if value]
+    strict_date_values = [
+        str(value)
+        for value in raw_date_values
+        if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value)
+    ]
+
+    if raw_date_values and len(strict_date_values) != len(raw_date_values):
+        label_dates = [str(value) for value in raw_date_values]
+    elif args.start_date and args.end_date:
+        try:
+            label_dates = _date_range(args.start_date, args.end_date)
+        except Exception:
+            label_dates = [str(args.start_date), str(args.end_date)]
+    elif args.start_date:
+        label_dates = [str(args.start_date)]
+    elif args.end_date:
+        label_dates = [str(args.end_date)]
+
+    live_artifact = run_candidate_bullpen_live_adapter_scaffold(
+        label_dates,
+        source_mode=CANDIDATE_BULLPEN_SOURCE_MODE_LIVE,
+        dry_run=bool(args.dry_run),
+        allow_live_write=bool(getattr(args, "allow_live_write", False) or getattr(args, "write", False)),
+    )
+    print(json.dumps(live_artifact, indent=2, sort_keys=True))
+    return 0
 
 def main() -> None:
     args = _parse_args()
@@ -1060,8 +1095,10 @@ def main() -> None:
     print(json.dumps(diagnosis, indent=2))
 
 
-if __name__ == "__main__":
-    main()
+# Layer 6DP: candidate bullpen Statcast live adapter CLI scaffold integration.
+# CLI integration version: candidate_bullpen_live_adapter_cli_scaffold_integration_v0.1
+# Explicit --source-mode live CLI invocations route into the audited 6DL helper
+# while default scaffold/fixture behavior remains unchanged.
 
 # Layer 6DL: candidate bullpen Statcast live adapter scaffold integration.
 # Safety contract:
@@ -1224,4 +1261,5 @@ def run_candidate_bullpen_live_adapter_scaffold(
     )
     return _candidate_bullpen_live_artifact_from_adapter_result(result)
 
-
+if __name__ == "__main__":
+    main()
