@@ -1062,3 +1062,166 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# Layer 6DL: candidate bullpen Statcast live adapter scaffold integration.
+# Safety contract:
+# - default fixture behavior remains unchanged
+# - live source mode is explicit only
+# - live source mode requires dry-run
+# - no DB writes are performed from live adapter rows
+# - candidate labels are not materialized from live rows in this layer
+# - adapter import is lazy and only inside the live branch
+CANDIDATE_BULLPEN_LIVE_ADAPTER_SCAFFOLD_INTEGRATION_VERSION = (
+    "candidate_bullpen_live_adapter_scaffold_integration_v0.1"
+)
+
+CANDIDATE_BULLPEN_SOURCE_MODE_FIXTURE = "fixture"
+CANDIDATE_BULLPEN_SOURCE_MODE_LIVE = "live"
+
+CANDIDATE_BULLPEN_LIVE_STATUS_REQUIRES_DRY_RUN = "live_requires_dry_run"
+CANDIDATE_BULLPEN_LIVE_STATUS_WRITE_BLOCKED = "live_write_blocked"
+CANDIDATE_BULLPEN_LIVE_STATUS_DATE_WINDOW_INVALID = "live_date_window_invalid"
+
+CANDIDATE_BULLPEN_LIVE_ARTIFACT_FIELDS = [
+    "source_mode",
+    "adapter_status",
+    "adapter_raw_row_count",
+    "adapter_normalized_row_count",
+    "adapter_duplicate_count",
+    "adapter_required_field_failures",
+    "adapter_missing_fields",
+    "adapter_fetch_error",
+    "adapter_external_fetch_performed",
+    "adapter_db_writes_performed",
+    "adapter_source_adapter_version",
+]
+
+
+def _candidate_bullpen_validate_live_label_dates(label_dates):
+    """Return (valid, normalized_dates, status, error) for live-source mode."""
+    import re
+
+    if isinstance(label_dates, str):
+        normalized_dates = [label_dates]
+    else:
+        normalized_dates = list(label_dates or [])
+
+    if len(normalized_dates) != 1:
+        return (
+            False,
+            normalized_dates,
+            CANDIDATE_BULLPEN_LIVE_STATUS_DATE_WINDOW_INVALID,
+            "live source mode requires exactly one label_date",
+        )
+
+    label_date = normalized_dates[0]
+    if not isinstance(label_date, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", label_date):
+        return (
+            False,
+            normalized_dates,
+            CANDIDATE_BULLPEN_LIVE_STATUS_DATE_WINDOW_INVALID,
+            "live source mode requires label_date in YYYY-MM-DD format",
+        )
+
+    return True, normalized_dates, "", ""
+
+
+def _candidate_bullpen_live_artifact_from_adapter_result(result, source_mode=CANDIDATE_BULLPEN_SOURCE_MODE_LIVE):
+    """Map a LiveAdapterResult into scaffold-safe live artifact metadata."""
+    return {
+        "source_mode": source_mode,
+        "adapter_status": result.status,
+        "adapter_raw_row_count": result.raw_row_count,
+        "adapter_normalized_row_count": result.normalized_row_count,
+        "adapter_duplicate_count": result.duplicate_count,
+        "adapter_required_field_failures": result.required_field_failures,
+        "adapter_missing_fields": list(result.missing_fields),
+        "adapter_fetch_error": result.fetch_error,
+        "adapter_external_fetch_performed": result.external_fetch_performed,
+        "adapter_db_writes_performed": result.db_writes_performed,
+        "adapter_source_adapter_version": result.source_adapter_version,
+        "external_fetch_performed": result.external_fetch_performed,
+        "db_writes_performed": False,
+        "candidate_labels_materialized": False,
+        "production_default_unchanged": True,
+    }
+
+
+def _candidate_bullpen_live_blocked_artifact(status, error="", source_mode=CANDIDATE_BULLPEN_SOURCE_MODE_LIVE):
+    """Return scaffold-safe blocked live artifact metadata without calling the adapter."""
+    return {
+        "source_mode": source_mode,
+        "adapter_status": status,
+        "adapter_raw_row_count": 0,
+        "adapter_normalized_row_count": 0,
+        "adapter_duplicate_count": 0,
+        "adapter_required_field_failures": 0,
+        "adapter_missing_fields": [],
+        "adapter_fetch_error": error,
+        "adapter_external_fetch_performed": False,
+        "adapter_db_writes_performed": False,
+        "adapter_source_adapter_version": "",
+        "external_fetch_performed": False,
+        "db_writes_performed": False,
+        "candidate_labels_materialized": False,
+        "production_default_unchanged": True,
+    }
+
+
+def run_candidate_bullpen_live_adapter_scaffold(
+    label_dates,
+    *,
+    source_mode=CANDIDATE_BULLPEN_SOURCE_MODE_FIXTURE,
+    dry_run=False,
+    allow_live_write=False,
+    timeout_seconds=30,
+    max_retries=0,
+    fetcher=None,
+):
+    """Safe scaffold entry point for the candidate bullpen live adapter.
+
+    This helper is intentionally inert unless source_mode == "live". It is
+    designed for future CLI wiring and test validation while preserving fixture
+    defaults. No database writes or candidate-label materialization happen here.
+    """
+    if source_mode != CANDIDATE_BULLPEN_SOURCE_MODE_LIVE:
+        return {
+            "source_mode": CANDIDATE_BULLPEN_SOURCE_MODE_FIXTURE,
+            "adapter_status": "fixture_mode_unchanged",
+            "external_fetch_performed": False,
+            "db_writes_performed": False,
+            "candidate_labels_materialized": False,
+            "production_default_unchanged": True,
+        }
+
+    valid, normalized_dates, status, error = _candidate_bullpen_validate_live_label_dates(label_dates)
+    if not valid:
+        return _candidate_bullpen_live_blocked_artifact(status, error)
+
+    if not dry_run:
+        return _candidate_bullpen_live_blocked_artifact(
+            CANDIDATE_BULLPEN_LIVE_STATUS_REQUIRES_DRY_RUN,
+            "live source mode requires --dry-run",
+        )
+
+    if allow_live_write:
+        return _candidate_bullpen_live_blocked_artifact(
+            CANDIDATE_BULLPEN_LIVE_STATUS_WRITE_BLOCKED,
+            "live write mode is blocked until a later audited write-gate layer",
+        )
+
+    # Lazy import boundary: no adapter import in fixture/default mode and no
+    # top-level live dependency import in this scaffold.
+    from scripts.fetch_candidate_bullpen_statcast_live_adapter import (
+        fetch_candidate_bullpen_statcast_live_rows_for_date,
+    )
+
+    result = fetch_candidate_bullpen_statcast_live_rows_for_date(
+        normalized_dates[0],
+        timeout_seconds,
+        max_retries,
+        fetcher=fetcher,
+    )
+    return _candidate_bullpen_live_artifact_from_adapter_result(result)
+
+
