@@ -72,6 +72,16 @@ function fmt(value, digits = 3) {
   return Number.isInteger(n) ? String(n) : n.toFixed(digits)
 }
 
+function textValue(value) {
+  if (value === null || value === undefined || value === '') return ''
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
 function gradeLabel(row) {
   if (row.grade === 'pending') return 'Snapshot Pending'
   if (row.result_status === 'live') return 'Live Tracking'
@@ -108,7 +118,7 @@ function GameTrackerCard({ game }) {
           <div style={s.rowTitle}>{row.pick_label || row.player_name || row.team_name || row.model_name || 'Tracked output'}</div>
           <div style={s.rowMeta}>{row.source} / {row.source_component} · {row.market_type || 'model'} · {gradeLabel(row)}</div>
           <div style={s.rowMeta}>Score {fmt(row.score)} · Confidence {fmt(row.confidence)} · Edge {fmt(row.edge)}</div>
-          {row.primary_reason && <details style={s.detail}><summary>Reason</summary>{row.primary_reason}</details>}
+          {textValue(row.primary_reason) && <details style={s.detail}><summary>Reason</summary>{textValue(row.primary_reason)}</details>}
         </div>)}
       </div>
     </div>
@@ -196,15 +206,18 @@ export default function ModelTrackerPage() {
       if (gradeFilter !== 'all' && row.grade !== gradeFilter) return false
       if (gameFilter !== 'all' && String(row.game_pk || 'ungrouped') !== gameFilter) return false
       if (!q) return true
-      return [row.pick_label, row.player_name, row.team_name, row.away_team, row.home_team, row.model_name, row.primary_reason]
+      return [row.pick_label, row.player_name, row.team_name, row.away_team, row.home_team, row.model_name, textValue(row.primary_reason), textValue(row.grade_reason)]
         .some(value => String(value || '').toLowerCase().includes(q))
     })
   }, [rows, sourceFilter, gradeFilter, gameFilter, search])
 
   const filteredGames = useMemo(() => {
     const allowedIds = new Set(filteredRows.map(row => String(row.game_pk || 'ungrouped')))
-    return games.map(game => ({ ...game, rows: (game.rows || []).filter(row => filteredRows.some(fr => fr.id === row.id)) }))
-      .filter(game => allowedIds.has(String(game.game_pk || 'ungrouped')))
+    const filteredRowKeys = new Set(filteredRows.map(row => row.id || row.tracker_key).filter(Boolean))
+    return games.map(game => ({
+      ...game,
+      rows: (game.rows || []).filter(row => filteredRowKeys.has(row.id || row.tracker_key)),
+    })).filter(game => allowedIds.has(String(game.game_pk || 'ungrouped')))
   }, [games, filteredRows])
 
   const summary = payload?.summary || {}
@@ -284,7 +297,7 @@ export default function ModelTrackerPage() {
               <td style={s.td}>{fmt(row.price, 0)}</td>
               <td style={s.td}>{row.result_status}</td>
               <td style={s.td}>{row.grade}</td>
-              <td style={{ ...s.td, whiteSpace: 'normal', minWidth: 300, maxWidth: 520 }}>{row.grade_reason || row.primary_reason || 'N/A'}</td>
+              <td style={{ ...s.td, whiteSpace: 'pre-wrap', minWidth: 300, maxWidth: 520 }}>{textValue(row.grade_reason || row.primary_reason || 'N/A')}</td>
             </tr>)}
           </tbody>
         </table>
