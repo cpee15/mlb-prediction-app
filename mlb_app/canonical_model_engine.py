@@ -6,27 +6,6 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 CONFIDENCE_TIERS = ("NO_BET", "MONITOR", "LEAN", "STRONG", "LOCK")
 
 
-XWOBA_BASELINE = 0.320
-ON_BASE_BASELINE = 0.320
-HARD_HIT_BASELINE = 0.38
-BARREL_BASELINE = 0.08
-WHIFF_BASELINE = 0.28
-STRIKEOUT_BASELINE = 0.24
-
-
-CONTACT_WEIGHTS = {
-    "xwoba": 1.2,
-    "on_base_pct": 1.0,
-    "hard_hit_pct": 1.1,
-    "barrel_pct": 0.9,
-}
-
-RISK_WEIGHTS = {
-    "whiff_pct": 1.2,
-    "k_pct": 1.0,
-}
-
-
 def safe_float(value: Any) -> Optional[float]:
     try:
         if value is None or value == "":
@@ -112,67 +91,7 @@ def _weighted_average(parts: List[Tuple[Optional[float], float]]) -> Optional[fl
     return numerator / denominator
 
 
-def _trace_step(label: str, expression: str, inputs: Dict[str, Any], result: Any, *, pitch_type: Optional[str] = None, category: Optional[str] = None) -> Dict[str, Any]:
-    step = {
-        "label": label,
-        "expression": expression,
-        "inputs": inputs,
-        "result": result,
-    }
-    if pitch_type is not None:
-        step["pitch_type"] = pitch_type
-    if category is not None:
-        step["category"] = category
-    return step
-
-
-def _component_delta(value: Optional[float], baseline: float, scale: float) -> Optional[float]:
-    if value is None:
-        return None
-    return (value - baseline) * scale
-
-
-def _weighted_component_trace(
-    *,
-    pitch_type: str,
-    metric_name: str,
-    metric_value: Optional[float],
-    baseline: float,
-    scale: float,
-    weight: float,
-    category: str,
-) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[float]]:
-    delta = _component_delta(metric_value, baseline, scale)
-    if metric_value is None or delta is None:
-        return None, None, None
-    weighted_contribution = delta * weight
-    component = {
-        "metric_name": metric_name,
-        "metric_value": round(metric_value, 4),
-        "baseline": baseline,
-        "scale": scale,
-        "weight": weight,
-        "delta_score": round(delta, 4),
-        "weighted_contribution": round(weighted_contribution, 4),
-    }
-    trace = _trace_step(
-        label=f"{metric_name} weighted contribution",
-        expression=f"(({metric_name} - baseline) * scale) * weight",
-        inputs={
-            metric_name: round(metric_value, 4),
-            "baseline": baseline,
-            "scale": scale,
-            "weight": weight,
-            "delta_score": round(delta, 4),
-        },
-        result=round(weighted_contribution, 4),
-        pitch_type=pitch_type,
-        category=category,
-    )
-    return component, trace, weighted_contribution
-
-
-def _pitch_type_support_metrics(pitch_type: str, metrics: Dict[str, Any]) -> Dict[str, Any]:
+def _pitch_type_support_metrics(metrics: Dict[str, Any]) -> Dict[str, Optional[float]]:
     xwoba = safe_float(metrics.get("xwoba"))
     on_base = safe_float(metrics.get("on_base_pct"))
     hard_hit = normalize_rate(metrics.get("hard_hit_pct"))
@@ -180,85 +99,19 @@ def _pitch_type_support_metrics(pitch_type: str, metrics: Dict[str, Any]) -> Dic
     whiff = normalize_rate(metrics.get("whiff_pct"))
     strikeout = normalize_rate(metrics.get("k_pct"))
 
-    contact_components: List[Dict[str, Any]] = []
-    risk_components: List[Dict[str, Any]] = []
-    formula_trace: List[Dict[str, Any]] = []
-    contact_parts: List[Tuple[Optional[float], float]] = []
-    risk_parts: List[Tuple[Optional[float], float]] = []
-
-    for metric_name, metric_value, baseline, scale, weight in [
-        ("xwoba", xwoba, XWOBA_BASELINE, 3.0, CONTACT_WEIGHTS["xwoba"]),
-        ("on_base_pct", on_base, ON_BASE_BASELINE, 2.5, CONTACT_WEIGHTS["on_base_pct"]),
-        ("hard_hit_pct", hard_hit, HARD_HIT_BASELINE, 2.5, CONTACT_WEIGHTS["hard_hit_pct"]),
-        ("barrel_pct", barrel, BARREL_BASELINE, 3.0, CONTACT_WEIGHTS["barrel_pct"]),
-    ]:
-        component, trace, weighted = _weighted_component_trace(
-            pitch_type=pitch_type,
-            metric_name=metric_name,
-            metric_value=metric_value,
-            baseline=baseline,
-            scale=scale,
-            weight=weight,
-            category="positive_contact",
-        )
-        if component:
-            contact_components.append(component)
-        if trace:
-            formula_trace.append(trace)
-        contact_parts.append(((_component_delta(metric_value, baseline, scale) if metric_value is not None else None), weight))
-
-    for metric_name, metric_value, baseline, scale, weight in [
-        ("whiff_pct", whiff, WHIFF_BASELINE, 3.0, RISK_WEIGHTS["whiff_pct"]),
-        ("k_pct", strikeout, STRIKEOUT_BASELINE, 2.5, RISK_WEIGHTS["k_pct"]),
-    ]:
-        component, trace, weighted = _weighted_component_trace(
-            pitch_type=pitch_type,
-            metric_name=metric_name,
-            metric_value=metric_value,
-            baseline=baseline,
-            scale=scale,
-            weight=weight,
-            category="whiff_strikeout_risk",
-        )
-        if component:
-            risk_components.append(component)
-        if trace:
-            formula_trace.append(trace)
-        risk_parts.append(((_component_delta(metric_value, baseline, scale) if metric_value is not None else None), weight))
-
-    positive_contact = _weighted_average(contact_parts)
-    whiff_risk = _weighted_average(risk_parts)
+    positive_contact = _weighted_average([
+        (((xwoba - 0.320) * 3.0) if xwoba is not None else None, 1.2),
+        (((on_base - 0.320) * 2.5) if on_base is not None else None, 1.0),
+        (((hard_hit - 0.38) * 2.5) if hard_hit is not None else None, 1.1),
+        (((barrel - 0.08) * 3.0) if barrel is not None else None, 0.9),
+    ])
+    whiff_risk = _weighted_average([
+        (((whiff - 0.28) * 3.0) if whiff is not None else None, 1.2),
+        (((strikeout - 0.24) * 2.5) if strikeout is not None else None, 1.0),
+    ])
     net_score = None
     if positive_contact is not None or whiff_risk is not None:
         net_score = (positive_contact or 0.0) - (whiff_risk or 0.0)
-
-    formula_trace.append(_trace_step(
-        label="positive_contact_score",
-        expression="weighted_average(contact_component_scores)",
-        inputs={"components": contact_components},
-        result=round(positive_contact, 4) if positive_contact is not None else None,
-        pitch_type=pitch_type,
-        category="positive_contact",
-    ))
-    formula_trace.append(_trace_step(
-        label="whiff_strikeout_risk",
-        expression="weighted_average(risk_component_scores)",
-        inputs={"components": risk_components},
-        result=round(whiff_risk, 4) if whiff_risk is not None else None,
-        pitch_type=pitch_type,
-        category="whiff_strikeout_risk",
-    ))
-    formula_trace.append(_trace_step(
-        label="net_pitch_score",
-        expression="positive_contact_score - whiff_strikeout_risk",
-        inputs={
-            "positive_contact_score": round(positive_contact, 4) if positive_contact is not None else None,
-            "whiff_strikeout_risk": round(whiff_risk, 4) if whiff_risk is not None else None,
-        },
-        result=round(net_score, 4) if net_score is not None else None,
-        pitch_type=pitch_type,
-        category="net_pitch_score",
-    ))
 
     return {
         "xwoba": xwoba,
@@ -267,12 +120,9 @@ def _pitch_type_support_metrics(pitch_type: str, metrics: Dict[str, Any]) -> Dic
         "barrel_pct": barrel,
         "whiff_pct": whiff,
         "k_pct": strikeout,
-        "pitch_type_contact_components": contact_components,
-        "pitch_type_risk_components": risk_components,
         "positive_contact_score": round(positive_contact, 4) if positive_contact is not None else None,
         "whiff_strikeout_risk": round(whiff_risk, 4) if whiff_risk is not None else None,
         "net_pitch_type_score": round(net_score, 4) if net_score is not None else None,
-        "formula_trace": formula_trace,
     }
 
 
@@ -283,33 +133,20 @@ def evaluate_usage_weighted_pitcher_vs_hitter(
     min_majority_usage: float = 0.50,
     min_supported_usage_for_positive_note: float = 0.10,
 ) -> Dict[str, Any]:
-    raw_pitcher_arsenal_usage = dict(pitcher_arsenal_usage or {})
-    valid_usage_values: Dict[str, float] = {}
-    invalid_pitch_usage_warnings: List[str] = []
-    formula_trace: List[Dict[str, Any]] = []
-
-    for pitch_type, raw_usage in raw_pitcher_arsenal_usage.items():
+    normalized_usage: Dict[str, float] = {}
+    for pitch_type, raw_usage in (pitcher_arsenal_usage or {}).items():
         usage = normalize_rate(raw_usage)
-        if usage is None or usage <= 0:
-            invalid_pitch_usage_warnings.append(f"{pitch_type}:invalid_or_zero_usage")
-            continue
-        valid_usage_values[str(pitch_type)] = usage
+        if usage is not None and usage > 0:
+            normalized_usage[str(pitch_type)] = usage
 
-    total_usage = sum(valid_usage_values.values())
+    total_usage = sum(normalized_usage.values())
     if total_usage <= 0:
         return {
             "status": "NO_BET",
             "reason": "missing_pitcher_arsenal_usage",
-            "raw_pitcher_arsenal_usage": raw_pitcher_arsenal_usage,
-            "normalized_pitcher_arsenal_usage": {},
             "pitcher_arsenal_usage": {},
             "expected_pitch_type_exposure": {},
             "hitter_metrics_by_pitch_type": hitter_metrics_by_pitch_type or {},
-            "pitch_type_contact_components": {},
-            "positive_contact_score_by_pitch_type": {},
-            "pitch_type_risk_components": {},
-            "whiff_strikeout_risk_by_pitch_type": {},
-            "net_pitch_score_by_pitch_type": {},
             "usage_weighted_positive_contact_score": None,
             "usage_weighted_whiff_strikeout_risk": None,
             "usage_weighted_xwoba_or_on_base_score": None,
@@ -322,57 +159,29 @@ def evaluate_usage_weighted_pitcher_vs_hitter(
             "supported_usage_share": 0.0,
             "usage_weighted_pitcher_vs_hitter_score": None,
             "final_pitcher_vs_hitter_recommendation_status": "NO_BET",
-            "formula_trace": formula_trace,
         }
 
-    exposure: Dict[str, float] = {}
-    for pitch_type, usage in sorted(valid_usage_values.items()):
-        normalized_share = round(usage / total_usage, 4)
-        exposure[pitch_type] = normalized_share
-        formula_trace.append(_trace_step(
-            label="normalized_pitch_usage",
-            expression="raw_pitch_usage / total_valid_pitch_usage",
-            inputs={
-                "raw_pitch_usage": round(usage, 4),
-                "total_valid_pitch_usage": round(total_usage, 4),
-            },
-            result=normalized_share,
-            pitch_type=pitch_type,
-            category="pitch_usage_normalization",
-        ))
-
+    exposure = {pitch_type: round(usage / total_usage, 4) for pitch_type, usage in normalized_usage.items()}
     supporting: List[Dict[str, Any]] = []
     hurting: List[Dict[str, Any]] = []
     low_usage_warnings: List[str] = []
-    pitch_data_quality_flags: List[str] = list(invalid_pitch_usage_warnings)
+    pitch_data_quality_flags: List[str] = []
     weighted_positive_contact = 0.0
     weighted_whiff_risk = 0.0
     weighted_on_base = 0.0
     weighted_hard_hit = 0.0
     weighted_net = 0.0
     supported_usage_share = 0.0
-    pitch_type_contact_components: Dict[str, List[Dict[str, Any]]] = {}
-    positive_contact_score_by_pitch_type: Dict[str, Optional[float]] = {}
-    pitch_type_risk_components: Dict[str, List[Dict[str, Any]]] = {}
-    whiff_strikeout_risk_by_pitch_type: Dict[str, Optional[float]] = {}
-    net_pitch_score_by_pitch_type: Dict[str, Optional[float]] = {}
 
     for pitch_type, usage_share in sorted(exposure.items(), key=lambda item: item[1], reverse=True):
         metrics = dict((hitter_metrics_by_pitch_type or {}).get(pitch_type) or {})
-        support_metrics = _pitch_type_support_metrics(pitch_type, metrics)
-        formula_trace.extend(support_metrics.get("formula_trace") or [])
+        support_metrics = _pitch_type_support_metrics(metrics)
         quality_flag = metrics.get("data_quality_flag")
         sample_size = safe_float(metrics.get("sample_size"))
         if quality_flag:
             pitch_data_quality_flags.append(f"{pitch_type}:{quality_flag}")
         if sample_size is not None and sample_size < 5:
             pitch_data_quality_flags.append(f"{pitch_type}:low_sample_size")
-
-        pitch_type_contact_components[pitch_type] = support_metrics.get("pitch_type_contact_components") or []
-        positive_contact_score_by_pitch_type[pitch_type] = support_metrics.get("positive_contact_score")
-        pitch_type_risk_components[pitch_type] = support_metrics.get("pitch_type_risk_components") or []
-        whiff_strikeout_risk_by_pitch_type[pitch_type] = support_metrics.get("whiff_strikeout_risk")
-        net_pitch_score_by_pitch_type[pitch_type] = support_metrics.get("net_pitch_type_score")
 
         pos = support_metrics.get("positive_contact_score") or 0.0
         risk = support_metrics.get("whiff_strikeout_risk") or 0.0
@@ -384,27 +193,16 @@ def evaluate_usage_weighted_pitcher_vs_hitter(
         weighted_positive_contact += usage_share * pos
         weighted_whiff_risk += usage_share * risk
         if xwoba is not None or on_base is not None:
-            weighted_on_base += usage_share * (((xwoba - XWOBA_BASELINE) if xwoba is not None else 0.0) + ((on_base - ON_BASE_BASELINE) if on_base is not None else 0.0))
+            weighted_on_base += usage_share * (((xwoba - 0.320) if xwoba is not None else 0.0) + ((on_base - 0.320) if on_base is not None else 0.0))
         if hard_hit is not None:
-            weighted_hard_hit += usage_share * (hard_hit - HARD_HIT_BASELINE)
+            weighted_hard_hit += usage_share * (hard_hit - 0.38)
         if net is not None:
             weighted_net += usage_share * net
-            formula_trace.append(_trace_step(
-                label="usage_weighted_pitch_contribution",
-                expression="normalized_usage_share * net_pitch_score",
-                inputs={
-                    "normalized_usage_share": usage_share,
-                    "net_pitch_score": round(net, 4),
-                },
-                result=round(usage_share * net, 4),
-                pitch_type=pitch_type,
-                category="usage_weighting",
-            ))
 
         record = {
             "pitch_type": pitch_type,
             "usage_share": round(usage_share, 4),
-            **{k: v for k, v in support_metrics.items() if k != "formula_trace"},
+            **support_metrics,
         }
 
         pitch_positive = (
@@ -429,32 +227,6 @@ def evaluate_usage_weighted_pitcher_vs_hitter(
     weighted_on_base = round(weighted_on_base, 4)
     weighted_hard_hit = round(weighted_hard_hit, 4)
     weighted_net = round(weighted_net, 4)
-    supported_usage_share = round(supported_usage_share, 4)
-
-    formula_trace.append(_trace_step(
-        label="supported_usage_share",
-        expression="sum(normalized_usage_share for pitches with positive net score)",
-        inputs={"supporting_pitch_types": [{"pitch_type": item["pitch_type"], "usage_share": item["usage_share"]} for item in supporting]},
-        result=supported_usage_share,
-        category="majority_usage_support",
-    ))
-    formula_trace.append(_trace_step(
-        label="majority_usage_supported",
-        expression="supported_usage_share >= min_majority_usage",
-        inputs={"supported_usage_share": supported_usage_share, "min_majority_usage": min_majority_usage},
-        result=majority_usage_supported,
-        category="majority_usage_support",
-    ))
-    formula_trace.append(_trace_step(
-        label="usage_weighted_pitcher_vs_hitter_score",
-        expression="sum(normalized_usage_share * net_pitch_score)",
-        inputs={
-            "normalized_pitch_usage": exposure,
-            "net_pitch_score_by_pitch_type": {k: v for k, v in net_pitch_score_by_pitch_type.items()},
-        },
-        result=weighted_net,
-        category="usage_weighting",
-    ))
 
     status = "NO_BET"
     if pitch_data_quality_flags:
@@ -473,35 +245,12 @@ def evaluate_usage_weighted_pitcher_vs_hitter(
     elif weighted_whiff_risk > weighted_positive_contact:
         low_usage_warnings.append("Usage-weighted whiff/strikeout risk overwhelms positive contact indicators.")
 
-    formula_trace.append(_trace_step(
-        label="final_pitcher_vs_hitter_recommendation_status",
-        expression="status decision from majority usage support, weighted net score, weighted positive contact, weighted risk, and pitch-data-quality flags",
-        inputs={
-            "majority_usage_supported": majority_usage_supported,
-            "usage_weighted_pitcher_vs_hitter_score": weighted_net,
-            "usage_weighted_positive_contact_score": weighted_positive_contact,
-            "usage_weighted_whiff_strikeout_risk": weighted_whiff_risk,
-            "usage_weighted_xwoba_or_on_base_score": weighted_on_base,
-            "usage_weighted_hard_hit_score": weighted_hard_hit,
-            "pitch_data_quality_flags": sorted(set(pitch_data_quality_flags)),
-        },
-        result=status,
-        category="final_status",
-    ))
-
     return {
         "status": status,
         "reason": "usage_weighted_pitcher_vs_hitter_evaluation",
-        "raw_pitcher_arsenal_usage": raw_pitcher_arsenal_usage,
-        "normalized_pitcher_arsenal_usage": exposure,
-        "pitcher_arsenal_usage": {key: round(value, 4) for key, value in valid_usage_values.items()},
+        "pitcher_arsenal_usage": {key: round(value, 4) for key, value in normalized_usage.items()},
         "expected_pitch_type_exposure": exposure,
         "hitter_metrics_by_pitch_type": hitter_metrics_by_pitch_type or {},
-        "pitch_type_contact_components": pitch_type_contact_components,
-        "positive_contact_score_by_pitch_type": positive_contact_score_by_pitch_type,
-        "pitch_type_risk_components": pitch_type_risk_components,
-        "whiff_strikeout_risk_by_pitch_type": whiff_strikeout_risk_by_pitch_type,
-        "net_pitch_score_by_pitch_type": net_pitch_score_by_pitch_type,
         "usage_weighted_positive_contact_score": weighted_positive_contact,
         "usage_weighted_whiff_strikeout_risk": weighted_whiff_risk,
         "usage_weighted_xwoba_or_on_base_score": weighted_on_base,
@@ -511,10 +260,9 @@ def evaluate_usage_weighted_pitcher_vs_hitter(
         "low_usage_pitch_warnings": low_usage_warnings,
         "pitch_data_quality_flags": sorted(set(pitch_data_quality_flags)),
         "majority_usage_supported": majority_usage_supported,
-        "supported_usage_share": supported_usage_share,
+        "supported_usage_share": round(supported_usage_share, 4),
         "usage_weighted_pitcher_vs_hitter_score": weighted_net,
         "final_pitcher_vs_hitter_recommendation_status": status,
-        "formula_trace": formula_trace,
     }
 
 

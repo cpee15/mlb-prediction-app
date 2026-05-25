@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import datetime
-from typing import Any, Dict, Optional
+import time
+from typing import Any, Dict, Optional, Tuple
 
 import requests as _req
 from fastapi import APIRouter, Query
@@ -11,6 +12,7 @@ from .db_utils import (
     get_batter_aggregate_with_fallback,
     get_batter_at_bats,
     get_batter_data_quality,
+    get_batter_leaderboards,
     get_batter_multi_season,
     get_batter_rolling_by_ab,
     get_batter_rolling_by_abs,
@@ -23,6 +25,12 @@ from .db_utils import (
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 router = APIRouter()
+
+# In-process TTL cache for the leaderboard response.
+# The SQL aggregation queries are bounded and safe, but still touch the full
+# season's terminal-event rows. Caching prevents redundant work across requests.
+_LEADERBOARD_TTL_SECONDS = 3600  # 1 hour
+_leaderboard_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 
 def _get_session():
@@ -155,6 +163,37 @@ def _aggregate_to_dict(agg) -> Optional[Dict[str, Any]]:
         "end_date": agg.end_date.isoformat() if agg.end_date else None,
         "window": agg.window,
     }
+
+
+@router.get("/data/freshness")
+def data_freshness() -> Dict[str, Any]:
+    from .data_freshness import build_data_freshness_payload
+
+    Session = _get_session()
+    with Session() as session:
+        return build_data_freshness_payload(session)
+
+
+@router.get("/batters/leaderboards")
+def batters_leaderboards(
+    season: Optional[int] = None,
+    min_pa: int = Query(25, ge=1),
+    min_bbe: int = Query(100, ge=1),
+    limit: int = Query(10, ge=1, le=50),
+) -> Dict[str, Any]:
+    cache_key = f"{season}:{min_pa}:{min_bbe}:{limit}"
+    cached = _leaderboard_cache.get(cache_key)
+    if cached is not None:
+        cached_at, data = cached
+        if time.monotonic() - cached_at < _LEADERBOARD_TTL_SECONDS:
+            return data
+
+    Session = _get_session()
+    with Session() as session:
+        result = get_batter_leaderboards(session, season=season, min_pa=min_pa, min_bbe=min_bbe, limit=limit)
+
+    _leaderboard_cache[cache_key] = (time.monotonic(), result)
+    return result
 
 
 @router.get("/batter/{id}/profile")

@@ -42,7 +42,6 @@ def test_low_usage_pitch_cannot_drive_positive_recommendation():
     )
     assert result["final_pitcher_vs_hitter_recommendation_status"] in {"NO_BET", "MONITOR"}
     assert result["majority_usage_supported"] is False
-    assert result["supported_usage_share"] == 0.05
 
 
 def test_majority_usage_support_can_promote_hitter():
@@ -93,41 +92,6 @@ def test_low_sample_pitch_data_flags_monitor_or_worse():
     )
     assert result["pitch_data_quality_flags"]
     assert result["final_pitcher_vs_hitter_recommendation_status"] in {"MONITOR", "NO_BET"}
-
-
-def test_formula_trace_is_populated_with_real_calculation_steps():
-    result = evaluate_usage_weighted_pitcher_vs_hitter(
-        pitcher_arsenal_usage={"FF": 52, "SL": 28, "CH": 12, "CU": 8},
-        hitter_metrics_by_pitch_type={
-            "FF": {"xwoba": 0.365, "on_base_pct": 0.350, "hard_hit_pct": 0.47, "barrel_pct": 0.11, "whiff_pct": 0.20, "k_pct": 0.18},
-            "SL": {"xwoba": 0.320, "on_base_pct": 0.315, "hard_hit_pct": 0.37, "barrel_pct": 0.07, "whiff_pct": 0.30, "k_pct": 0.26},
-            "CH": {"xwoba": 0.330, "on_base_pct": 0.325, "hard_hit_pct": 0.41, "barrel_pct": 0.08, "whiff_pct": 0.24, "k_pct": 0.22},
-            "CU": {"xwoba": 0.295, "on_base_pct": 0.300, "hard_hit_pct": 0.32, "barrel_pct": 0.05, "whiff_pct": 0.31, "k_pct": 0.28},
-        },
-    )
-    assert result["formula_trace"]
-    labels = {step["label"] for step in result["formula_trace"]}
-    assert "normalized_pitch_usage" in labels
-    assert "positive_contact_score" in labels
-    assert "whiff_strikeout_risk" in labels
-    assert "net_pitch_score" in labels
-    assert "usage_weighted_pitch_contribution" in labels
-    assert "supported_usage_share" in labels
-    assert "final_pitcher_vs_hitter_recommendation_status" in labels
-
-
-def test_supported_usage_share_is_calculated_from_positive_pitch_types_only():
-    result = evaluate_usage_weighted_pitcher_vs_hitter(
-        pitcher_arsenal_usage={"FF": 52, "SL": 28, "CH": 12, "CU": 8},
-        hitter_metrics_by_pitch_type={
-            "FF": {"xwoba": 0.365, "on_base_pct": 0.350, "hard_hit_pct": 0.47, "barrel_pct": 0.11, "whiff_pct": 0.20, "k_pct": 0.18},
-            "SL": {"xwoba": 0.290, "on_base_pct": 0.300, "hard_hit_pct": 0.32, "barrel_pct": 0.05, "whiff_pct": 0.32, "k_pct": 0.29},
-            "CH": {"xwoba": 0.335, "on_base_pct": 0.330, "hard_hit_pct": 0.42, "barrel_pct": 0.08, "whiff_pct": 0.23, "k_pct": 0.21},
-            "CU": {"xwoba": 0.285, "on_base_pct": 0.295, "hard_hit_pct": 0.31, "barrel_pct": 0.04, "whiff_pct": 0.34, "k_pct": 0.30},
-        },
-    )
-    assert result["supported_usage_share"] == 0.64
-    assert result["majority_usage_supported"] is True
 
 
 def test_team_recent_form_component_identifies_improving_trend():

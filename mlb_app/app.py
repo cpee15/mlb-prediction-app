@@ -32,6 +32,7 @@ import datetime
 import os
 import re
 import time
+import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests as _req
@@ -104,7 +105,18 @@ from mlb_app.simulation.game_simulation_builder import build_game_simulation as 
 from .daily_odds_routes import router as daily_odds_router
 from .simulation.inning_simulator import simulate_half_innings
 from .model_projection_routes import router as model_projection_router
+from .ai_data_assistant_routes import router as ai_data_assistant_router
+from .news_routes import router as news_router
 from .starting_pitcher_arsenal_refresh import refresh_starting_pitcher_arsenal
+from .pitcher_profile_store import (
+    get_pitcher_profile_overview,
+    get_pitcher_profile_arsenal,
+    get_pitcher_profile_recent_games,
+    serialize_pitcher_profile_overview,
+    serialize_pitcher_profile_arsenal,
+    serialize_pitcher_profile_recent_games,
+)
+from .model_tracker_routes import router as model_tracker_router
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 MLB_LIVE_FEED_BASE = "https://statsapi.mlb.com/api/v1.1/game"
@@ -1373,6 +1385,7 @@ def create_app():
         CORSMiddleware,
         allow_origins=["https://mlbgpt.com", "https://www.mlbgpt.com"],
         allow_origin_regex=r"https://.*\.up\.railway\.app",
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -1380,6 +1393,9 @@ def create_app():
     app.include_router(batter_router)
     app.include_router(daily_odds_router)
     app.include_router(model_projection_router)
+    app.include_router(ai_data_assistant_router)
+    app.include_router(news_router)
+    app.include_router(model_tracker_router)
 
     @app.get("/health")
     def health():
@@ -1511,6 +1527,38 @@ def create_app():
             live_only=live_only,
             state=state,
         )
+
+
+    @app.get("/debug/routes")
+    def debug_routes() -> Dict[str, Any]:
+        """Return mounted route visibility for deployment diagnostics."""
+        route_paths = sorted(
+            {
+                getattr(route, "path", "")
+                for route in app.routes
+                if getattr(route, "path", "")
+            }
+        )
+
+        try:
+            git_sha = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip()
+        except Exception:
+            git_sha = os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("GIT_SHA")
+
+        return {
+            "status": "ok",
+            "version": "0.5.2",
+            "git_sha": git_sha,
+            "route_count": len(route_paths),
+            "has_models_projections": "/models/projections" in route_paths,
+            "has_matchups": "/matchups" in route_paths,
+            "has_daily_odds": any(route.startswith("/daily-odds") for route in route_paths),
+            "routes": route_paths,
+        }
 
     @app.get("/matchups")
     def list_matchups(date: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -1663,7 +1711,6 @@ def create_app():
             season=season,
             game_date_iso=game_date_iso,
         )
-
         home_record = home.get("leagueRecord", {}) or {}
         away_record = away.get("leagueRecord", {}) or {}
 
@@ -1677,6 +1724,9 @@ def create_app():
                         "arsenal": [],
                         "arsenal_season": None,
                         "game_log": [],
+                        "profile_overview": None,
+                        "profile_arsenal": [],
+                        "profile_recent_games": [],
                     }
 
                 agg, data_source = get_pitcher_aggregate_with_fallback(session, pid, season)
@@ -1706,6 +1756,10 @@ def create_app():
 
                 game_log = get_pitcher_game_log(session, pid, 5)
 
+                profile_overview_row = get_pitcher_profile_overview(session, pid, season)
+                profile_arsenal_rows = get_pitcher_profile_arsenal(session, pid, season)
+                profile_recent_game_rows = get_pitcher_profile_recent_games(session, pid, limit=5)
+
                 return {
                     "aggregate": {
                         "data_source": data_source,
@@ -1722,8 +1776,10 @@ def create_app():
                     "arsenal": arsenal_rows,
                     "arsenal_season": arsenal_season,
                     "game_log": game_log,
+                    "profile_overview": serialize_pitcher_profile_overview(profile_overview_row),
+                    "profile_arsenal": serialize_pitcher_profile_arsenal(profile_arsenal_rows),
+                    "profile_recent_games": serialize_pitcher_profile_recent_games(profile_recent_game_rows),
                 }
-
             def team_splits(team_id: Optional[int]) -> Dict[str, Any]:
                 if not team_id:
                     return {"vsL": None, "vsR": None}
@@ -2120,7 +2176,11 @@ def create_app():
             multi = get_pitcher_multi_season(session, player_id, [season, season - 1, season - 2, season - 3])
             game_log = get_pitcher_game_log(session, player_id, 10)
 
-            if not agg and not arsenal_rows:
+            profile_overview_row = get_pitcher_profile_overview(session, player_id, season)
+            profile_arsenal_rows = get_pitcher_profile_arsenal(session, player_id, season)
+            profile_recent_game_rows = get_pitcher_profile_recent_games(session, player_id, limit=10)
+
+            if not agg and not arsenal_rows and not profile_overview_row and not profile_arsenal_rows:
                 player_name = None
 
                 try:
@@ -2144,6 +2204,9 @@ def create_app():
                     "arsenal_season": None,
                     "multi_season": [],
                     "game_log": [],
+                    "profile_overview": None,
+                    "profile_arsenal": [],
+                    "profile_recent_games": [],
                     "no_data": True,
                 }
 
@@ -2158,6 +2221,9 @@ def create_app():
                 "arsenal_season": arsenal_season,
                 "multi_season": multi,
                 "game_log": game_log,
+                "profile_overview": serialize_pitcher_profile_overview(profile_overview_row),
+                "profile_arsenal": serialize_pitcher_profile_arsenal(profile_arsenal_rows),
+                "profile_recent_games": serialize_pitcher_profile_recent_games(profile_recent_game_rows),
             }
 
     @app.get("/pitcher/{player_id}/rolling")

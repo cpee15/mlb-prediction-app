@@ -15,11 +15,25 @@ V1 is intentionally simple:
 from __future__ import annotations
 
 import random
+
+from mlb_app.simulation.outcome_subtypes import (
+    derive_outcome_subtype_probabilities,
+)
+
+from mlb_app.simulation.subtype_transitions import (
+    advance_runners_by_subtype,
+)
+
 from collections import Counter
 from typing import Dict, Optional, Any
 
 
 OUTCOMES = ["k", "bb", "hbp", "single", "double", "triple", "hr", "reached_on_error", "out"]
+
+SAC_FLY_RATE = 0.30
+DOUBLE_PLAY_RATE = 0.11
+FIRST_TO_THIRD_SINGLE_RATE = 0.30
+FIRST_TO_HOME_DOUBLE_RATE = 0.40
 
 
 def _normalize_probabilities(probabilities: Dict[str, float]) -> Dict[str, float]:
@@ -50,6 +64,79 @@ def sample_pa_outcome(probabilities: Dict[str, float], rng: Optional[random.Rand
         if draw <= cumulative:
             return outcome
     return "out"
+
+
+
+def _validate_subtype_transition_rates(
+    subtype_transition_rates,
+):
+
+    if subtype_transition_rates is None:
+        return
+
+    valid_keys = {
+        "groundout_double_play_rate",
+        "groundout_runner_third_scores_rate",
+        "groundout_runner_second_advances_rate",
+        "flyout_runner_third_scores_rate",
+        "flyout_runner_second_advances_rate",
+        "lineout_popout_runner_third_scores_rate",
+        "lineout_popout_runner_second_advances_rate",
+    }
+
+    for key, value in subtype_transition_rates.items():
+
+        if key not in valid_keys:
+            raise ValueError(
+                (
+                    "Invalid subtype transition "
+                    f"rate key: {key}"
+                )
+            )
+
+        if not isinstance(value, (int, float)):
+            raise ValueError(
+                (
+                    "Invalid subtype transition "
+                    f"rate type for {key}: {value}"
+                )
+            )
+
+        if value < 0.0 or value > 1.0:
+            raise ValueError(
+                (
+                    "Invalid subtype transition "
+                    f"rate range for {key}: {value}"
+                )
+            )
+
+
+def _validate_transition_rates(
+    transition_rates: Optional[Dict[str, float]],
+) -> None:
+    if transition_rates is None:
+        return
+
+    valid_keys = {
+        "sac_fly_rate",
+        "double_play_rate",
+        "first_to_third_single_rate",
+        "first_to_home_double_rate",
+    }
+
+    for key, value in transition_rates.items():
+        if key not in valid_keys:
+            continue
+
+        if not isinstance(value, (int, float)):
+            raise ValueError(
+                f"Invalid transition rate type for {key}: {value}"
+            )
+
+        if value < 0.0 or value > 1.0:
+            raise ValueError(
+                f"Invalid transition rate range for {key}: {value}"
+            )
 
 
 def advance_runners(
@@ -99,28 +186,275 @@ def advance_runners(
     return bases, 0
 
 
+def advance_runners_realism_candidate(
+    bases: Tuple[bool, bool, bool],
+    outcome: str,
+    outs: int,
+    rng: Optional[random.Random] = None,
+    transition_rates: Optional[Dict[str, float]] = None,
+) -> Tuple[Tuple[bool, bool, bool], int, int]:
+    """
+    Candidate transition realism helper.
+
+    Returns:
+        (new_bases, runs_scored, extra_outs)
+    """
+
+    rng = rng or random.Random()
+
+    sac_fly_rate = (
+        transition_rates.get("sac_fly_rate", SAC_FLY_RATE)
+        if transition_rates
+        else SAC_FLY_RATE
+    )
+    double_play_rate = (
+        transition_rates.get("double_play_rate", DOUBLE_PLAY_RATE)
+        if transition_rates
+        else DOUBLE_PLAY_RATE
+    )
+    first_to_third_single_rate = (
+        transition_rates.get(
+            "first_to_third_single_rate",
+            FIRST_TO_THIRD_SINGLE_RATE,
+        )
+        if transition_rates
+        else FIRST_TO_THIRD_SINGLE_RATE
+    )
+    first_to_home_double_rate = (
+        transition_rates.get(
+            "first_to_home_double_rate",
+            FIRST_TO_HOME_DOUBLE_RATE,
+        )
+        if transition_rates
+        else FIRST_TO_HOME_DOUBLE_RATE
+    )
+
+    first, second, third = bases
+    runs = 0
+    extra_outs = 0
+
+    if outcome == "out":
+
+        if third and outs < 2:
+            if rng.random() < sac_fly_rate:
+                third = False
+                runs += 1
+
+        if first and outs < 2:
+            if rng.random() < double_play_rate:
+                first = False
+                extra_outs += 1
+
+        return (first, second, third), runs, extra_outs
+
+    if outcome in {"single", "reached_on_error"}:
+
+        if third:
+            runs += 1
+            third = False
+
+        new_third = False
+
+        if second:
+            runs += 1
+
+        if first:
+            if rng.random() < first_to_third_single_rate:
+                new_third = True
+                new_second = False
+            else:
+                new_second = True
+        else:
+            new_second = False
+
+        new_first = True
+
+        return (
+            (new_first, new_second, new_third),
+            runs,
+            extra_outs,
+        )
+
+    if outcome == "double":
+
+        if third:
+            runs += 1
+
+        if second:
+            runs += 1
+
+        if first:
+            if rng.random() < first_to_home_double_rate:
+                runs += 1
+                new_third = False
+            else:
+                new_third = True
+        else:
+            new_third = False
+
+        new_second = True
+        new_first = False
+
+        return (
+            (new_first, new_second, new_third),
+            runs,
+            extra_outs,
+        )
+
+    new_bases, scored = advance_runners(
+        bases,
+        outcome,
+    )
+
+    return new_bases, scored, extra_outs
+
+
+
 def simulate_half_inning(
     probabilities: Dict[str, float],
     rng: Optional[random.Random] = None,
     max_plate_appearances: int = 30,
+    initial_bases: Tuple[bool, bool, bool] = (False, False, False),
+    initial_outs: int = 0,
+    transition_mode: str = "current",
+    transition_rates: Optional[Dict[str, float]] = None,
+    subtype_transition_mode: str = "off",
+    subtype_transition_rates: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     rng = rng or random.Random()
-    outs = 0
+
+    _validate_transition_rates(transition_rates)
+
+    if transition_mode not in {
+        "current",
+        "realism_candidate",
+    }:
+        raise ValueError(
+            "transition_mode must be 'current' or 'realism_candidate'"
+        )
+
+    if subtype_transition_mode not in {
+        "off",
+        "prototype",
+    }:
+        raise ValueError(
+            "subtype_transition_mode must be 'off' or 'prototype'"
+        )
+
+    if subtype_transition_mode == "prototype":
+        _validate_subtype_transition_rates(
+            subtype_transition_rates
+        )
+
+    bases = tuple(bool(x) for x in initial_bases)
+
+    if len(bases) != 3:
+        raise ValueError(
+            "initial_bases must contain exactly three booleans"
+        )
+
+    outs = int(initial_outs)
+
+    if outs < 0 or outs > 2:
+        raise ValueError(
+            "initial_outs must be 0, 1, or 2"
+        )
+
+    starting_bases = bases
+    starting_outs = outs
+
     runs = 0
-    bases = (False, False, False)
     pa_count = 0
     outcomes = []
 
+    if subtype_transition_mode == "prototype":
+        outcome_probabilities = derive_outcome_subtype_probabilities(
+            probabilities
+        )
+    else:
+        outcome_probabilities = probabilities
+
     while outs < 3 and pa_count < max_plate_appearances:
-        outcome = sample_pa_outcome(probabilities, rng)
+
+        outcome = sample_pa_outcome(outcome_probabilities, rng)
+
         pa_count += 1
         outcomes.append(outcome)
 
-        if outcome in {"k", "out"}:
+        if (
+            subtype_transition_mode == "prototype"
+            and outcome
+            in {
+                "strikeout",
+                "groundout",
+                "flyout",
+                "lineout_popout",
+                "other_out",
+            }
+        ):
+            bases, scored, outs_added = advance_runners_by_subtype(
+                bases=bases,
+                outcome_subtype=outcome,
+                outs=outs,
+                rng=rng,
+                transition_rates=subtype_transition_rates,
+            )
+
+            runs += scored
+            outs = min(
+                3,
+                outs + outs_added,
+            )
+            continue
+
+        if outcome == "k":
             outs += 1
             continue
 
-        bases, scored = advance_runners(bases, outcome)
+        if outcome == "out":
+
+            if transition_mode == "realism_candidate":
+
+                bases, scored, extra_outs = (
+                    advance_runners_realism_candidate(
+                        bases=bases,
+                        outcome=outcome,
+                        outs=outs,
+                        rng=rng,
+                        transition_rates=transition_rates,
+                    )
+                )
+
+                runs += scored
+
+                outs = min(
+                    3,
+                    outs + 1 + extra_outs,
+                )
+
+            else:
+                outs += 1
+
+            continue
+
+        if transition_mode == "realism_candidate":
+
+            bases, scored, _extra_outs = (
+                advance_runners_realism_candidate(
+                    bases=bases,
+                    outcome=outcome,
+                    outs=outs,
+                    rng=rng,
+                )
+            )
+
+        else:
+
+            bases, scored = advance_runners(
+                bases,
+                outcome,
+            )
+
         runs += scored
 
     return {
@@ -128,6 +462,10 @@ def simulate_half_inning(
         "plate_appearances": pa_count,
         "outcomes": outcomes,
         "ended_by_max_pa": outs < 3,
+        "initial_bases": starting_bases,
+        "initial_outs": starting_outs,
+        "ending_bases": bases,
+        "ending_outs": outs,
     }
 
 

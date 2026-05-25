@@ -1,0 +1,208 @@
+{
+  "created_as_scaffold": true,
+  "date_expectations": {
+    "2026-05-20": {
+      "deduped_row_count": 3,
+      "duplicate_count": 0,
+      "expected_missing_fields": [],
+      "expected_natural_keys": [
+        "(777001, 42, 1, 123456)",
+        "(777001, 42, 2, 123456)",
+        "(777001, 42, 3, 123456)"
+      ],
+      "expected_sha256": "8320ce2f8516043911693a604fd999200c75db24c4fe98f06f356f30a81a4c9a",
+      "expected_status": "success",
+      "file_created": true,
+      "file_path": "dates/2026-05-20.jsonl",
+      "fixture_date": "2026-05-20",
+      "payload_class": "positive_minimal_valid_date",
+      "required_field_failures": 0,
+      "row_count": 3
+    },
+    "2026-05-21": {
+      "deduped_row_count": 3,
+      "duplicate_count": 0,
+      "expected_missing_fields": [],
+      "expected_natural_keys": [
+        "(777002, 10, 1, 223456)",
+        "(777002, 11, 1, 323456)",
+        "(777002, 12, 1, 223456)"
+      ],
+      "expected_sha256": "e975ad0336368239d593149c2d94d634cd3faac5d63ca574c55f7a98da5fbae2",
+      "expected_status": "success",
+      "file_created": true,
+      "file_path": "dates/2026-05-21.jsonl",
+      "fixture_date": "2026-05-21",
+      "payload_class": "positive_multi_pitcher_date",
+      "required_field_failures": 0,
+      "row_count": 3
+    },
+    "2026-05-22": {
+      "deduped_row_count": 3,
+      "duplicate_count": 0,
+      "expected_missing_fields": [],
+      "expected_natural_keys": [
+        "(777003, 5, 1, 423456)",
+        "(777004, 5, 1, 523456)",
+        "(777004, 6, 1, 523456)"
+      ],
+      "expected_sha256": "bef4ef1b43c42a288a1a0685429b790e877efeb4a31e50f6e372483a19e195b1",
+      "expected_status": "success",
+      "file_created": true,
+      "file_path": "dates/2026-05-22.jsonl",
+      "fixture_date": "2026-05-22",
+      "payload_class": "positive_multi_game_date",
+      "required_field_failures": 0,
+      "row_count": 3
+    },
+    "2026-05-23": {
+      "deduped_row_count": 2,
+      "duplicate_count": 1,
+      "expected_missing_fields": [],
+      "expected_natural_keys": [
+        "(777005, 20, 1, 623456)",
+        "(777005, 20, 2, 623456)"
+      ],
+      "expected_sha256": "d13630f7bbc2cad031274ea1113e4bca49ddf5992f0c28d654706c270f6caa42",
+      "expected_status": "dedupe_success",
+      "file_created": true,
+      "file_path": "dates/2026-05-23.jsonl",
+      "fixture_date": "2026-05-23",
+      "payload_class": "negative_duplicate_natural_key_date",
+      "required_field_failures": 0,
+      "row_count": 3
+    },
+    "2026-05-24": {
+      "deduped_row_count": 2,
+      "duplicate_count": 0,
+      "expected_missing_fields": [
+        "pitcher_id"
+      ],
+      "expected_natural_keys": [
+        "(777006, 30, 1, None)",
+        "(777006, 30, 2, 723456)"
+      ],
+      "expected_sha256": "c06adf77a3c85b4f48ce4e0a1484a2150e482b50d9994ad5f2fb04b01eaa647e",
+      "expected_status": "schema_failed_safely",
+      "file_created": true,
+      "file_path": "dates/2026-05-24.jsonl",
+      "fixture_date": "2026-05-24",
+      "payload_class": "negative_missing_pitcher_id_date",
+      "required_field_failures": 1,
+      "row_count": 2
+    },
+    "2026-05-25": {
+      "deduped_row_count": 2,
+      "duplicate_count": 0,
+      "expected_missing_fields": [
+        "game_pk"
+      ],
+      "expected_natural_keys": [
+        "(777007, 40, 2, 823456)",
+        "(None, 40, 1, 823456)"
+      ],
+      "expected_sha256": "d554f7c7e90cc107960de0ffeb5514d752ddb97dc8c97e9876ab862bd097aabc",
+      "expected_status": "schema_failed_safely",
+      "file_created": true,
+      "file_path": "dates/2026-05-25.jsonl",
+      "fixture_date": "2026-05-25",
+      "payload_class": "negative_missing_game_pk_date",
+      "required_field_failures": 1,
+      "row_count": 2
+    },
+    "2026-05-26": {
+      "deduped_row_count": 0,
+      "duplicate_count": 0,
+      "expected_missing_fields": [],
+      "expected_natural_keys": [],
+      "expected_sha256": "",
+      "expected_status": "fixture_missing",
+      "file_created": false,
+      "file_path": "dates/2026-05-26.jsonl",
+      "fixture_date": "2026-05-26",
+      "payload_class": "negative_missing_fixture_date",
+      "required_field_failures": 0,
+      "row_count": 0
+    }
+  },
+  "default_expectations": {
+    "expected_duplicate_count": 0,
+    "expected_no_db_writes": true,
+    "expected_no_external_fetch": true,
+    "expected_replay_deterministic": true,
+    "expected_required_field_failures": 0,
+    "row_format": "jsonl"
+  },
+  "expected_results_version": "bullpen_statcast_fixture_expected_results_v0.1",
+  "negative_fixture_expectations": {
+    "2026-05-23": {
+      "deduped_row_count": 2,
+      "duplicate_count": 1,
+      "expected_missing_fields": [],
+      "expected_natural_keys": [
+        "(777005, 20, 1, 623456)",
+        "(777005, 20, 2, 623456)"
+      ],
+      "expected_sha256": "d13630f7bbc2cad031274ea1113e4bca49ddf5992f0c28d654706c270f6caa42",
+      "expected_status": "dedupe_success",
+      "file_created": true,
+      "file_path": "dates/2026-05-23.jsonl",
+      "fixture_date": "2026-05-23",
+      "payload_class": "negative_duplicate_natural_key_date",
+      "required_field_failures": 0,
+      "row_count": 3
+    },
+    "2026-05-24": {
+      "deduped_row_count": 2,
+      "duplicate_count": 0,
+      "expected_missing_fields": [
+        "pitcher_id"
+      ],
+      "expected_natural_keys": [
+        "(777006, 30, 1, None)",
+        "(777006, 30, 2, 723456)"
+      ],
+      "expected_sha256": "c06adf77a3c85b4f48ce4e0a1484a2150e482b50d9994ad5f2fb04b01eaa647e",
+      "expected_status": "schema_failed_safely",
+      "file_created": true,
+      "file_path": "dates/2026-05-24.jsonl",
+      "fixture_date": "2026-05-24",
+      "payload_class": "negative_missing_pitcher_id_date",
+      "required_field_failures": 1,
+      "row_count": 2
+    },
+    "2026-05-25": {
+      "deduped_row_count": 2,
+      "duplicate_count": 0,
+      "expected_missing_fields": [
+        "game_pk"
+      ],
+      "expected_natural_keys": [
+        "(777007, 40, 2, 823456)",
+        "(None, 40, 1, 823456)"
+      ],
+      "expected_sha256": "d554f7c7e90cc107960de0ffeb5514d752ddb97dc8c97e9876ab862bd097aabc",
+      "expected_status": "schema_failed_safely",
+      "file_created": true,
+      "file_path": "dates/2026-05-25.jsonl",
+      "fixture_date": "2026-05-25",
+      "payload_class": "negative_missing_game_pk_date",
+      "required_field_failures": 1,
+      "row_count": 2
+    },
+    "2026-05-26": {
+      "deduped_row_count": 0,
+      "duplicate_count": 0,
+      "expected_missing_fields": [],
+      "expected_natural_keys": [],
+      "expected_sha256": "",
+      "expected_status": "fixture_missing",
+      "file_created": false,
+      "file_path": "dates/2026-05-26.jsonl",
+      "fixture_date": "2026-05-26",
+      "payload_class": "negative_missing_fixture_date",
+      "required_field_failures": 0,
+      "row_count": 0
+    }
+  }
+}
