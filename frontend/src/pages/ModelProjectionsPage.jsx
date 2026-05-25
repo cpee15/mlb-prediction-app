@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { API_BASE } from '../lib/api'
 
-const API = import.meta.env.VITE_API_BASE_URL || ''
+const API = API_BASE
 
 const s = {
   page: { color: '#e6edf3' },
@@ -323,8 +324,15 @@ function DataSection({ title, data, formatHint = {}, tag, tagTone = 'context' })
   )
 }
 
-function TeamProjectionPanel({ side, teamName, pitcherName, model }) {
+function TeamProjectionPanel({ side, teamName, pitcherName, model, sim = {}, teamTotals = {}, directInputs = {} }) {
   const inputs = model?.inputs || {}
+  const isAway = String(side || '').toLowerCase() === 'away'
+  const expectedRuns = isAway
+    ? sim.away_expected_runs ?? inputs.expected_runs ?? model?.score
+    : sim.home_expected_runs ?? inputs.expected_runs ?? model?.score
+  const winProbability = isAway
+    ? sim.away_win_probability ?? inputs.win_probability
+    : sim.home_win_probability ?? inputs.win_probability
 
   return (
     <div style={s.metricCard}>
@@ -332,50 +340,51 @@ function TeamProjectionPanel({ side, teamName, pitcherName, model }) {
       <h3 style={{ margin: '0 0 4px', color: '#e6edf3' }}>{teamName || side}</h3>
       <div style={{ color: '#8b949e', fontSize: '13px', marginBottom: '12px' }}>
         {pitcherName || 'No pitcher listed'}
-        <span style={s.pill}>{model?.data_confidence || 'unknown'} confidence</span>
+        <span style={s.pill}>{model?.data_confidence || directInputs?.metadata?.data_confidence || 'shared simulation'} confidence</span>
       </div>
 
       <MetricCard
         labelText="Expected Runs"
-        value={inputs.expected_runs ?? model?.score}
-        sub={`Raw: ${num(inputs.raw_expected_runs)}`}
+        value={expectedRuns}
+        sub={`Simulation-derived: ${num(expectedRuns)}`}
       />
 
       <div style={{ marginTop: '12px' }}>
-        <StatRow k="Win Probability" v={inputs.win_probability} format="pct" />
-        <StatRow k="3+ Runs" v={inputs.team_3_plus_runs} format="pct" />
-        <StatRow k="4+ Runs" v={inputs.team_4_plus_runs} format="pct" />
-        <StatRow k="5+ Runs" v={inputs.team_5_plus_runs} format="pct" />
-        <StatRow k="Offense Source" v={inputs.offense_source} />
-        <StatRow k="Opposing Bullpen" v={inputs.opposing_bullpen_quality} />
-        <StatRow k="Run Environment Index" v={inputs.run_environment_index} format="num" />
+        <StatRow k="Win Probability" v={winProbability} format="pct" />
+        <StatRow k="3+ Runs" v={isAway ? teamTotals.away_3_plus : teamTotals.home_3_plus} format="pct" />
+        <StatRow k="4+ Runs" v={isAway ? teamTotals.away_4_plus : teamTotals.home_4_plus} format="pct" />
+        <StatRow k="5+ Runs" v={isAway ? teamTotals.away_5_plus : teamTotals.home_5_plus} format="pct" />
+        <StatRow k="Offense Source" v={directInputs?.metadata?.source_type || inputs.offense_source} />
+        <StatRow k="Run Environment Index" v={directInputs?.run_environment?.run_scoring_index ?? inputs.run_environment_index} format="num" />
       </div>
     </div>
   )
 }
 
-function TotalProjectionPanel({ model }) {
+function TotalProjectionPanel({ model, sim = {}, environmentProfile = {} }) {
   const inputs = model?.inputs || {}
+  const totals = sim.calibrated_total_probabilities || sim.total_probabilities || {}
+  const run = environmentProfile?.run_environment || {}
 
   return (
     <div style={s.metricCard}>
       <div style={s.metricLabel}>Game Total Projection</div>
       <MetricCard
         labelText="Projected Total Runs"
-        value={inputs.total_expected_runs ?? model?.score}
-        sub={`Raw: ${num(inputs.raw_total_expected_runs)}`}
+        value={sim.total_expected_runs ?? inputs.total_expected_runs ?? model?.score}
+        sub={`Simulation-derived: ${num(sim.total_expected_runs ?? inputs.total_expected_runs ?? model?.score)}`}
       />
 
       <div style={{ marginTop: '12px' }}>
-        <StatRow k="Over 6.5" v={inputs.over_6_5} format="pct" />
-        <StatRow k="Over 7.5" v={inputs.over_7_5} format="pct" />
-        <StatRow k="Over 8.5" v={inputs.over_8_5} format="pct" />
-        <StatRow k="Over 9.5" v={inputs.over_9_5} format="pct" />
-        <StatRow k="Under 7.5" v={inputs.under_7_5} format="pct" />
-        <StatRow k="Under 8.5" v={inputs.under_8_5} format="pct" />
-        <StatRow k="Under 9.5" v={inputs.under_9_5} format="pct" />
-        <StatRow k="Tie After Regulation" v={inputs.tie_after_regulation} format="pct" />
-        <StatRow k="Environment" v={inputs.environment_label} />
+        <StatRow k="Over 6.5" v={totals['over_6.5'] ?? inputs.over_6_5} format="pct" />
+        <StatRow k="Over 7.5" v={totals['over_7.5'] ?? inputs.over_7_5} format="pct" />
+        <StatRow k="Over 8.5" v={totals['over_8.5'] ?? inputs.over_8_5} format="pct" />
+        <StatRow k="Over 9.5" v={totals['over_9.5'] ?? inputs.over_9_5} format="pct" />
+        <StatRow k="Under 7.5" v={totals['under_7.5'] ?? inputs.under_7_5} format="pct" />
+        <StatRow k="Under 8.5" v={totals['under_8.5'] ?? inputs.under_8_5} format="pct" />
+        <StatRow k="Under 9.5" v={totals['under_9.5'] ?? inputs.under_9_5} format="pct" />
+        <StatRow k="Tie After Regulation" v={sim.tie_after_regulation_probability ?? inputs.tie_after_regulation} format="pct" />
+        <StatRow k="Environment" v={run.scoring_environment_label ?? inputs.environment_label} />
       </div>
     </div>
   )
@@ -389,7 +398,9 @@ function OverviewTab({ game, awayRunModel, homeRunModel, totalModel }) {
   const totalInputs = totalModel?.inputs || {}
 
   const sharedSim = getSharedDerivedSimulation(game)
+  const directInputs = getSharedDirectInputs(game)
   const totals = sharedSim.calibrated_total_probabilities || sharedSim.total_probabilities || {}
+  const teamTotals = sharedSim.calibrated_team_total_probabilities || sharedSim.team_total_probabilities || {}
 
   const totalExpectedRuns = sharedSim.total_expected_runs ?? totalInputs.total_expected_runs ?? totalModel?.score
   const awayExpectedRuns = sharedSim.away_expected_runs ?? awayInputs.expected_runs ?? awayRunModel?.score
@@ -414,27 +425,34 @@ function OverviewTab({ game, awayRunModel, homeRunModel, totalModel }) {
           teamName={game?.away_team?.name || away?.team_name}
           pitcherName={game?.away_pitcher?.name || away?.pitcher_name}
           model={awayRunModel}
+          sim={sharedSim}
+          teamTotals={teamTotals}
+          directInputs={directInputs.away_offense_profile}
         />
         <TeamProjectionPanel
           side="Home"
           teamName={game?.home_team?.name || home?.team_name}
           pitcherName={game?.home_pitcher?.name || home?.pitcher_name}
           model={homeRunModel}
+          sim={sharedSim}
+          teamTotals={teamTotals}
+          directInputs={directInputs.home_offense_profile}
         />
       </div>
 
       <div style={{ marginTop: '14px' }}>
-        <TotalProjectionPanel model={totalModel} />
+        <TotalProjectionPanel model={totalModel} sim={sharedSim} environmentProfile={directInputs.environment_profile} />
       </div>
     </>
   )
 }
 
-function PitcherTab({ workspace }) {
+function PitcherTab({ workspace, game }) {
+  const directInputs = getSharedDirectInputs(game)
   return (
     <div style={s.splitGrid}>
-      <PitcherProfilePanel labelText="Away Starting Pitcher" profile={workspace?.awayPitcherProfile} />
-      <PitcherProfilePanel labelText="Home Starting Pitcher" profile={workspace?.homePitcherProfile} />
+      <PitcherProfilePanel labelText="Away Starting Pitcher" profile={directInputs.away_pitcher_profile || workspace?.awayPitcherProfile} />
+      <PitcherProfilePanel labelText="Home Starting Pitcher" profile={directInputs.home_pitcher_profile || workspace?.homePitcherProfile} />
     </div>
   )
 }
@@ -476,11 +494,12 @@ function PitcherProfilePanel({ labelText, profile }) {
   )
 }
 
-function BatterTab({ workspace }) {
+function BatterTab({ workspace, game }) {
+  const directInputs = getSharedDirectInputs(game)
   return (
     <div style={s.splitGrid}>
-      <OffenseProfilePanel labelText="Away Offense" profile={workspace?.awayOffenseProfile} />
-      <OffenseProfilePanel labelText="Home Offense" profile={workspace?.homeOffenseProfile} />
+      <OffenseProfilePanel labelText="Away Offense" profile={directInputs.away_offense_profile || workspace?.awayOffenseProfile} />
+      <OffenseProfilePanel labelText="Home Offense" profile={directInputs.home_offense_profile || workspace?.homeOffenseProfile} />
     </div>
   )
 }
@@ -507,8 +526,9 @@ function OffenseProfilePanel({ labelText, profile }) {
   )
 }
 
-function EnvironmentTab({ workspace }) {
-  const profile = workspace?.environmentProfile || {}
+function EnvironmentTab({ workspace, game }) {
+  const directInputs = getSharedDirectInputs(game)
+  const profile = directInputs.environment_profile || workspace?.environmentProfile || {}
   const run = profile.run_environment || {}
   const weather = profile.weather || {}
   const metadata = profile.metadata || {}
@@ -578,11 +598,12 @@ function MatchupPanel({ labelText, analysis }) {
   )
 }
 
-function BullpenTab({ workspace }) {
+function BullpenTab({ workspace, game }) {
+  const directInputs = getSharedDirectInputs(game)
   return (
     <div style={s.splitGrid}>
-      <BullpenProfilePanel labelText="Away Bullpen" profile={workspace?.awayBullpenProfile} />
-      <BullpenProfilePanel labelText="Home Bullpen" profile={workspace?.homeBullpenProfile} />
+      <BullpenProfilePanel labelText="Away Bullpen" profile={directInputs.away_bullpen_profile || workspace?.awayBullpenProfile} />
+      <BullpenProfilePanel labelText="Home Bullpen" profile={directInputs.home_bullpen_profile || workspace?.homeBullpenProfile} />
     </div>
   )
 }
@@ -760,11 +781,11 @@ function GameProjectionCard({ game }) {
 
   function renderTab() {
     if (activeTab === 'overview') return <OverviewTab game={game} awayRunModel={awayRunModel} homeRunModel={homeRunModel} totalModel={totalModel} />
-    if (activeTab === 'pitcher') return <PitcherTab workspace={workspace} />
-    if (activeTab === 'batter') return <BatterTab workspace={workspace} />
-    if (activeTab === 'environment') return <EnvironmentTab workspace={workspace} />
+    if (activeTab === 'pitcher') return <PitcherTab workspace={workspace} game={game} />
+    if (activeTab === 'batter') return <BatterTab workspace={workspace} game={game} />
+    if (activeTab === 'environment') return <EnvironmentTab workspace={workspace} game={game} />
     if (activeTab === 'matchup') return <MatchupTab workspace={workspace} />
-    if (activeTab === 'bullpen') return <BullpenTab workspace={workspace} />
+    if (activeTab === 'bullpen') return <BullpenTab workspace={workspace} game={game} />
     if (activeTab === 'simulation') return <SimulationTab workspace={workspace} game={game} />
     if (activeTab === 'diagnostics') return <DiagnosticsTab game={game} />
     return null
@@ -803,7 +824,11 @@ function GameProjectionCard({ game }) {
         ))}
       </div>
 
-      {!awayRunModel || !homeRunModel || !totalModel ? (
+      {(
+        !awayRunModel ||
+        !homeRunModel ||
+        !totalModel
+      ) && !Object.keys(getSharedDerivedSimulation(game) || {}).length ? (
         <div style={s.noData}>Simulation projections are not available for this game yet.</div>
       ) : renderTab()}
     </article>

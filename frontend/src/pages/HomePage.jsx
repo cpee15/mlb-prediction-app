@@ -1,75 +1,67 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { API_BASE, getMlbLiveDate } from '../lib/api'
 
-const API = import.meta.env.VITE_API_BASE_URL || ''
+const API = API_BASE
 
-function getMlbToday() {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date())
+function useIsMobile(breakpoint = 768) {
+  const getMatches = () => (typeof window !== 'undefined' ? window.innerWidth <= breakpoint : false)
+  const [isMobile, setIsMobile] = useState(getMatches)
 
-  const values = Object.fromEntries(parts.map(part => [part.type, part.value]))
-  return `${values.year}-${values.month}-${values.day}`
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const onResize = () => setIsMobile(getMatches())
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [breakpoint])
+
+  return isMobile
 }
 
 const s = {
-  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' },
-  title: { fontSize: '24px', fontWeight: '700', color: '#e6edf3' },
-  datePicker: {
-    background: '#161b22', border: '1px solid #30363d', color: '#e6edf3',
-    borderRadius: '6px', padding: '8px 12px', fontSize: '14px', cursor: 'pointer',
-  },
-  grid: { display: 'grid', gap: '12px' },
-  card: {
-    background: '#161b22', border: '1px solid #30363d', borderRadius: '10px',
-    padding: '16px 20px', cursor: 'pointer', transition: 'border-color 0.15s',
-  },
-  cardHover: { borderColor: '#58a6ff' },
-  meta: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', fontSize: '12px', color: '#8b949e' },
-  venue: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' },
-  statusBadge: (status) => ({
-    display: 'inline-block', borderRadius: '4px', padding: '2px 7px',
-    fontSize: '11px', fontWeight: '600',
-    background: status === 'Final' ? '#21262d' : status?.includes('Progress') ? '#1f3a1f' : '#21262d',
-    color: status === 'Final' ? '#8b949e' : status?.includes('Progress') ? '#3fb950' : '#58a6ff',
-  }),
-  matchupRow: {
-    display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: '12px',
-  },
-  team: { display: 'flex', flexDirection: 'column', gap: '3px' },
-  teamName: { fontSize: '16px', fontWeight: '600', color: '#e6edf3' },
-  record: { fontSize: '12px', color: '#8b949e' },
-  pitcher: { fontSize: '12px', color: '#58a6ff' },
-  prob: { fontSize: '26px', fontWeight: '700' },
-  vs: { textAlign: 'center', fontSize: '13px', color: '#8b949e', fontWeight: '600', letterSpacing: '1px' },
-  noData: { color: '#8b949e', fontSize: '14px', textAlign: 'center', padding: '48px' },
-  loader: { color: '#8b949e', textAlign: 'center', padding: '48px' },
-  error: { color: '#f85149', textAlign: 'center', padding: '24px', background: '#1f1116', borderRadius: '8px' },
-  oddsBox: { marginTop: '14px', padding: '12px', border: '1px solid #30363d', borderRadius: '8px', background: '#0d1117' },
-  oddsHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '10px' },
-  oddsTitle: { color: '#e6edf3', fontSize: '13px', fontWeight: '700' },
-  oddsSubtle: { color: '#8b949e', fontSize: '11px' },
-  oddsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px' },
-  marketCard: { border: '1px solid #21262d', borderRadius: '7px', padding: '8px', background: '#161b22' },
-  marketLabel: { color: '#8b949e', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.7px', marginBottom: '6px', fontWeight: '700' },
-  oddsLine: { display: 'flex', justifyContent: 'space-between', gap: '8px', fontSize: '12px', color: '#e6edf3', marginTop: '3px' },
-  propButton: { marginTop: '10px', background: '#21262d', border: '1px solid #30363d', color: '#58a6ff', borderRadius: '6px', padding: '7px 10px', fontSize: '12px', cursor: 'pointer', fontWeight: '700' },
-  propsPanel: { marginTop: '10px', borderTop: '1px solid #30363d', paddingTop: '10px' },
-  propsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' },
-  propCard: { border: '1px solid #21262d', borderRadius: '7px', padding: '8px', background: '#161b22' },
-  propMarket: { color: '#d29922', fontSize: '11px', fontWeight: '700', marginBottom: '5px' },
-  propName: { color: '#e6edf3', fontSize: '12px', fontWeight: '700' },
-  propDetails: { color: '#8b949e', fontSize: '12px', marginTop: '3px' },
+  matchupGrid: { display: 'grid', gap: '16px', minWidth: 0 },
+  card: { cursor: 'pointer', minWidth: 0 },
+  slateMeta: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12, flexWrap: 'wrap', minWidth: 0 },
+  slateMetaMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  venue: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', color: 'var(--text-muted)', fontSize: 12, minWidth: 0, overflowWrap: 'anywhere' },
+  matchupRow: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)', alignItems: 'stretch', gap: 16, minWidth: 0 },
+  matchupRowMobile: { gridTemplateColumns: '1fr', gap: 10 },
+  teamPanel: { border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: 14, background: 'rgba(7, 11, 18, 0.34)', minWidth: 0 },
+  teamPanelMobile: { textAlign: 'left' },
+  teamPanelRight: { textAlign: 'right' },
+  teamName: { fontSize: 18, fontWeight: 850, color: 'var(--text-primary)', letterSpacing: '-0.03em', minWidth: 0, overflowWrap: 'anywhere', lineHeight: 1.16 },
+  record: { fontSize: 12, color: 'var(--text-muted)', marginTop: 2, overflowWrap: 'anywhere' },
+  pitcher: { fontSize: 13, color: 'var(--accent)', marginTop: 10, minHeight: 20, minWidth: 0, overflowWrap: 'anywhere' },
+  prob: { fontSize: 30, fontWeight: 900, letterSpacing: '-0.06em', marginTop: 12, overflowWrap: 'anywhere' },
+  vs: { display: 'grid', placeItems: 'center', color: 'var(--text-muted)', fontWeight: 900, letterSpacing: '0.18em', fontSize: 12, minWidth: 0 },
+  vsMobile: { placeItems: 'start', padding: '0 2px', letterSpacing: '0.08em' },
+  oddsBox: { marginTop: 16, padding: 14, border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', background: 'rgba(7, 11, 18, 0.46)', minWidth: 0 },
+  oddsHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12, minWidth: 0 },
+  oddsHeaderMobile: { flexDirection: 'column', alignItems: 'stretch' },
+  oddsTitle: { color: 'var(--text-primary)', fontSize: 13, fontWeight: 850, letterSpacing: '0.02em', overflowWrap: 'anywhere' },
+  oddsSubtle: { color: 'var(--text-muted)', fontSize: 12, overflowWrap: 'anywhere' },
+  oddsGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, minWidth: 0 },
+  oddsGridMobile: { gridTemplateColumns: '1fr' },
+  marketCard: { border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: 10, background: 'rgba(17, 24, 39, 0.76)', minWidth: 0 },
+  marketLabel: { color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 7, fontWeight: 850, overflowWrap: 'anywhere' },
+  oddsLine: { display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, minWidth: 0, overflowWrap: 'anywhere' },
+  oddsLineText: { minWidth: 0, overflowWrap: 'anywhere', whiteSpace: 'normal' },
+  oddsPrice: { color: 'var(--text-primary)', whiteSpace: 'nowrap' },
+  propButton: { marginTop: 12, padding: '8px 11px', fontSize: 12, fontWeight: 800, maxWidth: '100%' },
+  propsPanel: { marginTop: 12, borderTop: '1px solid var(--border-subtle)', paddingTop: 12, minWidth: 0 },
+  propsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, minWidth: 0 },
+  propsGridMobile: { gridTemplateColumns: '1fr' },
+  propCard: { border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: 10, background: 'rgba(17, 24, 39, 0.78)', minWidth: 0 },
+  propMarket: { color: 'var(--warning)', fontSize: 11, fontWeight: 850, marginBottom: 5, overflowWrap: 'anywhere' },
+  propName: { color: 'var(--text-primary)', fontSize: 12, fontWeight: 800, overflowWrap: 'anywhere' },
+  propDetails: { color: 'var(--text-muted)', fontSize: 12, marginTop: 3, overflowWrap: 'anywhere' },
 }
 
 function probColor(p) {
-  if (p == null) return '#8b949e'
-  if (p >= 0.62) return '#3fb950'
-  if (p >= 0.50) return '#d29922'
-  return '#f85149'
+  if (p == null) return 'var(--text-muted)'
+  if (p >= 0.62) return 'var(--success)'
+  if (p >= 0.50) return 'var(--warning)'
+  return 'var(--danger)'
 }
 
 function formatTime(iso) {
@@ -90,7 +82,7 @@ function weatherLabel(weather) {
 }
 
 function american(v) {
-  if (v == null || v === '') return '—'
+  if (v == null || v === '') return 'Unavailable'
   const n = Number(v)
   if (Number.isNaN(n)) return String(v)
   return n > 0 ? `+${n}` : `${n}`
@@ -132,7 +124,7 @@ function OddsMarket({ label, market }) {
     return (
       <div style={s.marketCard}>
         <div style={s.marketLabel}>{label}</div>
-        <div style={s.oddsLine}><span>Unavailable</span><span>—</span></div>
+        <div style={s.oddsLine}><span style={s.oddsLineText}>Unavailable</span><span>—</span></div>
       </div>
     )
   }
@@ -141,15 +133,15 @@ function OddsMarket({ label, market }) {
       <div style={s.marketLabel}>{label}</div>
       {selections.slice(0, 2).map((sel, idx) => (
         <div key={`${label}-${idx}`} style={s.oddsLine}>
-          <span>{sel.name || sel.description || '—'}{sel.line != null ? ` ${sel.line}` : ''}</span>
-          <strong>{american(sel.price)}</strong>
+          <span style={s.oddsLineText}>{sel.name || sel.description || 'Unavailable'}{sel.line != null ? ` ${sel.line}` : ''}</span>
+          <strong style={s.oddsPrice}>{american(sel.price)}</strong>
         </div>
       ))}
     </div>
   )
 }
 
-function PropPreview({ eventId }) {
+function PropPreview({ eventId, isMobile }) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [propsData, setPropsData] = useState(null)
@@ -181,22 +173,22 @@ function PropPreview({ eventId }) {
 
   return (
     <div onClick={e => e.stopPropagation()}>
-      <button type="button" style={s.propButton} onClick={toggle}>
-        {open ? 'Hide player props' : 'Show player props'}
+      <button type="button" style={{ ...s.propButton, ...(isMobile ? { width: '100%' } : {}) }} onClick={toggle}>
+        {open ? 'Hide Player Props' : 'Show Player Props'}
       </button>
       {open && (
         <div style={s.propsPanel}>
           {loading && <div style={s.oddsSubtle}>Loading DraftKings props…</div>}
-          {error && <div style={{ color: '#f85149', fontSize: '12px' }}>Props error: {error}</div>}
+          {error && <div className="state-panel error" style={{ padding: 12, textAlign: 'left' }}>Props unavailable: {error}</div>}
           {!loading && !error && propsData && cards.length === 0 && (
             <div style={s.oddsSubtle}>No player props returned for this event.</div>
           )}
-          <div style={s.propsGrid}>
+          <div style={{ ...s.propsGrid, ...(isMobile ? s.propsGridMobile : {}) }}>
             {cards.map(({ market, sel }, idx) => (
               <div key={`${market.market_key}-${sel.description}-${sel.name}-${idx}`} style={s.propCard}>
                 <div style={s.propMarket}>{String(market.market_name || market.market_key || '').replaceAll('_', ' ')}</div>
                 <div style={s.propName}>{sel.description}</div>
-                <div style={s.propDetails}>{sel.name} {sel.line} · <strong style={{ color: '#e6edf3' }}>{american(sel.price)}</strong></div>
+                <div style={s.propDetails}>{sel.name} {sel.line} · <strong style={{ color: 'var(--text-primary)' }}>{american(sel.price)}</strong></div>
               </div>
             ))}
           </div>
@@ -206,46 +198,57 @@ function PropPreview({ eventId }) {
   )
 }
 
-function OddsSnapshot({ event }) {
+function OddsSnapshot({ event, isMobile }) {
   if (!event) return null
   const moneyline = findMarket(event, 'h2h')
   const spread = findMarket(event, 'spreads')
   const total = findMarket(event, 'totals')
   return (
     <div style={s.oddsBox} onClick={e => e.stopPropagation()}>
-      <div style={s.oddsHeader}>
-        <div style={s.oddsTitle}>DraftKings Odds</div>
-        <div style={s.oddsSubtle}>{event.event_id ? `Event ${String(event.event_id).slice(0, 8)}` : 'Matched event'}</div>
+      <div style={{ ...s.oddsHeader, ...(isMobile ? s.oddsHeaderMobile : {}) }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={s.oddsTitle}>DraftKings Market Snapshot</div>
+          <div style={s.oddsSubtle}>Moneyline, run line, totals, and available props</div>
+        </div>
+        <div className="status-badge">Market Context</div>
       </div>
-      <div style={s.oddsGrid}>
+      <div style={{ ...s.oddsGrid, ...(isMobile ? s.oddsGridMobile : {}) }}>
         <OddsMarket label="Moneyline" market={moneyline} />
         <OddsMarket label="Run Line" market={spread} />
         <OddsMarket label="Total" market={total} />
       </div>
-      {event.event_id && <PropPreview eventId={event.event_id} />}
+      {event.event_id && <PropPreview eventId={event.event_id} isMobile={isMobile} />}
     </div>
   )
 }
 
 function ProbBar({ homeProb, awayProb }) {
   const hp = homeProb != null ? Math.round(homeProb * 100) : 50
-  const ap = 100 - hp
+  const ap = awayProb != null ? Math.round(awayProb * 100) : 100 - hp
   return (
-    <div style={{ marginTop: '12px' }}>
-      <div style={{ display: 'flex', height: '5px', borderRadius: '3px', overflow: 'hidden', background: '#21262d' }}>
-        <div style={{ width: `${ap}%`, background: '#58a6ff', transition: 'width 0.4s' }} />
-        <div style={{ width: `${hp}%`, background: '#3fb950', transition: 'width 0.4s' }} />
+    <div style={{ marginTop: 14, minWidth: 0 }}>
+      <div style={{ display: 'flex', height: 6, borderRadius: 999, overflow: 'hidden', background: 'rgba(148, 163, 184, 0.14)' }}>
+        <div style={{ width: `${ap}%`, background: 'linear-gradient(90deg, #5aa7ff, #7bbcff)', transition: 'width 0.4s' }} />
+        <div style={{ width: `${hp}%`, background: 'linear-gradient(90deg, #41d695, #8ee8bd)', transition: 'width 0.4s' }} />
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#8b949e', marginTop: '3px' }}>
-        <span>{ap}% away</span>
-        <span>{hp}% home</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, color: 'var(--text-muted)', marginTop: 5, flexWrap: 'wrap' }}>
+        <span>{awayProb != null ? `${ap}% away` : 'Away pending'}</span>
+        <span>{homeProb != null ? `${hp}% home` : 'Home pending'}</span>
       </div>
     </div>
   )
 }
 
+function statusClass(status) {
+  if (!status) return ''
+  if (status === 'Final') return ''
+  if (String(status).toLowerCase().includes('progress') || String(status).toLowerCase().includes('live')) return 'success'
+  return 'warning'
+}
+
 export default function HomePage() {
-  const today = getMlbToday()
+  const isMobile = useIsMobile()
+  const today = getMlbLiveDate()
   const [date, setDate] = useState(today)
   const [matchups, setMatchups] = useState([])
   const [oddsEvents, setOddsEvents] = useState([])
@@ -253,7 +256,6 @@ export default function HomePage() {
   const [oddsLoading, setOddsLoading] = useState(false)
   const [error, setError] = useState(null)
   const [oddsError, setOddsError] = useState(null)
-  const [hovered, setHovered] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -285,76 +287,95 @@ export default function HomePage() {
 
   return (
     <div>
-      <div style={s.header}>
-        <h1 style={s.title}>Daily Matchups</h1>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={s.datePicker} />
-      </div>
+      <header className="page-header">
+        <div>
+          <p className="page-kicker">Live Slate</p>
+          <h1 className="page-title">Daily Matchups</h1>
+          <p className="page-subtitle">Validated MLB schedule, probable starters, model win probabilities, weather context, and DraftKings market snapshots in one production slate.</p>
+        </div>
+        <div className="control-row">
+          <span className="status-badge success">Live Data</span>
+          <input className="input-control" type="date" value={date} onChange={e => setDate(e.target.value)} />
+        </div>
+      </header>
 
-      {loading && <div style={s.loader}>Loading matchups…</div>}
-      {error && <div style={s.error}>Error: {error}</div>}
-      {!loading && !error && oddsError && <div style={{ ...s.error, marginBottom: '12px' }}>Odds error: {oddsError}</div>}
-      {!loading && !error && !oddsError && oddsLoading && <div style={s.oddsSubtle}>Loading DraftKings odds…</div>}
+      {loading && (
+        <div className="state-panel">
+          <div className="skeleton-line" style={{ maxWidth: 420, margin: '0 auto 12px' }} />
+          <div className="skeleton-line" style={{ maxWidth: 300, margin: '0 auto' }} />
+        </div>
+      )}
+      {error && <div className="state-panel error">Matchup data unavailable: {error}</div>}
+      {!loading && !error && oddsError && <div className="state-panel error" style={{ marginBottom: 16 }}>Odds data unavailable: {oddsError}</div>}
+      {!loading && !error && !oddsError && oddsLoading && <div className="card-meta" style={{ marginBottom: 14 }}>Loading DraftKings market context…</div>}
       {!loading && !error && matchups.length === 0 && (
-        <div style={s.noData}>No games scheduled for {date}.</div>
+        <div className="state-panel">No games are scheduled for {date}.</div>
       )}
 
-      <div style={s.grid}>
+      <div style={s.matchupGrid}>
         {matchups.map((m, i) => {
           const oddsEvent = oddsByMatchup.get(keyFromMatchup(m))
+          const awayPanelStyle = {
+            ...s.teamPanel,
+            ...(isMobile ? s.teamPanelMobile : {}),
+          }
+          const homePanelStyle = {
+            ...s.teamPanel,
+            ...(!isMobile ? s.teamPanelRight : s.teamPanelMobile),
+          }
           return (
-            <div
+            <article
               key={m.game_pk || i}
-              style={{ ...s.card, ...(hovered === i ? s.cardHover : {}) }}
-              onMouseEnter={() => setHovered(i)}
-              onMouseLeave={() => setHovered(null)}
+              className="pro-card pro-card-hover card-pad responsive-matchup-card"
+              style={s.card}
               onClick={() => m.game_pk && navigate(`/matchup/${m.game_pk}`)}
             >
-              <div style={s.meta}>
+              <div style={{ ...s.slateMeta, ...(isMobile ? s.slateMetaMobile : {}) }}>
                 <div style={s.venue}>
-                  <span>{m.venue || '—'}</span>
+                  <span>{m.venue || 'Venue pending'}</span>
                   {m.game_time && <span>· {formatTime(m.game_time)}</span>}
                   {weatherLabel(m.weather) && <span>· {weatherLabel(m.weather)}</span>}
                 </div>
-                {m.status && <span style={s.statusBadge(m.status)}>{m.status}</span>}
+                {m.status && <span className={`status-badge ${statusClass(m.status)}`}>{m.status}</span>}
               </div>
 
-              <div style={s.matchupRow}>
-                <div style={s.team}>
+              <div style={{ ...s.matchupRow, ...(isMobile ? s.matchupRowMobile : {}) }}>
+                <div style={awayPanelStyle}>
                   <div style={s.teamName}>{m.away_team_name || `Team ${m.away_team_id}`}</div>
-                  <div style={s.record}>{m.away_team_record || ''}</div>
+                  <div style={s.record}>{m.away_team_record || 'Record pending'}</div>
                   <div style={s.pitcher}>
                     {m.away_pitcher_name
-                      ? <Link to={`/pitcher/${m.away_pitcher_id}`} onClick={e => e.stopPropagation()} style={{ color: '#58a6ff', textDecoration: 'none' }}>
+                      ? <Link to={`/pitcher/${m.away_pitcher_id}`} onClick={e => e.stopPropagation()} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 750, overflowWrap: 'anywhere' }}>
                           {m.away_pitcher_name}
                         </Link>
-                      : <span style={{ color: '#8b949e' }}>TBD</span>}
+                      : <span className="status-badge warning">Pitcher Pending</span>}
                   </div>
                   <div style={{ ...s.prob, color: probColor(m.away_win_prob) }}>
-                    {m.away_win_prob != null ? `${Math.round(m.away_win_prob * 100)}%` : '—'}
+                    {m.away_win_prob != null ? `${Math.round(m.away_win_prob * 100)}%` : 'Pending'}
                   </div>
                 </div>
 
-                <div style={s.vs}>@</div>
+                <div style={{ ...s.vs, ...(isMobile ? s.vsMobile : {}) }}>{isMobile ? 'AT' : 'AT'}</div>
 
-                <div style={{ ...s.team, textAlign: 'right' }}>
+                <div style={homePanelStyle}>
                   <div style={s.teamName}>{m.home_team_name || `Team ${m.home_team_id}`}</div>
-                  <div style={s.record}>{m.home_team_record || ''}</div>
-                  <div style={{ ...s.pitcher, textAlign: 'right' }}>
+                  <div style={s.record}>{m.home_team_record || 'Record pending'}</div>
+                  <div style={{ ...s.pitcher, textAlign: isMobile ? 'left' : 'right' }}>
                     {m.home_pitcher_name
-                      ? <Link to={`/pitcher/${m.home_pitcher_id}`} onClick={e => e.stopPropagation()} style={{ color: '#58a6ff', textDecoration: 'none' }}>
+                      ? <Link to={`/pitcher/${m.home_pitcher_id}`} onClick={e => e.stopPropagation()} style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 750, overflowWrap: 'anywhere' }}>
                           {m.home_pitcher_name}
                         </Link>
-                      : <span style={{ color: '#8b949e' }}>TBD</span>}
+                      : <span className="status-badge warning">Pitcher Pending</span>}
                   </div>
-                  <div style={{ ...s.prob, color: probColor(m.home_win_prob), textAlign: 'right' }}>
-                    {m.home_win_prob != null ? `${Math.round(m.home_win_prob * 100)}%` : '—'}
+                  <div style={{ ...s.prob, color: probColor(m.home_win_prob), textAlign: isMobile ? 'left' : 'right' }}>
+                    {m.home_win_prob != null ? `${Math.round(m.home_win_prob * 100)}%` : 'Pending'}
                   </div>
                 </div>
               </div>
 
               <ProbBar homeProb={m.home_win_prob} awayProb={m.away_win_prob} />
-              <OddsSnapshot event={oddsEvent} />
-            </div>
+              <OddsSnapshot event={oddsEvent} isMobile={isMobile} />
+            </article>
           )
         })}
       </div>

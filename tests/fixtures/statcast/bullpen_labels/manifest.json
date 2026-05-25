@@ -1,0 +1,113 @@
+{
+  "created_as_scaffold": true,
+  "dates_directory": "tests/fixtures/statcast/bullpen_labels/dates",
+  "entries": [
+    {
+      "expected_duplicate_count": 0,
+      "expected_required_field_failures": 0,
+      "file_path": "dates/2026-05-20.jsonl",
+      "fixture_date": "2026-05-20",
+      "fixture_version": "bullpen_statcast_fixture_v0.1",
+      "generation_method": "hand_curated",
+      "known_limitations": "Small synthetic normalized fixture payload for adapter replay validation; not a full slate.",
+      "row_count": 3,
+      "sha256": "8320ce2f8516043911693a604fd999200c75db24c4fe98f06f356f30a81a4c9a",
+      "source_label": "positive::positive_minimal_valid_date"
+    },
+    {
+      "expected_duplicate_count": 0,
+      "expected_required_field_failures": 0,
+      "file_path": "dates/2026-05-21.jsonl",
+      "fixture_date": "2026-05-21",
+      "fixture_version": "bullpen_statcast_fixture_v0.1",
+      "generation_method": "hand_curated",
+      "known_limitations": "Small synthetic normalized fixture payload for adapter replay validation; not a full slate.",
+      "row_count": 3,
+      "sha256": "e975ad0336368239d593149c2d94d634cd3faac5d63ca574c55f7a98da5fbae2",
+      "source_label": "positive::positive_multi_pitcher_date"
+    },
+    {
+      "expected_duplicate_count": 0,
+      "expected_required_field_failures": 0,
+      "file_path": "dates/2026-05-22.jsonl",
+      "fixture_date": "2026-05-22",
+      "fixture_version": "bullpen_statcast_fixture_v0.1",
+      "generation_method": "hand_curated",
+      "known_limitations": "Small synthetic normalized fixture payload for adapter replay validation; not a full slate.",
+      "row_count": 3,
+      "sha256": "bef4ef1b43c42a288a1a0685429b790e877efeb4a31e50f6e372483a19e195b1",
+      "source_label": "positive::positive_multi_game_date"
+    },
+    {
+      "expected_duplicate_count": 1,
+      "expected_required_field_failures": 0,
+      "file_path": "dates/2026-05-23.jsonl",
+      "fixture_date": "2026-05-23",
+      "fixture_version": "bullpen_statcast_fixture_v0.1",
+      "generation_method": "synthetic_negative_case",
+      "known_limitations": "Small synthetic normalized fixture payload for adapter replay validation; not a full slate.",
+      "row_count": 3,
+      "sha256": "d13630f7bbc2cad031274ea1113e4bca49ddf5992f0c28d654706c270f6caa42",
+      "source_label": "negative::negative_duplicate_natural_key_date"
+    },
+    {
+      "expected_duplicate_count": 0,
+      "expected_required_field_failures": 1,
+      "file_path": "dates/2026-05-24.jsonl",
+      "fixture_date": "2026-05-24",
+      "fixture_version": "bullpen_statcast_fixture_v0.1",
+      "generation_method": "synthetic_negative_case",
+      "known_limitations": "Small synthetic normalized fixture payload for adapter replay validation; not a full slate.",
+      "row_count": 2,
+      "sha256": "c06adf77a3c85b4f48ce4e0a1484a2150e482b50d9994ad5f2fb04b01eaa647e",
+      "source_label": "negative::negative_missing_pitcher_id_date"
+    },
+    {
+      "expected_duplicate_count": 0,
+      "expected_required_field_failures": 1,
+      "file_path": "dates/2026-05-25.jsonl",
+      "fixture_date": "2026-05-25",
+      "fixture_version": "bullpen_statcast_fixture_v0.1",
+      "generation_method": "synthetic_negative_case",
+      "known_limitations": "Small synthetic normalized fixture payload for adapter replay validation; not a full slate.",
+      "row_count": 2,
+      "sha256": "d554f7c7e90cc107960de0ffeb5514d752ddb97dc8c97e9876ab862bd097aabc",
+      "source_label": "negative::negative_missing_game_pk_date"
+    }
+  ],
+  "fixture_type": "candidate_bullpen_statcast_label_rows",
+  "fixture_version": "bullpen_statcast_fixture_v0.1",
+  "natural_key_fields": [
+    "game_pk",
+    "at_bat_number",
+    "pitch_number",
+    "pitcher_id"
+  ],
+  "required_manifest_fields": [
+    "fixture_version",
+    "fixture_date",
+    "file_path",
+    "row_count",
+    "sha256",
+    "source_label",
+    "generation_method",
+    "known_limitations",
+    "expected_duplicate_count",
+    "expected_required_field_failures"
+  ],
+  "required_normalized_fields": [
+    "game_date",
+    "game_pk",
+    "inning",
+    "inning_topbot",
+    "at_bat_number",
+    "pitch_number",
+    "outs_when_up",
+    "pitcher_id",
+    "home_team",
+    "away_team",
+    "events",
+    "description"
+  ],
+  "root": "tests/fixtures/statcast/bullpen_labels"
+}

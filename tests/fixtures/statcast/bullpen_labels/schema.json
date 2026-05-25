@@ -1,0 +1,36 @@
+{
+  "schema_version": "bullpen_statcast_fixture_schema_v0.1",
+  "row_format": "jsonl",
+  "required_normalized_fields": [
+    "game_date",
+    "game_pk",
+    "inning",
+    "inning_topbot",
+    "at_bat_number",
+    "pitch_number",
+    "outs_when_up",
+    "pitcher_id",
+    "home_team",
+    "away_team",
+    "events",
+    "description"
+  ],
+  "nullable_fields": [
+    "outs_when_up",
+    "events",
+    "description"
+  ],
+  "natural_key_fields": [
+    "game_pk",
+    "at_bat_number",
+    "pitch_number",
+    "pitcher_id"
+  ],
+  "sorted_order": [
+    "game_pk",
+    "at_bat_number",
+    "pitch_number",
+    "pitcher_id"
+  ],
+  "created_as_scaffold": true
+}
