@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
+from .canonical_game_context import build_canonical_game_context
 from .db_utils import get_pitch_arsenal_with_fallback, get_team_split
 from .matchup_generator import generate_matchups_for_date
 from .model_projection_formulas import bullpen_collapse_index, offensive_firepower_score, pitch_identity_disruption_score, pitching_volatility_score, safe_float
@@ -99,15 +100,7 @@ def _bullpen_inputs(session: Session, team_id: Optional[int], team_name: Optiona
         return {"source_table": table, "error": str(exc)}
 
 
-def _probability_model_card(
-    model_name: str,
-    score: Optional[float],
-    inputs: Dict[str, Any],
-    formula: str,
-    steps: List[str],
-    notes: List[str],
-    confidence: str = "low",
-) -> Dict[str, Any]:
+def _probability_model_card(model_name: str, score: Optional[float], inputs: Dict[str, Any], formula: str, steps: List[str], notes: List[str], confidence: str = "low") -> Dict[str, Any]:
     missing = [key for key, value in inputs.items() if value is None]
     return {
         "model_name": model_name,
@@ -122,13 +115,7 @@ def _probability_model_card(
     }
 
 
-def _team_offense_prior_pa_model(
-    team_id: Optional[int],
-    team_name: Optional[str],
-    opposing_pitcher_profile: Optional[Dict[str, Any]],
-    environment_profile: Dict[str, Any],
-    offense_profile: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+def _team_offense_prior_pa_model(team_id: Optional[int], team_name: Optional[str], opposing_pitcher_profile: Optional[Dict[str, Any]], environment_profile: Dict[str, Any], offense_profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if not offense_profile:
         offense_profile = build_team_offense_prior(team_id=team_id, team_name=team_name)
 
@@ -164,13 +151,7 @@ def _rate_from_count(numerator: Any, denominator: Any) -> Optional[float]:
     return round(num / den, 4)
 
 
-def _choose_count_derived_rate(
-    raw_rate: Any,
-    numerator: Any,
-    denominator: Any,
-    plausible_low: float,
-    plausible_high: float,
-) -> tuple[Optional[float], str]:
+def _choose_count_derived_rate(raw_rate: Any, numerator: Any, denominator: Any, plausible_low: float, plausible_high: float) -> tuple[Optional[float], str]:
     normalized = _normalize_rate(raw_rate)
     derived = _rate_from_count(numerator, denominator)
 
@@ -186,26 +167,12 @@ def _choose_count_derived_rate(
     return None, "missing_rate"
 
 
-
-
 def _pitcher_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
     features = team.get("pitcher_features") or {}
     arsenal = team.get("pitch_arsenal") or {}
 
-    k_rate, k_rate_source = _choose_count_derived_rate(
-        features.get("k_pct"),
-        features.get("strikeouts"),
-        features.get("pa"),
-        plausible_low=0.08,
-        plausible_high=0.45,
-    )
-    bb_rate, bb_rate_source = _choose_count_derived_rate(
-        features.get("bb_pct"),
-        features.get("walks"),
-        features.get("pa"),
-        plausible_low=0.015,
-        plausible_high=0.20,
-    )
+    k_rate, k_rate_source = _choose_count_derived_rate(features.get("k_pct"), features.get("strikeouts"), features.get("pa"), plausible_low=0.08, plausible_high=0.45)
+    bb_rate, bb_rate_source = _choose_count_derived_rate(features.get("bb_pct"), features.get("walks"), features.get("pa"), plausible_low=0.015, plausible_high=0.20)
     hard_hit = _normalize_rate(features.get("hard_hit_pct"))
     xwoba = safe_float(features.get("xwoba"))
     xba = safe_float(features.get("xba"))
@@ -248,20 +215,8 @@ def _pitcher_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
 def _offense_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
     inputs = team.get("offense_inputs") or {}
 
-    k_rate, k_rate_source = _choose_count_derived_rate(
-        inputs.get("k_pct"),
-        inputs.get("strikeouts"),
-        inputs.get("pa"),
-        plausible_low=0.10,
-        plausible_high=0.40,
-    )
-    bb_rate, bb_rate_source = _choose_count_derived_rate(
-        inputs.get("bb_pct"),
-        inputs.get("walks"),
-        inputs.get("pa"),
-        plausible_low=0.03,
-        plausible_high=0.18,
-    )
+    k_rate, k_rate_source = _choose_count_derived_rate(inputs.get("k_pct"), inputs.get("strikeouts"), inputs.get("pa"), plausible_low=0.10, plausible_high=0.40)
+    bb_rate, bb_rate_source = _choose_count_derived_rate(inputs.get("bb_pct"), inputs.get("walks"), inputs.get("pa"), plausible_low=0.03, plausible_high=0.18)
 
     profile = {
         "metadata": {
@@ -285,13 +240,7 @@ def _offense_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
         },
         "contact_skill": {"k_rate": k_rate, "batting_avg": safe_float(inputs.get("batting_avg")), "contact_rate": None},
         "plate_discipline": {"bb_rate": bb_rate, "on_base_pct": safe_float(inputs.get("on_base_pct"))},
-        "power": {
-            "iso": safe_float(inputs.get("iso")),
-            "slugging_pct": safe_float(inputs.get("slugging_pct")),
-            "home_runs": safe_float(inputs.get("home_runs")),
-            "doubles": safe_float(inputs.get("doubles")),
-            "triples": safe_float(inputs.get("triples")),
-        },
+        "power": {"iso": safe_float(inputs.get("iso")), "slugging_pct": safe_float(inputs.get("slugging_pct")), "home_runs": safe_float(inputs.get("home_runs")), "doubles": safe_float(inputs.get("doubles")), "triples": safe_float(inputs.get("triples"))},
         "run_creation": {"pa": safe_float(inputs.get("pa")), "hits": safe_float(inputs.get("hits")), "walks": safe_float(inputs.get("walks")), "strikeouts": safe_float(inputs.get("strikeouts"))},
     }
 
@@ -314,34 +263,10 @@ def _matchup_workspace_analysis(offense_team: Dict[str, Any], opposing_pitcher: 
     pitcher_features = opposing_pitcher.get("pitcher_features") or {}
     arsenal = opposing_pitcher.get("pitch_arsenal") or {}
 
-    offense_k, _ = _choose_count_derived_rate(
-        offense_inputs.get("k_pct"),
-        offense_inputs.get("strikeouts"),
-        offense_inputs.get("pa"),
-        plausible_low=0.10,
-        plausible_high=0.40,
-    )
-    offense_bb, _ = _choose_count_derived_rate(
-        offense_inputs.get("bb_pct"),
-        offense_inputs.get("walks"),
-        offense_inputs.get("pa"),
-        plausible_low=0.03,
-        plausible_high=0.18,
-    )
-    pitcher_k, _ = _choose_count_derived_rate(
-        pitcher_features.get("k_pct"),
-        pitcher_features.get("strikeouts"),
-        pitcher_features.get("pa"),
-        plausible_low=0.08,
-        plausible_high=0.45,
-    )
-    pitcher_bb, _ = _choose_count_derived_rate(
-        pitcher_features.get("bb_pct"),
-        pitcher_features.get("walks"),
-        pitcher_features.get("pa"),
-        plausible_low=0.015,
-        plausible_high=0.20,
-    )
+    offense_k, _ = _choose_count_derived_rate(offense_inputs.get("k_pct"), offense_inputs.get("strikeouts"), offense_inputs.get("pa"), plausible_low=0.10, plausible_high=0.40)
+    offense_bb, _ = _choose_count_derived_rate(offense_inputs.get("bb_pct"), offense_inputs.get("walks"), offense_inputs.get("pa"), plausible_low=0.03, plausible_high=0.18)
+    pitcher_k, _ = _choose_count_derived_rate(pitcher_features.get("k_pct"), pitcher_features.get("strikeouts"), pitcher_features.get("pa"), plausible_low=0.08, plausible_high=0.45)
+    pitcher_bb, _ = _choose_count_derived_rate(pitcher_features.get("bb_pct"), pitcher_features.get("walks"), pitcher_features.get("pa"), plausible_low=0.015, plausible_high=0.20)
 
     pitch_edges = []
     for pitch_type, row in (arsenal or {}).items():
@@ -669,7 +594,9 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
             shared_bullpen_sim = shared_outputs.get("bullpen_adjusted_game_simulation", {}) or {}
             projection_sim = shared_bullpen_sim or shared_game_sim
             canonical_probabilities = _canonical_probability_payload(matchup, projection_sim=projection_sim)
+            canonical_game_context = build_canonical_game_context(matchup, projection_sim=projection_sim)
             workspace["canonicalMatchupProbability"] = canonical_probabilities
+            workspace["canonicalGameContext"] = canonical_game_context
             workspace["sharedSimulationDiagnostics"] = {
                 "status": "diagnostic_only_not_final_probability",
                 "source": "sharedSimulation.derived_outputs",
@@ -705,6 +632,7 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 "pitcher_overview": canonical_probabilities.get("pitcher_overview"),
                 "batter_vs_arsenal_summary": canonical_probabilities.get("batter_vs_arsenal_summary"),
                 "main_matchup_probabilities": canonical_probabilities,
+                "canonical_game_context": canonical_game_context,
                 "teams": {"away": away, "home": home},
                 "workspace": workspace,
             })
@@ -720,5 +648,6 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
             "home_win_prob and away_win_prob are canonical v2 from /matchups.",
             "Simulation outputs remain available as diagnostics and do not define final side probability.",
             "Missing inputs are returned explicitly and are not fabricated.",
+            "canonical_game_context is the shared game-level object for side, projected runs, pitcher/team components, and data-quality context.",
         ],
     }

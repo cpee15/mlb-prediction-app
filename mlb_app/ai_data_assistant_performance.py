@@ -112,6 +112,7 @@ def _canonical_games_from_projection_payload(payload: Dict[str, Any], game_pk: O
         if game_pk is not None and str(game.get("game_pk")) != str(game_pk):
             continue
         probs = game.get("main_matchup_probabilities") or {}
+        context = game.get("canonical_game_context") or (game.get("workspace") or {}).get("canonicalGameContext") or {}
         home_team = (game.get("home_team") or {}).get("name") if isinstance(game.get("home_team"), dict) else game.get("home_team")
         away_team = (game.get("away_team") or {}).get("name") if isinstance(game.get("away_team"), dict) else game.get("away_team")
         home_prob = _safe_float(probs.get("home_win_prob") or game.get("home_win_prob"))
@@ -136,6 +137,7 @@ def _canonical_games_from_projection_payload(payload: Dict[str, Any], game_pk: O
             "probability_component_keys": sorted((probs.get("probability_components") or game.get("probability_components") or {}).keys()),
             "simulation_role": simulation_diag.get("status") or "diagnostic_only_not_final_probability",
             "simulation_is_final_probability": False,
+            "canonical_game_context": context,
         })
         if len(rows) >= limit and game_pk is None:
             break
@@ -170,6 +172,7 @@ def _build_canonical_probability_context(session, context: Dict[str, Any], game_
 
 
 def _compact_daily_odds_game_model(model: Dict[str, Any], label: str, game_pk: Optional[int]) -> Dict[str, Any]:
+    diagnostics = model.get("diagnostics") or {}
     return {
         "game_pk": game_pk,
         "label": label,
@@ -183,6 +186,7 @@ def _compact_daily_odds_game_model(model: Dict[str, Any], label: str, game_pk: O
         "recommendation_status": model.get("recommendation_status"),
         "rejection_reason": model.get("rejection_reason"),
         "drivers": model.get("drivers") or [],
+        "canonical_game_context": diagnostics.get("canonical_game_context") or model.get("canonical_game_context"),
     }
 
 
@@ -204,6 +208,7 @@ def _compact_daily_odds_prop_candidate(candidate: Dict[str, Any]) -> Dict[str, A
         "rejection_reason": candidate.get("rejection_reason"),
         "usage_weighted_gate": diagnostics.get("usage_weighted_gate"),
         "drivers": candidate.get("drivers") or [],
+        "canonical_game_context": diagnostics.get("canonical_game_context") or candidate.get("canonical_game_context"),
     }
 
 
@@ -269,11 +274,15 @@ def _canonical_answer_prefix(canonical_context: Dict[str, Any]) -> str:
     confidence = best.get("data_confidence") or "unknown"
     lineup = best.get("lineup_status") or "unknown"
     components = ", ".join(best.get("probability_component_keys") or []) or "component diagnostics missing"
+    game_context = best.get("canonical_game_context") or {}
+    total_runs = game_context.get("projected_total_runs")
     return (
         "Canonical probability note\n"
         f"Final side probability comes from canonical v2 `home_win_prob` and `away_win_prob`, not the simulation diagnostic. "
         f"Top loaded game: {best.get('label') or 'unknown game'}; side lean {favorite} at {favorite_prob}; confidence {confidence}; lineup status {lineup}. "
-        f"Components available: {components}.\n"
+        f"Components available: {components}."
+        + (f" Shared game context projected total: {total_runs}." if total_runs is not None else "")
+        + "\n"
     )
 
 
@@ -289,10 +298,14 @@ def _daily_odds_answer_prefix(daily_odds_context: Dict[str, Any]) -> str:
     lead_prop = prop_candidates[0] if prop_candidates else {}
     game_line = ""
     if lead_game:
+        context = lead_game.get("canonical_game_context") or {}
+        context_prob_gap = context.get("probability_gap")
         game_line = (
             f"Top game model: {lead_game.get('label')} | {lead_game.get('market')} | {lead_game.get('pick')} | "
             f"edge {_pct(lead_game.get('edge')) or lead_game.get('edge')} | EV {lead_game.get('expected_value')} | "
-            f"tier {lead_game.get('confidence_tier') or 'unknown'} | status {lead_game.get('recommendation_status') or 'unknown'}. "
+            f"tier {lead_game.get('confidence_tier') or 'unknown'} | status {lead_game.get('recommendation_status') or 'unknown'}."
+            + (f" Shared game context gap: {context_prob_gap}." if context_prob_gap is not None else "")
+            + " "
         )
     prop_line = ""
     if lead_prop:
@@ -312,7 +325,7 @@ def _enrich_result_with_canonical_context(result: Dict[str, Any], canonical_cont
     enriched["canonical_probability_context"] = canonical_context
     enriched["daily_odds_diagnostics_context"] = daily_odds_context
     sources = list(enriched.get("sources_used") or [])
-    for source in ["canonical_matchup_probability_v2", "matchups.home_win_prob_and_away_win_prob", "daily_odds_models"]:
+    for source in ["canonical_matchup_probability_v2", "matchups.home_win_prob_and_away_win_prob", "daily_odds_models", "canonical_game_context_v1"]:
         if source not in sources:
             sources.append(source)
     enriched["sources_used"] = sources
@@ -334,7 +347,7 @@ def _enrich_result_with_canonical_context(result: Dict[str, Any], canonical_cont
     if "Canonical probability note" not in answer:
         enriched["answer"] = note + "\n" + answer
     confidence_note = enriched.get("confidence_note") or ""
-    canonical_note = " Canonical v2 is the final side probability; simulations are diagnostic/run-distribution context only. Daily Odds diagnostics include EV, confidence tier, recommendation status, and optional hitter-usage gate output."
+    canonical_note = " Canonical v2 is the final side probability; simulations are diagnostic/run-distribution context only. Daily Odds diagnostics include EV, confidence tier, recommendation status, optional hitter-usage gate output, and shared game context."
     if canonical_note.strip() not in confidence_note:
         enriched["confidence_note"] = confidence_note + canonical_note
     return enriched
