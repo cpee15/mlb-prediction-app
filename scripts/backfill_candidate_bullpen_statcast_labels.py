@@ -946,6 +946,75 @@ def _layer_6cy_run_live_dry_run_scaffold(args: argparse.Namespace) -> int:
 
 
 
+def _candidate_bullpen_live_synthetic_fetcher(label_date: str) -> List[Dict[str, Any]]:
+    """Validation-only deterministic live fetcher test double.
+
+    This function is selected only when
+    CANDIDATE_BULLPEN_LIVE_FETCHER_TEST_DOUBLE=synthetic. It performs no network
+    access and writes no database rows.
+    """
+    return [
+        {
+            "game_date": label_date,
+            "game_pk": 990001,
+            "inning": 7,
+            "inning_topbot": "Top",
+            "at_bat_number": 42,
+            "pitch_number": 3,
+            "outs_when_up": 2,
+            "pitcher_id": 700001,
+            "home_team": "NYM",
+            "away_team": "ATL",
+            "events": "field_out",
+            "description": "hit_into_play",
+        },
+        {
+            "game_date": label_date,
+            "game_pk": 990001,
+            "inning": 8,
+            "inning_topbot": "Bot",
+            "at_bat_number": 48,
+            "pitch_number": 1,
+            "outs_when_up": 1,
+            "pitcher_id": 700002,
+            "home_team": "NYM",
+            "away_team": "ATL",
+            "events": "strikeout",
+            "description": "called_strike",
+        },
+    ]
+
+
+def _resolve_candidate_bullpen_live_fetcher(args: argparse.Namespace, label_dates: Sequence[str]):
+    """Resolve an optional fetcher for explicit live dry-run CLI execution.
+
+    The resolver is intentionally inert for default scaffold behavior, fixture
+    mode, blocked live paths, invalid date windows, and write requests. The
+    validation-only synthetic fetcher is gated by an environment variable so no
+    real network fetch is performed by tests.
+    """
+    if getattr(args, "source_mode", "") != CANDIDATE_BULLPEN_SOURCE_MODE_LIVE:
+        return None
+    if not bool(getattr(args, "dry_run", False)):
+        return None
+    if bool(getattr(args, "write", False)) or bool(getattr(args, "allow_live_write", False)):
+        return None
+    if len(list(label_dates)) != 1:
+        return None
+    label_date = list(label_dates)[0]
+    import re
+
+    if not isinstance(label_date, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", label_date):
+        return None
+
+    import os
+
+    if os.environ.get("CANDIDATE_BULLPEN_LIVE_FETCHER_TEST_DOUBLE") == "synthetic":
+        return _candidate_bullpen_live_synthetic_fetcher
+
+    return None
+
+
 def _layer_6cv_run_live_mode(args: argparse.Namespace) -> int:
     import re
 
@@ -969,11 +1038,13 @@ def _layer_6cv_run_live_mode(args: argparse.Namespace) -> int:
     elif args.end_date:
         label_dates = [str(args.end_date)]
 
+    resolved_fetcher = _resolve_candidate_bullpen_live_fetcher(args, label_dates)
     live_artifact = run_candidate_bullpen_live_adapter_scaffold(
         label_dates,
         source_mode=CANDIDATE_BULLPEN_SOURCE_MODE_LIVE,
         dry_run=bool(args.dry_run),
         allow_live_write=bool(getattr(args, "allow_live_write", False) or getattr(args, "write", False)),
+        fetcher=resolved_fetcher,
     )
     print(json.dumps(live_artifact, indent=2, sort_keys=True))
     return 0
@@ -1094,6 +1165,11 @@ def main() -> None:
     OUTPUT_JSON.write_text(json.dumps(diagnosis, indent=2))
     print(json.dumps(diagnosis, indent=2))
 
+
+# Layer 6DT: candidate bullpen Statcast live adapter CLI live dry-run fetcher injection.
+# Fetcher injection version: candidate_bullpen_live_adapter_cli_live_dry_run_fetcher_injection_v0.1
+# Explicit --source-mode live dry-run CLI invocations may receive a resolver-provided
+# fetcher. Validation uses only an environment-gated synthetic test double.
 
 # Layer 6DP: candidate bullpen Statcast live adapter CLI scaffold integration.
 # CLI integration version: candidate_bullpen_live_adapter_cli_scaffold_integration_v0.1
