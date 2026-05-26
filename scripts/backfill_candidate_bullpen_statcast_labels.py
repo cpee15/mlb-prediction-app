@@ -946,6 +946,30 @@ def _layer_6cy_run_live_dry_run_scaffold(args: argparse.Namespace) -> int:
 
 
 
+def _candidate_bullpen_live_fetcher_observability(
+    *,
+    source: str,
+    status: str,
+    gate: str,
+    reason: str,
+    dependency_error: str = "",
+    external_fetch_enabled: bool = False,
+    synthetic_enabled: bool = False,
+    real_enabled: bool = False,
+) -> Dict[str, Any]:
+    """Build additive diagnostic-only live fetcher observability fields."""
+    return {
+        "live_fetcher_resolution_source": source,
+        "live_fetcher_resolution_status": status,
+        "live_fetcher_resolution_gate": gate,
+        "live_fetcher_resolution_reason": reason,
+        "live_fetcher_resolution_dependency_error": dependency_error,
+        "live_fetcher_resolution_external_fetch_enabled": bool(external_fetch_enabled),
+        "live_fetcher_resolution_synthetic_enabled": bool(synthetic_enabled),
+        "live_fetcher_resolution_real_enabled": bool(real_enabled),
+    }
+
+
 def _candidate_bullpen_live_synthetic_fetcher(label_date: str) -> List[Dict[str, Any]]:
     """Validation-only deterministic live fetcher test double.
 
@@ -1041,6 +1065,15 @@ def _resolve_candidate_bullpen_live_fetcher(args: argparse.Namespace, label_date
     return None
 
 
+def _candidate_bullpen_apply_live_fetcher_observability(
+    artifact: Dict[str, Any],
+    observability: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Attach additive diagnostic-only observability fields to a live artifact."""
+    artifact.update(observability)
+    return artifact
+
+
 def _layer_6cv_run_live_mode(args: argparse.Namespace) -> int:
     import re
 
@@ -1064,7 +1097,52 @@ def _layer_6cv_run_live_mode(args: argparse.Namespace) -> int:
     elif args.end_date:
         label_dates = [str(args.end_date)]
 
+    synthetic_enabled = os.environ.get("CANDIDATE_BULLPEN_LIVE_FETCHER_TEST_DOUBLE") == "synthetic"
+    real_enabled = os.environ.get("CANDIDATE_BULLPEN_ENABLE_REAL_STATCAST_FETCHER") == "1"
     resolved_fetcher = _resolve_candidate_bullpen_live_fetcher(args, label_dates)
+
+    if resolved_fetcher is None:
+        observability = _candidate_bullpen_live_fetcher_observability(
+            source="none",
+            status="not_configured",
+            gate="none",
+            reason="no live fetcher resolution gate enabled",
+            external_fetch_enabled=False,
+            synthetic_enabled=synthetic_enabled,
+            real_enabled=real_enabled,
+        )
+    elif getattr(resolved_fetcher, "_candidate_bullpen_live_dependency_missing", False):
+        observability = _candidate_bullpen_live_fetcher_observability(
+            source="dependency_missing",
+            status="live_dependency_missing",
+            gate="real",
+            reason="real adapter dependency missing",
+            dependency_error="candidate_bullpen_live_adapter_dependency_missing",
+            external_fetch_enabled=False,
+            synthetic_enabled=synthetic_enabled,
+            real_enabled=real_enabled,
+        )
+    elif getattr(resolved_fetcher, "__name__", "") == "_candidate_bullpen_live_synthetic_fetcher":
+        observability = _candidate_bullpen_live_fetcher_observability(
+            source="synthetic_test_double",
+            status="resolved",
+            gate="synthetic",
+            reason="validation synthetic fetcher gate enabled",
+            external_fetch_enabled=False,
+            synthetic_enabled=synthetic_enabled,
+            real_enabled=real_enabled,
+        )
+    else:
+        observability = _candidate_bullpen_live_fetcher_observability(
+            source="real_adapter",
+            status="resolved",
+            gate="real",
+            reason="real adapter fetcher gate enabled",
+            external_fetch_enabled=True,
+            synthetic_enabled=synthetic_enabled,
+            real_enabled=real_enabled,
+        )
+
     live_artifact = run_candidate_bullpen_live_adapter_scaffold(
         label_dates,
         source_mode=CANDIDATE_BULLPEN_SOURCE_MODE_LIVE,
@@ -1075,6 +1153,8 @@ def _layer_6cv_run_live_mode(args: argparse.Namespace) -> int:
     if getattr(resolved_fetcher, "_candidate_bullpen_live_dependency_missing", False):
         live_artifact["adapter_status"] = "live_dependency_missing"
         live_artifact["adapter_fetch_error"] = "candidate_bullpen_live_adapter_dependency_missing"
+
+    _candidate_bullpen_apply_live_fetcher_observability(live_artifact, observability)
     print(json.dumps(live_artifact, indent=2, sort_keys=True))
     return 0
 
@@ -1194,6 +1274,12 @@ def main() -> None:
     OUTPUT_JSON.write_text(json.dumps(diagnosis, indent=2))
     print(json.dumps(diagnosis, indent=2))
 
+
+# Layer 6EB: candidate bullpen Statcast live adapter CLI live fetcher observability.
+# Live fetcher observability version: candidate_bullpen_live_adapter_cli_live_fetcher_observability_v0.1
+# Adds additive diagnostic-only live_fetcher_resolution_* fields. These fields
+# must not affect resolver gates, writes, materialization, fixture behavior, or
+# production defaults.
 
 # Layer 6DX: candidate bullpen Statcast live adapter CLI real fetcher resolution.
 # Real fetcher resolution version: candidate_bullpen_live_adapter_cli_real_fetcher_resolution_v0.1
