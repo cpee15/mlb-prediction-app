@@ -1012,6 +1012,32 @@ def _resolve_candidate_bullpen_live_fetcher(args: argparse.Namespace, label_date
     if os.environ.get("CANDIDATE_BULLPEN_LIVE_FETCHER_TEST_DOUBLE") == "synthetic":
         return _candidate_bullpen_live_synthetic_fetcher
 
+    if os.environ.get("CANDIDATE_BULLPEN_ENABLE_REAL_STATCAST_FETCHER") == "1":
+        try:
+            from scripts.fetch_candidate_bullpen_statcast_live_adapter import (
+                fetch_candidate_bullpen_statcast_live_rows_for_date,
+            )
+        except Exception:
+            def _candidate_bullpen_live_dependency_missing_fetcher(_label_date: str) -> List[Dict[str, Any]]:
+                return []
+
+            setattr(_candidate_bullpen_live_dependency_missing_fetcher, "_candidate_bullpen_live_dependency_missing", True)
+            return _candidate_bullpen_live_dependency_missing_fetcher
+
+        def _candidate_bullpen_real_adapter_fetcher(label_date: str) -> List[Dict[str, Any]]:
+            result = fetch_candidate_bullpen_statcast_live_rows_for_date(label_date)
+            if getattr(result, "status", "") == "live_dependency_missing":
+                return []
+            normalized_rows = getattr(result, "normalized_rows", None)
+            if isinstance(normalized_rows, list):
+                return normalized_rows
+            raw_rows = getattr(result, "rows", None)
+            if isinstance(raw_rows, list):
+                return raw_rows
+            return []
+
+        return _candidate_bullpen_real_adapter_fetcher
+
     return None
 
 
@@ -1046,6 +1072,9 @@ def _layer_6cv_run_live_mode(args: argparse.Namespace) -> int:
         allow_live_write=bool(getattr(args, "allow_live_write", False) or getattr(args, "write", False)),
         fetcher=resolved_fetcher,
     )
+    if getattr(resolved_fetcher, "_candidate_bullpen_live_dependency_missing", False):
+        live_artifact["adapter_status"] = "live_dependency_missing"
+        live_artifact["adapter_fetch_error"] = "candidate_bullpen_live_adapter_dependency_missing"
     print(json.dumps(live_artifact, indent=2, sort_keys=True))
     return 0
 
@@ -1165,6 +1194,12 @@ def main() -> None:
     OUTPUT_JSON.write_text(json.dumps(diagnosis, indent=2))
     print(json.dumps(diagnosis, indent=2))
 
+
+# Layer 6DX: candidate bullpen Statcast live adapter CLI real fetcher resolution.
+# Real fetcher resolution version: candidate_bullpen_live_adapter_cli_real_fetcher_resolution_v0.1
+# Real adapter-backed fetcher resolution is explicit live dry-run only and requires
+# CANDIDATE_BULLPEN_ENABLE_REAL_STATCAST_FETCHER=1. Validation must monkeypatch
+# the adapter-backed resolver path and never perform a real network fetch.
 
 # Layer 6DT: candidate bullpen Statcast live adapter CLI live dry-run fetcher injection.
 # Fetcher injection version: candidate_bullpen_live_adapter_cli_live_dry_run_fetcher_injection_v0.1
