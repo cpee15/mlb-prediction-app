@@ -1,6 +1,63 @@
 const PROD_API_BASE = 'https://mlb-prediction-app-production-732c.up.railway.app'
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || PROD_API_BASE
+const JSON_CACHE = new Map()
+
+function nowMs() {
+  return Date.now()
+}
+
+function cloneJson(value) {
+  if (value == null) return value
+  try {
+    return JSON.parse(JSON.stringify(value))
+  } catch {
+    return value
+  }
+}
+
+export function readCachedJson(url, ttlSeconds = 60) {
+  const key = String(url || '')
+  const record = JSON_CACHE.get(key)
+  if (!record) return null
+  if (ttlSeconds > 0 && nowMs() - record.createdAt > ttlSeconds * 1000) {
+    JSON_CACHE.delete(key)
+    return null
+  }
+  return cloneJson(record.value)
+}
+
+export function writeCachedJson(url, value) {
+  const key = String(url || '')
+  JSON_CACHE.set(key, {
+    createdAt: nowMs(),
+    value: cloneJson(value),
+  })
+  return cloneJson(value)
+}
+
+export async function fetchJson(url, { ttlSeconds = 60, forceRefresh = false, signal } = {}) {
+  if (!forceRefresh) {
+    const cached = readCachedJson(url, ttlSeconds)
+    if (cached != null) return cached
+  }
+
+  const response = await fetch(url, { signal })
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`${response.status} ${response.statusText}: ${body.slice(0, 300)}`)
+  }
+
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.includes('application/json')) {
+    const body = await response.text()
+    throw new Error(`Expected JSON but received ${contentType || 'unknown content type'}. Response starts with: ${body.slice(0, 120)}`)
+  }
+
+  const json = await response.json()
+  writeCachedJson(url, json)
+  return cloneJson(json)
+}
 
 export function getMlbToday() {
   const parts = new Intl.DateTimeFormat('en-CA', {
