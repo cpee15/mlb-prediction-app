@@ -382,6 +382,118 @@ def _row_contract_rows(results: Dict[str, LiveAdapterResult]) -> List[Dict[str, 
     return rows
 
 
+
+def _candidate_bullpen_live_fetcher_runtime_summary(artifact: Dict[str, Any]) -> Dict[str, Any]:
+    """Build additive live-fetcher runtime summary fields.
+
+    The summary is diagnostic-only. It derives from existing artifact,
+    observability, and preflight fields and must not change resolver gates,
+    adapter behavior, production defaults, write policy, or materialization.
+    """
+
+    source_mode = str(artifact.get("source_mode", "") or "")
+    resolution_gate = str(artifact.get("live_fetcher_resolution_gate", "") or "")
+    resolution_status = str(artifact.get("live_fetcher_resolution_status", "") or "")
+    resolution_reason = str(artifact.get("live_fetcher_resolution_reason", "") or "")
+    adapter_status = str(artifact.get("adapter_status", artifact.get("status", "")) or "")
+    preflight_status = str(artifact.get("live_fetcher_preflight_status", "") or "")
+    preflight_reason = str(artifact.get("live_fetcher_preflight_reason", "") or "")
+
+    dry_run = bool(artifact.get("live_fetcher_preflight_dry_run", artifact.get("dry_run", False)))
+    write_blocked = bool(artifact.get("live_fetcher_preflight_write_blocked", False))
+    allow_live_write = bool(artifact.get("live_fetcher_preflight_allow_live_write", False))
+    external_fetch_enabled = bool(
+        artifact.get(
+            "live_fetcher_resolution_external_fetch_enabled",
+            artifact.get("external_fetch_performed", False),
+        )
+    )
+    synthetic_enabled = bool(artifact.get("live_fetcher_resolution_synthetic_enabled", False))
+    real_enabled = bool(artifact.get("live_fetcher_resolution_real_enabled", False))
+    dependency_missing = bool(artifact.get("live_fetcher_resolution_dependency_error", False))
+
+    preflight_passed = bool(artifact.get("live_fetcher_preflight_passed", False))
+    single_date = bool(artifact.get("live_fetcher_preflight_single_date", True))
+    candidate_materialized = bool(artifact.get("candidate_labels_materialized", False))
+    db_writes_performed = bool(artifact.get("db_writes_performed", False))
+
+    lowered_reason = " ".join(
+        [
+            source_mode,
+            resolution_gate,
+            resolution_status,
+            resolution_reason,
+            adapter_status,
+            preflight_status,
+            preflight_reason,
+        ]
+    ).lower()
+
+    invalid_date_window = (
+        single_date is False
+        or "multi-date" in lowered_reason
+        or "multi date" in lowered_reason
+        or "date-window" in lowered_reason
+        or "date window" in lowered_reason
+        or "invalid date" in lowered_reason
+    )
+
+    live_write_attempt = db_writes_performed or (allow_live_write and not write_blocked)
+
+    if invalid_date_window:
+        status = "blocked_date_window_invalid"
+        reason = "Invalid or multi-date windows are blocked for live-fetcher safety."
+        safe_to_proceed = False
+        write_blocked = True
+    elif live_write_attempt:
+        status = "blocked_write"
+        reason = "Live write attempts are blocked by runtime summary safety posture."
+        safe_to_proceed = False
+        write_blocked = True
+    elif not dry_run:
+        status = "blocked_requires_dry_run"
+        reason = "Live fetcher runtime requires dry-run safety posture."
+        safe_to_proceed = False
+        write_blocked = True
+    elif dependency_missing:
+        status = "dependency_missing_safe"
+        reason = "Missing dependency is surfaced while remaining safe and diagnostic-only."
+        safe_to_proceed = True
+        write_blocked = True
+    elif synthetic_enabled or source_mode == "synthetic" or "synthetic" in lowered_reason:
+        status = "validation_synthetic_dry_run"
+        reason = "Synthetic validation path is dry-run and does not fetch real external data."
+        safe_to_proceed = True
+    elif real_enabled or resolution_gate in {"real", "real_gated", "external_real"}:
+        status = "real_gated_dry_run_candidate"
+        reason = "Real-gated candidate path is represented as dry-run without changing fetch behavior."
+        safe_to_proceed = True
+    else:
+        status = "safe_dry_run_no_real_fetch"
+        reason = "Live dry-run remains safe because real external fetch is not gated on."
+        safe_to_proceed = bool(preflight_passed or dry_run)
+
+    return {
+        "live_fetcher_runtime_summary_status": status,
+        "live_fetcher_runtime_summary_reason": reason,
+        "live_fetcher_runtime_summary_mode": source_mode or "unknown",
+        "live_fetcher_runtime_summary_gate": resolution_gate or "unknown",
+        "live_fetcher_runtime_summary_safe_to_proceed": bool(safe_to_proceed),
+        "live_fetcher_runtime_summary_external_fetch_enabled": bool(external_fetch_enabled),
+        "live_fetcher_runtime_summary_write_blocked": bool(write_blocked),
+        "live_fetcher_runtime_summary_candidate_materialization_blocked": not bool(candidate_materialized),
+        "live_fetcher_runtime_summary_dependency_missing": bool(dependency_missing),
+        "live_fetcher_runtime_summary_field_version": 1,
+    }
+
+
+def _candidate_bullpen_apply_live_fetcher_runtime_summary(artifact: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply additive live-fetcher runtime summary fields to an artifact."""
+
+    artifact.update(_candidate_bullpen_live_fetcher_runtime_summary(artifact))
+    return artifact
+
+
 def _main() -> int:
     output_dir = Path("tmp")
     output_dir.mkdir(exist_ok=True)
