@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
 const API = import.meta.env.VITE_API_BASE_URL || ''
-const CACHE_PREFIX = 'my-dashboard:v4:'
+const CACHE_PREFIX = 'my-dashboard:v5:'
+const DASHBOARD_SESSION_STORAGE_KEY = 'mlbgpt_dashboard_session_token'
 
 const COMPONENTS = [
   { key: 'hitters', title: 'My Top Hitters Today', description: 'Stored 365 hitter board with pitch-type matchup, EV, LA, and arsenal context.' },
@@ -23,6 +24,8 @@ function formatNumber(value) { const num = Number(value); if (!Number.isFinite(n
 function cacheKey(kind, payload) { return `${CACHE_PREFIX}${kind}:${JSON.stringify(payload)}` }
 function readSessionCache(key) { if (typeof window === 'undefined' || !window.sessionStorage) return null; try { const raw = window.sessionStorage.getItem(key); return raw ? JSON.parse(raw) : null } catch { return null } }
 function writeSessionCache(key, value) { if (typeof window === 'undefined' || !window.sessionStorage) return; try { window.sessionStorage.setItem(key, JSON.stringify(value)) } catch {} }
+function getDashboardSessionToken() { if (typeof window === 'undefined' || !window.localStorage) return ''; return window.localStorage.getItem(DASHBOARD_SESSION_STORAGE_KEY) || '' }
+function setDashboardSessionToken(token) { if (typeof window === 'undefined' || !window.localStorage) return; if (token) window.localStorage.setItem(DASHBOARD_SESSION_STORAGE_KEY, token); else window.localStorage.removeItem(DASHBOARD_SESSION_STORAGE_KEY) }
 function cleanFilters(filters) {
   const source = filters || {}
   const cleaned = {}
@@ -90,7 +93,10 @@ export default function MyDashboardWorkspacePage() {
   useEffect(() => {
     async function bootstrap() {
       try {
-        const res = await fetch(`${API}/my-dashboard/profile`, { credentials: 'include' })
+        const res = await fetch(`${API}/my-dashboard/profile`, {
+          credentials: 'include',
+          headers: getDashboardSessionToken() ? { 'X-Dashboard-Session': getDashboardSessionToken() } : {},
+        })
         const json = await res.json()
         if (json.authenticated) {
           setProfile(json.user)
@@ -119,6 +125,7 @@ export default function MyDashboardWorkspacePage() {
   }, [workspace?.today_folder_id, today])
 
   async function handleUnauthorized(message = 'Dashboard sign-in required') {
+    setDashboardSessionToken('')
     setProfile(null)
     setWorkspace(null)
     setAuthError(message)
@@ -127,8 +134,12 @@ export default function MyDashboardWorkspacePage() {
   }
 
   async function apiJson(url, options = {}) {
-    const res = await fetch(url, { credentials: 'include', ...options })
+    const token = getDashboardSessionToken()
+    const headers = { ...(options.headers || {}) }
+    if (token) headers['X-Dashboard-Session'] = token
+    const res = await fetch(url, { credentials: 'include', ...options, headers })
     const json = await res.json().catch(() => ({}))
+    if (json?.session_token) setDashboardSessionToken(json.session_token)
     if (res.status === 401) {
       await handleUnauthorized(typeof json?.detail === 'string' ? json.detail : 'Dashboard sign-in required')
       throw new Error(typeof json?.detail === 'string' ? json.detail : 'Dashboard sign-in required')
@@ -148,7 +159,8 @@ export default function MyDashboardWorkspacePage() {
     setSavingProfile(true)
     setAuthError(null)
     try {
-      await apiJson(`${API}/my-dashboard/profile`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+      const signupJson = await apiJson(`${API}/my-dashboard/profile`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
+      if (signupJson?.session_token) setDashboardSessionToken(signupJson.session_token)
       const profileJson = await apiJson(`${API}/my-dashboard/profile`)
       if (!profileJson.authenticated) throw new Error('Dashboard session was not established. Try signing in again.')
       setProfile(profileJson.user)
@@ -293,16 +305,9 @@ export default function MyDashboardWorkspacePage() {
     <div style={pageStyle}>
       <section style={heroStyle}>
         <div>
-          <div style={eyebrowStyle}>My Dashboard</div>
-          <h1 style={titleStyle}>Welcome back, {profile.username}</h1>
-          <p style={subtitleStyle}>Restore stronger filters, hitter pitch-type controls, titled board saves, notes, folder selection, confirmed-lineup reruns, and restore-state interactions.</p>
+          <div style={eyebrowStyle}>My Dashboard</div><h1 style={titleStyle}>Welcome back, {profile.username}</h1><p style={subtitleStyle}>Restore stronger filters, hitter pitch-type controls, titled board saves, notes, folder selection, confirmed-lineup reruns, and restore-state interactions.</p>
         </div>
-        <div style={summaryCardStyle}>
-          <div style={metaStyle}>Email: {profile.email}</div>
-          <div style={metaStyle}>Plan: {profile.preferences?.plan_type || 'free'}</div>
-          <div style={metaStyle}>Folders: {folders.length}</div>
-          <div style={metaStyle}>Today saved: {todayFolder?.item_count || 0}</div>
-        </div>
+        <div style={summaryCardStyle}><div style={metaStyle}>Email: {profile.email}</div><div style={metaStyle}>Plan: {profile.preferences?.plan_type || 'free'}</div><div style={metaStyle}>Folders: {folders.length}</div><div style={metaStyle}>Today saved: {todayFolder?.item_count || 0}</div></div>
       </section>
 
       <section style={panelStyle}>
