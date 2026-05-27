@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { API_BASE, getMlbLiveDate } from '../lib/api'
+import { API_BASE, fetchJson, getMlbLiveDate, readCachedJson } from '../lib/api'
 
 const API = API_BASE
+const MATCHUPS_TTL_SECONDS = 120
+const ODDS_EVENTS_TTL_SECONDS = 90
+const PROPS_TTL_SECONDS = 90
 
 function useIsMobile(breakpoint = 768) {
   const getMatches = () => (typeof window !== 'undefined' ? window.innerWidth <= breakpoint : false)
@@ -142,9 +145,10 @@ function OddsMarket({ label, market }) {
 }
 
 function PropPreview({ eventId, isMobile }) {
+  const cacheUrl = `${API}/odds/draftkings/event/${eventId}/props`
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [propsData, setPropsData] = useState(null)
+  const [propsData, setPropsData] = useState(() => readCachedJson(cacheUrl, PROPS_TTL_SECONDS))
   const [error, setError] = useState(null)
 
   function toggle(e) {
@@ -157,8 +161,7 @@ function PropPreview({ eventId, isMobile }) {
     if (propsData || loading) return
     setLoading(true)
     setError(null)
-    fetch(`${API}/odds/draftkings/event/${eventId}/props`)
-      .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
+    fetchJson(cacheUrl, { ttlSeconds: PROPS_TTL_SECONDS })
       .then(data => { setPropsData(data); setLoading(false) })
       .catch(err => { setError(String(err)); setLoading(false) })
   }
@@ -250,30 +253,71 @@ export default function HomePage() {
   const isMobile = useIsMobile()
   const today = getMlbLiveDate()
   const [date, setDate] = useState(today)
-  const [matchups, setMatchups] = useState([])
-  const [oddsEvents, setOddsEvents] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [oddsLoading, setOddsLoading] = useState(false)
+  const initialMatchupsUrl = `${API}/matchups?date=${today}`
+  const initialOddsUrl = `${API}/odds/draftkings/events?date=${today}`
+  const [matchups, setMatchups] = useState(() => {
+    const cached = readCachedJson(initialMatchupsUrl, MATCHUPS_TTL_SECONDS)
+    return Array.isArray(cached) ? cached : []
+  })
+  const [oddsEvents, setOddsEvents] = useState(() => {
+    const cached = readCachedJson(initialOddsUrl, ODDS_EVENTS_TTL_SECONDS)
+    return Array.isArray(cached?.events) ? cached.events : []
+  })
+  const [loading, setLoading] = useState(matchups.length === 0)
+  const [oddsLoading, setOddsLoading] = useState(oddsEvents.length === 0)
   const [error, setError] = useState(null)
   const [oddsError, setOddsError] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
-    setLoading(true)
+    let cancelled = false
+    const url = `${API}/matchups?date=${date}`
+    const cached = readCachedJson(url, MATCHUPS_TTL_SECONDS)
+    if (Array.isArray(cached)) {
+      setMatchups(cached)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
     setError(null)
-    fetch(`${API}/matchups?date=${date}`)
-      .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
-      .then(data => { setMatchups(Array.isArray(data) ? data : []); setLoading(false) })
-      .catch(e => { setError(String(e)); setLoading(false) })
+    fetchJson(url, { ttlSeconds: MATCHUPS_TTL_SECONDS })
+      .then(data => {
+        if (cancelled) return
+        setMatchups(Array.isArray(data) ? data : [])
+        setLoading(false)
+      })
+      .catch(e => {
+        if (cancelled) return
+        setError(String(e))
+        setLoading(false)
+      })
+    return () => { cancelled = true }
   }, [date])
 
   useEffect(() => {
-    setOddsLoading(true)
+    let cancelled = false
+    const url = `${API}/odds/draftkings/events?date=${date}`
+    const cached = readCachedJson(url, ODDS_EVENTS_TTL_SECONDS)
+    if (Array.isArray(cached?.events)) {
+      setOddsEvents(cached.events)
+      setOddsLoading(false)
+    } else {
+      setOddsLoading(true)
+    }
     setOddsError(null)
-    fetch(`${API}/odds/draftkings/events?date=${date}`)
-      .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
-      .then(data => { setOddsEvents(Array.isArray(data?.events) ? data.events : []); setOddsLoading(false) })
-      .catch(e => { setOddsError(String(e)); setOddsEvents([]); setOddsLoading(false) })
+    fetchJson(url, { ttlSeconds: ODDS_EVENTS_TTL_SECONDS })
+      .then(data => {
+        if (cancelled) return
+        setOddsEvents(Array.isArray(data?.events) ? data.events : [])
+        setOddsLoading(false)
+      })
+      .catch(e => {
+        if (cancelled) return
+        setOddsError(String(e))
+        setOddsEvents([])
+        setOddsLoading(false)
+      })
+    return () => { cancelled = true }
   }, [date])
 
   const oddsByMatchup = useMemo(() => {
