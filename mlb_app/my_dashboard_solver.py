@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from .ai_data_assistant import (
     build_pitcher_lean_context,
     build_stored_365_sweep_context,
+    coalesce,
     safe_float,
     score_projection_edges,
 )
@@ -104,7 +105,17 @@ def normalize_filter_payload(filters: Optional[Dict[str, Any]]) -> Dict[str, Any
     if not isinstance(filters, dict):
         return {}
     normalized: Dict[str, Any] = {}
-    for key in ["search_text", "team", "opponent", "category", "entity_type", "player_type"]:
+    for key in [
+        "search_text",
+        "team",
+        "opponent",
+        "category",
+        "entity_type",
+        "player_type",
+        "pitch_type",
+        "pitch_name",
+        "source",
+    ]:
         value = filters.get(key)
         if value not in (None, ""):
             normalized[key] = str(value).strip()
@@ -146,7 +157,16 @@ def normalize_filter_payload(filters: Optional[Dict[str, Any]]) -> Dict[str, Any
 
 def text_blob(item: Dict[str, Any]) -> str:
     parts = [
-        item.get("entity_name"), item.get("team"), item.get("opponent"), item.get("primary_reason"), item.get("category"), item.get("entity_type"), item.get("player_type"),
+        item.get("entity_name"),
+        item.get("team"),
+        item.get("opponent"),
+        item.get("primary_reason"),
+        item.get("category"),
+        item.get("entity_type"),
+        item.get("player_type"),
+        item.get("pitch_type"),
+        item.get("pitch_name"),
+        item.get("source"),
     ]
     parts.extend(item.get("reasoning") or [])
     for angle in item.get("best_pitch_angles") or []:
@@ -164,13 +184,18 @@ def passes_basic_filters(item: Dict[str, Any], filters: Dict[str, Any]) -> bool:
     min_conf = filters.get("min_confidence")
     if min_conf and CONFIDENCE_ORDER.get(confidence_label(item.get("confidence")), 0) < CONFIDENCE_ORDER.get(min_conf, 0):
         return False
-    for key in ["team", "opponent"]:
+    for key in ["team", "opponent", "source"]:
         value = filters.get(key)
         if value and value.lower() not in str(item.get(key) or "").lower():
             return False
     for key in ["category", "entity_type", "player_type"]:
         value = filters.get(key)
         if value and str(item.get(key) or "").lower() != value.lower():
+            return False
+    pitch_filter = filters.get("pitch_type") or filters.get("pitch_name")
+    if pitch_filter:
+        pitch_blob = f"{item.get('pitch_type') or ''} {item.get('pitch_name') or ''}".lower()
+        if pitch_filter.lower() not in pitch_blob:
             return False
     search = filters.get("search_text")
     if search and search.lower() not in text_blob(item):
@@ -198,6 +223,10 @@ def normalize_metric_for_weight(metric_name: str, metric_value: Any) -> float:
     name = metric_name.lower()
     if "ev" in name or "velocity" in name:
         return max(-1.0, min(1.0, (value - 88.0) / 12.0))
+    if "la" in name or "launch angle" in name:
+        return max(-1.0, min(1.0, 1.0 - abs(value - 16.0) / 25.0))
+    if "pitches seen" in name or name == "pa":
+        return max(-1.0, min(1.0, value / 60.0))
     if "total" in name:
         return max(-1.0, min(1.0, (value - 8.5) / 4.0))
     if "score" in name or "edge" in name or "diff" in name:
@@ -240,6 +269,7 @@ def available_filters_for_component(component: str, items: Optional[List[Dict[st
     player_types = set()
     teams = set()
     opponents = set()
+    pitch_types = set()
     for item in items or []:
         metric_names.update((item.get("metrics") or {}).keys())
         if item.get("category"):
@@ -250,22 +280,55 @@ def available_filters_for_component(component: str, items: Optional[List[Dict[st
             teams.add(str(item.get("team")))
         if item.get("opponent"):
             opponents.add(str(item.get("opponent")))
+        if item.get("pitch_type") or item.get("pitch_name"):
+            pitch_types.add(str(item.get("pitch_name") or item.get("pitch_type")))
     default_metrics = {
-        "hitters": ["xwOBA", "xBA", "EV", "LA", "HardHit", "Usage", "Pitcher xwOBA"],
+        "hitters": ["xwOBA", "xBA", "EV", "LA", "HardHit", "Usage", "Pitcher xwOBA", "Pitches Seen", "PA"],
         "pitchers": ["K%", "BB%", "xwOBA Allowed", "HardHit Allowed", "Opp K%", "Opp ISO", "Score"],
         "teams": ["Edge Score", "Win Edge", "Run Diff", "ISO", "OBP", "SLG"],
         "totals": ["Projected Total", "Raw Total", "Run Index", "Score"],
         "overall_players": sorted(metric_names) or ["Score"],
     }
     metrics = sorted(metric_names) if metric_names else default_metrics.get(component, [])
+    component_defaults = {
+        "hitters": {
+            "basic": ["search_text", "team", "opponent", "min_confidence", "min_score", "max_score", "pitch_type", "source", "entity_type", "player_type"],
+            "suggested_metric_filters": ["EV", "LA", "Pitches Seen", "xwOBA", "HardHit", "Usage"],
+            "suggested_weight_metrics": ["EV", "LA", "Pitches Seen", "xwOBA", "Usage"],
+        },
+        "pitchers": {
+            "basic": ["search_text", "team", "opponent", "min_confidence", "min_score", "max_score", "source", "category", "entity_type", "player_type"],
+            "suggested_metric_filters": ["K%", "xwOBA Allowed", "HardHit Allowed", "Opp K%", "Score"],
+            "suggested_weight_metrics": ["K%", "xwOBA Allowed", "HardHit Allowed", "Score"],
+        },
+        "teams": {
+            "basic": ["search_text", "team", "opponent", "min_confidence", "min_score", "max_score", "source", "category", "entity_type", "player_type"],
+            "suggested_metric_filters": ["Edge Score", "Win Edge", "Run Diff", "ISO", "OBP"],
+            "suggested_weight_metrics": ["Edge Score", "Win Edge", "Run Diff", "ISO"],
+        },
+        "totals": {
+            "basic": ["search_text", "min_confidence", "min_score", "max_score", "source", "category", "entity_type", "player_type"],
+            "suggested_metric_filters": ["Projected Total", "Raw Total", "Run Index", "Score"],
+            "suggested_weight_metrics": ["Projected Total", "Run Index", "Score"],
+        },
+        "overall_players": {
+            "basic": ["search_text", "team", "opponent", "min_confidence", "min_score", "max_score", "source", "entity_type", "player_type"],
+            "suggested_metric_filters": metrics[:6],
+            "suggested_weight_metrics": metrics[:5],
+        },
+    }
+    defaults = component_defaults.get(component, {"basic": [], "suggested_metric_filters": [], "suggested_weight_metrics": []})
     return {
-        "basic": ["search_text", "team", "opponent", "min_confidence", "category", "entity_type", "player_type", "min_score", "max_score"],
+        "basic": defaults["basic"],
         "metrics": metrics,
         "weights": metrics,
         "categories": sorted(categories),
         "player_types": sorted(player_types),
-        "teams": sorted(teams)[:30],
-        "opponents": sorted(opponents)[:30],
+        "teams": sorted(teams)[:50],
+        "opponents": sorted(opponents)[:50],
+        "pitch_types": sorted(pitch_types),
+        "suggested_metric_filters": defaults["suggested_metric_filters"],
+        "suggested_weight_metrics": defaults["suggested_weight_metrics"],
     }
 
 
@@ -322,31 +385,41 @@ def solve_top_hitters(session, date: str, filters: Optional[Dict[str, Any]] = No
             "HardHit": rounded(row.get("hitter_hard_hit_pct")),
             "Usage": rounded(row.get("pitcher_usage_pct")),
             "Pitcher xwOBA": rounded(row.get("pitcher_xwoba_allowed")),
+            "Pitches Seen": rounded(row.get("pitches_seen"), 0),
+            "PA": rounded(row.get("pa"), 0),
         }
         pitch_label = row.get("pitch_name") or row.get("pitch_type") or "pitch"
+        pitches_seen = row.get("pitches_seen")
+        team_value = coalesce(row.get("batter_team_name"), row.get("batter_team"), row.get("batter_team_id"))
         candidates.append({
             "entity_type": "hitter",
+            "player_type": "hitter",
+            "category": "pitch_type_matchup",
             "entity_id": str(hitter_id),
             "entity_name": row.get("batter_name") or f"Batter {hitter_id}",
-            "team": row.get("batter_team_id"),
+            "team": str(team_value) if team_value is not None else None,
             "opponent": row.get("opposing_pitcher_name") or row.get("opposing_pitcher_id"),
             "game_pk": row.get("game_pk"),
             "score": rounded(row.get("rank_score")),
             "base_score": rounded(row.get("rank_score")),
             "confidence": row.get("confidence_tier") or confidence_label(row.get("confidence")),
-            "primary_reason": f"Best pitch angle: {pitch_label} with hitter xwOBA {metrics.get('xwOBA')} and EV {metrics.get('EV')}.",
+            "pitch_type": row.get("pitch_type"),
+            "pitch_name": row.get("pitch_name"),
+            "sample_size": row.get("sample_size"),
+            "primary_reason": f"Best pitch angle: {pitch_label} with hitter xwOBA {metrics.get('xwOBA')}, EV {metrics.get('EV')}, LA {metrics.get('LA')}, and {pitches_seen or 0} pitches seen.",
             "reasoning": [
                 f"Pitch angle: {pitch_label}",
                 f"Pitcher usage: {metrics.get('Usage')}",
                 f"Hitter xwOBA/xBA: {metrics.get('xwOBA')} / {metrics.get('xBA')}",
                 f"Batted-ball quality: EV {metrics.get('EV')}, LA {metrics.get('LA')}, HardHit {metrics.get('HardHit')}",
+                f"Pitch exposure: {metrics.get('Pitches Seen')} pitches seen, {metrics.get('PA')} PA",
                 f"Pitcher allowed profile: xwOBA {metrics.get('Pitcher xwOBA')}",
             ],
             "metrics": metrics,
             "chart_data": build_chart_data(metrics),
             "source": "batter_pitch_type_matchups + model_projection_pitch_arsenal",
             "missing_data": row.get("missing_inputs") or [],
-            "best_pitch_angles": [{"pitch_type": row.get("pitch_type"), "pitch_name": row.get("pitch_name"), "score": rounded(row.get("rank_score")), "reason": f"{pitch_label}: xwOBA {metrics.get('xwOBA')}, EV {metrics.get('EV')}, usage {metrics.get('Usage')}"}],
+            "best_pitch_angles": [{"pitch_type": row.get("pitch_type"), "pitch_name": row.get("pitch_name"), "score": rounded(row.get("rank_score")), "reason": f"{pitch_label}: xwOBA {metrics.get('xwOBA')}, EV {metrics.get('EV')}, LA {metrics.get('LA')}, pitches seen {metrics.get('Pitches Seen')}, usage {metrics.get('Usage')}"}],
         })
     return finalize_component_response(date, "hitters", candidates, lambda row: f"hitter:{row.get('entity_id')}:{date}", context.get("data_quality"), context.get("missing_data"), filters)
 
