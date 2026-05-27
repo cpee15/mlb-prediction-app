@@ -1,8 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { API_BASE } from '../lib/api'
+import { API_BASE, fetchJson, readCachedJson } from '../lib/api'
 
 const API = API_BASE
+const MATCHUPS_TTL_SECONDS = 120
+const ODDS_EVENTS_TTL_SECONDS = 90
+const DAILY_ODDS_MODELS_TTL_SECONDS = 120
+const DAILY_ODDS_UNIFIED_TTL_SECONDS = 180
+const EVENT_PROPS_TTL_SECONDS = 90
 
 const s = {
   page: { display: 'grid', gap: 18 },
@@ -167,29 +172,41 @@ function OddsBoard({ events, selectedEventId, setSelectedEventId, propsData, pro
 export default function DailyOddsPage() {
   const today = new Date().toISOString().slice(0, 10)
   const [date, setDate] = useState(today)
-  const [matchups, setMatchups] = useState([])
-  const [events, setEvents] = useState([])
-  const [modelPayload, setModelPayload] = useState(null)
+  const initialMatchupsUrl = `${API}/matchups?date=${today}`
+  const initialEventsUrl = `${API}/odds/draftkings/events?date=${today}`
+  const initialModelsUrl = `${API}/daily-odds/models?date=${today}`
+  const [matchups, setMatchups] = useState(() => {
+    const cached = readCachedJson(initialMatchupsUrl, MATCHUPS_TTL_SECONDS)
+    return Array.isArray(cached) ? cached : []
+  })
+  const [events, setEvents] = useState(() => {
+    const cached = readCachedJson(initialEventsUrl, ODDS_EVENTS_TTL_SECONDS)
+    return Array.isArray(cached?.events) ? cached.events : []
+  })
+  const [modelPayload, setModelPayload] = useState(() => readCachedJson(initialModelsUrl, DAILY_ODDS_MODELS_TTL_SECONDS))
   const [unifiedPayload, setUnifiedPayload] = useState(null)
   const [selectedEventId, setSelectedEventId] = useState('')
   const [propsData, setPropsData] = useState(null)
   const [propsLoading, setPropsLoading] = useState(false)
   const [propsError, setPropsError] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(matchups.length === 0 && events.length === 0)
   const [unifiedLoading, setUnifiedLoading] = useState(false)
   const [error, setError] = useState(null)
   const [modelError, setModelError] = useState(null)
   const [lastRefreshed, setLastRefreshed] = useState(null)
 
-  function load() {
+  function load(forceRefresh = false) {
     setLoading(true)
     setError(null)
     setModelError(null)
     setUnifiedPayload(null)
+    const matchupsUrl = `${API}/matchups?date=${date}`
+    const eventsUrl = `${API}/odds/draftkings/events?date=${date}`
+    const modelsUrl = `${API}/daily-odds/models?date=${date}`
     Promise.all([
-      fetch(`${API}/matchups?date=${date}`).then(async r => { if (!r.ok) throw new Error(`/matchups failed: ${r.status} ${r.statusText}: ${await r.text()}`); return r.json() }),
-      fetch(`${API}/odds/draftkings/events?date=${date}`).then(async r => { if (!r.ok) throw new Error(`/odds/draftkings/events failed: ${r.status} ${r.statusText}: ${await r.text()}`); return r.json() }),
-      fetch(`${API}/daily-odds/models?date=${date}`).then(async r => { if (!r.ok) throw new Error(`/daily-odds/models failed: ${r.status} ${r.statusText}: ${await r.text()}`); return r.json() }).catch(err => ({ __modelError: String(err?.message || err) })),
+      fetchJson(matchupsUrl, { ttlSeconds: MATCHUPS_TTL_SECONDS, forceRefresh }),
+      fetchJson(eventsUrl, { ttlSeconds: ODDS_EVENTS_TTL_SECONDS, forceRefresh }),
+      fetchJson(modelsUrl, { ttlSeconds: DAILY_ODDS_MODELS_TTL_SECONDS, forceRefresh }).catch(err => ({ __modelError: String(err?.message || err) })),
     ]).then(([matchupData, oddsData, modelsData]) => {
       const nextEvents = Array.isArray(oddsData?.events) ? oddsData.events : []
       setMatchups(Array.isArray(matchupData) ? matchupData : [])
@@ -201,22 +218,22 @@ export default function DailyOddsPage() {
     }).catch(err => { setError(String(err?.message || err)); setLoading(false) })
   }
 
-  function loadUnified() {
+  function loadUnified(forceRefresh = false) {
     setUnifiedLoading(true)
-    fetch(`${API}/daily-odds/models?date=${date}&include_unified=true`)
-      .then(async r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`); return r.json() })
+    const unifiedUrl = `${API}/daily-odds/models?date=${date}&include_unified=true`
+    fetchJson(unifiedUrl, { ttlSeconds: DAILY_ODDS_UNIFIED_TTL_SECONDS, forceRefresh })
       .then(json => { setUnifiedPayload(json); setUnifiedLoading(false) })
       .catch(err => { setModelError(String(err?.message || err)); setUnifiedLoading(false) })
   }
 
-  useEffect(() => { load() }, [date])
+  useEffect(() => { load(false) }, [date])
 
   useEffect(() => {
     if (!selectedEventId) { setPropsData(null); return }
     setPropsLoading(true)
     setPropsError(null)
-    fetch(`${API}/odds/draftkings/event/${selectedEventId}/props`)
-      .then(async r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`); return r.json() })
+    const propsUrl = `${API}/odds/draftkings/event/${selectedEventId}/props`
+    fetchJson(propsUrl, { ttlSeconds: EVENT_PROPS_TTL_SECONDS })
       .then(json => { setPropsData(json); setPropsLoading(false) })
       .catch(err => { setPropsData(null); setPropsError(String(err?.message || err)); setPropsLoading(false) })
   }, [selectedEventId])
@@ -231,7 +248,7 @@ export default function DailyOddsPage() {
     <section style={s.hero}>
       <div style={s.header}>
         <div><div style={s.eyebrow}>DraftKings board</div><h1 style={s.title}>Daily Odds</h1><div style={s.subtitle}>Odds are organized by game, category, market, and player. The page loads fast first; heavier model recap data is pulled only when requested.</div></div>
-        <div style={s.controls}><input type="date" value={date} onChange={e => setDate(e.target.value)} style={s.input} /><button type="button" style={s.button} onClick={load} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh Odds'}</button></div>
+        <div style={s.controls}><input type="date" value={date} onChange={e => setDate(e.target.value)} style={s.input} /><button type="button" style={s.button} onClick={() => load(true)} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh Odds'}</button></div>
       </div>
       <div style={s.stats}>
         <div style={s.statCard}><div style={s.statLabel}>MLB Games</div><div style={s.statValue}>{matchups.length}</div></div>
@@ -250,7 +267,7 @@ export default function DailyOddsPage() {
 
     {!loading && !error && events.length > 0 && <OddsBoard events={events} selectedEventId={selectedEventId} setSelectedEventId={setSelectedEventId} propsData={propsData} propsLoading={propsLoading} propsError={propsError} />}
 
-    <DailyRecapPanel unifiedPayload={unifiedPayload} loading={unifiedLoading} onLoad={loadUnified} />
+    <DailyRecapPanel unifiedPayload={unifiedPayload} loading={unifiedLoading} onLoad={() => loadUnified(false)} />
 
     <section style={s.section}>
       <div style={s.sectionHeader}><div><div style={s.sectionTitle}>Game Market Snapshot</div><div style={s.modelSubtitle}>Compact game-line view. Props are handled in the organized board above, not scattered cards.</div></div><span style={s.chip}>{rows.length} games</span></div>
