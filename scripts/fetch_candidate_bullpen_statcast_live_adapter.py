@@ -668,5 +668,105 @@ def _main() -> int:
     return 0 if diagnosis["all_checks_passed"] else 1
 
 
+
+def _candidate_bullpen_build_cli_diagnostic_artifact(
+    **runtime_summary_kwargs: Any,
+) -> Dict[str, Any]:
+    """Build a deterministic CLI diagnostic artifact for runtime-summary output.
+
+    This diagnostic-only helper delegates to the runtime-summary helper,
+    mirrors the runtime summary fields at the top level, and performs no I/O.
+    """
+
+    runtime_artifact = _candidate_bullpen_build_live_fetcher_runtime_summary_artifact(
+        **runtime_summary_kwargs
+    )
+
+    artifact: Dict[str, Any] = {
+        "cli_diagnostic_artifact_version": 1,
+        "cli_diagnostic_artifact_status": runtime_artifact.get(
+            "live_fetcher_runtime_summary_status"
+        ),
+        "cli_diagnostic_artifact_reason": (
+            "Runtime summary artifact is safe, deterministic, and diagnostic-only."
+        ),
+        "cli_diagnostic_artifact_safe_to_proceed": runtime_artifact.get(
+            "live_fetcher_runtime_summary_safe_to_proceed"
+        ),
+        "cli_diagnostic_artifact_source": "candidate_bullpen_statcast_live_adapter",
+        "live_fetcher_runtime_summary_artifact": dict(runtime_artifact),
+    }
+
+    for field in [
+        "live_fetcher_runtime_summary_status",
+        "live_fetcher_runtime_summary_reason",
+        "live_fetcher_runtime_summary_mode",
+        "live_fetcher_runtime_summary_gate",
+        "live_fetcher_runtime_summary_safe_to_proceed",
+        "live_fetcher_runtime_summary_external_fetch_enabled",
+        "live_fetcher_runtime_summary_write_blocked",
+        "live_fetcher_runtime_summary_candidate_materialization_blocked",
+        "live_fetcher_runtime_summary_dependency_missing",
+        "live_fetcher_runtime_summary_field_version",
+    ]:
+        artifact[field] = runtime_artifact.get(field)
+
+    for field in [
+        "external_fetch_performed",
+        "adapter_external_fetch_performed",
+        "db_writes_performed",
+        "adapter_db_writes_performed",
+        "candidate_labels_materialized",
+        "production_default_unchanged",
+        "source_mode",
+        "live_fetcher_resolution_status",
+        "live_fetcher_resolution_gate",
+        "live_fetcher_resolution_reason",
+    ]:
+        if field in runtime_artifact:
+            artifact[field] = runtime_artifact.get(field)
+
+    return artifact
+
+
+def _candidate_bullpen_emit_module_self_check_summary_with_cli_diagnostic() -> int:
+    """Emit existing module self-check output with CLI diagnostic fields added."""
+
+    import contextlib
+    import io
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        exit_code = _main()
+
+    raw_stdout = buffer.getvalue()
+    summary = json.loads(raw_stdout)
+
+    cli_diagnostic_artifact = _candidate_bullpen_build_cli_diagnostic_artifact()
+    summary.update(
+        {
+            "cli_diagnostic_artifact_created": True,
+            "cli_diagnostic_artifact_version": cli_diagnostic_artifact.get(
+                "cli_diagnostic_artifact_version"
+            ),
+            "cli_diagnostic_artifact_status": cli_diagnostic_artifact.get(
+                "cli_diagnostic_artifact_status"
+            ),
+            "cli_diagnostic_artifact_safe_to_proceed": cli_diagnostic_artifact.get(
+                "cli_diagnostic_artifact_safe_to_proceed"
+            ),
+            "live_fetcher_runtime_summary_status": cli_diagnostic_artifact.get(
+                "live_fetcher_runtime_summary_status"
+            ),
+            "live_fetcher_runtime_summary_field_version": cli_diagnostic_artifact.get(
+                "live_fetcher_runtime_summary_field_version"
+            ),
+        }
+    )
+
+    print(json.dumps(summary, indent=2))
+    return int(exit_code or 0)
+
+
 if __name__ == "__main__":
-    raise SystemExit(_main())
+    raise SystemExit(_candidate_bullpen_emit_module_self_check_summary_with_cli_diagnostic())
