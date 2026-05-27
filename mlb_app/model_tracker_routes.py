@@ -73,7 +73,7 @@ DEFAULT_COMPONENTS = [
         "source_type": "seeded_component",
     },
 ]
-DEFAULT_FILTER_FIELDS = ["search_text", "team", "opponent", "min_score", "min_confidence"]
+DEFAULT_FILTER_FIELDS = ["search_text", "team", "opponent", "min_score", "max_score", "min_confidence", "pitch_type", "category", "source"]
 
 
 class DashboardProfileRequest(BaseModel):
@@ -227,9 +227,9 @@ def _build_seed_payload(component: Dict[str, Any]) -> Dict[str, Any]:
                 "Team",
                 "Model Tracker",
             ],
-            "available_fields": ["title", "subtitle", "metrics", "reasoning", "game_pk", "entity_id", "entity_type"],
+            "available_fields": ["title", "subtitle", "metrics", "reasoning", "game_pk", "entity_id", "entity_type", "notes"],
             "conditions": ["equals", "contains", "min", "max", "in"],
-            "max_filters": 5,
+            "max_filters": 10,
             "default_filter_fields": DEFAULT_FILTER_FIELDS,
             "logic_mode": "AND",
         },
@@ -307,7 +307,7 @@ def _seed_default_dashboard(session, user_id: int, folder_id: int) -> None:
                 payload_json=_build_seed_payload(component),
                 filter_json={
                     "default_filter_fields": DEFAULT_FILTER_FIELDS,
-                    "max_filters": 5,
+                    "max_filters": 10,
                 },
                 sort_json={"mode": "manual_seed_order", "position": index},
                 pin_order=index,
