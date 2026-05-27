@@ -494,6 +494,69 @@ def _candidate_bullpen_apply_live_fetcher_runtime_summary(artifact: Dict[str, An
     return artifact
 
 
+
+def _candidate_bullpen_build_live_fetcher_runtime_summary_artifact(
+    *,
+    source_mode: str = "live",
+    resolution_gate: str = "dry_run",
+    resolution_status: str = "dry_run",
+    resolution_reason: str = "default safe dry-run",
+    resolution_dependency_error: bool = False,
+    resolution_external_fetch_enabled: bool = False,
+    resolution_synthetic_enabled: bool = False,
+    resolution_real_enabled: bool = False,
+    preflight_passed: bool = True,
+    preflight_status: str = "passed",
+    preflight_reason: str = "default safe dry-run",
+    preflight_dry_run: bool = True,
+    preflight_single_date: bool = True,
+    preflight_write_blocked: bool = True,
+    preflight_allow_live_write: bool = False,
+    adapter_status: str = "not_run",
+    adapter_external_fetch_performed: bool = False,
+    adapter_db_writes_performed: bool = False,
+    external_fetch_performed: bool = False,
+    db_writes_performed: bool = False,
+    candidate_labels_materialized: bool = False,
+    production_default_unchanged: bool = True,
+) -> Dict[str, Any]:
+    """Build a deterministic live-fetcher runtime-summary artifact.
+
+    This is a minimal artifact assembly surface. It is diagnostic-only and
+    intentionally does not call the live row fetcher, external data clients,
+    network, DB write paths, or candidate-label output paths. The helper exists so the
+    runtime summary can be attached to a concrete artifact without changing
+    fetcher behavior or production defaults.
+    """
+
+    artifact: Dict[str, Any] = {
+        "source_mode": source_mode,
+        "adapter_status": adapter_status,
+        "adapter_external_fetch_performed": bool(adapter_external_fetch_performed),
+        "adapter_db_writes_performed": bool(adapter_db_writes_performed),
+        "external_fetch_performed": bool(external_fetch_performed),
+        "db_writes_performed": bool(db_writes_performed),
+        "candidate_labels_materialized": bool(candidate_labels_materialized),
+        "production_default_unchanged": bool(production_default_unchanged),
+        "live_fetcher_resolution_source": source_mode,
+        "live_fetcher_resolution_status": resolution_status,
+        "live_fetcher_resolution_gate": resolution_gate,
+        "live_fetcher_resolution_reason": resolution_reason,
+        "live_fetcher_resolution_dependency_error": bool(resolution_dependency_error),
+        "live_fetcher_resolution_external_fetch_enabled": bool(resolution_external_fetch_enabled),
+        "live_fetcher_resolution_synthetic_enabled": bool(resolution_synthetic_enabled),
+        "live_fetcher_resolution_real_enabled": bool(resolution_real_enabled),
+        "live_fetcher_preflight_passed": bool(preflight_passed),
+        "live_fetcher_preflight_status": preflight_status,
+        "live_fetcher_preflight_reason": preflight_reason,
+        "live_fetcher_preflight_dry_run": bool(preflight_dry_run),
+        "live_fetcher_preflight_single_date": bool(preflight_single_date),
+        "live_fetcher_preflight_write_blocked": bool(preflight_write_blocked),
+        "live_fetcher_preflight_allow_live_write": bool(preflight_allow_live_write),
+    }
+
+    return _candidate_bullpen_apply_live_fetcher_runtime_summary(artifact)
+
 def _main() -> int:
     output_dir = Path("tmp")
     output_dir.mkdir(exist_ok=True)
