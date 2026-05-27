@@ -9,7 +9,7 @@ import os
 import secrets
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Cookie, HTTPException, Query, Response
+from fastapi import APIRouter, Cookie, Header, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from .database import (
@@ -62,7 +62,7 @@ DEFAULT_COMPONENTS = [
     },
     {
         "key": "totals",
-        "title": "My Top Totals Today",
+        "title": "Game total watchlist from projected runs, run environment, and simulation context.",
         "description": "Game total watchlist from projected runs, run environment, and simulation context.",
         "source_type": "seeded_component",
     },
@@ -174,6 +174,11 @@ def _verify_password(password: str, stored: Optional[str]) -> bool:
         return hmac.compare_digest(candidate, expected)
     except Exception:
         return False
+
+
+
+def _resolve_session_token(cookie_token: Optional[str], header_token: Optional[str]) -> Optional[str]:
+    return header_token or cookie_token
 
 
 
@@ -539,15 +544,19 @@ def my_dashboard_profile_create(request: DashboardProfileRequest, response: Resp
             "user": _serialize_user(user, prefs),
             "default_folder_id": default_folder.id,
             "session_expires_at": db_session.expires_at.isoformat(),
+            "session_token": db_session.session_token,
             "cookie_settings": _cookie_settings(),
         }
 
 
 @router.get("/my-dashboard/profile")
-def my_dashboard_profile_get(mlb_dashboard_session: Optional[str] = Cookie(default=None)) -> Dict[str, Any]:
+def my_dashboard_profile_get(
+    mlb_dashboard_session: Optional[str] = Cookie(default=None),
+    x_dashboard_session: Optional[str] = Header(default=None, alias="X-Dashboard-Session"),
+) -> Dict[str, Any]:
     Session = _session_factory()
     with Session() as session:
-        user = _get_active_user(session, mlb_dashboard_session)
+        user = _get_active_user(session, _resolve_session_token(mlb_dashboard_session, x_dashboard_session))
         if not user:
             return {"authenticated": False}
         prefs = session.query(AppUserPreference).filter(AppUserPreference.user_id == user.id).first()
@@ -560,10 +569,13 @@ def my_dashboard_profile_get(mlb_dashboard_session: Optional[str] = Cookie(defau
 
 
 @router.get("/my-dashboard/workspace")
-def my_dashboard_workspace(mlb_dashboard_session: Optional[str] = Cookie(default=None)) -> Dict[str, Any]:
+def my_dashboard_workspace(
+    mlb_dashboard_session: Optional[str] = Cookie(default=None),
+    x_dashboard_session: Optional[str] = Header(default=None, alias="X-Dashboard-Session"),
+) -> Dict[str, Any]:
     Session = _session_factory()
     with Session() as session:
-        user = _get_active_user(session, mlb_dashboard_session)
+        user = _get_active_user(session, _resolve_session_token(mlb_dashboard_session, x_dashboard_session))
         if not user:
             raise HTTPException(status_code=401, detail="Dashboard sign-in required")
         payload = _get_workspace_payload(session, user)
@@ -572,10 +584,13 @@ def my_dashboard_workspace(mlb_dashboard_session: Optional[str] = Cookie(default
 
 
 @router.post("/my-dashboard/folders/today/ensure")
-def my_dashboard_ensure_today_folder(mlb_dashboard_session: Optional[str] = Cookie(default=None)) -> Dict[str, Any]:
+def my_dashboard_ensure_today_folder(
+    mlb_dashboard_session: Optional[str] = Cookie(default=None),
+    x_dashboard_session: Optional[str] = Header(default=None, alias="X-Dashboard-Session"),
+) -> Dict[str, Any]:
     Session = _session_factory()
     with Session() as session:
-        user = _get_active_user(session, mlb_dashboard_session)
+        user = _get_active_user(session, _resolve_session_token(mlb_dashboard_session, x_dashboard_session))
         if not user:
             raise HTTPException(status_code=401, detail="Dashboard sign-in required")
         folder = _get_or_create_today_folder(session, user.id)
@@ -587,10 +602,14 @@ def my_dashboard_ensure_today_folder(mlb_dashboard_session: Optional[str] = Cook
 
 
 @router.post("/my-dashboard/folders")
-def my_dashboard_create_folder(request: DashboardFolderCreateRequest, mlb_dashboard_session: Optional[str] = Cookie(default=None)) -> Dict[str, Any]:
+def my_dashboard_create_folder(
+    request: DashboardFolderCreateRequest,
+    mlb_dashboard_session: Optional[str] = Cookie(default=None),
+    x_dashboard_session: Optional[str] = Header(default=None, alias="X-Dashboard-Session"),
+) -> Dict[str, Any]:
     Session = _session_factory()
     with Session() as session:
-        user = _get_active_user(session, mlb_dashboard_session)
+        user = _get_active_user(session, _resolve_session_token(mlb_dashboard_session, x_dashboard_session))
         if not user:
             raise HTTPException(status_code=401, detail="Dashboard sign-in required")
         now = _utcnow()
@@ -609,10 +628,14 @@ def my_dashboard_create_folder(request: DashboardFolderCreateRequest, mlb_dashbo
 
 
 @router.get("/my-dashboard/items")
-def my_dashboard_items(folder_id: Optional[int] = Query(default=None), mlb_dashboard_session: Optional[str] = Cookie(default=None)) -> Dict[str, Any]:
+def my_dashboard_items(
+    folder_id: Optional[int] = Query(default=None),
+    mlb_dashboard_session: Optional[str] = Cookie(default=None),
+    x_dashboard_session: Optional[str] = Header(default=None, alias="X-Dashboard-Session"),
+) -> Dict[str, Any]:
     Session = _session_factory()
     with Session() as session:
-        user = _get_active_user(session, mlb_dashboard_session)
+        user = _get_active_user(session, _resolve_session_token(mlb_dashboard_session, x_dashboard_session))
         if not user:
             raise HTTPException(status_code=401, detail="Dashboard sign-in required")
         query = session.query(AppDashboardItem).filter(AppDashboardItem.user_id == user.id)
@@ -624,10 +647,14 @@ def my_dashboard_items(folder_id: Optional[int] = Query(default=None), mlb_dashb
 
 
 @router.post("/my-dashboard/items")
-def my_dashboard_create_item(request: DashboardItemCreateRequest, mlb_dashboard_session: Optional[str] = Cookie(default=None)) -> Dict[str, Any]:
+def my_dashboard_create_item(
+    request: DashboardItemCreateRequest,
+    mlb_dashboard_session: Optional[str] = Cookie(default=None),
+    x_dashboard_session: Optional[str] = Header(default=None, alias="X-Dashboard-Session"),
+) -> Dict[str, Any]:
     Session = _session_factory()
     with Session() as session:
-        user = _get_active_user(session, mlb_dashboard_session)
+        user = _get_active_user(session, _resolve_session_token(mlb_dashboard_session, x_dashboard_session))
         if not user:
             raise HTTPException(status_code=401, detail="Dashboard sign-in required")
         folder = session.query(AppDashboardFolder).filter(AppDashboardFolder.id == request.folder_id, AppDashboardFolder.user_id == user.id).first()
