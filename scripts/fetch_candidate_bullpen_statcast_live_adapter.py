@@ -768,5 +768,97 @@ def _candidate_bullpen_emit_module_self_check_summary_with_cli_diagnostic() -> i
     return int(exit_code or 0)
 
 
+
+def _candidate_bullpen_build_downstream_runtime_summary_usage_artifact(
+    **cli_diagnostic_artifact_kwargs: Any,
+) -> Dict[str, Any]:
+    """Build deterministic downstream usage from the CLI diagnostic artifact."""
+
+    cli_artifact = _candidate_bullpen_build_cli_diagnostic_artifact(
+        **cli_diagnostic_artifact_kwargs
+    )
+    runtime_artifact = dict(cli_artifact.get("live_fetcher_runtime_summary_artifact", {}))
+
+    artifact: Dict[str, Any] = {
+        "downstream_runtime_summary_usage_artifact_version": 1,
+        "downstream_runtime_summary_usage_status": cli_artifact.get(
+            "cli_diagnostic_artifact_status"
+        ),
+        "downstream_runtime_summary_usage_safe_to_proceed": cli_artifact.get(
+            "cli_diagnostic_artifact_safe_to_proceed"
+        ),
+        "downstream_runtime_summary_usage_source": "candidate_bullpen_statcast_live_adapter",
+        "downstream_runtime_summary_usage_reason": (
+            "deterministic diagnostic downstream usage of CLI diagnostic artifact"
+        ),
+        "cli_diagnostic_artifact": dict(cli_artifact),
+        "live_fetcher_runtime_summary_artifact": runtime_artifact,
+    }
+
+    for field in [
+        "live_fetcher_runtime_summary_status",
+        "live_fetcher_runtime_summary_reason",
+        "live_fetcher_runtime_summary_mode",
+        "live_fetcher_runtime_summary_gate",
+        "live_fetcher_runtime_summary_safe_to_proceed",
+        "live_fetcher_runtime_summary_external_fetch_enabled",
+        "live_fetcher_runtime_summary_write_blocked",
+        "live_fetcher_runtime_summary_candidate_materialization_blocked",
+        "live_fetcher_runtime_summary_dependency_missing",
+        "live_fetcher_runtime_summary_field_version",
+    ]:
+        artifact[field] = cli_artifact.get(field)
+
+    for field in [
+        "external_fetch_performed",
+        "adapter_external_fetch_performed",
+        "db_writes_performed",
+        "adapter_db_writes_performed",
+        "candidate_labels_materialized",
+        "production_default_unchanged",
+        "source_mode",
+        "live_fetcher_resolution_status",
+        "live_fetcher_resolution_gate",
+        "live_fetcher_resolution_reason",
+    ]:
+        if field in cli_artifact:
+            artifact[field] = cli_artifact.get(field)
+
+    return artifact
+
+
+def _candidate_bullpen_emit_module_self_check_summary_with_downstream_usage() -> int:
+    """Emit existing self-check output with downstream usage artifact fields added."""
+
+    import contextlib
+    import io
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        exit_code = _candidate_bullpen_emit_module_self_check_summary_with_cli_diagnostic()
+
+    summary = json.loads(buffer.getvalue())
+    downstream_artifact = _candidate_bullpen_build_downstream_runtime_summary_usage_artifact()
+    summary.update(
+        {
+            "downstream_runtime_summary_usage_artifact_created": True,
+            "downstream_runtime_summary_usage_artifact_version": downstream_artifact.get(
+                "downstream_runtime_summary_usage_artifact_version"
+            ),
+            "downstream_runtime_summary_usage_status": downstream_artifact.get(
+                "downstream_runtime_summary_usage_status"
+            ),
+            "downstream_runtime_summary_usage_safe_to_proceed": downstream_artifact.get(
+                "downstream_runtime_summary_usage_safe_to_proceed"
+            ),
+            "downstream_runtime_summary_usage_source": downstream_artifact.get(
+                "downstream_runtime_summary_usage_source"
+            ),
+        }
+    )
+    print(json.dumps(summary, indent=2))
+    return int(exit_code or 0)
+
+
 if __name__ == "__main__":
-    raise SystemExit(_candidate_bullpen_emit_module_self_check_summary_with_cli_diagnostic())
+    raise SystemExit(_candidate_bullpen_emit_module_self_check_summary_with_downstream_usage())
