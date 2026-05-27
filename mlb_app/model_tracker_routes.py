@@ -128,6 +128,24 @@ def _utcnow() -> dt.datetime:
 
 
 
+def _cookie_settings() -> Dict[str, Any]:
+    same_site = str(os.getenv("DASHBOARD_COOKIE_SAMESITE", "none") or "none").lower()
+    if same_site not in {"lax", "strict", "none"}:
+        same_site = "none"
+    secure_default = same_site == "none"
+    secure = str(os.getenv("DASHBOARD_COOKIE_SECURE", "1" if secure_default else "0")).lower() in {"1", "true", "yes", "on"}
+    if same_site == "none":
+        secure = True
+    return {
+        "httponly": True,
+        "samesite": same_site,
+        "secure": secure,
+        "max_age": DASHBOARD_SESSION_HOURS * 60 * 60,
+        "path": "/",
+    }
+
+
+
 def _normalize_email(email: str) -> str:
     return (email or "").strip().lower()
 
@@ -514,17 +532,14 @@ def my_dashboard_profile_create(request: DashboardProfileRequest, response: Resp
         response.set_cookie(
             key=DASHBOARD_SESSION_COOKIE,
             value=db_session.session_token,
-            httponly=True,
-            samesite="lax",
-            secure=False,
-            max_age=DASHBOARD_SESSION_HOURS * 60 * 60,
-            path="/",
+            **_cookie_settings(),
         )
         return {
             "ok": True,
             "user": _serialize_user(user, prefs),
             "default_folder_id": default_folder.id,
             "session_expires_at": db_session.expires_at.isoformat(),
+            "cookie_settings": _cookie_settings(),
         }
 
 
