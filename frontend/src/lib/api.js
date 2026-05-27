@@ -2,6 +2,7 @@ const PROD_API_BASE = 'https://mlb-prediction-app-production-732c.up.railway.app
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || PROD_API_BASE
 const JSON_CACHE = new Map()
+const STORAGE_PREFIX = 'mlb-json-cache:v1:'
 
 function nowMs() {
   return Date.now()
@@ -16,30 +17,92 @@ function cloneJson(value) {
   }
 }
 
-export function readCachedJson(url, ttlSeconds = 60) {
-  const key = String(url || '')
-  const record = JSON_CACHE.get(key)
-  if (!record) return null
-  if (ttlSeconds > 0 && nowMs() - record.createdAt > ttlSeconds * 1000) {
-    JSON_CACHE.delete(key)
+function storageKey(key) {
+  return `${STORAGE_PREFIX}${String(key || '')}`
+}
+
+function readStorageRecord(key) {
+  if (typeof window === 'undefined' || !window.sessionStorage) return null
+  try {
+    const raw = window.sessionStorage.getItem(storageKey(key))
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    if (typeof parsed.createdAt !== 'number') return null
+    return parsed
+  } catch {
     return null
   }
-  return cloneJson(record.value)
+}
+
+function writeStorageRecord(key, value) {
+  if (typeof window === 'undefined' || !window.sessionStorage) return
+  try {
+    window.sessionStorage.setItem(storageKey(key), JSON.stringify({
+      createdAt: nowMs(),
+      value: cloneJson(value),
+    }))
+  } catch {
+  }
+}
+
+function deleteStorageRecord(key) {
+  if (typeof window === 'undefined' || !window.sessionStorage) return
+  try {
+    window.sessionStorage.removeItem(storageKey(key))
+  } catch {
+  }
+}
+
+export function readCachedJson(url, ttlSeconds = 60) {
+  const key = String(url || '')
+  const memoryRecord = JSON_CACHE.get(key)
+  if (memoryRecord) {
+    if (ttlSeconds > 0 && nowMs() - memoryRecord.createdAt > ttlSeconds * 1000) {
+      JSON_CACHE.delete(key)
+      deleteStorageRecord(key)
+      return null
+    }
+    return cloneJson(memoryRecord.value)
+  }
+
+  const storageRecord = readStorageRecord(key)
+  if (!storageRecord) return null
+  if (ttlSeconds > 0 && nowMs() - storageRecord.createdAt > ttlSeconds * 1000) {
+    deleteStorageRecord(key)
+    return null
+  }
+
+  JSON_CACHE.set(key, {
+    createdAt: storageRecord.createdAt,
+    value: cloneJson(storageRecord.value),
+  })
+  return cloneJson(storageRecord.value)
 }
 
 export function writeCachedJson(url, value) {
   const key = String(url || '')
-  JSON_CACHE.set(key, {
+  const record = {
     createdAt: nowMs(),
     value: cloneJson(value),
-  })
+  }
+  JSON_CACHE.set(key, record)
+  writeStorageRecord(key, record.value)
   return cloneJson(value)
+}
+
+export function clearCachedJson(url) {
+  const key = String(url || '')
+  JSON_CACHE.delete(key)
+  deleteStorageRecord(key)
 }
 
 export async function fetchJson(url, { ttlSeconds = 60, forceRefresh = false, signal } = {}) {
   if (!forceRefresh) {
     const cached = readCachedJson(url, ttlSeconds)
     if (cached != null) return cached
+  } else {
+    clearCachedJson(url)
   }
 
   const response = await fetch(url, { signal })
