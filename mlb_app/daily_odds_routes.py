@@ -11,6 +11,7 @@ from .daily_odds_models import build_game_models, build_prop_models
 from .database import create_tables, get_engine, get_session
 from .matchup_generator import generate_matchups_for_date
 from .odds_provider import fetch_draftkings_event_odds, fetch_draftkings_events
+from .shared_payload_cache import env_ttl, get_or_set, make_cache_key, stable_hash
 
 router = APIRouter()
 
@@ -325,6 +326,21 @@ def _empty_projection_summary() -> Dict[str, Any]:
     return {"projection_count": 0, "games": [], "source": "model_projections", "missing_inputs": []}
 
 
+def _canonical_probability_summary(game: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    workspace = game.get("workspace") or {}
+    simulation = workspace.get("bullpenAdjustedGameSimulation") or workspace.get("gameSimulation") or {}
+    canonical_home = _safe_float(game.get("home_win_prob") or game.get("home_win_probability"))
+    canonical_away = _safe_float(game.get("away_win_prob") or game.get("away_win_probability"))
+    diagnostic_home = _safe_float(simulation.get("home_win_probability"))
+    diagnostic_away = _safe_float(simulation.get("away_win_probability"))
+    return {
+        "home_win_probability": canonical_home,
+        "away_win_probability": canonical_away,
+        "home_diagnostic_win_probability": diagnostic_home,
+        "away_diagnostic_win_probability": diagnostic_away,
+    }
+
+
 def _summarize_projection_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     games = payload.get("games") if isinstance(payload.get("games"), list) else []
     compact_games: List[Dict[str, Any]] = []
@@ -333,14 +349,18 @@ def _summarize_projection_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             continue
         workspace = game.get("workspace") or {}
         simulation = workspace.get("bullpenAdjustedGameSimulation") or workspace.get("gameSimulation") or {}
+        probabilities = _canonical_probability_summary(game)
         compact_games.append({
             "game_pk": game.get("game_pk"),
             "away_team": game.get("away_team") or game.get("away_team_name"),
             "home_team": game.get("home_team") or game.get("home_team_name"),
             "away_pitcher": game.get("away_pitcher"),
             "home_pitcher": game.get("home_pitcher"),
-            "home_win_probability": simulation.get("home_win_probability") or game.get("home_win_probability"),
-            "away_win_probability": simulation.get("away_win_probability") or game.get("away_win_probability"),
+            "home_win_probability": probabilities["home_win_probability"],
+            "away_win_probability": probabilities["away_win_probability"],
+            "home_diagnostic_win_probability": probabilities["home_diagnostic_win_probability"],
+            "away_diagnostic_win_probability": probabilities["away_diagnostic_win_probability"],
+            "probability_contract": "canonical_final_probability_with_simulation_diagnostic_context",
             "home_expected_runs": simulation.get("home_expected_runs"),
             "away_expected_runs": simulation.get("away_expected_runs"),
             "total_expected_runs": simulation.get("total_expected_runs"),
@@ -355,7 +375,7 @@ def _summarize_projection_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _load_dashboard_summary(target_date: str, errors: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _load_dashboard_summary_uncached(target_date: str, errors: List[Dict[str, Any]]) -> Dict[str, Any]:
     from .my_dashboard_solver import build_dashboard_solver_payload, projection_payload
 
     summary: Dict[str, Any] = {
@@ -400,6 +420,19 @@ def _load_dashboard_summary(target_date: str, errors: List[Dict[str, Any]]) -> D
     ][:10]
     summary["batter_vs_arsenal_count"] = len(summary["batter_vs_arsenal_edges"])
     return summary
+
+
+def _load_dashboard_summary(target_date: str, errors: List[Dict[str, Any]]) -> Dict[str, Any]:
+    cache_key = make_cache_key("daily_odds_models", "unified_dashboard_summary", target_date)
+    cached = get_or_set(
+        cache_key,
+        env_ttl("DASHBOARD_SOLVER_CACHE_TTL_SECONDS"),
+        lambda: _load_dashboard_summary_uncached(target_date, []),
+    )
+    cached_errors = cached.pop("errors", []) if isinstance(cached, dict) else []
+    if cached_errors:
+        errors.extend(cached_errors)
+    return cached
 
 
 def _best_game_signal(outputs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -449,6 +482,7 @@ def _build_daily_recap(outputs: List[Dict[str, Any]], dashboard_summary: Dict[st
         "odds_status": odds_status,
         "priced_game_count": priced_count,
         "model_only_game_count": max(len(outputs) - priced_count, 0),
+        "probability_contract": "canonical_final_probability_with_simulation_diagnostic_context",
         "generated_at": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
     }
 
@@ -506,9 +540,7 @@ def _base_response(target_date: str, outputs: List[Dict[str, Any]], events: List
     }
 
 
-@router.get("/daily-odds/models")
-def daily_odds_models(date: Optional[str] = None, include_unified: bool = False) -> Dict[str, Any]:
-    target_date = date or datetime.date.today().isoformat()
+def _build_daily_odds_base_uncached(target_date: str) -> Dict[str, Any]:
     errors: List[Dict[str, Any]] = []
 
     matchups, matchup_errors = _load_matchups(target_date)
@@ -558,18 +590,27 @@ def daily_odds_models(date: Optional[str] = None, include_unified: bool = False)
 
     top_prop_candidates = _build_global_prop_candidates(events, matchup_index, matchups, limit=20)
     response = _base_response(target_date, outputs, events, odds_payload if isinstance(odds_payload, dict) else {}, top_prop_candidates, errors)
+    response["unified_available"] = True
+    response["unified_loaded"] = False
+    response["cache_contract"] = {
+        "base_cache_key": make_cache_key("daily_odds_models", "base", target_date),
+        "unified_cache_key_prefix": make_cache_key("daily_odds_models", "unified", target_date),
+        "base_ttl_seconds": env_ttl("DAILY_CONTEXT_CACHE_TTL_SECONDS"),
+        "unified_ttl_seconds": env_ttl("DASHBOARD_SOLVER_CACHE_TTL_SECONDS"),
+    }
+    return response
 
-    if not include_unified:
-        response["unified_available"] = True
-        response["unified_loaded"] = False
-        return response
 
+def _build_unified_enrichment_uncached(target_date: str, response: Dict[str, Any]) -> Dict[str, Any]:
+    errors = list(response.get("errors") or [])
+    outputs = list(response.get("games") or response.get("models") or [])
+    events_count = int(response.get("odds_event_count") or 0)
     dashboard_summary = _load_dashboard_summary(target_date, errors)
     projection_summary = dashboard_summary.get("model_projection_summary") or _empty_projection_summary()
-    daily_recap = _build_daily_recap(outputs, dashboard_summary, response.get("odds_status"), len(events))
+    daily_recap = _build_daily_recap(outputs, dashboard_summary, response.get("odds_status"), events_count)
     missing_inputs = _collect_missing_inputs(outputs, dashboard_summary, projection_summary, errors)
     fallbacks_used: List[str] = []
-    if not events:
+    if not events_count:
         fallbacks_used.append("internal_matchups_no_odds_provider")
     if dashboard_summary.get("components_used"):
         fallbacks_used.append("my_dashboard_solver_shared_context")
@@ -577,17 +618,18 @@ def daily_odds_models(date: Optional[str] = None, include_unified: bool = False)
         fallbacks_used.append("model_projection_shared_payload")
 
     data_quality = {
-        "sources_used": _sources_used(odds_payload if isinstance(odds_payload, dict) else {}, dashboard_summary),
+        "sources_used": _sources_used({"provider": response.get("provider")}, dashboard_summary),
         "missing_inputs": missing_inputs,
         "fallbacks_used": fallbacks_used,
         "odds_status": response.get("odds_status"),
-        "matchup_count": len(matchups),
+        "matchup_count": int(response.get("count") or 0),
         "projection_count": projection_summary.get("projection_count", 0),
         "dashboard_solver_components_used": dashboard_summary.get("components_used", []),
         "batter_vs_arsenal_count": dashboard_summary.get("batter_vs_arsenal_count", 0),
         "generated_at": daily_recap.get("generated_at"),
+        "probability_contract": "canonical_final_probability_with_simulation_diagnostic_context",
     }
-    response.update({
+    return {
         "unified_available": True,
         "unified_loaded": True,
         "daily_recap": daily_recap,
@@ -603,8 +645,42 @@ def daily_odds_models(date: Optional[str] = None, include_unified: bool = False)
         "fallbacks_used": fallbacks_used,
         "errors": errors,
         "generated_at": data_quality["generated_at"],
+    }
+
+
+@router.get("/daily-odds/models")
+def daily_odds_models(date: Optional[str] = None, include_unified: bool = False) -> Dict[str, Any]:
+    target_date = date or datetime.date.today().isoformat()
+
+    base_key = make_cache_key("daily_odds_models", "base", target_date)
+    response = get_or_set(
+        base_key,
+        env_ttl("DAILY_CONTEXT_CACHE_TTL_SECONDS"),
+        lambda: _build_daily_odds_base_uncached(target_date),
+    )
+    if not include_unified:
+        response["unified_available"] = True
+        response["unified_loaded"] = False
+        return response
+
+    unified_cache_salt = stable_hash({
+        "date": target_date,
+        "generated_at": response.get("generated_at"),
+        "count": response.get("count"),
+        "matched_count": response.get("matched_count"),
+        "odds_event_count": response.get("odds_event_count"),
+        "last_updated": response.get("last_updated"),
     })
-    return response
+    unified_key = make_cache_key("daily_odds_models", "unified", target_date, unified_cache_salt)
+    enrichment = get_or_set(
+        unified_key,
+        env_ttl("DASHBOARD_SOLVER_CACHE_TTL_SECONDS"),
+        lambda: _build_unified_enrichment_uncached(target_date, response),
+    )
+
+    merged = dict(response)
+    merged.update(enrichment)
+    return merged
 
 
 @router.get("/daily-odds/event/{event_id}/prop-models")
