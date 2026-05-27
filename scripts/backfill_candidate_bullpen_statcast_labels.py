@@ -946,6 +946,49 @@ def _layer_6cy_run_live_dry_run_scaffold(args: argparse.Namespace) -> int:
 
 
 
+def _candidate_bullpen_live_fetcher_observability_preflight(
+    args: argparse.Namespace,
+    label_dates: List[str],
+) -> Dict[str, Any]:
+    """Build additive diagnostic-only live fetcher preflight fields."""
+    dry_run = bool(getattr(args, "dry_run", False))
+    write_requested = bool(getattr(args, "write", False))
+    allow_live_write = bool(getattr(args, "allow_live_write", False))
+    single_date = len(list(label_dates)) == 1
+    env_gate_enabled = os.environ.get("CANDIDATE_BULLPEN_ENABLE_REAL_STATCAST_FETCHER") == "1"
+    synthetic_gate_enabled = os.environ.get("CANDIDATE_BULLPEN_LIVE_FETCHER_TEST_DOUBLE") == "synthetic"
+
+    if not dry_run:
+        passed = False
+        status = "live_requires_dry_run"
+        reason = "live fetcher preflight requires dry-run"
+    elif write_requested or allow_live_write:
+        passed = False
+        status = "live_write_blocked"
+        reason = "live fetcher preflight blocks live write flags"
+    elif not single_date:
+        passed = False
+        status = "live_date_window_invalid"
+        reason = "live fetcher preflight requires exactly one label date"
+    else:
+        passed = True
+        status = "live_preflight_ready"
+        reason = "live fetcher preflight ready"
+
+    return {
+        "live_fetcher_preflight_passed": passed,
+        "live_fetcher_preflight_status": status,
+        "live_fetcher_preflight_reason": reason,
+        "live_fetcher_preflight_dry_run": dry_run,
+        "live_fetcher_preflight_single_date": single_date,
+        "live_fetcher_preflight_write_blocked": bool(write_requested or allow_live_write),
+        "live_fetcher_preflight_allow_live_write": allow_live_write,
+        "live_fetcher_preflight_env_gate_enabled": env_gate_enabled,
+        "live_fetcher_preflight_synthetic_gate_enabled": synthetic_gate_enabled,
+        "live_fetcher_preflight_observability_fields_expected": 8,
+    }
+
+
 def _candidate_bullpen_live_fetcher_observability(
     *,
     source: str,
@@ -1065,6 +1108,15 @@ def _resolve_candidate_bullpen_live_fetcher(args: argparse.Namespace, label_date
     return None
 
 
+def _candidate_bullpen_apply_live_fetcher_preflight(
+    artifact: Dict[str, Any],
+    preflight: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Attach additive diagnostic-only live fetcher preflight fields."""
+    artifact.update(preflight)
+    return artifact
+
+
 def _candidate_bullpen_apply_live_fetcher_observability(
     artifact: Dict[str, Any],
     observability: Dict[str, Any],
@@ -1099,6 +1151,7 @@ def _layer_6cv_run_live_mode(args: argparse.Namespace) -> int:
 
     synthetic_enabled = os.environ.get("CANDIDATE_BULLPEN_LIVE_FETCHER_TEST_DOUBLE") == "synthetic"
     real_enabled = os.environ.get("CANDIDATE_BULLPEN_ENABLE_REAL_STATCAST_FETCHER") == "1"
+    live_preflight = _candidate_bullpen_live_fetcher_observability_preflight(args, label_dates)
     resolved_fetcher = _resolve_candidate_bullpen_live_fetcher(args, label_dates)
 
     if resolved_fetcher is None:
@@ -1155,6 +1208,7 @@ def _layer_6cv_run_live_mode(args: argparse.Namespace) -> int:
         live_artifact["adapter_fetch_error"] = "candidate_bullpen_live_adapter_dependency_missing"
 
     _candidate_bullpen_apply_live_fetcher_observability(live_artifact, observability)
+    _candidate_bullpen_apply_live_fetcher_preflight(live_artifact, live_preflight)
     print(json.dumps(live_artifact, indent=2, sort_keys=True))
     return 0
 
@@ -1274,6 +1328,12 @@ def main() -> None:
     OUTPUT_JSON.write_text(json.dumps(diagnosis, indent=2))
     print(json.dumps(diagnosis, indent=2))
 
+
+# Layer 6EF: candidate bullpen Statcast live adapter CLI live fetcher observability preflight.
+# Live fetcher observability preflight version: candidate_bullpen_live_adapter_cli_live_fetcher_observability_preflight_v0.1
+# Adds additive diagnostic-only live_fetcher_preflight_* fields for live CLI
+# artifacts. These fields must not affect resolver gates, writes,
+# materialization, fixture behavior, or production defaults.
 
 # Layer 6EB: candidate bullpen Statcast live adapter CLI live fetcher observability.
 # Live fetcher observability version: candidate_bullpen_live_adapter_cli_live_fetcher_observability_v0.1
