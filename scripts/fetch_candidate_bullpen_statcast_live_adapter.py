@@ -1546,5 +1546,135 @@ def _candidate_bullpen_emit_module_self_check_summary_with_usage_reporting_cli_e
     return int(exit_code or 0)
 
 
+
+def _candidate_bullpen_build_downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_artifact(
+    **downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_kwargs: Any,
+) -> Dict[str, Any]:
+    """Build deterministic downstream-facing output from usage-facing artifacts."""
+
+    usage_artifact = (
+        _candidate_bullpen_build_downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_artifact(
+            **downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_kwargs
+        )
+    )
+    cli_exposure_artifact = dict(
+        usage_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_artifact", {})
+    )
+    reporting_artifact = dict(
+        usage_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_artifact", {})
+    )
+    prior_usage_artifact = dict(
+        usage_artifact.get("downstream_runtime_summary_cli_exposure_usage_artifact", {})
+    )
+    prior_cli_exposure_artifact = dict(
+        usage_artifact.get("downstream_runtime_summary_cli_exposure_artifact", {})
+    )
+    upstream_reporting_artifact = dict(
+        usage_artifact.get("downstream_runtime_summary_reporting_artifact", {})
+    )
+    downstream_artifact = dict(
+        usage_artifact.get("downstream_runtime_summary_usage_artifact", {})
+    )
+    cli_artifact = dict(usage_artifact.get("cli_diagnostic_artifact", {}))
+    runtime_artifact = dict(usage_artifact.get("live_fetcher_runtime_summary_artifact", {}))
+
+    artifact: Dict[str, Any] = {
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_artifact_version": 1,
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_status": usage_artifact.get(
+            "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_status"
+        ),
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_safe_to_proceed": (
+            usage_artifact.get(
+                "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_safe_to_proceed"
+            )
+        ),
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_source": (
+            "candidate_bullpen_statcast_live_adapter"
+        ),
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_reason": (
+            "deterministic downstream-facing surface for downstream runtime summary CLI exposure usage reporting CLI exposure usage artifact"
+        ),
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_artifact": dict(
+            usage_artifact
+        ),
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_artifact": cli_exposure_artifact,
+        "downstream_runtime_summary_cli_exposure_usage_reporting_artifact": reporting_artifact,
+        "downstream_runtime_summary_cli_exposure_usage_artifact": prior_usage_artifact,
+        "downstream_runtime_summary_cli_exposure_artifact": prior_cli_exposure_artifact,
+        "downstream_runtime_summary_reporting_artifact": upstream_reporting_artifact,
+        "downstream_runtime_summary_usage_artifact": downstream_artifact,
+        "cli_diagnostic_artifact": cli_artifact,
+        "live_fetcher_runtime_summary_artifact": runtime_artifact,
+    }
+
+    for field in [
+        "live_fetcher_runtime_summary_status",
+        "live_fetcher_runtime_summary_reason",
+        "live_fetcher_runtime_summary_mode",
+        "live_fetcher_runtime_summary_gate",
+        "live_fetcher_runtime_summary_safe_to_proceed",
+        "live_fetcher_runtime_summary_external_fetch_enabled",
+        "live_fetcher_runtime_summary_write_blocked",
+        "live_fetcher_runtime_summary_candidate_materialization_blocked",
+        "live_fetcher_runtime_summary_dependency_missing",
+        "live_fetcher_runtime_summary_field_version",
+    ]:
+        artifact[field] = usage_artifact.get(field)
+
+    for field in [
+        "external_fetch_performed",
+        "adapter_external_fetch_performed",
+        "db_writes_performed",
+        "adapter_db_writes_performed",
+        "candidate_labels_materialized",
+        "production_default_unchanged",
+    ]:
+        if field in usage_artifact:
+            artifact[field] = usage_artifact.get(field)
+
+    return artifact
+
+
+def _candidate_bullpen_emit_module_self_check_summary_with_usage_reporting_cli_exposure_usage_downstream() -> int:
+    """Emit existing self-check output with downstream-facing usage fields added."""
+
+    import contextlib
+    import io
+
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        exit_code = (
+            _candidate_bullpen_emit_module_self_check_summary_with_usage_reporting_cli_exposure_usage()
+        )
+
+    summary = json.loads(buffer.getvalue())
+    downstream_artifact = (
+        _candidate_bullpen_build_downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_artifact()
+    )
+    summary.update(
+        {
+            "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_artifact_created": True,
+            "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_artifact_version": (
+                downstream_artifact.get(
+                    "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_artifact_version"
+                )
+            ),
+            "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_status": downstream_artifact.get(
+                "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_status"
+            ),
+            "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_safe_to_proceed": (
+                downstream_artifact.get(
+                    "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_safe_to_proceed"
+                )
+            ),
+            "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_source": downstream_artifact.get(
+                "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_source"
+            ),
+        }
+    )
+    print(json.dumps(summary, indent=2))
+    return int(exit_code or 0)
+
+
 if __name__ == "__main__":
-    raise SystemExit(_candidate_bullpen_emit_module_self_check_summary_with_usage_reporting_cli_exposure_usage())
+    raise SystemExit(_candidate_bullpen_emit_module_self_check_summary_with_usage_reporting_cli_exposure_usage_downstream())
