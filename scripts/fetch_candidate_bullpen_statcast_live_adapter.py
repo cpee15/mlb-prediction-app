@@ -2020,5 +2020,111 @@ def _candidate_bullpen_emit_module_self_check_summary_with_usage_reporting_cli_e
 
 
 
+def _candidate_bullpen_build_downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_artifact(
+    **downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_kwargs: Any,
+) -> Dict[str, Any]:
+    """Build deterministic downstream usage reporting-reporting-reporting output from the approved 6GC artifact."""
+
+    downstream_usage_reporting_reporting_artifact = (
+        _candidate_bullpen_build_downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_artifact(
+            **downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_kwargs
+        )
+    )
+
+    reporting_reporting_reporting_status = downstream_usage_reporting_reporting_artifact.get(
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_status",
+        downstream_usage_reporting_reporting_artifact.get("live_fetcher_runtime_summary_status"),
+    )
+    reporting_reporting_reporting_safe_to_proceed = bool(
+        downstream_usage_reporting_reporting_artifact.get(
+            "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_safe_to_proceed",
+            downstream_usage_reporting_reporting_artifact.get("live_fetcher_runtime_summary_safe_to_proceed", False),
+        )
+    )
+    reporting_reporting_reporting_reason = downstream_usage_reporting_reporting_artifact.get(
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reason",
+        downstream_usage_reporting_reporting_artifact.get("live_fetcher_runtime_summary_reason", ""),
+    )
+
+    reporting_reporting_reporting_artifact: Dict[str, Any] = {
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_artifact_created": True,
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_artifact_version": 1,
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_status": reporting_reporting_reporting_status,
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_safe_to_proceed": reporting_reporting_reporting_safe_to_proceed,
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_source": "candidate_bullpen_statcast_live_adapter",
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_reason": reporting_reporting_reporting_reason,
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_artifact": downstream_usage_reporting_reporting_artifact,
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_artifact": downstream_usage_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_artifact", {}),
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_artifact": downstream_usage_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_artifact", {}),
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_artifact": downstream_usage_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_artifact", {}),
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_artifact": downstream_usage_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_artifact", {}),
+        "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_artifact": downstream_usage_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_artifact", {}),
+        "downstream_runtime_summary_cli_exposure_usage_reporting_artifact": downstream_usage_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_artifact", {}),
+        "downstream_runtime_summary_cli_exposure_usage_artifact": downstream_usage_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_usage_artifact", {}),
+        "downstream_runtime_summary_cli_exposure_artifact": downstream_usage_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_artifact", {}),
+        "downstream_runtime_summary_reporting_artifact": downstream_usage_reporting_reporting_artifact.get("downstream_runtime_summary_reporting_artifact", {}),
+        "downstream_runtime_summary_usage_artifact": downstream_usage_reporting_reporting_artifact.get("downstream_runtime_summary_usage_artifact", {}),
+        "cli_diagnostic_artifact": downstream_usage_reporting_reporting_artifact.get("cli_diagnostic_artifact", {}),
+        "live_fetcher_runtime_summary_artifact": downstream_usage_reporting_reporting_artifact.get("live_fetcher_runtime_summary_artifact", {}),
+    }
+
+    for field_name in (
+        "live_fetcher_runtime_summary_status",
+        "live_fetcher_runtime_summary_reason",
+        "live_fetcher_runtime_summary_mode",
+        "live_fetcher_runtime_summary_gate",
+        "live_fetcher_runtime_summary_safe_to_proceed",
+        "live_fetcher_runtime_summary_external_fetch_enabled",
+        "live_fetcher_runtime_summary_write_blocked",
+        "live_fetcher_runtime_summary_candidate_materialization_blocked",
+        "live_fetcher_runtime_summary_dependency_missing",
+        "live_fetcher_runtime_summary_field_version",
+        "external_fetch_performed",
+        "adapter_external_fetch_performed",
+        "db_writes_performed",
+        "adapter_db_writes_performed",
+        "candidate_labels_materialized",
+        "production_default_unchanged",
+    ):
+        if field_name in downstream_usage_reporting_reporting_artifact:
+            reporting_reporting_reporting_artifact[field_name] = downstream_usage_reporting_reporting_artifact[field_name]
+
+    return reporting_reporting_reporting_artifact
+
+
+def _candidate_bullpen_emit_module_self_check_summary_with_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting() -> int:
+    """Emit module self-check summary with downstream usage reporting-reporting-reporting fields."""
+
+    import contextlib
+    import io
+
+    previous_stdout = io.StringIO()
+    with contextlib.redirect_stdout(previous_stdout):
+        exit_code = _candidate_bullpen_emit_module_self_check_summary_with_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting()
+
+    try:
+        summary = json.loads(previous_stdout.getvalue() or "{}")
+    except json.JSONDecodeError:
+        summary = {}
+
+    reporting_reporting_reporting_artifact = (
+        _candidate_bullpen_build_downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_artifact()
+    )
+
+    summary.update(
+        {
+            "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_artifact_created": reporting_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_artifact_created"),
+            "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_artifact_version": reporting_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_artifact_version"),
+            "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_status": reporting_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_status"),
+            "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_safe_to_proceed": reporting_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_safe_to_proceed"),
+            "downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_source": reporting_reporting_reporting_artifact.get("downstream_runtime_summary_cli_exposure_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting_source"),
+        }
+    )
+
+    print(json.dumps(summary, indent=2))
+    return int(exit_code or 0)
+
+
+
 if __name__ == "__main__":
-    raise SystemExit(_candidate_bullpen_emit_module_self_check_summary_with_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting())
+    raise SystemExit(_candidate_bullpen_emit_module_self_check_summary_with_usage_reporting_cli_exposure_usage_downstream_usage_reporting_reporting_reporting())
