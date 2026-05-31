@@ -60,7 +60,7 @@ CURRENT_LAYER = "6HF_layer_6_gameplay_mechanic_outcome_artifact_adapter_source_f
 RECOMMENDED_NEXT_LAYER = "6HG_layer_6_gameplay_mechanic_outcome_artifact_adapter_source_filter_alias_revision_audit"
 RECOMMENDED_PATH = "revise_adapter_source_filter_alias_mapping_then_audit_before_real_evaluation"
 
-EXCLUDE_PATH_TOKENS = ["layer6_6hb", "layer6_6hc", "layer6_6hd", "layer6_6he"]
+EXCLUDE_PATH_TOKENS = ["layer6_6hb", "layer6_6hc", "layer6_6hd", "layer6_6he", "layer6_6hf"]
 
 GAMEPLAY_MECHANICS = [
     "extra_innings_ghost_runner",
