@@ -1,6 +1,6 @@
 import datetime as dt
 
-from mlb_app.database import StatcastEvent, create_tables, get_engine, get_session
+from mlb_app.database import PitcherAggregate, StatcastEvent, create_tables, get_engine, get_session
 from mlb_app.pitcher_intelligence import build_pitcher_intelligence_profile, location_bucket
 
 
@@ -66,15 +66,26 @@ def test_pitcher_intelligence_returns_stable_shape_and_metrics():
     assert payload["location_profile"]["source"] == "plate_x_plate_z"
 
 
-def test_pitcher_intelligence_does_not_fabricate_missing_release_fields():
+def test_pitcher_intelligence_uses_pitcher_aggregate_release_profile():
     session = _session()
     session.add(_event())
+    session.add(PitcherAggregate(
+        pitcher_id=100,
+        window="365d",
+        end_date=dt.date.today(),
+        avg_release_pos_x=-1.75,
+        avg_release_pos_z=5.92,
+        avg_release_extension=6.4,
+    ))
     session.commit()
 
     payload = build_pitcher_intelligence_profile(session, pitcher_id=100, season=dt.date.today().year, days_back=365)
 
-    assert payload["release_profile"]["source"] == "not_available_on_raw_statcast_events_model"
-    assert "release_pos_x_z_extension" in payload["missing_inputs"]
+    assert payload["release_profile"]["source"] == "pitcher_aggregates"
+    assert payload["release_profile"]["avg_release_pos_x"] == -1.75
+    assert payload["release_profile"]["avg_release_pos_z"] == 5.92
+    assert payload["release_profile"]["avg_release_extension"] == 6.4
+    assert "avg_release_pos_x" not in payload["missing_inputs"]
     assert "release" in payload["release_profile"]["note"].lower()
     assert "plate" in payload["release_profile"]["note"].lower()
 
