@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line, ReferenceLine,
-} from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts'
 import { fmtPct } from '../utils/formatters'
 
 const API = import.meta.env.VITE_API_BASE_URL || ''
@@ -16,37 +13,36 @@ const C = {
 
 const s = {
   searchRow: { display: 'flex', gap: '12px', marginBottom: '20px' },
-  input: { flex: 1, background: C.card, border: `1px solid ${C.border}`, color: C.text, borderRadius: '6px', padding: '10px 14px', fontSize: '14px', outline: 'none' },
-  header: { background: C.card, border: `1px solid ${C.border}`, borderRadius: '10px', padding: '20px 24px', marginBottom: '20px' },
-  playerName: { fontSize: '26px', fontWeight: '700', color: C.text, marginBottom: '6px' },
-  playerMeta: { display: 'flex', gap: '10px', flexWrap: 'wrap', fontSize: '12px', color: C.muted },
-  chip: { background: C.elevated, border: `1px solid ${C.border}`, borderRadius: '999px', padding: '3px 9px', color: C.text },
-  rollingLink: { display: 'inline-block', background: C.elevated, border: `1px solid ${C.border}`, color: C.blue, textDecoration: 'none', borderRadius: '6px', padding: '7px 16px', fontSize: '13px', fontWeight: '500', marginBottom: '24px' },
-  section: { marginBottom: '32px' },
-  sectionTitle: { fontSize: '16px', fontWeight: '600', color: C.text, marginBottom: '14px', borderBottom: `1px solid ${C.elevated}`, paddingBottom: '8px' },
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(145px, 1fr))', gap: '12px' },
-  statCard: { background: C.card, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '14px 16px' },
-  statLabel: { fontSize: '11px', color: C.muted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' },
-  statVal: { fontSize: '22px', fontWeight: '700', color: C.text },
-  statSub: { fontSize: '11px', color: C.muted, marginTop: '5px' },
-  tableWrap: { background: C.card, border: `1px solid ${C.border}`, borderRadius: '10px', overflow: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px' },
-  th: { padding: '10px 14px', textAlign: 'left', color: C.muted, fontWeight: '500', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: `1px solid ${C.elevated}`, whiteSpace: 'nowrap' },
+  input: { flex: 1, background: C.card, border: `1px solid ${C.border}`, color: C.text, borderRadius: 8, padding: '11px 14px', fontSize: 14, outline: 'none' },
+  hero: { background: `linear-gradient(135deg, ${C.card}, #111827)`, border: `1px solid ${C.border}`, borderRadius: 14, padding: '22px 24px', marginBottom: 22 },
+  playerName: { fontSize: 28, fontWeight: 800, color: C.text, marginBottom: 8 },
+  sub: { color: C.muted, fontSize: 13, lineHeight: 1.5, maxWidth: 860 },
+  chipRow: { display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 },
+  chip: { background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 999, padding: '4px 10px', color: C.text, fontSize: 12 },
+  rollingLink: { display: 'inline-block', background: C.elevated, border: `1px solid ${C.border}`, color: C.blue, textDecoration: 'none', borderRadius: 8, padding: '8px 15px', fontSize: 13, fontWeight: 600, marginBottom: 24 },
+  section: { marginBottom: 30 },
+  sectionTitle: { fontSize: 16, fontWeight: 700, color: C.text, marginBottom: 13, borderBottom: `1px solid ${C.elevated}`, paddingBottom: 8 },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 12 },
+  statCard: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px' },
+  statLabel: { fontSize: 11, color: C.muted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  statVal: { fontSize: 22, fontWeight: 800, color: C.text },
+  statSub: { fontSize: 11, color: C.muted, marginTop: 5 },
+  tableWrap: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'auto' },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
+  th: { padding: '10px 14px', textAlign: 'left', color: C.muted, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, borderBottom: `1px solid ${C.elevated}`, whiteSpace: 'nowrap' },
   thR: { textAlign: 'right' },
   td: { padding: '10px 14px', borderBottom: `1px solid ${C.bg}`, color: C.text, whiteSpace: 'nowrap' },
   tdR: { textAlign: 'right' },
-  muted: { color: C.muted },
-  sourceBadge: { display: 'inline-block', fontSize: '11px', padding: '2px 7px', borderRadius: '3px', background: C.elevated, color: C.muted, marginLeft: '10px', verticalAlign: 'middle', fontWeight: '400' },
-  loader: { color: C.muted, padding: '48px', textAlign: 'center' },
-  error: { color: C.red, padding: '24px', background: '#1f1116', borderRadius: '8px' },
-  hint: { color: C.muted, textAlign: 'center', padding: '48px' },
-  chartBox: { background: C.card, border: `1px solid ${C.border}`, borderRadius: '10px', padding: '18px', minHeight: '290px' },
-  qaBox: { background: C.card, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '12px 14px', marginBottom: '20px', fontSize: '12px', color: C.muted, lineHeight: 1.5 },
+  loader: { color: C.muted, padding: 48, textAlign: 'center' },
+  error: { color: C.red, padding: 24, background: '#1f1116', borderRadius: 8 },
+  hint: { color: C.muted, textAlign: 'center', padding: 48 },
+  chartBox: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 18, minHeight: 285 },
+  qaBox: { background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '12px 14px', marginBottom: 20, fontSize: 12, color: C.muted, lineHeight: 1.5 },
 }
 
-const tooltipStyle = { background: '#1c2128', border: `1px solid ${C.border}`, borderRadius: '6px', fontSize: '12px', color: C.text }
-const searchDropStyle = { position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: C.card, border: `1px solid ${C.border}`, borderRadius: '6px', marginTop: '4px', maxHeight: '280px', overflowY: 'auto' }
-const searchItemStyle = (hover) => ({ padding: '9px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.elevated}`, background: hover ? C.elevated : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' })
+const tooltipStyle = { background: '#1c2128', border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, color: C.text }
+const searchDropStyle = { position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, marginTop: 4, maxHeight: 280, overflowY: 'auto' }
+const searchItemStyle = (hover) => ({ padding: '10px 14px', cursor: 'pointer', borderBottom: `1px solid ${C.elevated}`, background: hover ? C.elevated : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' })
 
 const fmt = (v, d = 1) => v != null ? (typeof v === 'number' ? v.toFixed(d) : v) : '—'
 const pct = (v, d = 1) => v != null ? `${(v * 100).toFixed(d)}%` : '—'
@@ -55,17 +51,12 @@ const hasValue = (v) => v !== null && v !== undefined && v !== '' && v !== '—'
 const safeRows = (rows) => Array.isArray(rows) ? rows : []
 
 const LB_CONFIG = [
-  { key: 'avg_velocity', title: 'Avg Velocity', fmt: v => `${v.toFixed(1)} mph`, color: C.orange, group: 'Power / Stuff' },
-  { key: 'avg_spin_rate', title: 'Spin Rate', fmt: v => `${Math.round(v)} rpm`, color: C.purple, group: 'Power / Stuff' },
-  { key: 'extension', title: 'Extension', fmt: v => `${v.toFixed(2)} ft`, color: C.teal, group: 'Power / Stuff' },
-  { key: 'release_height', title: 'Release Height', fmt: v => `${v.toFixed(2)} ft`, color: C.blue, group: 'Power / Stuff' },
-  { key: 'k_pct', title: 'K%', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.green, group: 'Command / Discipline' },
-  { key: 'bb_pct_lowest', title: 'BB% Lowest', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.teal, group: 'Command / Discipline', inverse: true },
-  { key: 'hard_hit_pct_lowest', title: 'Hard Hit% Allowed', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.orange, group: 'Contact Allowed', inverse: true },
-  { key: 'xwoba_lowest', title: 'xwOBA Allowed', fmt: v => v.toFixed(3), color: C.red, group: 'Contact Allowed', inverse: true },
-  { key: 'xba_lowest', title: 'xBA Allowed', fmt: v => v.toFixed(3), color: C.purple, group: 'Contact Allowed', inverse: true },
-  { key: 'arsenal_whiff', title: 'Pitch Whiff%', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.green, group: 'Arsenal Intelligence' },
-  { key: 'arsenal_xwoba_lowest', title: 'Pitch xwOBA Allowed', fmt: v => v.toFixed(3), color: C.blue, group: 'Arsenal Intelligence', inverse: true },
+  { key: 'avg_velocity', title: 'Velocity Leaders', fmt: v => `${v.toFixed(1)} mph`, color: C.orange, group: 'Stuff' },
+  { key: 'k_pct', title: 'Strikeout Rate', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.green, group: 'Stuff' },
+  { key: 'xwoba_lowest', title: 'xwOBA Suppression', fmt: v => v.toFixed(3), color: C.red, group: 'Run Prevention', inverse: true },
+  { key: 'hard_hit_pct_lowest', title: 'Weak Contact', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.orange, group: 'Run Prevention', inverse: true },
+  { key: 'extension', title: 'Extension', fmt: v => `${v.toFixed(2)} ft`, color: C.teal, group: 'Release' },
+  { key: 'arsenal_whiff', title: 'Best Whiff Pitch', fmt: v => `${(v * 100).toFixed(1)}%`, color: C.blue, group: 'Arsenal' },
 ]
 
 function StatCard({ label, value, sub }) {
@@ -77,11 +68,14 @@ function MiniBar({ value, maxVal, minVal, color, inverse }) {
   const range = maxVal - minVal || 1
   const raw = inverse ? ((maxVal - value) / range) * 100 : ((value - minVal) / range) * 100
   const width = Math.max(4, Math.min(100, raw))
-  return <div style={{ background: C.elevated, borderRadius: 3, height: 6, width: 52, display: 'inline-block' }}><div style={{ width: `${width}%`, height: '100%', background: color, borderRadius: 3, opacity: 0.85 }} /></div>
+  return <div style={{ background: C.elevated, borderRadius: 4, height: 6, width: 54 }}><div style={{ width: `${width}%`, height: '100%', background: color, borderRadius: 4, opacity: 0.9 }} /></div>
 }
 
 function cleanLeaderboardRows(board) {
-  return safeRows(board).map((row, idx) => ({ ...row, rank: row.rank || idx + 1, value: Number(row.value) })).filter(row => row.player_id && Number.isFinite(row.value)).slice(0, 10)
+  return safeRows(board)
+    .map((row, idx) => ({ ...row, rank: row.rank || idx + 1, value: Number(row.value) }))
+    .filter(row => row.player_id && Number.isFinite(row.value))
+    .slice(0, 10)
 }
 
 function LeaderboardCard({ title, board, fmtVal, color, inverse = false }) {
@@ -91,20 +85,21 @@ function LeaderboardCard({ title, board, fmtVal, color, inverse = false }) {
   const maxVal = Math.max(...vals)
   const minVal = Math.min(...vals)
   return (
-    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
-      <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.elevated}`, display: 'flex', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{title}</span><span style={{ fontSize: 11, color, fontWeight: 700 }}>TOP {rows.length}</span>
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.elevated}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{title}</span>
+        <span style={{ fontSize: 11, color, fontWeight: 800 }}>TOP {rows.length}</span>
       </div>
       {rows.map(row => (
-        <div key={`${title}-${row.player_id}-${row.rank}-${row.pitch_type || ''}`} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: 8, padding: '8px 14px', borderBottom: `1px solid ${C.bg}`, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, textAlign: 'right' }}>{row.rank}</span>
+        <div key={`${title}-${row.player_id}-${row.rank}-${row.pitch_type || ''}`} style={{ display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: 8, padding: '9px 14px', borderBottom: `1px solid ${C.bg}`, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: C.muted, fontWeight: 800, textAlign: 'right' }}>{row.rank}</span>
           <div style={{ overflow: 'hidden' }}>
-            <Link to={`/pitcher/${row.player_id}`} style={{ color: C.blue, textDecoration: 'none', fontSize: 13, fontWeight: 500, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.player_name || `Pitcher #${row.player_id}`}</Link>
-            <div style={{ fontSize: 11, color: C.muted }}>{row.sample || row.window || ''}</div>
+            <Link to={`/pitcher/${row.player_id}`} style={{ color: C.blue, textDecoration: 'none', fontSize: 13, fontWeight: 650, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.player_name || `MLB ID ${row.player_id}`}</Link>
+            <div style={{ fontSize: 11, color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.team ? `${row.team} · ` : ''}{row.sample || row.window || ''}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <MiniBar value={row.value} maxVal={maxVal} minVal={minVal} color={color} inverse={inverse} />
-            <span style={{ fontSize: 12, fontWeight: 700, color: C.text, minWidth: 58, textAlign: 'right' }}>{fmtVal(row.value)}</span>
+            <span style={{ fontSize: 12, fontWeight: 800, color: C.text, minWidth: 60, textAlign: 'right' }}>{fmtVal(row.value)}</span>
           </div>
         </div>
       ))}
@@ -116,30 +111,21 @@ function PitcherLeaderboardDashboard({ data, loading }) {
   if (loading) return <div style={s.loader}>Loading pitcher leaderboards…</div>
   if (!data) return null
   const boards = data.leaderboards || {}
-  const groups = ['Power / Stuff', 'Command / Discipline', 'Contact Allowed', 'Arsenal Intelligence']
+  const cards = LB_CONFIG.filter(cfg => cleanLeaderboardRows(boards[cfg.key]).length > 0)
   return (
     <div>
-      <div style={s.header}>
-        <div style={s.playerName}>Pitcher Intelligence Hub</div>
-        <div style={s.playerMeta}>
-          <span style={s.chip}>Top-10 leaderboard dashboard</span>
+      <div style={s.hero}>
+        <div style={s.playerName}>Pitcher Intelligence</div>
+        <div style={s.sub}>A cleaner view of the arms that matter: power, strikeout ability, contact suppression, extension, and bat-missing pitches. Built from your aggregate tables so the landing page stays fast.</div>
+        <div style={s.chipRow}>
           <span style={s.chip}>{data.season} season</span>
-          <span style={s.chip}>PitchProfiler-inspired arsenal, command, and release views</span>
+          <span style={s.chip}>{data.identity_source === 'mlb_stats_api_people' ? 'MLB names loaded' : 'Name fallback active'}</span>
+          <span style={s.chip}>No per-pitcher page fanout</span>
         </div>
       </div>
-      {(data.notes || []).length > 0 && <div style={s.qaBox}>{data.notes.slice(0, 2).map((note, i) => <div key={i}>• {note}</div>)}</div>}
-      {groups.map(group => {
-        const cards = LB_CONFIG.filter(cfg => cfg.group === group && cleanLeaderboardRows(boards[cfg.key]).length > 0)
-        if (!cards.length) return null
-        return (
-          <div key={group} style={s.section}>
-            <div style={s.sectionTitle}>{group}</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
-              {cards.map(cfg => <LeaderboardCard key={cfg.key} title={cfg.title} board={boards[cfg.key]} fmtVal={cfg.fmt} color={cfg.color} inverse={cfg.inverse} />)}
-            </div>
-          </div>
-        )
-      })}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14 }}>
+        {cards.map(cfg => <LeaderboardCard key={cfg.key} title={cfg.title} board={boards[cfg.key]} fmtVal={cfg.fmt} color={cfg.color} inverse={cfg.inverse} />)}
+      </div>
     </div>
   )
 }
@@ -148,13 +134,15 @@ function QABox({ intelligence }) {
   if (!intelligence) return null
   const missing = intelligence.missing_inputs || []
   const flags = intelligence.quality_flags || []
+  if (!missing.length && !flags.length && !intelligence.metadata?.barrel_definition) return null
   return (
-    <div style={s.qaBox}>
-      <div><strong style={{ color: C.text }}>Data QA:</strong> {intelligence.source || 'unknown'} · location source {intelligence.metadata?.location_source || 'plate_x/plate_z'} · release source {intelligence.metadata?.release_source || intelligence.release_profile?.source || 'unknown'}</div>
+    <details style={s.qaBox}>
+      <summary style={{ color: C.text, cursor: 'pointer', fontWeight: 700 }}>Data quality and metric notes</summary>
+      <div style={{ marginTop: 8 }}>Source: {intelligence.source || 'unknown'} · location {intelligence.metadata?.location_source || 'plate_x/plate_z'} · release {intelligence.metadata?.release_source || intelligence.release_profile?.source || 'unknown'}</div>
       {flags.length > 0 && <div>Flags: {flags.join(', ')}</div>}
       {missing.length > 0 && <div>Missing inputs: {missing.slice(0, 8).join(', ')}{missing.length > 8 ? '…' : ''}</div>}
       {intelligence.metadata?.barrel_definition && <div>Barrel note: {intelligence.metadata.barrel_definition}</div>}
-    </div>
+    </details>
   )
 }
 
@@ -166,15 +154,15 @@ function IntelligenceSummary({ intelligence }) {
   return (
     <div style={s.section}>
       <div style={s.sectionTitle}>Pitcher Intelligence Summary</div>
-      <div style={s.statsGrid}>
-        <StatCard label="Sample" value={fmt(summary.pitches, 0)} sub="Statcast pitches" />
-        <StatCard label="Best Pitch" value={best?.pitch_type || '—'} sub={best?.quality_score != null ? `Quality ${score(best.quality_score)}` : null} />
-        <StatCard label="Riskiest Pitch" value={risk?.pitch_type || '—'} sub={risk?.damage_score != null ? `Damage ${score(risk.damage_score)}` : null} />
+      <div style={s.grid}>
+        <StatCard label="Sample" value={fmt(summary.pitches, 0)} sub="tracked pitches" />
+        <StatCard label="Best Pitch" value={best?.pitch_type || null} sub={best?.quality_score != null ? `Quality ${score(best.quality_score)}` : null} />
+        <StatCard label="Riskiest Pitch" value={risk?.pitch_type || null} sub={risk?.damage_score != null ? `Damage ${score(risk.damage_score)}` : null} />
         <StatCard label="Whiff%" value={pct(summary.whiff_pct)} />
         <StatCard label="CSW%" value={pct(summary.csw_pct)} />
-        <StatCard label="Hard Hit% Allowed" value={pct(summary.hard_hit_pct)} />
-        <StatCard label="Barrel% Allowed" value={pct(summary.barrel_pct)} />
-        <StatCard label="xwOBA Allowed" value={fmt(summary.xwoba, 3)} />
+        <StatCard label="Hard Hit%" value={pct(summary.hard_hit_pct)} />
+        <StatCard label="Barrel%" value={pct(summary.barrel_pct)} />
+        <StatCard label="xwOBA" value={summary.xwoba != null ? fmt(summary.xwoba, 3) : null} />
       </div>
     </div>
   )
@@ -185,13 +173,12 @@ function ReleaseProfileCard({ release }) {
   return (
     <div style={s.section}>
       <div style={s.sectionTitle}>Release / Deception Profile</div>
-      <div style={s.statsGrid}>
+      <div style={s.grid}>
         <StatCard label="Release Side" value={release.avg_release_pos_x != null ? `${fmt(release.avg_release_pos_x, 2)} ft` : null} />
         <StatCard label="Release Height" value={release.avg_release_pos_z != null ? `${fmt(release.avg_release_pos_z, 2)} ft` : null} />
         <StatCard label="Extension" value={release.avg_release_extension != null ? `${fmt(release.avg_release_extension, 2)} ft` : null} />
-        <StatCard label="Source" value={release.source || '—'} sub={release.window || release.end_date} />
+        <StatCard label="Source" value={release.source || null} sub={release.window || release.end_date} />
       </div>
-      <div style={{ ...s.qaBox, marginTop: 12 }}>{release.note || 'Release fields describe pitcher release geometry, not plate location.'}</div>
     </div>
   )
 }
@@ -203,7 +190,6 @@ function chartDataFromArsenal(arsenal) {
     whiff: p.whiff_pct != null ? p.whiff_pct * 100 : null,
     csw: p.csw_pct != null ? p.csw_pct * 100 : null,
     hardHit: p.hard_hit_pct != null ? p.hard_hit_pct * 100 : null,
-    barrel: p.barrel_pct != null ? p.barrel_pct * 100 : null,
     xwoba: p.xwoba,
     velo: p.avg_velocity,
     spin: p.avg_spin_rate,
@@ -216,11 +202,10 @@ function ArsenalCharts({ arsenal }) {
   return (
     <div style={s.section}>
       <div style={s.sectionTitle}>Arsenal Graphs</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14 }}>
         <div style={s.chartBox}><div style={s.sectionTitle}>Pitch Mix</div><ResponsiveContainer width="100%" height={220}><BarChart data={rows}><CartesianGrid strokeDasharray="3 3" stroke={C.border} /><XAxis dataKey="pitch" stroke={C.muted} /><YAxis stroke={C.muted} /><Tooltip contentStyle={tooltipStyle} /><Bar dataKey="usage" name="Usage %" fill={C.blue} /></BarChart></ResponsiveContainer></div>
         <div style={s.chartBox}><div style={s.sectionTitle}>Whiff / CSW</div><ResponsiveContainer width="100%" height={220}><BarChart data={rows}><CartesianGrid strokeDasharray="3 3" stroke={C.border} /><XAxis dataKey="pitch" stroke={C.muted} /><YAxis stroke={C.muted} /><Tooltip contentStyle={tooltipStyle} /><Legend /><Bar dataKey="whiff" name="Whiff %" fill={C.green} /><Bar dataKey="csw" name="CSW %" fill={C.teal} /></BarChart></ResponsiveContainer></div>
-        <div style={s.chartBox}><div style={s.sectionTitle}>Contact Damage</div><ResponsiveContainer width="100%" height={220}><LineChart data={rows}><CartesianGrid strokeDasharray="3 3" stroke={C.border} /><XAxis dataKey="pitch" stroke={C.muted} /><YAxis yAxisId="left" stroke={C.muted} /><YAxis yAxisId="right" orientation="right" stroke={C.muted} /><Tooltip contentStyle={tooltipStyle} /><Legend /><ReferenceLine yAxisId="right" y={0.320} stroke={C.muted} strokeDasharray="3 3" /><Line yAxisId="right" type="monotone" dataKey="xwoba" name="xwOBA" stroke={C.red} connectNulls /><Line yAxisId="left" type="monotone" dataKey="hardHit" name="HH %" stroke={C.orange} connectNulls /><Line yAxisId="left" type="monotone" dataKey="barrel" name="Barrel %" stroke={C.purple} connectNulls /></LineChart></ResponsiveContainer></div>
-        <div style={s.chartBox}><div style={s.sectionTitle}>Velocity / Spin</div><ResponsiveContainer width="100%" height={220}><LineChart data={rows}><CartesianGrid strokeDasharray="3 3" stroke={C.border} /><XAxis dataKey="pitch" stroke={C.muted} /><YAxis yAxisId="left" stroke={C.muted} /><YAxis yAxisId="right" orientation="right" stroke={C.muted} /><Tooltip contentStyle={tooltipStyle} /><Legend /><Line yAxisId="left" type="monotone" dataKey="velo" name="Velo" stroke={C.blue} connectNulls /><Line yAxisId="right" type="monotone" dataKey="spin" name="Spin" stroke={C.purple} connectNulls /></LineChart></ResponsiveContainer></div>
+        <div style={s.chartBox}><div style={s.sectionTitle}>Damage Allowed</div><ResponsiveContainer width="100%" height={220}><LineChart data={rows}><CartesianGrid strokeDasharray="3 3" stroke={C.border} /><XAxis dataKey="pitch" stroke={C.muted} /><YAxis stroke={C.muted} /><Tooltip contentStyle={tooltipStyle} /><Legend /><Line type="monotone" dataKey="xwoba" name="xwOBA" stroke={C.red} connectNulls /><Line type="monotone" dataKey="hardHit" name="HH %" stroke={C.orange} connectNulls /></LineChart></ResponsiveContainer></div>
       </div>
     </div>
   )
@@ -230,32 +215,17 @@ function ArsenalTable({ arsenal }) {
   const rows = safeRows(arsenal)
   if (!rows.length) return null
   const columns = [
-    ['pitch_type', 'Pitch', v => v], ['usage_pct', 'Usage%', v => pct(v)], ['avg_velocity', 'Velo', v => fmt(v)], ['avg_spin_rate', 'Spin', v => fmt(v, 0)], ['whiff_pct', 'Whiff%', v => pct(v)], ['csw_pct', 'CSW%', v => pct(v)], ['in_zone_pct', 'Zone%', v => pct(v)], ['heart_zone_pct', 'Heart%', v => pct(v)], ['hard_hit_pct', 'HH%', v => pct(v)], ['barrel_pct', 'Barrel%', v => pct(v)], ['xwoba', 'xwOBA', v => fmt(v, 3)], ['xba', 'xBA', v => fmt(v, 3)], ['quality_score', 'Quality', v => score(v)], ['damage_score', 'Damage', v => score(v)],
+    ['pitch_type', 'Pitch', v => v], ['usage_pct', 'Usage%', v => pct(v)], ['avg_velocity', 'Velo', v => fmt(v)], ['avg_spin_rate', 'Spin', v => fmt(v, 0)], ['whiff_pct', 'Whiff%', v => pct(v)], ['csw_pct', 'CSW%', v => pct(v)], ['in_zone_pct', 'Zone%', v => pct(v)], ['heart_zone_pct', 'Heart%', v => pct(v)], ['hard_hit_pct', 'HH%', v => pct(v)], ['xwoba', 'xwOBA', v => fmt(v, 3)], ['quality_score', 'Quality', v => score(v)], ['damage_score', 'Damage', v => score(v)],
   ].filter(([key]) => rows.some(row => row[key] != null))
-  return (
-    <div style={s.section}>
-      <div style={s.sectionTitle}>Arsenal 2.0</div>
-      <div style={s.tableWrap}><table style={s.table}><thead><tr>{columns.map(([key, label], idx) => <th key={key} style={idx === 0 ? s.th : { ...s.th, ...s.thR }}>{label}</th>)}</tr></thead><tbody>{rows.map((row, i) => <tr key={`${row.pitch_type}-${i}`}>{columns.map(([key,, render], idx) => <td key={key} style={idx === 0 ? s.td : { ...s.td, ...s.tdR }}>{render(row[key])}</td>)}</tr>)}</tbody></table></div>
-    </div>
-  )
+  return <div style={s.section}><div style={s.sectionTitle}>Arsenal 2.0</div><div style={s.tableWrap}><table style={s.table}><thead><tr>{columns.map(([key, label], idx) => <th key={key} style={idx === 0 ? s.th : { ...s.th, ...s.thR }}>{label}</th>)}</tr></thead><tbody>{rows.map((row, i) => <tr key={`${row.pitch_type}-${i}`}>{columns.map(([key,, render], idx) => <td key={key} style={idx === 0 ? s.td : { ...s.td, ...s.tdR }}>{render(row[key])}</td>)}</tr>)}</tbody></table></div></div>
 }
 
 function LocationGrid({ profile }) {
   const buckets = safeRows(profile?.buckets)
   if (!buckets.length) return null
   const byBucket = Object.fromEntries(buckets.map(row => [row.bucket, row]))
-  const rows = [['inside_high', 'middle_high', 'outside_high'], ['inside_middle', 'middle_middle', 'outside_middle'], ['inside_low', 'middle_low', 'outside_low']]
-  return (
-    <div style={s.section}>
-      <div style={s.sectionTitle}>Location / Command Grid <span style={s.sourceBadge}>plate_x / plate_z</span></div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(110px, 1fr))', gap: 8, maxWidth: 680 }}>
-        {rows.flat().map(name => {
-          const b = byBucket[name]
-          return <div key={name} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, minHeight: 94 }}><div style={{ color: C.blue, fontWeight: 700, fontSize: 12, marginBottom: 6 }}>{name.replace('_', ' / ')}</div>{b ? <><div style={{ color: C.text, fontWeight: 700 }}>{b.pitches} pitches</div><div style={{ color: C.muted, fontSize: 12 }}>xwOBA {fmt(b.xwoba, 3)}</div><div style={{ color: C.muted, fontSize: 12 }}>HH {pct(b.hard_hit_pct)} · Brl {pct(b.barrel_pct)}</div><div style={{ color: C.muted, fontSize: 12 }}>Damage {score(b.damage_score)}</div></> : <div style={{ color: C.muted, fontSize: 12 }}>No sample</div>}</div>
-        })}
-      </div>
-    </div>
-  )
+  const names = ['inside_high', 'middle_high', 'outside_high', 'inside_middle', 'middle_middle', 'outside_middle', 'inside_low', 'middle_low', 'outside_low']
+  return <div style={s.section}><div style={s.sectionTitle}>Location / Command Grid <span style={{ color: C.muted, fontSize: 11 }}>plate_x / plate_z</span></div><div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(110px, 1fr))', gap: 8, maxWidth: 700 }}>{names.map(name => { const b = byBucket[name]; return <div key={name} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, minHeight: 90 }}><div style={{ color: C.blue, fontWeight: 800, fontSize: 12, marginBottom: 6 }}>{name.replace('_', ' / ')}</div>{b ? <><div style={{ color: C.text, fontWeight: 800 }}>{b.pitches} pitches</div><div style={{ color: C.muted, fontSize: 12 }}>xwOBA {fmt(b.xwoba, 3)}</div><div style={{ color: C.muted, fontSize: 12 }}>HH {pct(b.hard_hit_pct)}</div></> : <div style={{ color: C.muted, fontSize: 12 }}>No sample</div>}</div> })}</div></div>
 }
 
 export default function PitcherPage() {
@@ -302,53 +272,42 @@ export default function PitcherPage() {
   function selectPlayer(p) { setQuery(p.name); setResults([]); navigate(`/pitcher/${p.id}`) }
 
   const agg = data?.aggregate || {}
-  const oldArsenal = data?.arsenal || []
-  const arsenal = intelligence?.arsenal?.length ? intelligence.arsenal : oldArsenal
+  const arsenal = intelligence?.arsenal?.length ? intelligence.arsenal : (data?.arsenal || [])
   const multiSeason = data?.multi_season || []
   const gameLog = data?.game_log || []
   const release = intelligence?.release_profile
-
   const currentCards = [
     ['Avg Velocity', agg.avg_velocity != null ? `${fmt(agg.avg_velocity)} mph` : null],
     ['Spin Rate', agg.avg_spin_rate != null ? `${fmt(agg.avg_spin_rate, 0)} rpm` : null],
     ['K%', agg.k_pct != null ? pct(agg.k_pct) : null],
     ['BB%', agg.bb_pct != null ? pct(agg.bb_pct) : null],
-    ['Hard Hit% Allowed', agg.hard_hit_pct != null ? pct(agg.hard_hit_pct) : null],
-    ['xwOBA Allowed', agg.xwoba != null ? fmt(agg.xwoba, 3) : null],
-    ['xBA Allowed', agg.xba != null ? fmt(agg.xba, 3) : null],
+    ['Hard Hit%', agg.hard_hit_pct != null ? pct(agg.hard_hit_pct) : null],
+    ['xwOBA', agg.xwoba != null ? fmt(agg.xwoba, 3) : null],
     ['Extension', release?.avg_release_extension != null ? `${fmt(release.avg_release_extension, 2)} ft` : null],
     ['Release Height', release?.avg_release_pos_z != null ? `${fmt(release.avg_release_pos_z, 2)} ft` : null],
-    ['Release Side', release?.avg_release_pos_x != null ? `${fmt(release.avg_release_pos_x, 2)} ft` : null],
   ]
 
   return (
     <div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 20 }}>Pitcher Profile</h1>
-      <div style={{ position: 'relative', marginBottom: 28 }}>
-        <div style={s.searchRow}><input style={s.input} placeholder="Search pitcher by name (e.g. Gerrit Cole)" value={query} onChange={onQueryChange} autoComplete="off" />{searching && <span style={{ color: C.muted, fontSize: 13, alignSelf: 'center' }}>Searching…</span>}</div>
-        {results.length > 0 && <div style={searchDropStyle}>{results.slice(0, 10).map((p, i) => <div key={p.id} style={searchItemStyle(i === hoverIdx)} onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(-1)} onClick={() => selectPlayer(p)}><span style={{ color: C.text }}>{p.name}</span><span style={{ color: C.muted, fontSize: 12 }}>{p.team || ''}</span></div>)}</div>}
-      </div>
-
+      <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 20 }}>Pitcher Profile</h1>
+      <div style={{ position: 'relative', marginBottom: 26 }}><div style={s.searchRow}><input style={s.input} placeholder="Search pitcher by name" value={query} onChange={onQueryChange} autoComplete="off" />{searching && <span style={{ color: C.muted, fontSize: 13, alignSelf: 'center' }}>Searching…</span>}</div>{results.length > 0 && <div style={searchDropStyle}>{results.slice(0, 10).map((p, i) => <div key={p.id} style={searchItemStyle(i === hoverIdx)} onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(-1)} onClick={() => selectPlayer(p)}><span style={{ color: C.text }}>{p.name}</span><span style={{ color: C.muted, fontSize: 12 }}>{p.team || ''}</span></div>)}</div>}</div>
       {!id && <PitcherLeaderboardDashboard data={leaderboards} loading={lbLoading} />}
       {loading && <div style={s.loader}>Loading…</div>}
       {error && <div style={s.error}>{error}</div>}
       {id && !loading && !error && !data && <div style={s.hint}>Search for a pitcher by name to view their stats.</div>}
-      {data?.no_data && <div style={s.error}>No Statcast data on file for {data.player_name || `pitcher ${id}`}. This player may be inactive or data has not been ingested yet.</div>}
+      {data?.no_data && <div style={s.error}>No Statcast data on file for {data.player_name || `pitcher ${id}`}.</div>}
 
       {data && !data.no_data && <>
-        <div style={s.header}><div style={s.playerName}>{data.player_name || data.player_info?.name || `Pitcher #${id}`}</div><div style={s.playerMeta}><span style={s.chip}>Player ID {id}</span>{data.data_source && <span style={s.chip}>{data.data_source}</span>}{data.arsenal_season && <span style={s.chip}>{data.arsenal_season} arsenal</span>}{intelligence?.sample_size?.deduped_pitch_rows != null && <span style={s.chip}>{intelligence.sample_size.deduped_pitch_rows} tracked pitches</span>}</div></div>
-        {id && <Link to={`/pitcher/${id}/rolling`} style={s.rollingLink}>View Rolling Stats (L15–L150 Games) →</Link>}
+        <div style={s.hero}><div style={s.playerName}>{data.player_name || data.player_info?.name || `Pitcher #${id}`}</div><div style={s.sub}>Pitcher profile built from aggregate performance, arsenal quality, release traits, and plate-location outcomes.</div><div style={s.chipRow}><span style={s.chip}>MLB ID {id}</span>{data.data_source && <span style={s.chip}>{data.data_source}</span>}{intelligence?.sample_size?.deduped_pitch_rows != null && <span style={s.chip}>{intelligence.sample_size.deduped_pitch_rows} tracked pitches</span>}</div></div>
+        {id && <Link to={`/pitcher/${id}/rolling`} style={s.rollingLink}>View Rolling Stats →</Link>}
         <QABox intelligence={intelligence} />
-
-        {currentCards.some(([, value]) => hasValue(value)) && <div style={s.section}><div style={s.sectionTitle}>Current Metrics</div><div style={s.statsGrid}>{currentCards.map(([label, value]) => <StatCard key={label} label={label} value={value} />)}</div></div>}
+        {currentCards.some(([, value]) => hasValue(value)) && <div style={s.section}><div style={s.sectionTitle}>Current Metrics</div><div style={s.grid}>{currentCards.map(([label, value]) => <StatCard key={label} label={label} value={value} />)}</div></div>}
         <IntelligenceSummary intelligence={intelligence} />
         <ReleaseProfileCard release={release} />
         <ArsenalCharts arsenal={arsenal} />
         <ArsenalTable arsenal={arsenal} />
         <LocationGrid profile={intelligence?.location_profile} />
-
         {multiSeason.some(r => r.avg_velocity != null || r.k_pct != null) && <div style={s.section}><div style={s.sectionTitle}>Season-by-Season</div><div style={s.tableWrap}><table style={s.table}><thead><tr>{['Season', 'Velo', 'Spin', 'K%', 'BB%', 'Hard Hit%', 'xwOBA', 'xBA'].map((h, idx) => <th key={h} style={idx === 0 ? s.th : { ...s.th, ...s.thR }}>{h}</th>)}</tr></thead><tbody>{multiSeason.map((row, i) => <tr key={i}><td style={{ ...s.td, fontWeight: 700, color: C.blue }}>{row.label}</td><td style={{ ...s.td, ...s.tdR }}>{fmt(row.avg_velocity)}</td><td style={{ ...s.td, ...s.tdR }}>{fmt(row.avg_spin_rate, 0)}</td><td style={{ ...s.td, ...s.tdR }}>{pct(row.k_pct)}</td><td style={{ ...s.td, ...s.tdR }}>{pct(row.bb_pct)}</td><td style={{ ...s.td, ...s.tdR }}>{pct(row.hard_hit_pct)}</td><td style={{ ...s.td, ...s.tdR }}>{fmt(row.xwoba, 3)}</td><td style={{ ...s.td, ...s.tdR }}>{fmt(row.xba, 3)}</td></tr>)}</tbody></table></div></div>}
-
         {gameLog.length > 0 && <div style={s.section}><div style={s.sectionTitle}>Recent Outings</div><div style={s.tableWrap}><table style={s.table}><thead><tr>{['Date', 'Pitches', 'PA', 'K', 'BB', 'HR', 'HH%', 'Velo'].map((h, idx) => <th key={h} style={idx === 0 ? s.th : { ...s.th, ...s.thR }}>{h}</th>)}</tr></thead><tbody>{gameLog.map((g, i) => <tr key={i}><td style={{ ...s.td, color: C.muted, fontSize: 12 }}>{g.game_date}</td><td style={{ ...s.td, ...s.tdR }}>{g.pitch_count ?? '—'}</td><td style={{ ...s.td, ...s.tdR }}>{g.plate_appearances ?? '—'}</td><td style={{ ...s.td, ...s.tdR, color: C.green }}>{g.strikeouts ?? '—'}</td><td style={{ ...s.td, ...s.tdR, color: C.orange }}>{g.walks ?? '—'}</td><td style={{ ...s.td, ...s.tdR, color: g.home_runs > 0 ? C.red : C.text }}>{g.home_runs ?? '—'}</td><td style={{ ...s.td, ...s.tdR }}>{g.hard_hit_pct != null ? pct(g.hard_hit_pct) : '—'}</td><td style={{ ...s.td, ...s.tdR }}>{g.avg_velocity != null ? fmt(g.avg_velocity) : '—'}</td></tr>)}</tbody></table></div></div>}
       </>}
     </div>
