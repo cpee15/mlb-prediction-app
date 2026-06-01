@@ -34,6 +34,7 @@ router = APIRouter()
 _LEADERBOARD_TTL_SECONDS = 3600  # 1 hour
 _leaderboard_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _pitcher_leaderboard_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_identity_cache: Dict[int, Tuple[float, Dict[str, Any]]] = {}
 
 
 def _get_session():
@@ -51,14 +52,24 @@ def _safe_float(val) -> Optional[float]:
         return None
 
 
-def _fetch_batter_live_data(player_id: int, season: int) -> Dict[str, Any]:
-    out: Dict[str, Any] = {
-        "player_info": None,
-        "season_stats": None,
-        "splits": {"vsL": None, "vsR": None},
-        "year_by_year": [],
-    }
+def _fetch_player_identity(player_id: int) -> Dict[str, Any]:
+    cached = _identity_cache.get(player_id)
+    if cached is not None:
+        cached_at, payload = cached
+        if time.monotonic() - cached_at < _LEADERBOARD_TTL_SECONDS:
+            return payload
 
+    payload = {
+        "id": player_id,
+        "name": None,
+        "team": None,
+        "team_abbreviation": None,
+        "position": None,
+        "position_type": None,
+        "throws": None,
+        "bats": None,
+        "source": "fallback",
+    }
     try:
         r = _req.get(
             f"{MLB_STATS_BASE}/people/{player_id}",
@@ -67,17 +78,44 @@ def _fetch_batter_live_data(player_id: int, season: int) -> Dict[str, Any]:
         )
         if r.ok:
             p = (r.json().get("people") or [{}])[0]
-            out["player_info"] = {
+            team = p.get("currentTeam") or {}
+            position = p.get("primaryPosition") or {}
+            payload.update({
                 "name": p.get("fullName"),
-                "position": (p.get("primaryPosition") or {}).get("abbreviation"),
-                "team": (p.get("currentTeam") or {}).get("name"),
-                "bats": (p.get("batSide") or {}).get("code"),
+                "team": team.get("name"),
+                "team_abbreviation": team.get("abbreviation"),
+                "position": position.get("abbreviation"),
+                "position_type": position.get("type"),
                 "throws": (p.get("pitchHand") or {}).get("code"),
-                "birth_date": p.get("birthDate"),
-                "mlb_debut": p.get("mlbDebutDate"),
-            }
+                "bats": (p.get("batSide") or {}).get("code"),
+                "source": "mlb_stats_api_people",
+            })
     except Exception:
         pass
+
+    _identity_cache[player_id] = (time.monotonic(), payload)
+    return payload
+
+
+def _fetch_batter_live_data(player_id: int, season: int) -> Dict[str, Any]:
+    out: Dict[str, Any] = {
+        "player_info": None,
+        "season_stats": None,
+        "splits": {"vsL": None, "vsR": None},
+        "year_by_year": [],
+    }
+
+    identity = _fetch_player_identity(player_id)
+    if identity.get("name"):
+        out["player_info"] = {
+            "name": identity.get("name"),
+            "position": identity.get("position"),
+            "team": identity.get("team"),
+            "bats": identity.get("bats"),
+            "throws": identity.get("throws"),
+            "birth_date": None,
+            "mlb_debut": None,
+        }
 
     def _parse_stat(s: dict) -> Dict[str, Any]:
         pa = s.get("plateAppearances") or 0
@@ -175,6 +213,11 @@ def data_freshness() -> Dict[str, Any]:
     Session = _get_session()
     with Session() as session:
         return build_data_freshness_payload(session)
+
+
+@router.get("/player/{id}/identity")
+def player_identity(id: int) -> Dict[str, Any]:
+    return _fetch_player_identity(id)
 
 
 @router.get("/batters/leaderboards")
