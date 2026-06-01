@@ -23,6 +23,7 @@ from .db_utils import (
     get_player_splits_multi_season,
 )
 from .pitcher_intelligence import build_pitcher_intelligence_profile
+from .pitcher_leaderboards import build_pitcher_leaderboards
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 router = APIRouter()
@@ -32,6 +33,7 @@ router = APIRouter()
 # season's terminal-event rows. Caching prevents redundant work across requests.
 _LEADERBOARD_TTL_SECONDS = 3600  # 1 hour
 _leaderboard_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_pitcher_leaderboard_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 
 def _get_session():
@@ -194,6 +196,26 @@ def batters_leaderboards(
         result = get_batter_leaderboards(session, season=season, min_pa=min_pa, min_bbe=min_bbe, limit=limit)
 
     _leaderboard_cache[cache_key] = (time.monotonic(), result)
+    return result
+
+
+@router.get("/pitchers/leaderboards")
+def pitchers_leaderboards(
+    season: Optional[int] = None,
+    limit: int = Query(10, ge=1, le=50),
+) -> Dict[str, Any]:
+    cache_key = f"pitchers:{season}:{limit}"
+    cached = _pitcher_leaderboard_cache.get(cache_key)
+    if cached is not None:
+        cached_at, data = cached
+        if time.monotonic() - cached_at < _LEADERBOARD_TTL_SECONDS:
+            return data
+
+    Session = _get_session()
+    with Session() as session:
+        result = build_pitcher_leaderboards(session, season=season, limit=limit)
+
+    _pitcher_leaderboard_cache[cache_key] = (time.monotonic(), result)
     return result
 
 
