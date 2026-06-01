@@ -22,6 +22,7 @@ from .db_utils import (
     get_batter_rolling_splits,
     get_player_splits_multi_season,
 )
+from .pitcher_intelligence import build_pitcher_intelligence_profile
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
 router = APIRouter()
@@ -194,6 +195,19 @@ def batters_leaderboards(
 
     _leaderboard_cache[cache_key] = (time.monotonic(), result)
     return result
+
+
+@router.get("/pitcher/{id}/intelligence")
+def pitcher_intelligence(
+    id: int,
+    season: Optional[int] = None,
+    days_back: int = Query(365, ge=1, le=3650),
+) -> Dict[str, Any]:
+    if season is None:
+        season = datetime.date.today().year
+    Session = _get_session()
+    with Session() as session:
+        return build_pitcher_intelligence_profile(session, id, season, days_back=days_back)
 
 
 @router.get("/batter/{id}/profile")
