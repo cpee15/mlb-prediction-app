@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, Optional
 
 from sqlalchemy.orm import Session
 
-from mlb_app.database import StatcastEvent
+from mlb_app.database import PitcherAggregate, StatcastEvent
 
 SWINGS = {
     "swinging_strike",
@@ -39,7 +39,7 @@ NON_AB = {"walk", "intent_walk", "hit_by_pitch", "sac_fly", "sac_bunt"}
 
 BUCKET_DEFINITIONS = {
     "source": "plate_x/plate_z",
-    "release_warning": "release_pos_x/z are release-point fields, not plate-location fields",
+    "release_warning": "release_pos_x/z and release_extension are release-geometry fields, not plate-location fields",
     "horizontal_middle": "abs(plate_x) <= 0.28",
     "vertical_low": "plate_z < 2.00",
     "vertical_high": "plate_z > 3.10",
@@ -264,6 +264,32 @@ def _bucket_rows(bucket_counters: Dict[str, Dict[str, Any]]) -> list[Dict[str, A
     return sorted(rows, key=lambda row: row["pitches"], reverse=True)
 
 
+def _release_profile(session: Session, pitcher_id: int, season: int) -> Dict[str, Any]:
+    row = session.query(PitcherAggregate).filter(
+        PitcherAggregate.pitcher_id == int(pitcher_id),
+        PitcherAggregate.end_date >= dt.date(int(season), 1, 1),
+    ).order_by(PitcherAggregate.end_date.desc()).first()
+
+    missing = []
+    if row is None or row.avg_release_pos_x is None:
+        missing.append("avg_release_pos_x")
+    if row is None or row.avg_release_pos_z is None:
+        missing.append("avg_release_pos_z")
+    if row is None or row.avg_release_extension is None:
+        missing.append("avg_release_extension")
+
+    return {
+        "source": "pitcher_aggregates" if row else "missing_pitcher_aggregates",
+        "note": BUCKET_DEFINITIONS["release_warning"],
+        "window": row.window if row else None,
+        "end_date": row.end_date.isoformat() if row and row.end_date else None,
+        "avg_release_pos_x": row.avg_release_pos_x if row else None,
+        "avg_release_pos_z": row.avg_release_pos_z if row else None,
+        "avg_release_extension": row.avg_release_extension if row else None,
+        "missing_inputs": missing,
+    }
+
+
 def build_pitcher_intelligence_profile(session: Session, pitcher_id: int, season: int, days_back: int = 365) -> Dict[str, Any]:
     today = dt.datetime.utcnow().date()
     start_date = max(dt.date(int(season), 1, 1), today - dt.timedelta(days=max(int(days_back), 1)))
@@ -320,14 +346,15 @@ def build_pitcher_intelligence_profile(session: Session, pitcher_id: int, season
 
     location_rows = _bucket_rows(by_bucket)
     dates = [event.game_date for event in events if event.game_date]
+    release = _release_profile(session, pitcher_id, season)
     missing_inputs = [
         key for key, missing in {
             "statcast_events_for_pitcher": not events,
             "plate_x_plate_z": summary["avg_plate_x"] is None or summary["avg_plate_z"] is None,
             "launch_speed_launch_angle": summary["batted_balls"] == 0,
-            "release_pos_x_z_extension": True,
         }.items() if missing
     ]
+    missing_inputs.extend(release.get("missing_inputs") or [])
 
     return {
         "source": "statcast_events",
@@ -339,8 +366,8 @@ def build_pitcher_intelligence_profile(session: Session, pitcher_id: int, season
         "summary": {**summary, "pitch_types_used": [row["pitch_type"] for row in arsenal], "best_pitch": _best(arsenal, "quality_score", True, 20), "riskiest_pitch": _best(arsenal, "damage_score", True, 20)},
         "arsenal": arsenal,
         "location_profile": {"source": "plate_x_plate_z", "bucket_definitions": BUCKET_DEFINITIONS, "buckets": location_rows, "most_attacked_location_bucket": _best(location_rows, "pitches", True, 1), "most_damaged_location_bucket": _best(location_rows, "damage_score", True, 5)},
-        "release_profile": {"source": "not_available_on_raw_statcast_events_model", "note": BUCKET_DEFINITIONS["release_warning"], "missing_inputs": ["release_pos_x", "release_pos_z", "release_extension"]},
+        "release_profile": release,
         "missing_inputs": sorted(set(missing_inputs)),
         "quality_flags": [flag for flag in ["no_statcast_events" if not events else None, "barrel_rate_is_internal_approximation" if summary["batted_balls"] else None] if flag],
-        "metadata": {"model_version": "pitcher_intelligence_v1", "location_source": "plate_x/plate_z", "barrel_definition": BUCKET_DEFINITIONS["barrel_approximation"]},
+        "metadata": {"model_version": "pitcher_intelligence_v1", "location_source": "plate_x/plate_z", "release_source": "pitcher_aggregates", "barrel_definition": BUCKET_DEFINITIONS["barrel_approximation"]},
     }
