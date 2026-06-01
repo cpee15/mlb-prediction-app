@@ -1,23 +1,21 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import requests
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from mlb_app.database import PitchArsenal, PitcherAggregate
+from mlb_app.database import PitchArsenal, PitcherAggregate, StatcastEvent
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
+MIN_PROFILE_PITCHES = 250
+MIN_DAMAGE_BBE = 35
+MIN_ARSENAL_PITCHES = 75
 
 
 def _fetch_pitcher_names(player_ids: Set[int]) -> Dict[int, Dict[str, Optional[str]]]:
-    """Best-effort player identity hydration for leaderboard display.
-
-    The aggregate tables are metric stores, not identity tables. Use MLB Stats
-    people hydrate to avoid ugly `Pitcher #ID` rows on the landing dashboard.
-    If this external lookup fails, callers still receive stable fallback rows.
-    """
     ids = sorted(pid for pid in player_ids if pid)
     if not ids:
         return {}
@@ -38,7 +36,7 @@ def _fetch_pitcher_names(player_ids: Set[int]) -> Dict[int, Dict[str, Optional[s
                     continue
                 team = person.get("currentTeam") or {}
                 out[int(pid)] = {
-                    "player_name": person.get("fullName") or f"Pitcher #{pid}",
+                    "player_name": person.get("fullName") or f"MLB ID {pid}",
                     "team": team.get("abbreviation") or team.get("name"),
                 }
         except Exception:
@@ -47,61 +45,166 @@ def _fetch_pitcher_names(player_ids: Set[int]) -> Dict[int, Dict[str, Optional[s
 
 
 def _display_name(pid: int, identities: Dict[int, Dict[str, Optional[str]]]) -> str:
-    return (identities.get(pid) or {}).get("player_name") or f"Pitcher #{pid}"
+    return (identities.get(pid) or {}).get("player_name") or f"MLB ID {pid}"
 
 
 def _team(pid: int, identities: Dict[int, Dict[str, Optional[str]]]) -> Optional[str]:
     return (identities.get(pid) or {}).get("team")
 
 
-def _serialize_aggregate_row(row: PitcherAggregate, value: float, rank: int, identities: Dict[int, Dict[str, Optional[str]]]) -> Dict[str, Any]:
+def _event_samples(session: Session, season: int) -> Dict[int, Dict[str, int]]:
+    rows = (
+        session.query(
+            StatcastEvent.pitcher_id,
+            func.count(StatcastEvent.id),
+            func.count(StatcastEvent.launch_speed),
+        )
+        .filter(StatcastEvent.game_date >= dt.date(int(season), 1, 1))
+        .group_by(StatcastEvent.pitcher_id)
+        .all()
+    )
+    return {int(pid): {"pitches": int(pitches or 0), "batted_balls": int(bbe or 0)} for pid, pitches, bbe in rows if pid}
+
+
+def _latest_aggregates(session: Session, season: int) -> List[PitcherAggregate]:
+    rows = (
+        session.query(PitcherAggregate)
+        .filter(PitcherAggregate.end_date >= dt.date(int(season), 1, 1))
+        .order_by(PitcherAggregate.end_date.desc())
+        .all()
+    )
+    latest_by_pitcher: Dict[int, PitcherAggregate] = {}
+    for row in rows:
+        latest_by_pitcher.setdefault(row.pitcher_id, row)
+    return list(latest_by_pitcher.values())
+
+
+def _sample_label(pid: int, samples: Dict[int, Dict[str, int]], fallback: Optional[str] = None) -> str:
+    sample = samples.get(pid) or {}
+    pitches = sample.get("pitches") or 0
+    bbe = sample.get("batted_balls") or 0
+    if pitches:
+        return f"{pitches} pitches · {bbe} BBE"
+    return fallback or "sample pending"
+
+
+def _row(pid: int, value: float, rank: int, identities: Dict[int, Dict[str, Optional[str]]], samples: Dict[int, Dict[str, int]], *, sample: Optional[str] = None, detail: Optional[str] = None, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return {
         "rank": rank,
-        "player_id": row.pitcher_id,
-        "player_name": _display_name(row.pitcher_id, identities),
-        "team": _team(row.pitcher_id, identities),
-        "value": value,
-        "sample": row.window,
-        "window": row.window,
-        "end_date": row.end_date.isoformat() if row.end_date else None,
+        "player_id": pid,
+        "player_name": _display_name(pid, identities),
+        "team": _team(pid, identities),
+        "value": round(float(value), 4),
+        "sample": sample or _sample_label(pid, samples),
+        "detail": detail,
+        **(extra or {}),
     }
 
 
-def _aggregate_board(rows: List[PitcherAggregate], attr: str, *, limit: int, reverse: bool, identities: Dict[int, Dict[str, Optional[str]]]) -> List[Dict[str, Any]]:
-    usable = []
-    for row in rows:
-        value = getattr(row, attr, None)
-        if value is None:
-            continue
-        usable.append((row, float(value)))
-    usable.sort(key=lambda item: item[1], reverse=reverse)
-    return [_serialize_aggregate_row(row, value, idx + 1, identities) for idx, (row, value) in enumerate(usable[:limit])]
+def _rank_profile(rows: List[Tuple[PitcherAggregate, float, str]], identities: Dict[int, Dict[str, Optional[str]]], samples: Dict[int, Dict[str, int]], limit: int) -> List[Dict[str, Any]]:
+    rows.sort(key=lambda item: item[1], reverse=True)
+    return [_row(row.pitcher_id, value, idx + 1, identities, samples, detail=detail) for idx, (row, value, detail) in enumerate(rows[:limit])]
 
 
-def _pitch_board(rows: List[PitchArsenal], attr: str, *, limit: int, reverse: bool, identities: Dict[int, Dict[str, Optional[str]]]) -> List[Dict[str, Any]]:
+def _quality_profiles(latest: List[PitcherAggregate], samples: Dict[int, Dict[str, int]], identities: Dict[int, Dict[str, Optional[str]]], limit: int) -> List[Dict[str, Any]]:
+    scored = []
+    for row in latest:
+        sample = samples.get(row.pitcher_id, {})
+        if (sample.get("pitches") or 0) < MIN_PROFILE_PITCHES:
+            continue
+        if None in (row.k_pct, row.bb_pct, row.xwoba, row.hard_hit_pct):
+            continue
+        k_minus_bb = float(row.k_pct) - float(row.bb_pct)
+        value = (k_minus_bb * 1.6) + ((0.330 - float(row.xwoba)) * 2.2) + ((0.380 - float(row.hard_hit_pct)) * 0.9)
+        if row.avg_velocity is not None:
+            value += (float(row.avg_velocity) - 92.0) / 100.0
+        detail = f"K-BB {k_minus_bb * 100:.1f}% · xwOBA {row.xwoba:.3f} · HH {row.hard_hit_pct * 100:.1f}%"
+        scored.append((row, value, detail))
+    return _rank_profile(scored, identities, samples, limit)
+
+
+def _command_profiles(latest: List[PitcherAggregate], samples: Dict[int, Dict[str, int]], identities: Dict[int, Dict[str, Optional[str]]], limit: int) -> List[Dict[str, Any]]:
+    scored = []
+    for row in latest:
+        sample = samples.get(row.pitcher_id, {})
+        if (sample.get("pitches") or 0) < MIN_PROFILE_PITCHES:
+            continue
+        if row.k_pct is None or row.bb_pct is None:
+            continue
+        value = float(row.k_pct) - float(row.bb_pct)
+        detail = f"K {row.k_pct * 100:.1f}% · BB {row.bb_pct * 100:.1f}%"
+        scored.append((row, value, detail))
+    return _rank_profile(scored, identities, samples, limit)
+
+
+def _damage_profiles(latest: List[PitcherAggregate], samples: Dict[int, Dict[str, int]], identities: Dict[int, Dict[str, Optional[str]]], limit: int) -> List[Dict[str, Any]]:
+    scored = []
+    for row in latest:
+        sample = samples.get(row.pitcher_id, {})
+        if (sample.get("pitches") or 0) < MIN_PROFILE_PITCHES or (sample.get("batted_balls") or 0) < MIN_DAMAGE_BBE:
+            continue
+        if row.xwoba is None or row.hard_hit_pct is None:
+            continue
+        value = (0.330 - float(row.xwoba)) + ((0.380 - float(row.hard_hit_pct)) * 0.45)
+        detail = f"xwOBA {row.xwoba:.3f} · HH {row.hard_hit_pct * 100:.1f}%"
+        scored.append((row, value, detail))
+    return _rank_profile(scored, identities, samples, limit)
+
+
+def _release_profiles(latest: List[PitcherAggregate], samples: Dict[int, Dict[str, int]], identities: Dict[int, Dict[str, Optional[str]]], limit: int) -> List[Dict[str, Any]]:
+    scored = []
+    for row in latest:
+        sample = samples.get(row.pitcher_id, {})
+        if (sample.get("pitches") or 0) < MIN_PROFILE_PITCHES:
+            continue
+        if row.avg_release_extension is None or row.avg_velocity is None:
+            continue
+        value = float(row.avg_release_extension) + ((float(row.avg_velocity) - 92.0) / 10.0)
+        detail = f"Ext {row.avg_release_extension:.2f} ft · Velo {row.avg_velocity:.1f}"
+        scored.append((row, value, detail))
+    return _rank_profile(scored, identities, samples, limit)
+
+
+def _power_profiles(latest: List[PitcherAggregate], samples: Dict[int, Dict[str, int]], identities: Dict[int, Dict[str, Optional[str]]], limit: int) -> List[Dict[str, Any]]:
+    scored = []
+    for row in latest:
+        sample = samples.get(row.pitcher_id, {})
+        if (sample.get("pitches") or 0) < MIN_PROFILE_PITCHES:
+            continue
+        if row.avg_velocity is None:
+            continue
+        spin_bonus = ((float(row.avg_spin_rate or 0) - 2300.0) / 10000.0) if row.avg_spin_rate else 0.0
+        extension_bonus = ((float(row.avg_release_extension or 0) - 6.0) / 10.0) if row.avg_release_extension else 0.0
+        value = (float(row.avg_velocity) - 90.0) / 10.0 + spin_bonus + extension_bonus
+        detail = f"Velo {row.avg_velocity:.1f}" + (f" · Spin {row.avg_spin_rate:.0f}" if row.avg_spin_rate else "")
+        scored.append((row, value, detail))
+    return _rank_profile(scored, identities, samples, limit)
+
+
+def _arsenal_profiles(rows: List[PitchArsenal], identities: Dict[int, Dict[str, Optional[str]]], samples: Dict[int, Dict[str, int]], limit: int) -> List[Dict[str, Any]]:
     usable = []
     for row in rows:
-        value = getattr(row, attr, None)
-        if value is None:
+        if (row.pitch_count or 0) < MIN_ARSENAL_PITCHES:
             continue
-        usable.append((row, float(value)))
-    usable.sort(key=lambda item: item[1], reverse=reverse)
+        if row.whiff_pct is None or row.xwoba is None:
+            continue
+        value = (float(row.whiff_pct) * 1.2) + ((0.330 - float(row.xwoba)) * 1.8)
+        label = row.pitch_name or row.pitch_type or "Pitch"
+        detail = f"{label} · Whiff {row.whiff_pct * 100:.1f}% · xwOBA {row.xwoba:.3f}"
+        usable.append((row, value, detail))
+    usable.sort(key=lambda item: item[1], reverse=True)
     board = []
-    for idx, (row, value) in enumerate(usable[:limit]):
-        pitch_label = row.pitch_name or row.pitch_type or "Pitch"
-        board.append({
-            "rank": idx + 1,
-            "player_id": row.pitcher_id,
-            "player_name": _display_name(row.pitcher_id, identities),
-            "team": _team(row.pitcher_id, identities),
-            "value": value,
-            "sample": f"{pitch_label} · {row.pitch_count or 0} pitches",
-            "window": str(row.season),
-            "pitch_type": row.pitch_type,
-            "pitch_name": row.pitch_name,
-            "pitch_count": row.pitch_count,
-            "end_date": None,
-        })
+    for idx, (row, value, detail) in enumerate(usable[:limit]):
+        board.append(_row(
+            row.pitcher_id,
+            value,
+            idx + 1,
+            identities,
+            samples,
+            sample=f"{row.pitch_count or 0} {row.pitch_name or row.pitch_type or 'pitch'}",
+            detail=detail,
+            extra={"pitch_type": row.pitch_type, "pitch_name": row.pitch_name, "pitch_count": row.pitch_count},
+        ))
     return board
 
 
@@ -109,34 +212,19 @@ def build_pitcher_leaderboards(session: Session, season: Optional[int] = None, l
     if season is None:
         season = dt.date.today().year
 
-    aggregate_rows = (
-        session.query(PitcherAggregate)
-        .filter(PitcherAggregate.end_date >= dt.date(int(season), 1, 1))
-        .order_by(PitcherAggregate.end_date.desc())
-        .all()
-    )
-
-    latest_by_pitcher: Dict[int, PitcherAggregate] = {}
-    for row in aggregate_rows:
-        latest_by_pitcher.setdefault(row.pitcher_id, row)
-    latest = list(latest_by_pitcher.values())
-
+    samples = _event_samples(session, int(season))
+    latest = _latest_aggregates(session, int(season))
     arsenal_rows = session.query(PitchArsenal).filter(PitchArsenal.season == int(season)).all()
     identity_ids = {row.pitcher_id for row in latest} | {row.pitcher_id for row in arsenal_rows}
     identities = _fetch_pitcher_names(identity_ids)
 
     leaderboards = {
-        "avg_velocity": _aggregate_board(latest, "avg_velocity", limit=limit, reverse=True, identities=identities),
-        "avg_spin_rate": _aggregate_board(latest, "avg_spin_rate", limit=limit, reverse=True, identities=identities),
-        "k_pct": _aggregate_board(latest, "k_pct", limit=limit, reverse=True, identities=identities),
-        "bb_pct_lowest": _aggregate_board(latest, "bb_pct", limit=limit, reverse=False, identities=identities),
-        "hard_hit_pct_lowest": _aggregate_board(latest, "hard_hit_pct", limit=limit, reverse=False, identities=identities),
-        "xwoba_lowest": _aggregate_board(latest, "xwoba", limit=limit, reverse=False, identities=identities),
-        "xba_lowest": _aggregate_board(latest, "xba", limit=limit, reverse=False, identities=identities),
-        "extension": _aggregate_board(latest, "avg_release_extension", limit=limit, reverse=True, identities=identities),
-        "release_height": _aggregate_board(latest, "avg_release_pos_z", limit=limit, reverse=True, identities=identities),
-        "arsenal_whiff": _pitch_board(arsenal_rows, "whiff_pct", limit=limit, reverse=True, identities=identities),
-        "arsenal_xwoba_lowest": _pitch_board(arsenal_rows, "xwoba", limit=limit, reverse=False, identities=identities),
+        "pitcher_quality": _quality_profiles(latest, samples, identities, limit),
+        "command_index": _command_profiles(latest, samples, identities, limit),
+        "damage_suppression": _damage_profiles(latest, samples, identities, limit),
+        "power_stuff": _power_profiles(latest, samples, identities, limit),
+        "release_weapon": _release_profiles(latest, samples, identities, limit),
+        "arsenal_weapon": _arsenal_profiles(arsenal_rows, identities, samples, limit),
     }
 
     unavailable = [key for key, rows in leaderboards.items() if not rows]
@@ -145,9 +233,14 @@ def build_pitcher_leaderboards(session: Session, season: Optional[int] = None, l
         "limit": int(limit),
         "leaderboards": leaderboards,
         "identity_source": "mlb_stats_api_people" if identities else "fallback_player_id",
+        "sample_rules": {
+            "profile_min_pitches": MIN_PROFILE_PITCHES,
+            "arsenal_min_pitch_count": MIN_ARSENAL_PITCHES,
+            "damage_min_batted_balls": MIN_DAMAGE_BBE,
+        },
         "notes": [
-            "Pitcher leaderboard rows use PitcherAggregate and PitchArsenal, with MLB Stats API identity hydration for display names.",
-            "Release leaderboards use PitcherAggregate release fields. Plate-location visuals use plate_x/plate_z in the pitcher intelligence endpoint.",
+            "Landing boards use baseball-composite indexes with minimum samples instead of raw lowest/highest rate traps.",
+            "Release leaderboards use PitcherAggregate release fields; location visuals use plate_x/plate_z in the pitcher intelligence endpoint.",
         ],
         "unavailable_metrics": unavailable,
     }
