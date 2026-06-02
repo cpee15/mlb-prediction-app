@@ -1,3 +1,4 @@
+
 import React, { useEffect, useMemo, useState } from 'react'
 import { DEFAULT_BUILDER_FIELDS, collectBuilderFieldGroups, getValueByPath } from './myDashboardWorkspaceFieldLibrary'
 
@@ -92,17 +93,590 @@ function cleanFilters(filters) {
 function mergeFilterState(savedFilters) { return { ...emptyFilters(), ...(savedFilters || {}), metrics: clone(savedFilters?.metrics || {}), weights: clone(savedFilters?.weights || {}) } }
 function available(result, componentKey) {
   const defaults = {
-    hitters: { pitch_types: [], suggested_metric_filters: ['EV', 'LA', 'Pitches Seen', 'xwOBA', 'HardHit', 'Usage'], suggested_weight_metrics: ['EV', 'LA', 'Pitches Seen', 'xwOBA', 'Usage'] },
-    pitchers: { suggested_metric_filters: ['K%', 'xwOBA Allowed', 'HardHit Allowed', 'Opp K%', 'Score'], suggested_weight_metrics: ['K%', 'xwOBA Allowed', 'HardHit Allowed', 'Score'] },
-    teams: { suggested_metric_filters: ['Edge Score', 'Win Edge', 'Run Diff', 'ISO', 'OBP'], suggested_weight_metrics: ['Edge Score', 'Win Edge', 'Run Diff', 'ISO'] },
-    totals: { suggested_metric_filters: ['Projected Total', 'Raw Total', 'Run Index', 'Score'], suggested_weight_metrics: ['Projected Total', 'Run Index', 'Score'] },
-    overall_players: { suggested_metric_filters: ['Score'], suggested_weight_metrics: ['Score'] },
+    hitters: {
+      pitch_types: [],
+      suggested_metric_filters: ['EV', 'LA', 'Pitches Seen', 'xwOBA', 'HardHit', 'Usage'],
+      suggested_weight_metrics: ['EV', 'LA', 'Pitches Seen', 'xwOBA', 'Usage'],
+    },
+    pitchers: {
+      suggested_metric_filters: ['K%', 'xwOBA Allowed', 'HardHit Allowed', 'Opp K%', 'Score'],
+      suggested_weight_metrics: ['K%', 'xwOBA Allowed', 'HardHit Allowed', 'Score'],
+    },
+    teams: {
+      suggested_metric_filters: ['Edge Score', 'Win Edge', 'Run Diff', 'ISO', 'OBP'],
+      suggested_weight_metrics: ['Edge Score', 'Win Edge', 'Run Diff', 'ISO'],
+    },
+    totals: {
+      suggested_metric_filters: ['Projected Total', 'Raw Total', 'Run Index', 'Score'],
+      suggested_weightMetrics: ['Projected Total', 'Run Index', 'Score'],
+      suggested_weight_metrics: ['Projected Total', 'Run Index', 'Score'],
+    },
+    overall_players: {
+      suggested_metric_filters: ['Score'],
+      suggested_weight_metrics: ['Score'],
+    },
   }
   return { ...(defaults[componentKey] || {}), ...(result?.available_filters || {}) }
 }
+
 function emptySaveDraft(folderId = '') { return { folder_id: folderId, title: '', subtitle: '', notes: '' } }
 function defaultSaveDrafts(folderId = '') { return Object.fromEntries(COMPONENTS.map(component => [component.key, emptySaveDraft(folderId)])) }
 function sourceComponentKey(item) { return item?.payload_json?.saved_from_component || item?.payload_json?.component_key || item?.payload_json?.board_state?.component || null }
+function ensureArray(value) { return Array.isArray(value) ? value : [] }
+function metricEntries(item) { return Object.entries(item?.metrics || {}) }
+function trimText(value) { return typeof value === 'string' ? value.trim() : value }
+
+function compareValues(a, b, direction = 'desc') {
+  const left = a == null ? '' : a
+  const right = b == null ? '' : b
+  if (typeof left === 'number' && typeof right === 'number') return direction === 'asc' ? left - right : right - left
+  return direction === 'asc' ? String(left).localeCompare(String(right)) : String(right).localeCompare(String(left))
+}
+
+function StatusPill({ children, tone = 'default' }) {
+  const toneMap = {
+    default: { background: C.blueSoft, color: C.blue },
+    success: { background: 'rgba(67, 197, 158, 0.14)', color: C.green },
+    warning: { background: 'rgba(241, 183, 92, 0.14)', color: C.amber },
+    danger: { background: 'rgba(248, 113, 113, 0.14)', color: C.red },
+  }
+  const style = toneMap[tone] || toneMap.default
+  return <span style={{ ...styles.pill, background: style.background, color: style.color }}>{children}</span>
+}
+
+function SectionCard({ title, subtitle, action, children, dense = false }) {
+  return (
+    <section style={{ ...styles.sectionCard, padding: dense ? 16 : 18 }}>
+      <div style={styles.sectionHeader}>
+        <div>
+          <div style={styles.sectionTitle}>{title}</div>
+          {subtitle ? <div style={styles.sectionSubtitle}>{subtitle}</div> : null}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function WorkspaceNav({ activeSurface, setActiveSurface, activeComponent, setActiveComponent, results }) {
+  return (
+    <aside style={styles.navRail}>
+      <div style={styles.brandBlock}>
+        <div style={styles.brandEyebrow}>Workspace</div>
+        <div style={styles.brandTitle}>My Dashboard</div>
+        <div style={styles.brandSubtitle}>Cleaner board control, better saved-state UX, and a report-builder canvas.</div>
+      </div>
+      <div style={styles.navGroup}>
+        {SURFACES.map(surface => (
+          <button key={surface.key} type="button" onClick={() => setActiveSurface(surface.key)} style={activeSurface === surface.key ? styles.navButtonActive : styles.navButton}>
+            <div style={styles.navButtonTitle}>{surface.label}</div>
+            <div style={styles.navButtonSubtitle}>{surface.description}</div>
+          </button>
+        ))}
+      </div>
+      <div style={styles.navGroupLabel}>Board sources</div>
+      <div style={styles.navGroup}>
+        {COMPONENTS.map(component => {
+          const count = ensureArray(results?.[component.key]?.items).length
+          return (
+            <button key={component.key} type="button" onClick={() => { setActiveSurface('boards'); setActiveComponent(component.key) }} style={activeComponent === component.key ? styles.subNavButtonActive : styles.subNavButton}>
+              <span>{component.shortTitle}</span>
+              <span style={styles.subNavCount}>{count}</span>
+            </button>
+          )
+        })}
+      </div>
+    </aside>
+  )
+}
+
+function CommandBar({ profile, folders, todayCount, setActiveSurface, loadWorkspace, runAllBoards, saveMessage }) {
+  return (
+    <section style={styles.commandBar}>
+      <div>
+        <div style={styles.eyebrow}>My Dashboard</div>
+        <h1 style={styles.pageTitle}>Welcome back, {profile.username}</h1>
+        <p style={styles.pageSubtitle}>Enterprise workspace shell, retractable saved boards, cleaner board management, and a customizable builder without touching the solver logic.</p>
+      </div>
+      <div style={styles.commandRight}>
+        <div style={styles.accountMetaCard}>
+          <div style={styles.metaLine}>Email: {profile.email}</div>
+          <div style={styles.metaLine}>Plan: {profile.preferences?.plan_type || 'free'}</div>
+          <div style={styles.metaLine}>Folders: {folders.length}</div>
+          <div style={styles.metaLine}>Today saved: {todayCount}</div>
+        </div>
+        <div style={styles.commandButtons}>
+          <button type="button" onClick={loadWorkspace} style={styles.secondaryButton}>Refresh workspace</button>
+          <button type="button" onClick={() => runAllBoards()} style={styles.primaryButton}>Populate all</button>
+          <button type="button" onClick={() => runAllBoards({ activeLineups: true })} style={styles.secondaryButton}>Confirmed lineups only</button>
+          <button type="button" onClick={() => setActiveSurface('builder')} style={styles.ghostButton}>Create dashboard</button>
+        </div>
+        {saveMessage ? <div style={styles.successBanner}>{saveMessage}</div> : null}
+      </div>
+    </section>
+  )
+}
+
+function SavedBoardsShelf({
+  open,
+  onToggle,
+  folders,
+  todayCount,
+  newFolder,
+  setNewFolder,
+  createFolder,
+  creatingFolder,
+  selectedFolderId,
+  setSelectedFolderId,
+  selectedSavedItemId,
+  setSelectedSavedItemId,
+  restoreSavedState,
+}) {
+  const selectedFolder = folders.find(folder => String(folder.id) === String(selectedFolderId)) || folders[0] || null
+  const selectedItem = ensureArray(selectedFolder?.items).find(item => String(item.id) === String(selectedSavedItemId)) || ensureArray(selectedFolder?.items)[0] || null
+
+  useEffect(() => {
+    if (!selectedFolder && folders[0]) setSelectedFolderId(String(folders[0].id))
+  }, [folders, selectedFolder, setSelectedFolderId])
+
+  useEffect(() => {
+    if (!selectedItem && selectedFolder?.items?.[0]) setSelectedSavedItemId(String(selectedFolder.items[0].id))
+  }, [selectedFolder, selectedItem, setSelectedSavedItemId])
+
+  return (
+    <SectionCard
+      title="Saved Boards"
+      subtitle="A retractable folder-first browser for saved board states and saved items."
+      action={<button type="button" onClick={onToggle} style={styles.secondaryButton}>{open ? 'Collapse shelf' : 'Expand shelf'}</button>}
+    >
+      <div style={styles.shelfSummaryRow}>
+        <StatusPill>{folders.length} folders</StatusPill>
+        <StatusPill tone="success">{todayCount} saved today</StatusPill>
+        <StatusPill tone="warning">{folders.reduce((sum, folder) => sum + (folder.item_count || 0), 0)} total items</StatusPill>
+      </div>
+      {!open ? null : (
+        <div style={styles.shelfContentGrid}>
+          <div style={styles.folderColumn}>
+            <div style={styles.inlineRow}>
+              <input style={styles.input} placeholder="New folder title" value={newFolder.folder_name} onChange={e => setNewFolder(prev => ({ ...prev, folder_name: e.target.value }))} />
+              <input style={styles.input} type="date" value={newFolder.folder_date} onChange={e => setNewFolder(prev => ({ ...prev, folder_date: e.target.value }))} />
+              <button type="button" onClick={createFolder} style={styles.primaryButton} disabled={creatingFolder}>{creatingFolder ? 'Creating…' : 'Create folder'}</button>
+            </div>
+            <div style={styles.folderList}>
+              {folders.length === 0 ? <div style={styles.emptyState}>No folders yet.</div> : folders.map(folder => {
+                const active = String(folder.id) === String(selectedFolderId)
+                return (
+                  <button key={folder.id} type="button" onClick={() => { setSelectedFolderId(String(folder.id)); setSelectedSavedItemId('') }} style={active ? styles.folderButtonActive : styles.folderButton}>
+                    <div>
+                      <div style={styles.folderTitle}>📁 {folder.folder_name}</div>
+                      <div style={styles.folderMeta}>{folder.folder_date || (folder.is_default ? 'Default dashboard' : 'No date')}</div>
+                    </div>
+                    <div style={styles.countBadge}>{folder.item_count || 0}</div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div style={styles.folderDetailColumn}>
+            {!selectedFolder ? (
+              <div style={styles.emptyState}>Select a folder to browse saved dashboards.</div>
+            ) : (
+              <>
+                <div style={styles.folderHeader}>
+                  <div>
+                    <div style={styles.sectionTitle}>{selectedFolder.folder_name}</div>
+                    <div style={styles.sectionSubtitle}>{selectedFolder.folder_date || 'No folder date'} • {selectedFolder.item_count || 0} saved items</div>
+                  </div>
+                </div>
+                <div style={styles.folderInspectorGrid}>
+                  <div style={styles.savedList}>
+                    {ensureArray(selectedFolder.items).length === 0 ? <div style={styles.emptyState}>No saved items in this folder.</div> : ensureArray(selectedFolder.items).map(item => {
+                      const active = String(item.id) === String(selectedItem?.id)
+                      return (
+                        <button key={item.id} type="button" onClick={() => setSelectedSavedItemId(String(item.id))} style={active ? styles.savedItemButtonActive : styles.savedItemButton}>
+                          <div style={styles.savedItemTitle}>{item.title}</div>
+                          <div style={styles.savedItemMeta}>{item.subtitle || item.source_type}</div>
+                          <div style={styles.savedItemMeta}>Source: {item.source_tab} • {item.source_type}</div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div style={styles.savedInspector}>
+                    {!selectedItem ? <div style={styles.emptyState}>Choose a saved item to inspect its details.</div> : (
+                      <>
+                        <div style={styles.savedInspectorTitle}>{selectedItem.title}</div>
+                        <div style={styles.savedInspectorSubtitle}>{selectedItem.subtitle || selectedItem.source_type}</div>
+                        {selectedItem.notes ? <div style={styles.notesBox}>{selectedItem.notes}</div> : null}
+                        <div style={styles.metaWrap}>
+                          <StatusPill>{selectedItem.source_type}</StatusPill>
+                          <StatusPill tone="success">{sourceComponentKey(selectedItem) || 'saved'}</StatusPill>
+                        </div>
+                        <div style={styles.metaWrap}>
+                          {selectedItem.filter_json ? Object.keys(selectedItem.filter_json).slice(0, 6).map(key => <span key={`${selectedItem.id}-${key}`} style={styles.metricPill}>{key}</span>) : null}
+                        </div>
+                        <button type="button" onClick={() => restoreSavedState(selectedItem)} style={styles.primaryButton}>Load saved state</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </SectionCard>
+  )
+}
+
+function BoardControls({
+  component,
+  result,
+  filterState,
+  helper,
+  draft,
+  folders,
+  activeLineups,
+  setBasicFilter,
+  setMetricFilter,
+  setWeight,
+  setSaveDraft,
+  resetFilters,
+  toggleActiveLineups,
+  saveBoardState,
+  runBoard,
+  loading,
+  runError,
+}) {
+  const metricFilters = ensureArray(helper.suggested_metric_filters).slice(0, 8)
+  const weightMetrics = ensureArray(helper.suggested_weight_metrics).slice(0, 6)
+
+  return (
+    <div style={styles.boardControlColumn}>
+      <SectionCard title="Board controls" subtitle={component.description}>
+        <div style={styles.metaWrap}>
+          <StatusPill>{ensureArray(result?.items).length} results</StatusPill>
+          <StatusPill tone="success">Before {result?.result_count_before_filters ?? '—'}</StatusPill>
+          <StatusPill tone="warning">After {result?.result_count_after_filters ?? '—'}</StatusPill>
+        </div>
+        {result?.filter_warnings?.length ? <div style={styles.warningBanner}>{result.filter_warnings.join(' • ')}</div> : null}
+        <label style={styles.checkboxRow}>
+          <input type="checkbox" checked={!!activeLineups} onChange={() => toggleActiveLineups(component.key)} />
+          Confirmed lineup players only on rerun
+        </label>
+        <div style={styles.buttonRow}>
+          <button type="button" onClick={() => runBoard(component.key)} style={styles.primaryButton} disabled={loading}>{loading ? 'Running…' : 'Run board'}</button>
+          <button type="button" onClick={() => runBoard(component.key, { preferCache: true })} style={styles.secondaryButton}>Use cached</button>
+          <button type="button" onClick={() => resetFilters(component.key)} style={styles.ghostButton}>Reset filters</button>
+        </div>
+        {runError ? <div style={styles.errorBanner}>{runError}</div> : null}
+      </SectionCard>
+
+      <SectionCard title="Default filters" subtitle="Keep the existing filter model, but present it more cleanly.">
+        <div style={styles.filterGrid}>
+          <input style={styles.smallInput} placeholder="Search" value={filterState.search_text || ''} onChange={e => setBasicFilter(component.key, 'search_text', e.target.value)} />
+          <input style={styles.smallInput} placeholder="Team" value={filterState.team || ''} onChange={e => setBasicFilter(component.key, 'team', e.target.value)} />
+          <input style={styles.smallInput} placeholder="Opponent" value={filterState.opponent || ''} onChange={e => setBasicFilter(component.key, 'opponent', e.target.value)} />
+          <input style={styles.smallInput} placeholder="Min score" value={filterState.min_score || ''} onChange={e => setBasicFilter(component.key, 'min_score', e.target.value)} />
+          <input style={styles.smallInput} placeholder="Max score" value={filterState.max_score || ''} onChange={e => setBasicFilter(component.key, 'max_score', e.target.value)} />
+          <select style={styles.smallInput} value={filterState.min_confidence || ''} onChange={e => setBasicFilter(component.key, 'min_confidence', e.target.value)}>
+            <option value="">Any confidence</option>
+            <option value="low">Low+</option>
+            <option value="medium">Medium+</option>
+            <option value="high">High only</option>
+          </select>
+          {component.key === 'hitters' ? (
+            <select style={styles.smallInput} value={filterState.pitch_type || ''} onChange={e => setBasicFilter(component.key, 'pitch_type', e.target.value)}>
+              <option value="">Any pitch type</option>
+              {ensureArray(helper.pitch_types).map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
+          ) : null}
+          {ensureArray(helper.categories).length ? (
+            <select style={styles.smallInput} value={filterState.category || ''} onChange={e => setBasicFilter(component.key, 'category', e.target.value)}>
+              <option value="">Any category</option>
+              {ensureArray(helper.categories).map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
+          ) : null}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Metric thresholds" subtitle="Min/max thresholds still map to the same payload shape.">
+        <div style={styles.metricGrid}>
+          {metricFilters.map(metric => (
+            <div key={`${component.key}-${metric}`} style={styles.metricCard}>
+              <div style={styles.metricTitle}>{metric}</div>
+              <div style={styles.metricInputRow}>
+                <input style={styles.smallInput} placeholder="Min" value={filterState.metrics?.[metric]?.min || ''} onChange={e => setMetricFilter(component.key, metric, 'min', e.target.value)} />
+                <input style={styles.smallInput} placeholder="Max" value={filterState.metrics?.[metric]?.max || ''} onChange={e => setMetricFilter(component.key, metric, 'max', e.target.value)} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Weighting" subtitle="Existing weight sliders, cleaner presentation.">
+        <div style={styles.sliderGrid}>
+          {weightMetrics.map(metric => {
+            const value = Number(filterState.weights?.[metric] ?? 1)
+            return (
+              <div key={`${component.key}-weight-${metric}`} style={styles.metricCard}>
+                <div style={styles.metricTitle}>{metric}</div>
+                <input type="range" min="0" max="2" step="0.1" value={value} onChange={e => setWeight(component.key, metric, e.target.value)} style={{ width: '100%' }} />
+                <div style={styles.sectionSubtitle}>Weight {value.toFixed(1)}</div>
+              </div>
+            )
+          })}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Save current board" subtitle="Folder-first save flow with title, subtitle, and notes.">
+        <div style={styles.filterGrid}>
+          <select style={styles.smallInput} value={draft.folder_id || ''} onChange={e => setSaveDraft(component.key, 'folder_id', e.target.value)}>
+            <option value="">Choose folder</option>
+            {folders.map(folder => <option key={folder.id} value={String(folder.id)}>{folder.folder_name}</option>)}
+          </select>
+          <input style={styles.smallInput} placeholder="Dashboard title" value={draft.title || ''} onChange={e => setSaveDraft(component.key, 'title', e.target.value)} />
+          <input style={styles.smallInput} placeholder="Subtitle" value={draft.subtitle || ''} onChange={e => setSaveDraft(component.key, 'subtitle', e.target.value)} />
+        </div>
+        <textarea style={styles.textArea} placeholder="Notes" value={draft.notes || ''} onChange={e => setSaveDraft(component.key, 'notes', e.target.value)} />
+        <button type="button" onClick={() => saveBoardState(component)} style={styles.primaryButton}>Save board state</button>
+      </SectionCard>
+    </div>
+  )
+}
+
+function ResultList({ component, result, saveItemToToday }) {
+  const items = ensureArray(result?.items)
+
+  return (
+    <div style={styles.boardResultsColumn}>
+      <SectionCard title={component.title} subtitle="Cleaner result cards with the same saved-item workflow.">
+        {items.length === 0 ? <div style={styles.emptyState}>No results yet. Run this board to populate fresh discovery for today.</div> : (
+          <div style={styles.resultsGrid}>
+            {items.map((item, index) => (
+              <article key={`${component.key}-${index}-${item.entity_id || item.entity_name || index}`} style={styles.resultCard}>
+                <div style={styles.resultTopRow}>
+                  <div>
+                    <div style={styles.resultTitle}>{item.entity_name || 'Unnamed result'}</div>
+                    <div style={styles.resultSubTitle}>{item.primary_reason || component.description}</div>
+                  </div>
+                  <div style={styles.resultScoreStack}>
+                    <div style={styles.scoreLabel}>Score</div>
+                    <div style={styles.scoreValue}>{formatNumber(item.score)}</div>
+                    <div style={styles.scoreConfidence}>{item.confidence || '—'}</div>
+                  </div>
+                </div>
+                <div style={styles.metaWrap}>
+                  {item.entity_type ? <StatusPill>{item.entity_type}</StatusPill> : null}
+                  {item.team ? <StatusPill tone="success">{item.team}</StatusPill> : null}
+                  {item.opponent ? <StatusPill tone="warning">vs {item.opponent}</StatusPill> : null}
+                </div>
+                <div style={styles.metricWrap}>
+                  {metricEntries(item).slice(0, 8).map(([key, value]) => (
+                    <div key={`${item.entity_id || item.entity_name}-${key}`} style={styles.metricChip}>
+                      <span style={styles.metricChipLabel}>{key}</span>
+                      <span style={styles.metricChipValue}>{formatNumber(value)}</span>
+                    </div>
+                  ))}
+                </div>
+                {ensureArray(item.reasoning).length ? (
+                  <ul style={styles.reasonList}>
+                    {ensureArray(item.reasoning).slice(0, 4).map((reason, idx) => <li key={`${item.entity_id || item.entity_name}-reason-${idx}`}>{reason}</li>)}
+                  </ul>
+                ) : null}
+                <div style={styles.buttonRow}>
+                  <button type="button" onClick={() => saveItemToToday(component, item)} style={styles.secondaryButton}>Save item to Today</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  )
+}
+
+function BuilderWorkspace({
+  builderState,
+  setBuilderState,
+  builderDraft,
+  setBuilderDraft,
+  fieldGroups,
+  builderItems,
+  builderFilters,
+  folders,
+  saveBuilderView,
+  runBoard,
+  loading,
+}) {
+  const selectedFieldSet = new Set(builderState.selectedFields || [])
+  const filteredGroups = fieldGroups
+    .map(group => ({
+      ...group,
+      fields: group.fields.filter(field => {
+        const query = trimText(builderState.search || '').toLowerCase()
+        if (!query) return true
+        return field.label.toLowerCase().includes(query) || field.accessor.toLowerCase().includes(query)
+      }),
+    }))
+    .filter(group => group.fields.length > 0)
+
+  const previewRows = useMemo(() => {
+    const rows = ensureArray(builderItems).map(item => {
+      const row = {}
+      ;(builderState.selectedFields || []).forEach(accessor => {
+        row[accessor] = getValueByPath(item, accessor)
+      })
+      return { __raw: item, ...row }
+    })
+
+    if (builderState.sortBy) {
+      rows.sort((left, right) => compareValues(left[builderState.sortBy], right[builderState.sortBy], builderState.sortDir))
+    }
+
+    return rows.slice(0, 12)
+  }, [builderItems, builderState.selectedFields, builderState.sortBy, builderState.sortDir])
+
+  function addField(accessor) {
+    if (selectedFieldSet.has(accessor)) return
+    setBuilderState(prev => ({ ...prev, selectedFields: [...prev.selectedFields, accessor] }))
+  }
+
+  function removeField(accessor) {
+    setBuilderState(prev => ({ ...prev, selectedFields: prev.selectedFields.filter(field => field !== accessor) }))
+  }
+
+  function moveField(accessor, direction) {
+    setBuilderState(prev => {
+      const current = [...prev.selectedFields]
+      const index = current.indexOf(accessor)
+      if (index < 0) return prev
+      const nextIndex = direction === 'up' ? index - 1 : index + 1
+      if (nextIndex < 0 || nextIndex >= current.length) return prev
+      const swap = current[nextIndex]
+      current[nextIndex] = accessor
+      current[index] = swap
+      return { ...prev, selectedFields: current }
+    })
+  }
+
+  return (
+    <div style={styles.builderGrid}>
+      <div style={styles.builderColumn}>
+        <SectionCard title="Builder source" subtitle="Choose the live board result set you want to shape into a custom dashboard.">
+          <div style={styles.filterGrid}>
+            <select style={styles.smallInput} value={builderState.component} onChange={e => setBuilderState(prev => ({ ...prev, component: e.target.value }))}>
+              {COMPONENTS.map(component => <option key={component.key} value={component.key}>{component.title}</option>)}
+            </select>
+            <input style={styles.smallInput} placeholder="Search fields" value={builderState.search || ''} onChange={e => setBuilderState(prev => ({ ...prev, search: e.target.value }))} />
+            <button type="button" onClick={() => runBoard(builderState.component)} style={styles.secondaryButton} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh source board'}</button>
+          </div>
+          <div style={styles.metaWrap}>
+            <StatusPill>{ensureArray(builderItems).length} source rows</StatusPill>
+            <StatusPill tone="success">{(builderState.selectedFields || []).length} selected fields</StatusPill>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Field library" subtitle="Built from the live board payloads, saved states, metrics, and identity fields already available in the app.">
+          <div style={styles.builderFieldGroups}>
+            {filteredGroups.map(group => (
+              <div key={group.groupKey} style={styles.fieldGroup}>
+                <div style={styles.fieldGroupTitle}>{group.title}</div>
+                <div style={styles.fieldList}>
+                  {group.fields.map(field => (
+                    <div key={field.accessor} style={styles.fieldRow}>
+                      <div>
+                        <div style={styles.fieldLabel}>{field.label}</div>
+                        <div style={styles.fieldAccessor}>{field.accessor}</div>
+                      </div>
+                      <button type="button" onClick={() => addField(field.accessor)} style={selectedFieldSet.has(field.accessor) ? styles.fieldAddButtonDisabled : styles.fieldAddButton} disabled={selectedFieldSet.has(field.accessor)}>
+                        {selectedFieldSet.has(field.accessor) ? 'Added' : 'Add'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+
+      <div style={styles.builderColumn}>
+        <SectionCard title="Selected fields" subtitle="Reorder the canvas fields and shape the preview without changing solver logic.">
+          {(builderState.selectedFields || []).length === 0 ? <div style={styles.emptyState}>No fields selected yet.</div> : (
+            <div style={styles.selectedFieldList}>
+              {builderState.selectedFields.map((accessor, index) => (
+                <div key={accessor} style={styles.selectedFieldRow}>
+                  <div>
+                    <div style={styles.fieldLabel}>{accessor}</div>
+                    <div style={styles.fieldAccessor}>Column {index + 1}</div>
+                  </div>
+                  <div style={styles.selectedFieldActions}>
+                    <button type="button" onClick={() => moveField(accessor, 'up')} style={styles.iconButton}>↑</button>
+                    <button type="button" onClick={() => moveField(accessor, 'down')} style={styles.iconButton}>↓</button>
+                    <button type="button" onClick={() => removeField(accessor)} style={styles.iconButtonDanger}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={styles.filterGrid}>
+            <select style={styles.smallInput} value={builderState.sortBy || ''} onChange={e => setBuilderState(prev => ({ ...prev, sortBy: e.target.value }))}>
+              <option value="">No sort</option>
+              {(builderState.selectedFields || []).map(accessor => <option key={`sort-${accessor}`} value={accessor}>{accessor}</option>)}
+            </select>
+            <select style={styles.smallInput} value={builderState.sortDir || 'desc'} onChange={e => setBuilderState(prev => ({ ...prev, sortDir: e.target.value }))}>
+              <option value="desc">Descending</option>
+              <option value="asc">Ascending</option>
+            </select>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Builder save options" subtitle="Save the current board state plus the builder layout so it can be restored later.">
+          <div style={styles.filterGrid}>
+            <select style={styles.smallInput} value={builderDraft.folder_id || ''} onChange={e => setBuilderDraft(prev => ({ ...prev, folder_id: e.target.value }))}>
+              <option value="">Choose folder</option>
+              {folders.map(folder => <option key={folder.id} value={String(folder.id)}>{folder.folder_name}</option>)}
+            </select>
+            <input style={styles.smallInput} placeholder="Builder title" value={builderDraft.title || ''} onChange={e => setBuilderDraft(prev => ({ ...prev, title: e.target.value }))} />
+            <input style={styles.smallInput} placeholder="Subtitle" value={builderDraft.subtitle || ''} onChange={e => setBuilderDraft(prev => ({ ...prev, subtitle: e.target.value }))} />
+          </div>
+          <textarea style={styles.textArea} placeholder="Notes" value={builderDraft.notes || ''} onChange={e => setBuilderDraft(prev => ({ ...prev, notes: e.target.value }))} />
+          <button type="button" onClick={saveBuilderView} style={styles.primaryButton}>Save builder view</button>
+        </SectionCard>
+
+        <SectionCard title="Current source filters" subtitle="Builder works on top of the same filter state already powering the source board.">
+          <div style={styles.metaWrap}>
+            {Object.entries(cleanFilters(builderFilters || {})).length === 0 ? <div style={styles.emptyState}>No active source filters.</div> : Object.entries(cleanFilters(builderFilters || {})).map(([key, value]) => <span key={`filter-${key}`} style={styles.metricPill}>{key}: {typeof value === 'object' ? 'configured' : String(value)}</span>)}
+          </div>
+        </SectionCard>
+      </div>
+
+      <div style={styles.builderPreviewColumn}>
+        <SectionCard title="Canvas preview" subtitle="A live table preview of the selected fields from the current source board.">
+          {previewRows.length === 0 ? <div style={styles.emptyState}>Run the selected source board and add fields to preview a custom dashboard.</div> : (
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    {(builderState.selectedFields || []).map(accessor => <th key={`head-${accessor}`} style={styles.th}>{accessor}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewRows.map((row, index) => (
+                    <tr key={`preview-${index}`}>
+                      {(builderState.selectedFields || []).map(accessor => <td key={`cell-${index}-${accessor}`} style={styles.td}>{String(row[accessor] ?? '—')}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SectionCard>
+      </div>
+    </div>
+  )
+}
 
 export default function MyDashboardWorkspacePage() {
   const today = todayIso()
@@ -288,6 +862,43 @@ export default function MyDashboardWorkspacePage() {
       await loadWorkspace()
       setSaveMessage(`Saved builder view: ${title}`)
     } catch (err) { setSaveMessage(err.message || 'Failed to save builder view') }
+  }
+
+  async function saveBuilderView() {
+    const componentKey = builderState.component
+    const boardResult = results[componentKey]
+    const folderId = Number(builderDraft.folder_id || workspace?.today_folder_id)
+    if (!folderId) { setSaveMessage('Choose a folder before saving this builder view.'); return }
+    if (!boardResult?.items?.length) { setSaveMessage('Run the source board before saving this builder view.'); return }
+    const title = (builderDraft.title || `Custom Dashboard | ${today}`).trim()
+    try {
+      await apiJson(`${API}/my-dashboard/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          folder_id: folderId,
+          source_tab: 'my-dashboard',
+          source_type: 'solver_board_state',
+          title,
+          subtitle: trimText(builderDraft.subtitle) || 'Saved custom dashboard builder view',
+          notes: trimText(builderDraft.notes) || null,
+          payload_json: {
+            saved_from_component: componentKey,
+            saved_on_date: today,
+            board_state: boardResult,
+            builder_state: builderState,
+            saved_item_count: boardResult.items.length,
+            active_lineups_only: !!activeLineupsByComponent[componentKey],
+          },
+          filter_json: cleanFilters(filters[componentKey] || {}),
+          sort_json: { by: builderState.sortBy || 'score', direction: builderState.sortDir || 'desc', component: componentKey, active_lineups: !!activeLineupsByComponent[componentKey] },
+        }),
+      })
+      await loadWorkspace()
+      setSaveMessage(`Saved builder view: ${title}`)
+    } catch (err) {
+      setSaveMessage(err.message || 'Failed to save builder view')
+    }
   }
 
   async function createFolder() {
