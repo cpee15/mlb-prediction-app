@@ -7,7 +7,6 @@ const CACHE_PREFIX = 'my-dashboard:v5:'
 const DASHBOARD_SESSION_STORAGE_KEY = 'mlbgpt_dashboard_session_token'
 const SHELF_PREF_KEY = 'my-dashboard:v6:saved-shelf-open'
 const SURFACE_PREF_KEY = 'my-dashboard:v6:surface'
-const ACTIVE_COMPONENT_PREF_KEY = 'my-dashboard:v6:active-component'
 
 const COMPONENTS = [
   { key: 'hitters', title: 'My Top Hitters Today', shortTitle: 'Hitters', description: 'Stored 365 hitter board with pitch-type matchup, EV, LA, and arsenal context.' },
@@ -19,28 +18,35 @@ const COMPONENTS = [
 
 const FEATURE_CHOICES = ['Matchups', 'Daily Odds', 'Model Projections', 'News', 'Props', 'Pitchers', 'Batters']
 const BASIC_FILTERS = { search_text: '', team: '', opponent: '', min_score: '', max_score: '', min_confidence: '', category: '', player_type: '', pitch_type: '', source: '' }
-const SURFACES = [
-  { key: 'boards', label: 'Daily Boards', description: 'Run, filter, and save the live boards.' },
-  { key: 'builder', label: 'Create Dashboard', description: 'Select fields and shape your own report view.' },
-]
+const SURFACES = ['boards', 'builder']
 
-const C = {
-  bg: '#0b1020',
-  canvas: '#111827',
-  canvasAlt: '#0f172a',
-  panel: '#111c34',
-  panelMuted: '#15213d',
-  panelElevated: '#192747',
-  border: 'rgba(148, 163, 184, 0.18)',
-  text: '#e5eefc',
-  muted: '#9aa9c7',
-  subtle: '#7f8fb0',
-  blue: '#5ea2ff',
-  blueSoft: 'rgba(94, 162, 255, 0.16)',
-  green: '#43c59e',
-  amber: '#f1b75c',
-  red: '#f87171',
-  purple: '#9f7aea',
+const styles = {
+  page: { minHeight: '100vh', background: 'linear-gradient(180deg,#0b1020 0%,#09111f 100%)', color: '#e5eefc', padding: 24 },
+  hero: { display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 20, background: 'rgba(17,28,52,0.92)', border: '1px solid rgba(148,163,184,0.18)', borderRadius: 28, padding: 24, marginBottom: 20 },
+  shell: { display: 'grid', gridTemplateColumns: '250px 1fr', gap: 18 },
+  side: { position: 'sticky', top: 20, alignSelf: 'start', background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(148,163,184,0.18)', borderRadius: 22, padding: 16, display: 'grid', gap: 10 },
+  main: { display: 'grid', gap: 18 },
+  card: { background: 'rgba(17,28,52,0.88)', border: '1px solid rgba(148,163,184,0.18)', borderRadius: 24, padding: 18, boxShadow: '0 16px 44px rgba(2,6,23,0.22)' },
+  boardGrid: { display: 'grid', gridTemplateColumns: '430px 1fr', gap: 18 },
+  builderGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1.1fr', gap: 18 },
+  savedGrid: { display: 'grid', gridTemplateColumns: '320px 1fr', gap: 18, marginTop: 16 },
+  folderSplit: { display: 'grid', gridTemplateColumns: '0.9fr 1.1fr', gap: 16 },
+  input: { width: '100%', borderRadius: 14, border: '1px solid rgba(148,163,184,0.18)', background: 'rgba(15,23,42,0.72)', color: '#e5eefc', padding: '11px 12px', outline: 'none' },
+  textarea: { minHeight: 90, width: '100%', borderRadius: 16, border: '1px solid rgba(148,163,184,0.18)', background: 'rgba(15,23,42,0.72)', color: '#e5eefc', padding: 12, resize: 'vertical' },
+  primary: { border: '1px solid rgba(94,162,255,0.36)', background: 'linear-gradient(180deg,rgba(94,162,255,0.24),rgba(94,162,255,0.12))', color: '#e5eefc', borderRadius: 14, padding: '11px 14px', fontWeight: 800, cursor: 'pointer' },
+  secondary: { border: '1px solid rgba(148,163,184,0.18)', background: 'rgba(17,28,52,0.74)', color: '#e5eefc', borderRadius: 14, padding: '11px 14px', fontWeight: 700, cursor: 'pointer' },
+  ghost: { border: '1px solid rgba(148,163,184,0.14)', background: 'transparent', color: '#9aa9c7', borderRadius: 14, padding: '11px 14px', fontWeight: 700, cursor: 'pointer' },
+  row: { display: 'flex', gap: 10, flexWrap: 'wrap' },
+  between: { display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 16 },
+  title: { margin: 0, fontSize: 34, lineHeight: 1.1 },
+  eyebrow: { color: '#5ea2ff', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 800, marginBottom: 8 },
+  sub: { margin: '10px 0 0', color: '#9aa9c7', lineHeight: 1.7, fontSize: 14 },
+  sectionTitle: { fontSize: 18, fontWeight: 750 },
+  small: { color: '#9aa9c7', fontSize: 12 },
+  empty: { borderRadius: 16, border: '1px dashed rgba(148,163,184,0.18)', background: 'rgba(15,23,42,0.34)', padding: 18, color: '#9aa9c7', lineHeight: 1.6 },
+  folderList: { display: 'grid', gap: 10, maxHeight: 460, overflowY: 'auto' },
+  resultList: { display: 'grid', gap: 14 },
+  fieldList: { display: 'grid', gap: 10, maxHeight: 650, overflowY: 'auto' },
 }
 
 function todayIso() { return new Date().toISOString().slice(0, 10) }
@@ -48,14 +54,16 @@ function clone(value) { return JSON.parse(JSON.stringify(value)) }
 function emptyFilters() { return { ...BASIC_FILTERS, metrics: {}, weights: {} } }
 function defaultFiltersByComponent() { return Object.fromEntries(COMPONENTS.map(component => [component.key, emptyFilters()])) }
 function defaultLineupToggles() { return Object.fromEntries(COMPONENTS.map(component => [component.key, false])) }
-function formatNumber(value) { const num = Number(value); if (!Number.isFinite(num)) return '—'; return Math.abs(num) >= 10 ? num.toFixed(1) : num.toFixed(3) }
 function cacheKey(kind, payload) { return `${CACHE_PREFIX}${kind}:${JSON.stringify(payload)}` }
+function formatNumber(value) { const num = Number(value); if (!Number.isFinite(num)) return '—'; return Math.abs(num) >= 10 ? num.toFixed(1) : num.toFixed(3) }
+function ensureArray(value) { return Array.isArray(value) ? value : [] }
 function readSessionCache(key) { if (typeof window === 'undefined' || !window.sessionStorage) return null; try { const raw = window.sessionStorage.getItem(key); return raw ? JSON.parse(raw) : null } catch { return null } }
 function writeSessionCache(key, value) { if (typeof window === 'undefined' || !window.sessionStorage) return; try { window.sessionStorage.setItem(key, JSON.stringify(value)) } catch {} }
-function readSessionPref(key, fallback) { if (typeof window === 'undefined' || !window.sessionStorage) return fallback; try { const raw = window.sessionStorage.getItem(key); return raw == null ? fallback : JSON.parse(raw) } catch { return fallback } }
-function writeSessionPref(key, value) { if (typeof window === 'undefined' || !window.sessionStorage) return; try { window.sessionStorage.setItem(key, JSON.stringify(value)) } catch {} }
+function readPref(key, fallback) { if (typeof window === 'undefined' || !window.sessionStorage) return fallback; try { const raw = window.sessionStorage.getItem(key); return raw == null ? fallback : JSON.parse(raw) } catch { return fallback } }
+function writePref(key, value) { if (typeof window === 'undefined' || !window.sessionStorage) return; try { window.sessionStorage.setItem(key, JSON.stringify(value)) } catch {} }
 function getDashboardSessionToken() { if (typeof window === 'undefined' || !window.localStorage) return ''; return window.localStorage.getItem(DASHBOARD_SESSION_STORAGE_KEY) || '' }
 function setDashboardSessionToken(token) { if (typeof window === 'undefined' || !window.localStorage) return; if (token) window.localStorage.setItem(DASHBOARD_SESSION_STORAGE_KEY, token); else window.localStorage.removeItem(DASHBOARD_SESSION_STORAGE_KEY) }
+function pill(tone) { const map = { blue: ['#5ea2ff','rgba(94,162,255,0.12)'], green: ['#43c59e','rgba(67,197,158,0.12)'], amber: ['#f1b75c','rgba(241,183,92,0.12)'] }; const [color, bg] = map[tone] || map.blue; return { display:'inline-flex', padding:'6px 10px', borderRadius:999, color, background:bg, fontSize:12, fontWeight:700 } }
 
 function cleanFilters(filters) {
   const source = filters || {}
@@ -82,15 +90,7 @@ function cleanFilters(filters) {
   return cleaned
 }
 
-function mergeFilterState(savedFilters) {
-  return {
-    ...emptyFilters(),
-    ...(savedFilters || {}),
-    metrics: clone(savedFilters?.metrics || {}),
-    weights: clone(savedFilters?.weights || {}),
-  }
-}
-
+function mergeFilterState(savedFilters) { return { ...emptyFilters(), ...(savedFilters || {}), metrics: clone(savedFilters?.metrics || {}), weights: clone(savedFilters?.weights || {}) } }
 function available(result, componentKey) {
   const defaults = {
     hitters: {
@@ -694,41 +694,29 @@ export default function MyDashboardWorkspacePage() {
   const [authError, setAuthError] = useState(null)
   const [savingProfile, setSavingProfile] = useState(false)
   const [creatingFolder, setCreatingFolder] = useState(false)
-  const [activeSurface, setActiveSurface] = useState(() => readSessionPref(SURFACE_PREF_KEY, 'boards'))
-  const [savedShelfOpen, setSavedShelfOpen] = useState(() => readSessionPref(SHELF_PREF_KEY, true))
-  const [activeComponent, setActiveComponent] = useState(() => readSessionPref(ACTIVE_COMPONENT_PREF_KEY, COMPONENTS[0].key))
+  const [surface, setSurface] = useState(() => readPref(SURFACE_PREF_KEY, 'boards'))
+  const [savedShelfOpen, setSavedShelfOpen] = useState(() => readPref(SHELF_PREF_KEY, true))
+  const [activeComponent, setActiveComponent] = useState('hitters')
   const [selectedFolderId, setSelectedFolderId] = useState('')
-  const [selectedSavedItemId, setSelectedSavedItemId] = useState('')
-  const [builderState, setBuilderState] = useState({
-    component: COMPONENTS[0].key,
-    search: '',
-    selectedFields: DEFAULT_BUILDER_FIELDS,
-    sortBy: 'score',
-    sortDir: 'desc',
-  })
+  const [selectedItemId, setSelectedItemId] = useState('')
+  const [builderState, setBuilderState] = useState({ component: 'hitters', search: '', selectedFields: DEFAULT_BUILDER_FIELDS, sortBy: 'score' })
   const [builderDraft, setBuilderDraft] = useState(emptySaveDraft())
   const [form, setForm] = useState({ email: '', username: '', password: '', feature_interests: ['Matchups', 'Model Projections'], wants_newsletter: false, plan_type: 'free' })
 
-  useEffect(() => { writeSessionPref(SURFACE_PREF_KEY, activeSurface) }, [activeSurface])
-  useEffect(() => { writeSessionPref(SHELF_PREF_KEY, savedShelfOpen) }, [savedShelfOpen])
-  useEffect(() => { writeSessionPref(ACTIVE_COMPONENT_PREF_KEY, activeComponent) }, [activeComponent])
+  useEffect(() => { writePref(SURFACE_PREF_KEY, surface) }, [surface])
+  useEffect(() => { writePref(SHELF_PREF_KEY, savedShelfOpen) }, [savedShelfOpen])
 
   useEffect(() => {
     async function bootstrap() {
       try {
-        const res = await fetch(`${API}/my-dashboard/profile`, {
-          credentials: 'include',
-          headers: getDashboardSessionToken() ? { 'X-Dashboard-Session': getDashboardSessionToken() } : {},
-        })
+        const res = await fetch(`${API}/my-dashboard/profile`, { credentials: 'include', headers: getDashboardSessionToken() ? { 'X-Dashboard-Session': getDashboardSessionToken() } : {} })
         const json = await res.json()
         if (json.authenticated) {
           setProfile(json.user)
           await loadWorkspace()
           await runAllBoards({ preferCache: true })
         }
-      } finally {
-        setAuthChecked(true)
-      }
+      } finally { setAuthChecked(true) }
     }
     bootstrap()
   }, [])
@@ -745,13 +733,7 @@ export default function MyDashboardWorkspacePage() {
       }
       return next
     })
-    setBuilderDraft(prev => ({
-      ...emptySaveDraft(folderId),
-      ...prev,
-      folder_id: prev.folder_id || folderId,
-      title: prev.title || `Custom Dashboard | ${today}`,
-      subtitle: prev.subtitle || 'Builder view saved from My Dashboard',
-    }))
+    setBuilderDraft(prev => ({ ...emptySaveDraft(folderId), ...prev, folder_id: prev.folder_id || folderId, title: prev.title || `Custom Dashboard | ${today}`, subtitle: prev.subtitle || 'Builder view saved from My Dashboard' }))
     if (!selectedFolderId && folderId) setSelectedFolderId(folderId)
   }, [workspace?.today_folder_id, today, selectedFolderId])
 
@@ -779,12 +761,7 @@ export default function MyDashboardWorkspacePage() {
     return json
   }
 
-  async function loadWorkspace() {
-    const json = await apiJson(`${API}/my-dashboard/workspace`)
-    setWorkspace(json)
-    return json
-  }
-
+  async function loadWorkspace() { const json = await apiJson(`${API}/my-dashboard/workspace`); setWorkspace(json); return json }
   async function handleProfileSubmit(event) {
     event.preventDefault()
     setSavingProfile(true)
@@ -800,13 +777,9 @@ export default function MyDashboardWorkspacePage() {
     } catch (err) {
       setAuthError(err.message || 'Failed to create dashboard profile')
       setProfile(null)
-    } finally {
-      setSavingProfile(false)
-      setAuthChecked(true)
-    }
+    } finally { setSavingProfile(false); setAuthChecked(true) }
   }
 
-  function toggleInterest(choice) { setForm(prev => ({ ...prev, feature_interests: prev.feature_interests.includes(choice) ? prev.feature_interests.filter(item => item !== choice) : [...prev.feature_interests, choice] })) }
   function setBasicFilter(componentKey, key, value) { setFilters(prev => ({ ...prev, [componentKey]: { ...prev[componentKey], [key]: value } })) }
   function setMetricFilter(componentKey, metric, side, value) { setFilters(prev => { const next = clone(prev); const entry = { ...(next[componentKey].metrics?.[metric] || {}) }; entry[side] = value; if ((entry.min || '') === '' && (entry.max || '') === '') delete next[componentKey].metrics[metric]; else next[componentKey].metrics[metric] = entry; return next }) }
   function setWeight(componentKey, metric, value) { setFilters(prev => ({ ...prev, [componentKey]: { ...prev[componentKey], weights: { ...(prev[componentKey].weights || {}), [metric]: value } } })) }
@@ -821,10 +794,7 @@ export default function MyDashboardWorkspacePage() {
     const endpoint = activeLineups ? `${API}/my-dashboard/solver/active-lineups` : `${API}/my-dashboard/solver`
     if (options.preferCache) {
       const cached = readSessionCache(sessionKey)
-      if (cached) {
-        setResults(prev => ({ ...prev, [componentKey]: cached }))
-        return
-      }
+      if (cached) { setResults(prev => ({ ...prev, [componentKey]: cached })); return }
     }
     setLoading(prev => ({ ...prev, [componentKey]: true }))
     setRunErrors(prev => ({ ...prev, [componentKey]: null }))
@@ -832,11 +802,8 @@ export default function MyDashboardWorkspacePage() {
       const json = await apiJson(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       writeSessionCache(sessionKey, json)
       setResults(prev => ({ ...prev, [componentKey]: json }))
-    } catch (err) {
-      setRunErrors(prev => ({ ...prev, [componentKey]: err.message || 'Board run failed' }))
-    } finally {
-      setLoading(prev => ({ ...prev, [componentKey]: false }))
-    }
+    } catch (err) { setRunErrors(prev => ({ ...prev, [componentKey]: err.message || 'Board run failed' })) }
+    finally { setLoading(prev => ({ ...prev, [componentKey]: false })) }
   }
 
   async function runAllBoards(options = {}) {
@@ -854,11 +821,8 @@ export default function MyDashboardWorkspacePage() {
       const json = await apiJson(`${API}/my-dashboard/solver/batch`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       writeSessionCache(sessionKey, json)
       setResults(prev => ({ ...prev, ...(json.results || {}) }))
-    } catch (err) {
-      setRunErrors(prev => ({ ...prev, _all: err.message || 'Populate all failed' }))
-    } finally {
-      setLoading(Object.fromEntries(keys.map(key => [key, false])))
-    }
+    } catch (err) { setRunErrors(prev => ({ ...prev, _all: err.message || 'Populate all failed' })) }
+    finally { setLoading(Object.fromEntries(keys.map(key => [key, false]))) }
   }
 
   async function saveItemToToday(component, item) {
@@ -868,9 +832,7 @@ export default function MyDashboardWorkspacePage() {
       await apiJson(`${API}/my-dashboard/items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder_id: workspace.today_folder_id, source_tab: 'my-dashboard', source_type: 'solver_result', title: `${component.title} | ${item.entity_name || 'Saved item'}`, subtitle: item.primary_reason || component.description, payload_json: { saved_from_component: component.key, saved_on_date: today, entity_name: item.entity_name, entity_id: item.entity_id, entity_type: item.entity_type, score: item.score, confidence: item.confidence, metrics: item.metrics || {}, reasoning: item.reasoning || [], max_filters: 10 }, filter_json: cleanFilters(filters[component.key] || {}), sort_json: { by: 'score', direction: 'desc' } }) })
       await loadWorkspace()
       setSaveMessage(`Saved ${item.entity_name || 'item'} to Today`)
-    } catch (err) {
-      setSaveMessage(err.message || 'Failed to save item')
-    }
+    } catch (err) { setSaveMessage(err.message || 'Failed to save item') }
   }
 
   async function saveBoardState(component) {
@@ -881,14 +843,25 @@ export default function MyDashboardWorkspacePage() {
     if (!folderId) { setSaveMessage('Choose a folder before saving this dashboard state.'); return }
     if (!boardResult?.items?.length) { setSaveMessage('Run the board before saving a dashboard state.'); return }
     const title = (draft.title || `${component.title} | ${today}`).trim()
-    setSaveMessage(null)
     try {
       await apiJson(`${API}/my-dashboard/items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder_id: folderId, source_tab: 'my-dashboard', source_type: 'solver_board_state', title, subtitle: (draft.subtitle || component.description || '').trim() || null, notes: (draft.notes || '').trim() || null, payload_json: { saved_from_component: componentKey, saved_on_date: today, board_state: boardResult, saved_item_count: boardResult.items.length, active_lineups_only: !!activeLineupsByComponent[componentKey] }, filter_json: cleanFilters(filters[componentKey] || {}), sort_json: { by: 'score', direction: 'desc', component: componentKey, active_lineups: !!activeLineupsByComponent[componentKey] } }) })
       await loadWorkspace()
       setSaveMessage(`Saved dashboard state: ${title}`)
-    } catch (err) {
-      setSaveMessage(err.message || 'Failed to save dashboard state')
-    }
+    } catch (err) { setSaveMessage(err.message || 'Failed to save dashboard state') }
+  }
+
+  async function saveBuilderView() {
+    const componentKey = builderState.component
+    const boardResult = results[componentKey]
+    const folderId = Number(builderDraft.folder_id || workspace?.today_folder_id)
+    if (!folderId) { setSaveMessage('Choose a folder before saving this builder view.'); return }
+    if (!boardResult?.items?.length) { setSaveMessage('Run the source board before saving this builder view.'); return }
+    const title = (builderDraft.title || `Custom Dashboard | ${today}`).trim()
+    try {
+      await apiJson(`${API}/my-dashboard/items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder_id: folderId, source_tab: 'my-dashboard', source_type: 'solver_board_state', title, subtitle: builderDraft.subtitle || 'Saved custom dashboard builder view', notes: builderDraft.notes || null, payload_json: { saved_from_component: componentKey, saved_on_date: today, board_state: boardResult, builder_state: builderState, saved_item_count: boardResult.items.length, active_lineups_only: !!activeLineupsByComponent[componentKey] }, filter_json: cleanFilters(filters[componentKey] || {}), sort_json: { by: builderState.sortBy || 'score', direction: 'desc', component: componentKey, active_lineups: !!activeLineupsByComponent[componentKey] } }) })
+      await loadWorkspace()
+      setSaveMessage(`Saved builder view: ${title}`)
+    } catch (err) { setSaveMessage(err.message || 'Failed to save builder view') }
   }
 
   async function saveBuilderView() {
@@ -931,7 +904,6 @@ export default function MyDashboardWorkspacePage() {
   async function createFolder() {
     if (!newFolder.folder_name.trim()) { setSaveMessage('Folder name is required.'); return }
     setCreatingFolder(true)
-    setSaveMessage(null)
     try {
       const json = await apiJson(`${API}/my-dashboard/folders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder_name: newFolder.folder_name.trim(), folder_date: newFolder.folder_date || null, is_default: false }) })
       const folderId = String(json.folder?.id || '')
@@ -943,11 +915,8 @@ export default function MyDashboardWorkspacePage() {
         setBuilderDraft(prev => ({ ...prev, folder_id: folderId }))
       }
       setSaveMessage(`Created folder: ${json.folder?.folder_name || 'New folder'}`)
-    } catch (err) {
-      setSaveMessage(err.message || 'Failed to create folder')
-    } finally {
-      setCreatingFolder(false)
-    }
+    } catch (err) { setSaveMessage(err.message || 'Failed to create folder') }
+    finally { setCreatingFolder(false) }
   }
 
   async function restoreSavedState(item) {
@@ -956,22 +925,15 @@ export default function MyDashboardWorkspacePage() {
     setActiveComponent(componentKey)
     setFilters(prev => ({ ...prev, [componentKey]: mergeFilterState(item.filter_json || {}) }))
     setActiveLineupsByComponent(prev => ({ ...prev, [componentKey]: !!(item.sort_json?.active_lineups || item.payload_json?.active_lineups_only) }))
-    if (item.payload_json?.board_state) {
-      setResults(prev => ({ ...prev, [componentKey]: item.payload_json.board_state }))
-    }
+    if (item.payload_json?.board_state) setResults(prev => ({ ...prev, [componentKey]: item.payload_json.board_state }))
     if (item.payload_json?.builder_state) {
       setBuilderState(item.payload_json.builder_state)
-      setActiveSurface('builder')
+      setSurface('builder')
       setSaveMessage(`Loaded saved builder view: ${item.title}`)
       return
     }
-    setActiveSurface('boards')
-    if (item.payload_json?.board_state) {
-      setSaveMessage(`Loaded saved dashboard state: ${item.title}`)
-      return
-    }
-    await runBoard(componentKey)
-    setSaveMessage(`Restored filters for ${componentKey} from ${item.title}`)
+    setSurface('boards')
+    setSaveMessage(`Loaded saved dashboard state: ${item.title}`)
   }
 
   const folders = workspace?.folders || []
@@ -981,577 +943,13 @@ export default function MyDashboardWorkspacePage() {
   const activeFilters = filters[activeComponent] || emptyFilters()
   const activeDraft = saveDrafts[activeComponent] || emptySaveDraft(String(workspace?.today_folder_id || ''))
   const activeHelper = available(activeResult, activeComponent)
+  const selectedFolder = folders.find(folder => String(folder.id) === String(selectedFolderId)) || folders[0] || null
+  const selectedItem = ensureArray(selectedFolder?.items).find(item => String(item.id) === String(selectedItemId)) || ensureArray(selectedFolder?.items)[0] || null
   const fieldGroups = useMemo(() => collectBuilderFieldGroups({ results, workspace }), [results, workspace])
   const builderItems = ensureArray(results?.[builderState.component]?.items)
-  const builderFilters = filters?.[builderState.component] || emptyFilters()
+  const builderPreview = useMemo(() => builderItems.slice(0, 12).map(item => ({ ...Object.fromEntries((builderState.selectedFields || []).map(field => [field, getValueByPath(item, field)])) })), [builderItems, builderState])
 
-  if (!authChecked) return <div style={styles.stateView}>Loading dashboard workspace…</div>
+  if (!authChecked) return <div style={styles.loading}>Loading dashboard workspace…</div>
 
-  if (!profile) {
-    return (
-      <div style={styles.authPage}>
-        <section style={styles.authHero}>
-          <div style={styles.eyebrow}>My Dashboard</div>
-          <h1 style={styles.pageTitle}>Create your analyst profile</h1>
-          <p style={styles.pageSubtitle}>Store folders, save board states, restore views, and build reusable dashboard layouts on top of the existing fast board engine.</p>
-        </section>
-        <form onSubmit={handleProfileSubmit} style={styles.authPanel}>
-          <label style={styles.label}>Email</label>
-          <input style={styles.input} value={form.email} onChange={e => setForm(prev => ({ ...prev, email: e.target.value }))} />
-          <label style={styles.label}>Username</label>
-          <input style={styles.input} value={form.username} onChange={e => setForm(prev => ({ ...prev, username: e.target.value }))} />
-          <label style={styles.label}>Password</label>
-          <input style={styles.input} type="password" value={form.password} onChange={e => setForm(prev => ({ ...prev, password: e.target.value }))} />
-          <div style={styles.metaWrap}>{FEATURE_CHOICES.map(choice => <button key={choice} type="button" onClick={() => toggleInterest(choice)} style={form.feature_interests.includes(choice) ? styles.activeChoice : styles.choicePill}>{choice}</button>)}</div>
-          {authError ? <div style={styles.errorBanner}>{authError}</div> : null}
-          <button type="submit" style={styles.primaryButton} disabled={savingProfile}>{savingProfile ? 'Creating…' : 'Enter My Dashboard'}</button>
-        </form>
-      </div>
-    )
-  }
-
-  return (
-    <div style={styles.page}>
-      <CommandBar
-        profile={profile}
-        folders={folders}
-        todayCount={todayFolder?.item_count || 0}
-        setActiveSurface={setActiveSurface}
-        loadWorkspace={loadWorkspace}
-        runAllBoards={runAllBoards}
-        saveMessage={saveMessage}
-      />
-      <div style={styles.workspaceShell}>
-        <WorkspaceNav
-          activeSurface={activeSurface}
-          setActiveSurface={setActiveSurface}
-          activeComponent={activeComponent}
-          setActiveComponent={setActiveComponent}
-          results={results}
-        />
-        <main style={styles.mainColumn}>
-          <SavedBoardsShelf
-            open={savedShelfOpen}
-            onToggle={() => setSavedShelfOpen(prev => !prev)}
-            folders={folders}
-            todayCount={todayFolder?.item_count || 0}
-            newFolder={newFolder}
-            setNewFolder={setNewFolder}
-            createFolder={createFolder}
-            creatingFolder={creatingFolder}
-            selectedFolderId={selectedFolderId}
-            setSelectedFolderId={setSelectedFolderId}
-            selectedSavedItemId={selectedSavedItemId}
-            setSelectedSavedItemId={setSelectedSavedItemId}
-            restoreSavedState={restoreSavedState}
-          />
-
-          {activeSurface === 'boards' ? (
-            <div style={styles.boardWorkspaceGrid}>
-              <BoardControls
-                component={activeComponentMeta}
-                result={activeResult}
-                filterState={activeFilters}
-                helper={activeHelper}
-                draft={activeDraft}
-                folders={folders}
-                activeLineups={activeLineupsByComponent[activeComponent]}
-                setBasicFilter={setBasicFilter}
-                setMetricFilter={setMetricFilter}
-                setWeight={setWeight}
-                setSaveDraft={setSaveDraft}
-                resetFilters={resetFilters}
-                toggleActiveLineups={toggleActiveLineups}
-                saveBoardState={saveBoardState}
-                runBoard={runBoard}
-                loading={loading[activeComponent]}
-                runError={runErrors[activeComponent] || runErrors._all}
-              />
-              <ResultList component={activeComponentMeta} result={activeResult} saveItemToToday={saveItemToToday} />
-            </div>
-          ) : (
-            <BuilderWorkspace
-              builderState={builderState}
-              setBuilderState={setBuilderState}
-              builderDraft={builderDraft}
-              setBuilderDraft={setBuilderDraft}
-              fieldGroups={fieldGroups}
-              builderItems={builderItems}
-              builderFilters={builderFilters}
-              folders={folders}
-              saveBuilderView={saveBuilderView}
-              runBoard={runBoard}
-              loading={loading[builderState.component]}
-            />
-          )}
-        </main>
-      </div>
-    </div>
-  )
-}
-
-const styles = {
-  page: {
-    minHeight: '100vh',
-    background: `linear-gradient(180deg, ${C.bg} 0%, #09111f 100%)`,
-    color: C.text,
-    padding: '24px 24px 36px',
-  },
-  authPage: {
-    minHeight: '100vh',
-    background: `linear-gradient(180deg, ${C.bg} 0%, #09111f 100%)`,
-    color: C.text,
-    padding: 32,
-    display: 'grid',
-    gap: 24,
-    alignContent: 'center',
-    justifyItems: 'center',
-  },
-  authHero: {
-    maxWidth: 720,
-    textAlign: 'center',
-  },
-  authPanel: {
-    width: '100%',
-    maxWidth: 520,
-    background: 'rgba(17, 28, 52, 0.88)',
-    border: `1px solid ${C.border}`,
-    borderRadius: 24,
-    padding: 24,
-    display: 'grid',
-    gap: 12,
-    boxShadow: '0 18px 48px rgba(2, 6, 23, 0.32)',
-  },
-  stateView: {
-    minHeight: '100vh',
-    display: 'grid',
-    placeItems: 'center',
-    background: C.bg,
-    color: C.text,
-    fontSize: 18,
-  },
-  commandBar: {
-    display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1.2fr) minmax(340px, 0.8fr)',
-    gap: 20,
-    marginBottom: 20,
-    padding: 24,
-    background: 'rgba(17, 28, 52, 0.92)',
-    border: `1px solid ${C.border}`,
-    borderRadius: 28,
-    boxShadow: '0 18px 46px rgba(2, 6, 23, 0.28)',
-  },
-  commandRight: { display: 'grid', gap: 12, alignContent: 'start' },
-  accountMetaCard: {
-    display: 'grid',
-    gap: 6,
-    padding: 14,
-    background: 'rgba(25, 39, 71, 0.72)',
-    border: `1px solid ${C.border}`,
-    borderRadius: 18,
-  },
-  metaLine: { color: C.muted, fontSize: 13 },
-  commandButtons: { display: 'flex', gap: 10, flexWrap: 'wrap' },
-  workspaceShell: {
-    display: 'grid',
-    gridTemplateColumns: '280px minmax(0, 1fr)',
-    gap: 18,
-    alignItems: 'start',
-  },
-  navRail: {
-    position: 'sticky',
-    top: 20,
-    display: 'grid',
-    gap: 14,
-    padding: 18,
-    background: 'rgba(15, 23, 42, 0.9)',
-    border: `1px solid ${C.border}`,
-    borderRadius: 24,
-  },
-  brandBlock: { display: 'grid', gap: 6 },
-  brandEyebrow: { color: C.blue, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 700 },
-  brandTitle: { color: C.text, fontSize: 24, fontWeight: 800 },
-  brandSubtitle: { color: C.muted, fontSize: 13, lineHeight: 1.6 },
-  navGroupLabel: { color: C.subtle, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700, marginTop: 4 },
-  navGroup: { display: 'grid', gap: 10 },
-  navButton: {
-    textAlign: 'left',
-    padding: 14,
-    borderRadius: 18,
-    border: `1px solid ${C.border}`,
-    background: 'rgba(17, 28, 52, 0.74)',
-    color: C.text,
-    cursor: 'pointer',
-  },
-  navButtonActive: {
-    textAlign: 'left',
-    padding: 14,
-    borderRadius: 18,
-    border: `1px solid rgba(94, 162, 255, 0.36)`,
-    background: 'linear-gradient(180deg, rgba(94, 162, 255, 0.18), rgba(25, 39, 71, 0.92))',
-    color: C.text,
-    cursor: 'pointer',
-  },
-  navButtonTitle: { fontSize: 14, fontWeight: 700 },
-  navButtonSubtitle: { fontSize: 12, color: C.muted, marginTop: 4, lineHeight: 1.5 },
-  subNavButton: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '11px 12px',
-    borderRadius: 14,
-    border: `1px solid ${C.border}`,
-    background: 'rgba(17, 28, 52, 0.56)',
-    color: C.text,
-    cursor: 'pointer',
-  },
-  subNavButtonActive: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '11px 12px',
-    borderRadius: 14,
-    border: `1px solid rgba(67, 197, 158, 0.36)`,
-    background: 'rgba(67, 197, 158, 0.14)',
-    color: C.text,
-    cursor: 'pointer',
-  },
-  subNavCount: { color: C.muted, fontSize: 12, fontWeight: 700 },
-  mainColumn: { display: 'grid', gap: 18 },
-  sectionCard: {
-    background: 'rgba(17, 28, 52, 0.88)',
-    border: `1px solid ${C.border}`,
-    borderRadius: 24,
-    boxShadow: '0 16px 44px rgba(2, 6, 23, 0.22)',
-  },
-  sectionHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 16,
-    alignItems: 'start',
-    marginBottom: 14,
-  },
-  sectionTitle: { color: C.text, fontSize: 18, fontWeight: 750 },
-  sectionSubtitle: { color: C.muted, fontSize: 13, lineHeight: 1.6, marginTop: 4 },
-  shelfSummaryRow: { display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 8 },
-  shelfContentGrid: { display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr)', gap: 18 },
-  folderColumn: { display: 'grid', gap: 14 },
-  folderDetailColumn: { display: 'grid', gap: 14 },
-  inlineRow: { display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10, alignItems: 'center' },
-  folderList: { display: 'grid', gap: 10, maxHeight: 460, overflowY: 'auto', paddingRight: 4 },
-  folderButton: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    border: `1px solid ${C.border}`,
-    background: 'rgba(17, 28, 52, 0.56)',
-    color: C.text,
-    cursor: 'pointer',
-    textAlign: 'left',
-  },
-  folderButtonActive: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    padding: 14,
-    borderRadius: 18,
-    border: `1px solid rgba(94, 162, 255, 0.36)`,
-    background: 'rgba(94, 162, 255, 0.12)',
-    color: C.text,
-    cursor: 'pointer',
-    textAlign: 'left',
-  },
-  folderTitle: { fontSize: 14, fontWeight: 700 },
-  folderMeta: { fontSize: 12, color: C.muted, marginTop: 4 },
-  countBadge: {
-    minWidth: 34,
-    height: 34,
-    borderRadius: 999,
-    display: 'grid',
-    placeItems: 'center',
-    background: 'rgba(25, 39, 71, 0.92)',
-    border: `1px solid ${C.border}`,
-    color: C.text,
-    fontWeight: 700,
-    fontSize: 12,
-  },
-  folderHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  folderInspectorGrid: { display: 'grid', gridTemplateColumns: 'minmax(260px, 0.9fr) minmax(0, 1.1fr)', gap: 16 },
-  savedList: { display: 'grid', gap: 10, maxHeight: 460, overflowY: 'auto', paddingRight: 4 },
-  savedItemButton: {
-    textAlign: 'left',
-    padding: 14,
-    borderRadius: 18,
-    border: `1px solid ${C.border}`,
-    background: 'rgba(17, 28, 52, 0.56)',
-    color: C.text,
-    cursor: 'pointer',
-  },
-  savedItemButtonActive: {
-    textAlign: 'left',
-    padding: 14,
-    borderRadius: 18,
-    border: `1px solid rgba(67, 197, 158, 0.36)`,
-    background: 'rgba(67, 197, 158, 0.12)',
-    color: C.text,
-    cursor: 'pointer',
-  },
-  savedItemTitle: { fontSize: 14, fontWeight: 700 },
-  savedItemMeta: { fontSize: 12, color: C.muted, marginTop: 4 },
-  savedInspector: {
-    borderRadius: 20,
-    border: `1px solid ${C.border}`,
-    background: 'rgba(15, 23, 42, 0.56)',
-    padding: 18,
-    display: 'grid',
-    gap: 12,
-    alignContent: 'start',
-  },
-  savedInspectorTitle: { fontSize: 18, fontWeight: 750, color: C.text },
-  savedInspectorSubtitle: { fontSize: 13, color: C.muted },
-  notesBox: {
-    padding: 12,
-    borderRadius: 16,
-    border: `1px solid ${C.border}`,
-    background: 'rgba(17, 28, 52, 0.64)',
-    color: C.text,
-    lineHeight: 1.6,
-    whiteSpace: 'pre-wrap',
-  },
-  pill: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '6px 10px',
-    borderRadius: 999,
-    fontWeight: 700,
-    fontSize: 12,
-  },
-  boardWorkspaceGrid: { display: 'grid', gridTemplateColumns: '420px minmax(0, 1fr)', gap: 18, alignItems: 'start' },
-  boardControlColumn: { display: 'grid', gap: 16, position: 'sticky', top: 20 },
-  boardResultsColumn: { display: 'grid', gap: 16 },
-  filterGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 },
-  metricGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 },
-  sliderGrid: { display: 'grid', gap: 10 },
-  metricCard: {
-    borderRadius: 18,
-    border: `1px solid ${C.border}`,
-    background: 'rgba(15, 23, 42, 0.6)',
-    padding: 12,
-    display: 'grid',
-    gap: 8,
-  },
-  metricTitle: { fontSize: 12, color: C.subtle, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 },
-  metricInputRow: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 },
-  resultsGrid: { display: 'grid', gap: 14 },
-  resultCard: {
-    borderRadius: 20,
-    border: `1px solid ${C.border}`,
-    background: 'rgba(15, 23, 42, 0.66)',
-    padding: 18,
-    display: 'grid',
-    gap: 14,
-  },
-  resultTopRow: { display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'start' },
-  resultTitle: { fontSize: 18, fontWeight: 750, color: C.text },
-  resultSubTitle: { fontSize: 13, color: C.muted, marginTop: 4, lineHeight: 1.5 },
-  resultScoreStack: { textAlign: 'right', minWidth: 96 },
-  scoreLabel: { color: C.subtle, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 },
-  scoreValue: { color: C.text, fontSize: 24, fontWeight: 800 },
-  scoreConfidence: { color: C.blue, fontSize: 12, fontWeight: 700 },
-  metricWrap: { display: 'flex', gap: 8, flexWrap: 'wrap' },
-  metricChip: {
-    display: 'grid',
-    gap: 2,
-    minWidth: 92,
-    padding: '8px 10px',
-    borderRadius: 14,
-    background: 'rgba(17, 28, 52, 0.84)',
-    border: `1px solid ${C.border}`,
-  },
-  metricChipLabel: { color: C.subtle, fontSize: 11, fontWeight: 700 },
-  metricChipValue: { color: C.text, fontSize: 13, fontWeight: 700 },
-  reasonList: { margin: 0, paddingLeft: 18, color: C.muted, lineHeight: 1.6 },
-  builderGrid: { display: 'grid', gridTemplateColumns: 'minmax(300px, 0.95fr) minmax(300px, 0.9fr) minmax(0, 1.15fr)', gap: 18, alignItems: 'start' },
-  builderColumn: { display: 'grid', gap: 16 },
-  builderPreviewColumn: { display: 'grid', gap: 16 },
-  builderFieldGroups: { display: 'grid', gap: 12, maxHeight: 760, overflowY: 'auto', paddingRight: 4 },
-  fieldGroup: { borderRadius: 18, border: `1px solid ${C.border}`, background: 'rgba(15, 23, 42, 0.56)', padding: 14 },
-  fieldGroupTitle: { fontSize: 13, fontWeight: 800, color: C.text, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.08em' },
-  fieldList: { display: 'grid', gap: 8 },
-  fieldRow: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', padding: 10, borderRadius: 14, background: 'rgba(17, 28, 52, 0.7)' },
-  fieldLabel: { fontSize: 13, fontWeight: 700, color: C.text },
-  fieldAccessor: { fontSize: 11, color: C.muted, marginTop: 2, wordBreak: 'break-all' },
-  fieldAddButton: {
-    border: `1px solid rgba(94, 162, 255, 0.36)`,
-    background: 'rgba(94, 162, 255, 0.14)',
-    color: C.blue,
-    borderRadius: 12,
-    padding: '8px 10px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  fieldAddButtonDisabled: {
-    border: `1px solid ${C.border}`,
-    background: 'rgba(17, 28, 52, 0.44)',
-    color: C.subtle,
-    borderRadius: 12,
-    padding: '8px 10px',
-    fontWeight: 700,
-  },
-  selectedFieldList: { display: 'grid', gap: 10 },
-  selectedFieldRow: { display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', padding: 12, borderRadius: 16, border: `1px solid ${C.border}`, background: 'rgba(15, 23, 42, 0.56)' },
-  selectedFieldActions: { display: 'flex', gap: 8 },
-  iconButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    border: `1px solid ${C.border}`,
-    background: 'rgba(17, 28, 52, 0.7)',
-    color: C.text,
-    cursor: 'pointer',
-  },
-  iconButtonDanger: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    border: `1px solid rgba(248, 113, 113, 0.3)`,
-    background: 'rgba(248, 113, 113, 0.1)',
-    color: C.red,
-    cursor: 'pointer',
-  },
-  tableWrap: { overflow: 'auto', borderRadius: 18, border: `1px solid ${C.border}` },
-  table: { width: '100%', borderCollapse: 'collapse', background: 'rgba(15, 23, 42, 0.62)' },
-  th: { padding: '12px 14px', textAlign: 'left', fontSize: 12, color: C.subtle, borderBottom: `1px solid ${C.border}` },
-  td: { padding: '12px 14px', fontSize: 13, color: C.text, borderBottom: `1px solid ${C.border}`, verticalAlign: 'top' },
-  input: {
-    width: '100%',
-    borderRadius: 14,
-    border: `1px solid ${C.border}`,
-    background: 'rgba(15, 23, 42, 0.72)',
-    color: C.text,
-    padding: '11px 12px',
-    outline: 'none',
-  },
-  smallInput: {
-    width: '100%',
-    borderRadius: 12,
-    border: `1px solid ${C.border}`,
-    background: 'rgba(15, 23, 42, 0.72)',
-    color: C.text,
-    padding: '10px 11px',
-    outline: 'none',
-  },
-  textArea: {
-    minHeight: 92,
-    width: '100%',
-    borderRadius: 16,
-    border: `1px solid ${C.border}`,
-    background: 'rgba(15, 23, 42, 0.72)',
-    color: C.text,
-    padding: 12,
-    resize: 'vertical',
-    outline: 'none',
-  },
-  label: { color: C.muted, fontSize: 13, fontWeight: 700 },
-  primaryButton: {
-    border: `1px solid rgba(94, 162, 255, 0.36)`,
-    background: 'linear-gradient(180deg, rgba(94, 162, 255, 0.24), rgba(94, 162, 255, 0.12))',
-    color: C.text,
-    borderRadius: 14,
-    padding: '11px 14px',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  secondaryButton: {
-    border: `1px solid ${C.border}`,
-    background: 'rgba(17, 28, 52, 0.74)',
-    color: C.text,
-    borderRadius: 14,
-    padding: '11px 14px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  ghostButton: {
-    border: `1px solid rgba(148, 163, 184, 0.14)`,
-    background: 'transparent',
-    color: C.muted,
-    borderRadius: 14,
-    padding: '11px 14px',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  buttonRow: { display: 'flex', gap: 10, flexWrap: 'wrap' },
-  metaWrap: { display: 'flex', gap: 8, flexWrap: 'wrap' },
-  choicePill: {
-    border: `1px solid ${C.border}`,
-    background: 'rgba(17, 28, 52, 0.7)',
-    color: C.text,
-    borderRadius: 999,
-    padding: '9px 12px',
-    cursor: 'pointer',
-  },
-  activeChoice: {
-    border: `1px solid rgba(94, 162, 255, 0.36)`,
-    background: 'rgba(94, 162, 255, 0.14)',
-    color: C.blue,
-    borderRadius: 999,
-    padding: '9px 12px',
-    cursor: 'pointer',
-  },
-  warningBanner: {
-    padding: '11px 12px',
-    borderRadius: 14,
-    border: `1px solid rgba(241, 183, 92, 0.24)`,
-    background: 'rgba(241, 183, 92, 0.12)',
-    color: C.amber,
-    fontSize: 13,
-    lineHeight: 1.5,
-  },
-  errorBanner: {
-    padding: '11px 12px',
-    borderRadius: 14,
-    border: `1px solid rgba(248, 113, 113, 0.24)`,
-    background: 'rgba(248, 113, 113, 0.12)',
-    color: '#fecaca',
-    fontSize: 13,
-    lineHeight: 1.5,
-  },
-  successBanner: {
-    padding: '11px 12px',
-    borderRadius: 14,
-    border: `1px solid rgba(67, 197, 158, 0.24)`,
-    background: 'rgba(67, 197, 158, 0.12)',
-    color: '#bbf7d0',
-    fontSize: 13,
-    lineHeight: 1.5,
-  },
-  emptyState: {
-    borderRadius: 16,
-    border: `1px dashed ${C.border}`,
-    background: 'rgba(15, 23, 42, 0.34)',
-    padding: 18,
-    color: C.muted,
-    lineHeight: 1.6,
-  },
-  checkboxRow: { display: 'flex', gap: 10, alignItems: 'center', color: C.muted, fontSize: 13 },
-  eyebrow: { color: C.blue, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 800, marginBottom: 8 },
-  pageTitle: { margin: 0, fontSize: 34, lineHeight: 1.1, color: C.text },
-  pageSubtitle: { margin: '10px 0 0', color: C.muted, maxWidth: 740, lineHeight: 1.7, fontSize: 14 },
-  metricPill: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '7px 10px',
-    borderRadius: 999,
-    background: 'rgba(25, 39, 71, 0.88)',
-    border: `1px solid ${C.border}`,
-    color: C.text,
-    fontSize: 12,
-    fontWeight: 700,
-  },
+  return <div />
 }
