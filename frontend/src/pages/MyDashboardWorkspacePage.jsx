@@ -122,7 +122,6 @@ function available(result, componentKey) {
 function emptySaveDraft(folderId = '') { return { folder_id: folderId, title: '', subtitle: '', notes: '' } }
 function defaultSaveDrafts(folderId = '') { return Object.fromEntries(COMPONENTS.map(component => [component.key, emptySaveDraft(folderId)])) }
 function sourceComponentKey(item) { return item?.payload_json?.saved_from_component || item?.payload_json?.component_key || item?.payload_json?.board_state?.component || null }
-function ensureArray(value) { return Array.isArray(value) ? value : [] }
 function metricEntries(item) { return Object.entries(item?.metrics || {}) }
 function trimText(value) { return typeof value === 'string' ? value.trim() : value }
 
