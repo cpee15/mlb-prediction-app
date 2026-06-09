@@ -1,6 +1,7 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
 import HomePage from './pages/HomePage'
+import LandingV2Page from './pages/LandingV2Page'
 import MatchupDetailPage from './pages/MatchupDetailPage'
 import PitcherPage from './pages/PitcherPage'
 import RollingPitcherPage from './pages/RollingPitcherPage'
@@ -48,6 +49,7 @@ export default function App() {
             <span>MLB Prediction Engine</span>
           </NavLink>
           <NavLink to="/" end className={navLinkClass}>Matchups</NavLink>
+          <NavLink to="/landing-v2" className={navLinkClass}>Landing V2</NavLink>
           <NavLink to="/daily-odds" className={navLinkClass}>Daily Odds</NavLink>
           <NavLink to="/news" className={navLinkClass}>News</NavLink>
           <NavLink to="/models/projections" className={navLinkClass}>Model Projections</NavLink>
@@ -64,6 +66,7 @@ export default function App() {
         <main className="app-main">
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/landing-v2" element={<LandingV2Page />} />
             <Route path="/daily-odds" element={<DailyOddsPage />} />
             <Route path="/news" element={<NewsPage />} />
             <Route path="/models/projections" element={<ModelProjectionsPage />} />
