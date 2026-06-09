@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { API_BASE, getMlbLiveDate } from '../lib/api'
-
-const SESSION_KEY = 'mlbgpt_dashboard_session_token'
+import { API_BASE, fetchJson, getMlbLiveDate, readCachedJson } from '../lib/api'
 
 const COMPONENTS = [
   { key: 'hitters', title: 'My Top Hitters Today', shortTitle: 'Hitters', description: 'Stored 365 hitter board with pitch-type matchup, EV, LA, and arsenal context.' },
@@ -12,30 +10,57 @@ const COMPONENTS = [
   { key: 'overall_players', title: 'My Top Overall Players Today', shortTitle: 'Overall', description: 'Combined player board blending hitter and pitcher solver outputs.' },
 ]
 
+const ACTIVE_LINEUP_COMPONENTS = new Set(['hitters', 'overall_players'])
+const BOARD_TTL_SECONDS = 300
+const MATCHUPS_TTL_SECONDS = 120
+
 const C = {
   bg: '#070b14',
-  panel: '#0d1424',
-  panel2: '#101a2e',
   border: '#21304a',
   text: '#eef5ff',
   muted: '#91a1bb',
   green: '#42f58d',
   blue: '#56b7ff',
+  yellow: '#ffd166',
+  red: '#ff6b7a',
 }
 
-function token() {
-  if (typeof window === 'undefined' || !window.localStorage) return ''
-  return window.localStorage.getItem(SESSION_KEY) || ''
+function boardPayload(date, activeLineups = false) {
+  const components = activeLineups ? COMPONENTS.filter(component => ACTIVE_LINEUP_COMPONENTS.has(component.key)).map(component => component.key) : COMPONENTS.map(component => component.key)
+  return {
+    date,
+    components,
+    filters_by_component: Object.fromEntries(components.map(component => [component, {}])),
+    active_lineups: activeLineups,
+  }
 }
 
-function saveToken(value) {
-  if (typeof window !== 'undefined' && value) window.localStorage.setItem(SESSION_KEY, value)
+function boardUrl(date, activeLineups = false) {
+  return `${API_BASE}/my-dashboard/solver/batch::__${activeLineups ? 'confirmed' : 'pre'}__${date}`
+}
+
+async function fetchBoard(date, activeLineups = false) {
+  const payload = boardPayload(date, activeLineups)
+  const response = await fetch(`${API_BASE}/my-dashboard/solver/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const json = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(typeof json?.detail === 'string' ? json.detail : JSON.stringify(json.detail || json))
+  return json
 }
 
 function fmt(value) {
   const num = Number(value)
   if (!Number.isFinite(num)) return value == null || value === '' ? '—' : String(value)
   return Math.abs(num) >= 10 ? num.toFixed(1) : num.toFixed(3)
+}
+
+function pct(value) {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '—'
+  return `${Math.round(num * 100)}%`
 }
 
 function title(item) {
@@ -58,6 +83,31 @@ function dateLabel(date) {
   }
 }
 
+function gameLabel(game) {
+  const away = game?.away_team_name || game?.away_team || game?.away_name
+  const home = game?.home_team_name || game?.home_team || game?.home_name
+  if (away && home) return `${away} @ ${home}`
+  return 'MLB matchup'
+}
+
+function timeLabel(iso) {
+  if (!iso) return null
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET'
+  } catch {
+    return null
+  }
+}
+
+function weatherLabel(weather) {
+  if (!weather) return null
+  const parts = []
+  if (weather.temp_f != null) parts.push(`${weather.temp_f}°F`)
+  if (weather.condition) parts.push(weather.condition)
+  if (weather.wind) parts.push(weather.wind)
+  return parts.length ? parts.join(' · ') : null
+}
+
 function Pill({ children, tone = '' }) {
   if (children === null || children === undefined || children === '') return null
   return <span className={`status-badge ${tone}`}>{children}</span>
@@ -73,84 +123,86 @@ function Metric({ label, value }) {
   )
 }
 
-function useDashboardPreview(date) {
-  const [profile, setProfile] = useState(null)
-  const [checked, setChecked] = useState(false)
-  const [results, setResults] = useState({})
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+function useLandingData(date) {
+  const preCacheKey = boardUrl(date, false)
+  const confirmedCacheKey = boardUrl(date, true)
+  const matchupsUrl = `${API_BASE}/matchups?date=${date}`
+
+  const [preBoard, setPreBoard] = useState(() => readCachedJson(preCacheKey, BOARD_TTL_SECONDS))
+  const [confirmedBoard, setConfirmedBoard] = useState(() => readCachedJson(confirmedCacheKey, BOARD_TTL_SECONDS))
+  const [matchups, setMatchups] = useState(() => {
+    const cached = readCachedJson(matchupsUrl, MATCHUPS_TTL_SECONDS)
+    return Array.isArray(cached) ? cached : []
+  })
+  const [preLoading, setPreLoading] = useState(!preBoard)
+  const [confirmedLoading, setConfirmedLoading] = useState(false)
+  const [matchupsLoading, setMatchupsLoading] = useState(matchups.length === 0)
+  const [errors, setErrors] = useState({})
 
   useEffect(() => {
     let cancelled = false
+    const startedAt = Date.now()
 
-    async function load() {
-      setError('')
+    async function run() {
+      setErrors({})
+      setPreLoading(!readCachedJson(preCacheKey, BOARD_TTL_SECONDS))
+      setMatchupsLoading(!readCachedJson(matchupsUrl, MATCHUPS_TTL_SECONDS))
+
+      fetchJson(matchupsUrl, { ttlSeconds: MATCHUPS_TTL_SECONDS })
+        .then(data => { if (!cancelled) setMatchups(Array.isArray(data) ? data : []) })
+        .catch(err => { if (!cancelled) setErrors(prev => ({ ...prev, matchups: err.message || String(err) })) })
+        .finally(() => { if (!cancelled) setMatchupsLoading(false) })
+
       try {
-        const session = token()
-        const profileResponse = await fetch(`${API_BASE}/my-dashboard/profile`, {
-          credentials: 'include',
-          headers: session ? { 'X-Dashboard-Session': session } : {},
-        })
-        const profileJson = await profileResponse.json().catch(() => ({}))
+        const pre = await fetchBoard(date, false)
         if (cancelled) return
-
-        if (profileJson?.session_token) saveToken(profileJson.session_token)
-        if (!profileJson?.authenticated) {
-          setProfile(null)
-          setChecked(true)
-          return
-        }
-
-        setProfile(profileJson.user || null)
-        setChecked(true)
-        setLoading(true)
-
-        const keys = COMPONENTS.map(component => component.key)
-        const boardResponse = await fetch(`${API_BASE}/my-dashboard/solver/batch`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token() ? { 'X-Dashboard-Session': token() } : {}),
-          },
-          body: JSON.stringify({
-            date,
-            components: keys,
-            filters_by_component: Object.fromEntries(keys.map(key => [key, {}])),
-            active_lineups: false,
-          }),
-        })
-        const boardJson = await boardResponse.json().catch(() => ({}))
-        if (cancelled) return
-        if (!boardResponse.ok) throw new Error(typeof boardJson?.detail === 'string' ? boardJson.detail : 'Dashboard solver unavailable')
-        setResults(boardJson.results || {})
+        sessionStorage.setItem(`mlb-json-cache:v1:${preCacheKey}`, JSON.stringify({ createdAt: Date.now(), value: pre }))
+        setPreBoard({ ...pre, loaded_ms: Date.now() - startedAt })
       } catch (err) {
-        if (!cancelled) setError(err.message || 'Dashboard preview unavailable')
+        if (!cancelled) setErrors(prev => ({ ...prev, pre: err.message || String(err) }))
       } finally {
-        if (!cancelled) {
-          setChecked(true)
-          setLoading(false)
-        }
+        if (!cancelled) setPreLoading(false)
+      }
+
+      setConfirmedLoading(true)
+      try {
+        const confirmed = await fetchBoard(date, true)
+        if (cancelled) return
+        sessionStorage.setItem(`mlb-json-cache:v1:${confirmedCacheKey}`, JSON.stringify({ createdAt: Date.now(), value: confirmed }))
+        setConfirmedBoard({ ...confirmed, loaded_ms: Date.now() - startedAt })
+      } catch (err) {
+        if (!cancelled) setErrors(prev => ({ ...prev, confirmed: err.message || String(err) }))
+      } finally {
+        if (!cancelled) setConfirmedLoading(false)
       }
     }
 
-    load()
+    run()
     return () => { cancelled = true }
-  }, [date])
+  }, [date, preCacheKey, confirmedCacheKey, matchupsUrl])
 
-  return { profile, checked, results, loading, error }
+  const activeBoard = confirmedBoard?.results ? { ...preBoard, results: { ...(preBoard?.results || {}), ...(confirmedBoard.results || {}) }, active_lineups: true, loaded_ms: confirmedBoard.loaded_ms } : preBoard
+  return { activeBoard, preBoard, confirmedBoard, matchups, preLoading, confirmedLoading, matchupsLoading, errors }
 }
 
 function buildSections(results) {
   return COMPONENTS.map(component => ({
     ...component,
-    items: Array.isArray(results?.[component.key]?.items) ? results[component.key].items.slice(0, 3) : [],
+    items: Array.isArray(results?.[component.key]?.items) ? results[component.key].items.slice(0, 5) : [],
+    result: results?.[component.key] || null,
   })).filter(section => section.items.length > 0)
+}
+
+function flattenTopCards(sections) {
+  return sections.flatMap(section => section.items.slice(0, 2).map(item => ({ component: section, item })))
+    .sort((a, b) => Number(b.item?.score || -999) - Number(a.item?.score || -999))
+    .slice(0, 8)
 }
 
 function DashboardCard({ item, component, active, onClick }) {
   const confidence = String(item?.confidence || '').toLowerCase()
   const tone = confidence.includes('high') ? 'success' : confidence.includes('medium') ? 'warning' : confidence.includes('low') ? 'danger' : ''
+  const itemMetrics = metrics(item).slice(0, 3)
   return (
     <button type="button" onClick={onClick} style={active ? s.previewCardActive : s.previewCard}>
       <div style={s.cardTop}>
@@ -169,7 +221,64 @@ function DashboardCard({ item, component, active, onClick }) {
         {item?.opponent ? <Pill tone="warning">vs {item.opponent}</Pill> : null}
         <Pill tone={tone}>{item?.confidence}</Pill>
       </div>
+      {itemMetrics.length ? <div style={s.miniMetrics}>{itemMetrics.map(([key, value]) => <span key={key}>{key}: <strong>{fmt(value)}</strong></span>)}</div> : null}
     </button>
+  )
+}
+
+function ModelRunPanel({ preLoading, confirmedLoading, matchupsLoading, activeBoard, preBoard, confirmedBoard, errors }) {
+  const phase = activeBoard?.active_lineups ? 'Confirmed-lineup board live' : preBoard?.results ? 'Pre-lineup board live' : 'Preparing board'
+  return (
+    <section style={s.modelPanel}>
+      <div>
+        <p style={s.kicker}>Model Run Status</p>
+        <h2 style={s.h2}>{phase}</h2>
+        <p style={s.sub}>The page loads cached pre-lineup rankings first, then refreshes confirmed-lineup hitter and overall boards in the background.</p>
+      </div>
+      <div style={s.runGrid}>
+        <RunStep label="Slate + weather" active={matchupsLoading} done={!matchupsLoading && !errors.matchups} error={errors.matchups} />
+        <RunStep label="Pre-lineup board" active={preLoading} done={!!preBoard?.results && !preLoading} error={errors.pre} detail={preBoard?.loaded_ms ? `${preBoard.loaded_ms}ms` : null} />
+        <RunStep label="Confirmed lineup refresh" active={confirmedLoading} done={!!confirmedBoard?.results && !confirmedLoading} error={errors.confirmed} detail={confirmedBoard?.loaded_ms ? `${confirmedBoard.loaded_ms}ms` : null} />
+      </div>
+    </section>
+  )
+}
+
+function RunStep({ label, active, done, error, detail }) {
+  const symbol = error ? '!' : active ? '↻' : done ? '✓' : '•'
+  const tone = error ? C.red : active ? C.yellow : done ? C.green : C.muted
+  return (
+    <div style={s.runStep}>
+      <span style={{ ...s.runDot, color: tone }}>{symbol}</span>
+      <div>
+        <strong>{label}</strong>
+        <div style={s.cardMeta}>{error ? String(error).slice(0, 90) : active ? 'Running model…' : done ? (detail || 'Ready') : 'Waiting'}</div>
+      </div>
+    </div>
+  )
+}
+
+function MatchupStrip({ matchups }) {
+  if (!matchups.length) return null
+  return (
+    <section style={s.section}>
+      <div style={s.sectionHead}>
+        <div>
+          <h2 style={s.h2}>Today’s slate context</h2>
+          <p style={s.sub}>Matchups, starters, model win probability, weather, and game state from the production slate.</p>
+        </div>
+        <Link to="/" style={s.secondary}>View full slate</Link>
+      </div>
+      <div style={s.matchupGrid}>{matchups.slice(0, 6).map((game, index) => (
+        <Link key={game.game_pk || index} to={game.game_pk ? `/matchup/${game.game_pk}` : '/'} style={s.matchupCard}>
+          <div style={s.cardTitle}>{gameLabel(game)}</div>
+          <div style={s.cardMeta}>{timeLabel(game.game_time) || game.status || 'Time pending'}{game.venue ? ` · ${game.venue}` : ''}</div>
+          <div style={s.pitcherLine}>{game.away_pitcher_name || 'Away starter pending'} vs {game.home_pitcher_name || 'Home starter pending'}</div>
+          <div style={s.probRow}><span>{pct(game.away_win_prob)}</span><span>{pct(game.home_win_prob)}</span></div>
+          {weatherLabel(game.weather) ? <div style={s.cardMeta}>{weatherLabel(game.weather)}</div> : null}
+        </Link>
+      ))}</div>
+    </section>
   )
 }
 
@@ -207,18 +316,8 @@ function SelectedBreakdown({ selected, onUnlock }) {
           <Metric label="Team" value={item?.team} />
           <Metric label="Opponent" value={item?.opponent ? `vs ${item.opponent}` : null} />
         </div>
-        {reasoning.length ? (
-          <div style={s.reasonBox}>
-            <h3 style={s.h3}>Reason / explanation</h3>
-            <ul style={s.reasons}>{reasoning.slice(0, 5).map((reason, index) => <li key={`${title(item)}-${index}`}>{reason}</li>)}</ul>
-          </div>
-        ) : null}
-        {itemMetrics.length ? (
-          <div style={s.reasonBox}>
-            <h3 style={s.h3}>Supporting metrics</h3>
-            <div style={s.metricGrid}>{itemMetrics.slice(0, 12).map(([key, value]) => <Metric key={key} label={key} value={fmt(value)} />)}</div>
-          </div>
-        ) : null}
+        {reasoning.length ? <div style={s.reasonBox}><h3 style={s.h3}>Reason / explanation</h3><ul style={s.reasons}>{reasoning.slice(0, 5).map((reason, index) => <li key={`${title(item)}-${index}`}>{reason}</li>)}</ul></div> : null}
+        {itemMetrics.length ? <div style={s.reasonBox}><h3 style={s.h3}>Supporting metrics</h3><div style={s.metricGrid}>{itemMetrics.slice(0, 12).map(([key, value]) => <Metric key={key} label={key} value={fmt(value)} />)}</div></div> : null}
       </div>
     </section>
   )
@@ -227,19 +326,18 @@ function SelectedBreakdown({ selected, onUnlock }) {
 export default function LandingV2Page() {
   const navigate = useNavigate()
   const date = getMlbLiveDate()
-  const { profile, checked, results, loading, error } = useDashboardPreview(date)
-  const sections = useMemo(() => buildSections(results), [results])
+  const { activeBoard, preBoard, confirmedBoard, matchups, preLoading, confirmedLoading, matchupsLoading, errors } = useLandingData(date)
+  const sections = useMemo(() => buildSections(activeBoard?.results || {}), [activeBoard])
+  const topCards = useMemo(() => flattenTopCards(sections), [sections])
   const [selected, setSelected] = useState(null)
 
   useEffect(() => {
-    if (!selected && sections[0]?.items?.[0]) setSelected({ component: sections[0], item: sections[0].items[0] })
-  }, [sections, selected])
+    if (!selected && topCards[0]) setSelected(topCards[0])
+  }, [topCards, selected])
 
   function unlock() {
     navigate('/my-dashboard')
   }
-
-  const topSection = sections[0]
 
   return (
     <div style={s.page}>
@@ -248,88 +346,41 @@ export default function LandingV2Page() {
           <div style={s.eyebrow}>● Live MLB Prediction Engine</div>
           <h1 style={s.h1}>Today’s MLB card, ranked by edge.</h1>
           <p style={s.heroText}>MLBGPT scans every matchup using pitcher trends, bullpen form, team offense, weather, odds, and AI model projections to surface the strongest betting angles before first pitch.</p>
-          <div style={s.buttons}>
-            <button type="button" onClick={unlock} style={s.primary}>Unlock Today’s Card</button>
-            <Link to="/" style={s.secondary}>View Matchups</Link>
-          </div>
+          <div style={s.buttons}><button type="button" onClick={unlock} style={s.primary}>Unlock Today’s Card</button><Link to="/" style={s.secondary}>View Matchups</Link></div>
         </div>
         <div style={s.terminal}>
-          <div style={s.terminalHead}>
-            <strong>{topSection?.title || 'Today’s Best Scores'}</strong>
-            <span style={s.green}>{profile ? 'Dashboard Data' : 'Preview Locked'}</span>
-            <span style={s.muted}>{dateLabel(date)}</span>
-          </div>
-          <div style={s.boardRows}>
-            {topSection?.items?.length ? topSection.items.map((item, index) => (
-              <div key={`${topSection.key}-${item?.entity_id || index}`} style={s.heroRow}>
-                <span style={s.rowTitle}>{title(item)}</span>
-                <span>{item?.entity_type || topSection.shortTitle}</span>
-                <strong style={s.green}>{fmt(item?.score)}</strong>
-                <strong style={s.blue}>{item?.confidence || '—'}</strong>
-              </div>
-            )) : (
-              <div style={s.emptyPreview}>Sign in to preview today’s ranked dashboard cards. This page does not show fake plays.</div>
-            )}
-          </div>
-          {selected ? <div style={s.heroMetrics}><Metric label="Selected" value={title(selected.item)} /><Metric label="Score" value={fmt(selected.item?.score)} /><Metric label="Confidence" value={selected.item?.confidence || '—'} /></div> : null}
+          <div style={s.terminalHead}><strong>{activeBoard?.active_lineups ? 'Confirmed-Lineup Board' : 'Pre-Lineup Board'}</strong><span style={s.green}>{confirmedLoading ? 'Model Running' : activeBoard?.results ? 'Live Data' : 'Loading'}</span><span style={s.muted}>{dateLabel(date)}</span></div>
+          <div style={s.boardRows}>{topCards.length ? topCards.slice(0, 5).map(({ component, item }, index) => <div key={`${component.key}-${item?.entity_id || index}`} style={s.heroRow}><span style={s.rowTitle}>{title(item)}</span><span>{component.shortTitle}</span><strong style={s.green}>{fmt(item?.score)}</strong><strong style={s.blue}>{item?.confidence || '—'}</strong></div>) : <div style={s.emptyPreview}>{preLoading ? 'Running pre-lineup model…' : 'No board cards returned yet.'}</div>}</div>
+          {selected ? <div style={s.heroMetrics}><Metric label="Selected" value={title(selected.item)} /><Metric label="Score" value={fmt(selected.item?.score)} /><Metric label="Board" value={selected.component.shortTitle} /></div> : null}
         </div>
       </section>
 
-      {loading ? <div className="state-panel" style={s.notice}>Loading real dashboard preview…</div> : null}
-      {error ? <div className="state-panel error" style={s.notice}>Dashboard preview unavailable: {error}</div> : null}
+      <ModelRunPanel preLoading={preLoading} confirmedLoading={confirmedLoading} matchupsLoading={matchupsLoading} activeBoard={activeBoard} preBoard={preBoard} confirmedBoard={confirmedBoard} errors={errors} />
+      <MatchupStrip matchups={matchups} />
 
       <section style={s.section}>
-        <div style={s.sectionHead}>
-          <div>
-            <h2 style={s.h2}>Today’s Best Scores</h2>
-            <p style={s.sub}>A public preview layer composed from the same My Dashboard board outputs.</p>
-          </div>
-          <button type="button" onClick={unlock} style={s.secondary}>Unlock Full Card</button>
-        </div>
-        {sections.length ? (
-          <div style={s.previewGrid}>{sections.map(section => (
-            <div key={section.key} style={s.panel}>
-              <h3 style={s.h3}>{section.title}</h3>
-              <p style={s.cardMeta}>{section.description}</p>
-              <div style={s.stack}>{section.items.map((item, index) => <DashboardCard key={`${section.key}-${item?.entity_id || index}`} item={item} component={section} active={selected?.item === item} onClick={() => checked && !profile ? unlock() : setSelected({ component: section, item })} />)}</div>
-            </div>
-          ))}</div>
-        ) : (
-          <div className="state-panel" style={{ textAlign: 'left' }}><strong>No fabricated picks are displayed.</strong><p style={{ margin: '8px 0 0' }}>Sign in to run the existing dashboard board engine.</p></div>
-        )}
+        <div style={s.sectionHead}><div><h2 style={s.h2}>Today’s Best Scores</h2><p style={s.sub}>Real board outputs from the same solver that powers My Dashboard. Pre-lineup cards appear first; confirmed-lineup cards replace them when available.</p></div><button type="button" onClick={unlock} style={s.secondary}>Unlock Full Card</button></div>
+        {sections.length ? <div style={s.previewGrid}>{sections.map(section => <div key={section.key} style={s.panel}><h3 style={s.h3}>{section.title}</h3><p style={s.cardMeta}>{section.description}</p><div style={s.stack}>{section.items.map((item, index) => <DashboardCard key={`${section.key}-${item?.entity_id || index}`} item={item} component={section} active={selected?.item === item} onClick={() => setSelected({ component: section, item })} />)}</div></div>)}</div> : <div className="state-panel" style={{ textAlign: 'left' }}><strong>{preLoading ? 'Model is running.' : 'No fabricated picks are displayed.'}</strong><p style={{ margin: '8px 0 0' }}>{preLoading ? 'The pre-lineup board is being prepared from the existing solver.' : 'The solver did not return public preview cards yet.'}</p></div>}
       </section>
 
       <SelectedBreakdown selected={selected} onUnlock={unlock} />
 
       <section style={s.section}>
         <h2 style={s.h2}>Built like a sportsbook dashboard. Explained like an analyst.</h2>
-        <p style={s.sub}>The preview preserves the existing My Dashboard categories, solver endpoint, score field, confidence field, metrics, and reasoning.</p>
-        <div style={s.proofGrid}>
-          <div style={s.panel}><h3 style={s.h3}>Dashboard boards</h3>{COMPONENTS.map(component => <div key={component.key} style={component.key === (topSection?.key || 'hitters') ? s.navActive : s.navItem}>{component.shortTitle}</div>)}</div>
-          <div style={s.panel}><h3 style={s.h3}>Real output fields</h3><p style={s.sub}>entity_name, primary_reason, score, confidence, entity_type, team, opponent, metrics, reasoning.</p></div>
-          <div style={s.panel}><h3 style={s.h3}>No new model logic</h3><p style={s.sub}>This route consumes `/my-dashboard/solver/batch` and does not calculate new scores client-side.</p></div>
-        </div>
+        <p style={s.sub}>The preview now uses board rankings, matchup context, starters, probabilities, weather, metrics, and reasoning without adding client-side scoring logic.</p>
+        <div style={s.proofGrid}><div style={s.panel}><h3 style={s.h3}>Board sources</h3>{COMPONENTS.map(component => <div key={component.key} style={component.key === (selected?.component?.key || 'hitters') ? s.navActive : s.navItem}>{component.shortTitle}</div>)}</div><div style={s.panel}><h3 style={s.h3}>Fast loading strategy</h3><p style={s.sub}>Client session cache plus server solver cache. Pre-lineup board first, confirmed-lineup refresh in background.</p></div><div style={s.panel}><h3 style={s.h3}>No new model logic</h3><p style={s.sub}>This route consumes existing solver and matchup endpoints and only formats returned fields.</p></div></div>
       </section>
 
-      <section style={s.section}>
-        <div style={s.assistant}>
-          <div><h2 style={s.h2}>Ask MLBGPT before you bet.</h2><p style={s.sub}>The existing AI Data Assistant is available for slate, matchup, model-edge, and data-quality questions.</p></div>
-          <div style={s.prompt}><strong>Prompt:</strong> What is the strongest model edge?<div style={s.answer}>Open the AI Data Assistant to ask this against live app-owned data.</div><Link to="/ai-data-assistant" style={{ ...s.secondary, display: 'inline-flex', marginTop: 14 }}>Open AI Data Assistant</Link></div>
-        </div>
-      </section>
+      <section style={s.section}><div style={s.assistant}><div><h2 style={s.h2}>Ask MLBGPT before you bet.</h2><p style={s.sub}>The existing AI Data Assistant is available for slate, matchup, model-edge, and data-quality questions.</p></div><div style={s.prompt}><strong>Prompt:</strong> What is the strongest model edge?<div style={s.answer}>Open the AI Data Assistant to ask this against live app-owned data.</div><Link to="/ai-data-assistant" style={{ ...s.secondary, display: 'inline-flex', marginTop: 14 }}>Open AI Data Assistant</Link></div></div></section>
 
-      <section style={s.final}>
-        <h2 style={s.finalTitle}>Stop building your MLB card from scratch.</h2>
-        <p style={s.finalText}>Let MLBGPT rank the board, explain the edge, and show the risk before first pitch.</p>
-        <button type="button" onClick={unlock} style={s.primary}>Unlock Today’s Card</button>
-      </section>
+      <section style={s.final}><h2 style={s.finalTitle}>Stop building your MLB card from scratch.</h2><p style={s.finalText}>Let MLBGPT rank the board, explain the edge, and show the risk before first pitch.</p><button type="button" onClick={unlock} style={s.primary}>Unlock Today’s Card</button></section>
     </div>
   )
 }
 
 const s = {
   page: { margin: '-34px calc(50% - 50vw) -56px', padding: '76px 28px 0', minHeight: '100vh', color: C.text, background: `radial-gradient(circle at top left, rgba(66,245,141,.12), transparent 32%), radial-gradient(circle at 75% 10%, rgba(86,183,255,.12), transparent 28%), ${C.bg}` },
-  hero: { maxWidth: 1220, margin: '0 auto', paddingBottom: 48, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 40, alignItems: 'center' },
+  hero: { maxWidth: 1220, margin: '0 auto', paddingBottom: 36, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 40, alignItems: 'center' },
   eyebrow: { display: 'inline-flex', padding: '8px 12px', border: `1px solid ${C.border}`, borderRadius: 999, background: 'rgba(13,20,36,.72)', color: C.green, fontSize: 13, fontWeight: 800, marginBottom: 22 },
   h1: { fontSize: 'clamp(48px,7vw,78px)', lineHeight: .94, letterSpacing: '-0.075em', margin: '0 0 24px' },
   h2: { fontSize: 'clamp(32px,5vw,42px)', lineHeight: 1, letterSpacing: '-0.05em', margin: '0 0 14px' },
@@ -345,10 +396,18 @@ const s = {
   rowTitle: { fontWeight: 850 },
   heroMetrics: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 10, padding: '0 18px 18px' },
   emptyPreview: { padding: 18, border: '1px solid rgba(255,255,255,.06)', borderRadius: 16, color: C.muted, background: 'rgba(255,255,255,.035)' },
-  section: { maxWidth: 1180, margin: '0 auto', padding: '48px 0' },
+  section: { maxWidth: 1180, margin: '0 auto', padding: '42px 0' },
+  modelPanel: { maxWidth: 1180, margin: '0 auto', border: `1px solid ${C.border}`, borderRadius: 28, padding: 24, background: '#0a1020', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 20, alignItems: 'center' },
+  runGrid: { display: 'grid', gap: 10 },
+  runStep: { display: 'grid', gridTemplateColumns: '34px 1fr', gap: 12, alignItems: 'center', padding: 12, borderRadius: 16, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.06)' },
+  runDot: { fontSize: 20, fontWeight: 900 },
   sectionHead: { display: 'flex', justifyContent: 'space-between', gap: 18, alignItems: 'start', flexWrap: 'wrap', marginBottom: 22 },
   sub: { color: C.muted, fontSize: 17, lineHeight: 1.55, margin: 0 },
   previewGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 18 },
+  matchupGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 14 },
+  matchupCard: { border: `1px solid ${C.border}`, borderRadius: 18, padding: 16, background: 'rgba(13,20,36,.72)', textDecoration: 'none', color: C.text },
+  pitcherLine: { color: C.blue, fontSize: 13, marginTop: 10, fontWeight: 750 },
+  probRow: { display: 'flex', justifyContent: 'space-between', marginTop: 12, color: C.green, fontWeight: 900 },
   panel: { border: `1px solid ${C.border}`, borderRadius: 22, padding: 20, background: 'rgba(13,20,36,.72)' },
   panelLarge: { border: `1px solid ${C.border}`, borderRadius: 28, padding: 24, background: '#0a1020', boxShadow: '0 24px 80px rgba(0,0,0,.28)' },
   stack: { display: 'grid', gap: 12, marginTop: 14 },
@@ -361,6 +420,7 @@ const s = {
   scoreLabel: { display: 'block', color: C.muted, fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em' },
   score: { display: 'block', color: C.green, fontSize: 22 },
   pills: { display: 'flex', gap: 8, flexWrap: 'wrap' },
+  miniMetrics: { display: 'grid', gap: 4, marginTop: 12, color: C.muted, fontSize: 12 },
   metricGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 10, marginTop: 18 },
   metric: { background: 'rgba(86,183,255,.06)', border: '1px solid rgba(86,183,255,.14)', borderRadius: 16, padding: 14 },
   metricLabel: { display: 'block', color: C.muted, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 7 },
@@ -376,7 +436,6 @@ const s = {
   final: { textAlign: 'center', padding: '76px 28px 90px' },
   finalTitle: { fontSize: 'clamp(38px,6vw,66px)', lineHeight: .95, letterSpacing: '-0.065em', margin: '0 auto 20px', maxWidth: 760 },
   finalText: { color: C.muted, fontSize: 18, marginBottom: 28 },
-  notice: { maxWidth: 1180, margin: '0 auto 24px' },
   green: { color: C.green, fontWeight: 850 },
   blue: { color: C.blue, fontWeight: 850 },
   muted: { color: C.muted },
