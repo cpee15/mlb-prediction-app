@@ -188,7 +188,20 @@ def _extract_first(item: Dict[str, Any], keys: Iterable[str]) -> Any:
 
 def _nested_name(value: Any) -> Optional[str]:
     if isinstance(value, dict):
-        value = _extract_first(value, ("name", "display_name", "displayName", "team_name", "teamName", "fullName", "title"))
+        direct = _extract_first(value, ("name", "display_name", "displayName", "team_name", "teamName", "fullName", "title"))
+        if direct not in (None, ""):
+            return str(direct)
+        for nested_key in ("team", "participant", "competitor", "competitorTeam", "runner", "selection"):
+            nested = _nested_name(value.get(nested_key))
+            if nested:
+                return nested
+        return None
+    if isinstance(value, list):
+        for child in value:
+            nested = _nested_name(child)
+            if nested:
+                return nested
+        return None
     if value in (None, ""):
         return None
     return str(value)
@@ -377,6 +390,24 @@ def _get_access_token() -> str:
     return str(access_token)
 
 
+def _post_kibl_json(url: str, params: Dict[str, Any], timeout: int) -> Any:
+    def _headers(token: str) -> Dict[str, str]:
+        return {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+    token = _get_access_token()
+    response = requests.post(url, json=params, headers=_headers(token), timeout=timeout)
+    if response.status_code == 401:
+        _TOKEN_CACHE.clear()
+        token = _get_access_token()
+        response = requests.post(url, json=params, headers=_headers(token), timeout=timeout)
+    response.raise_for_status()
+    return response.json()
+
+
 def _market_filter(market_types: Optional[List[str]], props_only: bool = False) -> List[str]:
     if props_only:
         env_value = os.getenv("KIBL_PROP_MARKETS", "")
@@ -443,18 +474,14 @@ def _payload_item_count(payload: Any) -> int:
 
 
 def _fetch_kibl_payload(scope: str, params: Dict[str, Any], event_id: Optional[str] = None, kind: str = "markets") -> Tuple[Any, str]:
-    token = _get_access_token()
     base_url = os.getenv("KIBL_BASE_URL", _DEFAULT_BASE_URL).rstrip("/")
     timeout = int(os.getenv("KIBL_TIMEOUT_SECONDS", str(_DEFAULT_TIMEOUT_SECONDS)))
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"}
     errors: List[str] = []
     first_success: Optional[Tuple[Any, str]] = None
     for path in _candidate_paths(scope, event_id=event_id, kind=kind):
         url = f"{base_url}/{path}/"
         try:
-            response = requests.post(url, json=params, headers=headers, timeout=timeout)
-            response.raise_for_status()
-            payload = response.json()
+            payload = _post_kibl_json(url, params, timeout)
             if first_success is None:
                 first_success = (payload, path)
             if _payload_item_count(payload) > 0:
@@ -787,7 +814,7 @@ def fetch_kibl_bet105_odds(
     league: Optional[str] = None,
     market_types: Optional[List[str]] = None,
     live_only: Optional[bool] = None,
-    state: Optional[str] = None,
+    state: Optional[str] = None
 ) -> Dict[str, Any]:
     if not _configured():
         return _not_configured(scope, game_pk=game_pk)
