@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter
 
-from .kibl_bet105_provider import fetch_kibl_bet105_event_odds, fetch_kibl_bet105_events, fetch_kibl_bet105_odds
+from .bet105_sportsbook_wrapper import fetch_bet105_sportsbook_event, fetch_bet105_sportsbook_events
 from .odds_provider import fetch_draftkings_events
 
 router = APIRouter()
@@ -73,7 +73,10 @@ def implied_probability(decimal: Any) -> Optional[float]:
 def _team_name(event: Dict[str, Any], side: str) -> str:
     value = event.get(f"{side}_team")
     if isinstance(value, dict):
-        return str(value.get("name") or "")
+        nested = value.get("name")
+        if isinstance(nested, dict):
+            return str(nested.get("name") or nested.get("display_name") or nested.get("fullName") or nested.get("title") or "")
+        return str(nested or "")
     return str(value or "")
 
 
@@ -213,22 +216,22 @@ def _comparison_payload(date: Optional[str], books: List[str], payloads: Dict[st
 
 @router.get("/odds/bet105/events")
 def bet105_events(date: Optional[str] = None, live: bool = False, raw: bool = False) -> Dict[str, Any]:
-    return fetch_kibl_bet105_events(date=date, raw=raw, live_only=live)
+    return fetch_bet105_sportsbook_events(date=date, raw=raw, live_only=live)
 
 
 @router.get("/odds/bet105/event/{event_id}/markets")
 def bet105_event_markets(event_id: str, raw: bool = False) -> Dict[str, Any]:
-    return fetch_kibl_bet105_event_odds(event_id=event_id, props_only=False, raw=raw)
+    return fetch_bet105_sportsbook_event(event_id=event_id, raw=raw, props_only=False)
 
 
 @router.get("/odds/bet105/event/{event_id}/props")
 def bet105_event_props(event_id: str, raw: bool = False) -> Dict[str, Any]:
-    return fetch_kibl_bet105_event_odds(event_id=event_id, props_only=True, raw=raw)
+    return fetch_bet105_sportsbook_event(event_id=event_id, raw=raw, props_only=True)
 
 
 @router.get("/odds/bet105/debug")
 def bet105_debug(date: Optional[str] = None, live: bool = False) -> Dict[str, Any]:
-    return fetch_kibl_bet105_odds(scope="debug", date=date, raw=True, live_only=live)
+    return fetch_bet105_sportsbook_events(date=date, raw=True, live_only=live)
 
 
 @router.get("/odds/compare/events")
@@ -236,7 +239,7 @@ def compare_odds_events(date: Optional[str] = None, books: str = "bet105,draftki
     requested = [book.strip().lower() for book in books.split(",") if book.strip()]
     payloads: Dict[str, Dict[str, Any]] = {}
     if "bet105" in requested:
-        payloads["bet105"] = fetch_kibl_bet105_events(date=date, raw=False)
+        payloads["bet105"] = fetch_bet105_sportsbook_events(date=date, raw=False)
     if "draftkings" in requested:
         with _force_default_draftkings_provider():
             payloads["draftkings"] = fetch_draftkings_events(date=date, raw=False)
