@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter
 
-from .kibl_bet105_sportsbook_provider import fetch_kibl_bet105_event_odds, fetch_kibl_bet105_events
+from .kibl_bet105_sportsbook_runtime import fetch_kibl_bet105_event_odds, fetch_kibl_bet105_events
 from .odds_provider import fetch_draftkings_events
 
 router = APIRouter()
@@ -308,10 +308,9 @@ def calculate_parlay(payload: Dict[str, Any]) -> Dict[str, Any]:
         "american_odds": decimal_to_american(decimal_odds) if valid_legs else None,
         "implied_probability": round(implied, 4) if implied else None,
         "stake": round(stake, 2),
-        "potential_payout": round(payout, 2),
-        "potential_profit": round(max(payout - stake, 0), 2),
-        "legs": valid_legs,
+        "payout": round(payout, 2),
+        "profit": round(max(payout - stake, 0.0), 2),
+        "valid_legs": valid_legs,
         "invalid_legs": invalid_legs,
-        "warnings": sorted(set(warnings)),
-        "mode": "informational_calculator_only",
+        "warnings": warnings,
     }
