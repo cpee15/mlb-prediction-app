@@ -4,6 +4,7 @@ import datetime as dt
 import os
 import re
 import time
+from collections import defaultdict
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
@@ -33,19 +34,48 @@ _UTC = dt.timezone.utc
 
 _MARKET_ALIASES = {
     "h2h": "h2h",
+    "head_to_head": "h2h",
     "moneyline": "h2h",
+    "money_line": "h2h",
     "ml": "h2h",
     "spreads": "spreads",
     "spread": "spreads",
+    "point_spread": "spreads",
     "run_line": "spreads",
     "runline": "spreads",
     "totals": "totals",
     "total": "totals",
+    "total_runs": "totals",
     "over_under": "totals",
     "ou": "totals",
 }
 
 _SECRET_KEYS = {"password", "token", "authorization", "access_token", "accesstoken", "id_token", "refresh_token"}
+_LIST_KEYS = (
+    "events", "games", "data", "items", "results", "fixtures", "matches", "odds", "lines", "rows", "records", "markets", "prices"
+)
+_EVENT_ID_KEYS = (
+    "event_id", "eventId", "eventID", "game_id", "gameId", "gameID", "fixture_id", "fixtureId", "match_id", "matchId", "id", "event", "event_key", "kibl_event_id"
+)
+_HOME_KEYS = (
+    "home_team", "homeTeam", "home_team_name", "homeTeamName", "home", "home_name", "homeName", "team_home", "home_participant", "homeParticipant"
+)
+_AWAY_KEYS = (
+    "away_team", "awayTeam", "away_team_name", "awayTeamName", "away", "away_name", "awayName", "team_away", "away_participant", "awayParticipant"
+)
+_START_KEYS = (
+    "start_time", "startTime", "commence_time", "commenceTime", "game_time", "gameTime", "scheduled", "scheduled_time", "event_time", "eventTime", "startDate", "start_date", "eventDate", "event_date", "date", "match_date"
+)
+_MARKET_KEYS = (
+    "market_key", "marketKey", "market_type", "marketType", "market", "bet_type", "betType", "wager_type", "wagerType", "type", "name", "description", "key"
+)
+_SELECTION_KEYS = (
+    "selection", "selection_name", "selectionName", "outcome", "outcome_name", "outcomeName", "label", "team", "team_name", "participant", "participant_name", "player_name", "playerName", "name", "side", "designation", "description"
+)
+_PRICE_KEYS = (
+    "american", "american_odds", "americanOdds", "odds_american", "price", "line_price", "moneyline", "odds", "current_price", "currentPrice"
+)
+_LINE_KEYS = ("line", "point", "points", "handicap", "spread", "total", "value", "threshold")
 
 
 def _now() -> int:
@@ -137,6 +167,14 @@ def _extract_first(item: Dict[str, Any], keys: Iterable[str]) -> Any:
     return None
 
 
+def _nested_name(value: Any) -> Optional[str]:
+    if isinstance(value, dict):
+        value = _extract_first(value, ("name", "display_name", "displayName", "team_name", "teamName", "fullName", "title"))
+    if value in (None, ""):
+        return None
+    return str(value)
+
+
 def _walk_dicts(value: Any) -> Iterable[Dict[str, Any]]:
     if isinstance(value, dict):
         yield value
@@ -147,20 +185,46 @@ def _walk_dicts(value: Any) -> Iterable[Dict[str, Any]]:
             yield from _walk_dicts(child)
 
 
+def _walk_lists(value: Any) -> Iterable[List[Dict[str, Any]]]:
+    if isinstance(value, dict):
+        for key in _LIST_KEYS:
+            child = value.get(key)
+            if isinstance(child, list) and any(isinstance(item, dict) for item in child):
+                yield [item for item in child if isinstance(item, dict)]
+        for child in value.values():
+            yield from _walk_lists(child)
+    elif isinstance(value, list):
+        if any(isinstance(item, dict) for item in value):
+            yield [item for item in value if isinstance(item, dict)]
+        for child in value:
+            yield from _walk_lists(child)
+
+
+def _row_signal(row: Dict[str, Any]) -> int:
+    keys = set(row.keys())
+    score = 0
+    if keys.intersection(_EVENT_ID_KEYS):
+        score += 3
+    if keys.intersection(_HOME_KEYS) or keys.intersection(_AWAY_KEYS):
+        score += 4
+    if keys.intersection(_MARKET_KEYS):
+        score += 2
+    if keys.intersection(_SELECTION_KEYS):
+        score += 1
+    if keys.intersection(_PRICE_KEYS):
+        score += 3
+    if keys.intersection(_START_KEYS):
+        score += 1
+    return score
+
+
 def _find_list_payload(payload: Any) -> List[Dict[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
-    if not isinstance(payload, dict):
+    candidates = list(_walk_lists(payload))
+    if not candidates:
         return []
-    for key in ("events", "games", "data", "items", "results", "fixtures", "matches"):
-        value = payload.get(key)
-        if isinstance(value, list):
-            return [item for item in value if isinstance(item, dict)]
-    lists: List[List[Dict[str, Any]]] = []
-    for value in payload.values():
-        if isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
-            lists.append(value)
-    return max(lists, key=len) if lists else []
+    return max(candidates, key=lambda rows: (sum(_row_signal(row) for row in rows[:50]), len(rows)))
 
 
 def _parse_date(value: Optional[str]) -> Optional[dt.date]:
@@ -300,7 +364,7 @@ def _market_filter(market_types: Optional[List[str]], props_only: bool = False) 
     elif market_types:
         env_value = ",".join(market_types)
     else:
-        env_value = os.getenv("KIBL_MARKETS", "h2h,spreads,totals")
+        env_value = os.getenv("KIBL_MARKETS", "")
     values: List[str] = []
     for piece in env_value.split(","):
         raw = piece.strip()
@@ -317,6 +381,7 @@ def build_kibl_bet105_request_params(
     market_types: Optional[List[str]] = None,
     live_only: Optional[bool] = None,
     event_id: Optional[str] = None,
+    include_markets: bool = True,
 ) -> Dict[str, Any]:
     is_live = bool(live_only or str(scope).lower() == "live")
     params: Dict[str, Any] = {
@@ -325,8 +390,10 @@ def build_kibl_bet105_request_params(
             "KIBL_LIVE_BETTING_TYPE_ID" if is_live else "KIBL_PREMATCH_BETTING_TYPE_ID",
             _DEFAULT_LIVE_BETTING_TYPE_ID if is_live else _DEFAULT_PREMATCH_BETTING_TYPE_ID,
         ),
-        "markets": ",".join(_market_filter(market_types, props_only=props_only)),
     }
+    markets = _market_filter(market_types, props_only=props_only) if include_markets else []
+    if markets:
+        params["markets"] = ",".join(markets)
     params.update(_date_window_params(date))
     if event_id:
         params["event_id"] = event_id
@@ -349,52 +416,34 @@ def _candidate_paths(scope: str, event_id: Optional[str] = None) -> List[str]:
     return clean
 
 
+def _payload_item_count(payload: Any) -> int:
+    return len(_find_list_payload(payload))
+
+
 def _fetch_kibl_payload(scope: str, params: Dict[str, Any], event_id: Optional[str] = None) -> Tuple[Any, str]:
     token = _get_access_token()
     base_url = os.getenv("KIBL_BASE_URL", _DEFAULT_BASE_URL).rstrip("/")
     timeout = int(os.getenv("KIBL_TIMEOUT_SECONDS", str(_DEFAULT_TIMEOUT_SECONDS)))
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     errors: List[str] = []
+    first_success: Optional[Tuple[Any, str]] = None
     for path in _candidate_paths(scope, event_id=event_id):
         url = f"{base_url}/{path}/"
         try:
             response = requests.get(url, params=params, headers=headers, timeout=timeout)
             response.raise_for_status()
-            return response.json(), path
+            payload = response.json()
+            if first_success is None:
+                first_success = (payload, path)
+            if _payload_item_count(payload) > 0:
+                return payload, path
         except Exception as exc:
             errors.append(f"{path}: {exc}")
             if os.getenv("KIBL_ODDS_PATH"):
                 break
+    if first_success is not None:
+        return first_success
     raise RuntimeError("; ".join(errors) or "KIBL request failed")
-
-
-def _event_id(item: Dict[str, Any], fallback_index: int) -> str:
-    value = _extract_first(item, ("event_id", "eventId", "game_id", "gameId", "id", "fixture_id", "match_id"))
-    return str(value if value is not None else f"kibl_event_{fallback_index}")
-
-
-def _team_names(item: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
-    home = _extract_first(item, ("home_team", "homeTeam", "home", "home_name", "homeName", "team_home"))
-    away = _extract_first(item, ("away_team", "awayTeam", "away", "away_name", "awayName", "team_away"))
-    if isinstance(home, dict):
-        home = _extract_first(home, ("name", "team_name", "display_name"))
-    if isinstance(away, dict):
-        away = _extract_first(away, ("name", "team_name", "display_name"))
-    competitors = item.get("competitors") or item.get("participants") or item.get("teams")
-    if (not home or not away) and isinstance(competitors, list):
-        for participant in competitors:
-            if not isinstance(participant, dict):
-                continue
-            name = _extract_first(participant, ("name", "team_name", "display_name"))
-            role = str(_extract_first(participant, ("home_away", "side", "type", "qualifier")) or "").lower()
-            if "home" in role and not home:
-                home = name
-            elif "away" in role and not away:
-                away = name
-        if len(competitors) >= 2:
-            away = away or _extract_first(competitors[0], ("name", "team_name", "display_name"))
-            home = home or _extract_first(competitors[1], ("name", "team_name", "display_name"))
-    return str(away) if away else None, str(home) if home else None
 
 
 def _market_key(raw: Any) -> str:
@@ -404,22 +453,29 @@ def _market_key(raw: Any) -> str:
 
 
 def _price_from_selection(selection: Dict[str, Any]) -> Optional[int]:
-    american = _extract_first(selection, ("american", "american_odds", "odds_american", "price", "line_price", "moneyline"))
+    american = _extract_first(selection, _PRICE_KEYS)
+    if isinstance(american, dict):
+        nested = _extract_first(american, ("american", "american_odds", "americanOdds", "price"))
+        parsed = _safe_int(nested)
+        if parsed is not None and abs(parsed) >= 100:
+            return parsed
+        decimal_price = _safe_float(_extract_first(american, ("decimal", "decimal_odds", "decimalOdds")))
+        return _american_from_decimal(decimal_price)
     parsed = _safe_int(american)
     if parsed is not None and abs(parsed) >= 100:
         return parsed
-    decimal_price = _safe_float(_extract_first(selection, ("decimal", "decimal_odds", "odds_decimal")))
+    decimal_price = _safe_float(_extract_first(selection, ("decimal", "decimal_odds", "decimalOdds", "odds_decimal")))
     return _american_from_decimal(decimal_price)
 
 
-def _line_from_selection(selection: Dict[str, Any], market: Dict[str, Any]) -> Optional[float]:
-    return _safe_float(_extract_first(selection, ("line", "point", "points", "handicap", "total", "value")) or _extract_first(market, ("line", "point", "points", "handicap", "total", "value")))
+def _line_from_selection(selection: Dict[str, Any], market: Optional[Dict[str, Any]] = None) -> Optional[float]:
+    return _safe_float(_extract_first(selection, _LINE_KEYS) or _extract_first(market or {}, _LINE_KEYS))
 
 
-def _selection_name(selection: Dict[str, Any], market: Dict[str, Any]) -> Optional[str]:
-    value = _extract_first(selection, ("name", "selection", "outcome", "label", "team", "participant", "player_name", "description"))
+def _selection_name(selection: Dict[str, Any], market: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    value = _extract_first(selection, _SELECTION_KEYS)
     if isinstance(value, dict):
-        value = _extract_first(value, ("name", "display_name", "team_name"))
+        value = _nested_name(value)
     if value is None:
         side = _extract_first(selection, ("side", "designation"))
         if side:
@@ -427,15 +483,15 @@ def _selection_name(selection: Dict[str, Any], market: Dict[str, Any]) -> Option
     return str(value) if value is not None else None
 
 
-def _normalize_selection(selection: Dict[str, Any], market: Dict[str, Any], index: int) -> Dict[str, Any]:
+def _normalize_selection(selection: Dict[str, Any], market: Optional[Dict[str, Any]], index: int) -> Dict[str, Any]:
     price = _price_from_selection(selection)
-    name = _selection_name(selection, market)
+    name = _selection_name(selection, market) or "Selection"
     line = _line_from_selection(selection, market)
     return {
-        "selection_id": _extract_first(selection, ("id", "selection_id", "outcome_id")) or f"selection_{index}",
+        "selection_id": _extract_first(selection, ("id", "selection_id", "selectionId", "outcome_id", "outcomeId")) or f"selection_{index}",
         "name": name,
-        "description": _extract_first(selection, ("description", "label", "market_description")),
-        "team": _extract_first(selection, ("team", "team_name")) or name,
+        "description": _extract_first(selection, ("description", "label", "market_description", "marketDescription")) or name,
+        "team": _nested_name(_extract_first(selection, ("team", "team_name", "participant"))) or name,
         "side": _extract_first(selection, ("side", "designation")) or name,
         "line": line,
         "odds": {
@@ -473,18 +529,18 @@ def _market_lists(item: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _normalize_market(market: Dict[str, Any], index: int) -> Dict[str, Any]:
-    raw_key = _extract_first(market, ("market_key", "market_type", "market", "type", "name", "description", "key"))
+    raw_key = _extract_first(market, _MARKET_KEYS)
     market_key = _market_key(raw_key)
     selections = [_normalize_selection(selection, market, idx) for idx, selection in enumerate(_selection_lists(market))]
     return {
-        "market_id": _extract_first(market, ("id", "market_id", "key")) or f"market_{index}",
+        "market_id": _extract_first(market, ("id", "market_id", "marketId", "key")) or f"market_{index}",
         "market_key": market_key,
         "market_name": raw_key or market_key,
         "market_type": market_key,
-        "line": _safe_float(_extract_first(market, ("line", "point", "points", "handicap", "total"))),
-        "period": _extract_first(market, ("period", "period_name")),
+        "line": _safe_float(_extract_first(market, _LINE_KEYS)),
+        "period": _extract_first(market, ("period", "period_name", "periodName")),
         "is_open": bool(_extract_first(market, ("is_open", "open", "active", "is_active")) if _extract_first(market, ("is_open", "open", "active", "is_active")) is not None else True),
-        "last_update": _extract_first(market, ("last_update", "updated_at", "timestamp")),
+        "last_update": _extract_first(market, ("last_update", "lastUpdate", "updated_at", "updatedAt", "timestamp")),
         "bookmaker_key": "bet105",
         "bookmaker_title": _BOOK,
         "selections": selections,
@@ -492,28 +548,145 @@ def _normalize_market(market: Dict[str, Any], index: int) -> Dict[str, Any]:
     }
 
 
+def _event_id(item: Dict[str, Any], fallback_index: int) -> str:
+    value = _extract_first(item, _EVENT_ID_KEYS)
+    if isinstance(value, dict):
+        value = _extract_first(value, ("id", "event_id", "eventId"))
+    if value is not None:
+        return str(value)
+    away, home = _team_names(item)
+    start = _extract_first(item, _START_KEYS)
+    if away or home or start:
+        return re.sub(r"[^a-zA-Z0-9]+", "_", f"{away}_{home}_{start}").strip("_")
+    return f"kibl_event_{fallback_index}"
+
+
+def _team_names(item: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    home = _nested_name(_extract_first(item, _HOME_KEYS))
+    away = _nested_name(_extract_first(item, _AWAY_KEYS))
+    competitors = item.get("competitors") or item.get("participants") or item.get("teams")
+    if (not home or not away) and isinstance(competitors, list):
+        for participant in competitors:
+            if not isinstance(participant, dict):
+                continue
+            name = _nested_name(participant)
+            role = str(_extract_first(participant, ("home_away", "homeAway", "side", "type", "qualifier")) or "").lower()
+            if "home" in role and not home:
+                home = name
+            elif "away" in role and not away:
+                away = name
+        if len(competitors) >= 2:
+            away = away or _nested_name(competitors[0])
+            home = home or _nested_name(competitors[1])
+    return str(away) if away else None, str(home) if home else None
+
+
 def _normalize_event(item: Dict[str, Any], index: int, is_live: bool = False) -> Dict[str, Any]:
     event_id = _event_id(item, index)
     away, home = _team_names(item)
-    start_time = _iso(_extract_first(item, ("start_time", "commence_time", "game_time", "scheduled", "event_time", "startDate", "eventDate")))
+    start_time = _iso(_extract_first(item, _START_KEYS))
     markets = [_normalize_market(market, idx) for idx, market in enumerate(_market_lists(item))]
     return {
         "event_id": event_id,
-        "name": f"{away} @ {home}" if away or home else str(_extract_first(item, ("name", "event_name", "description")) or event_id),
-        "sport": _extract_first(item, ("sport", "sport_title", "sport_name")) or "Baseball",
-        "league": _extract_first(item, ("league", "league_name", "competition", "sport_key")) or "MLB",
-        "league_id": _extract_first(item, ("league_id", "competition_id")) or "mlb",
+        "name": f"{away} @ {home}" if away or home else str(_extract_first(item, ("name", "event_name", "eventName", "description")) or event_id),
+        "sport": _extract_first(item, ("sport", "sport_title", "sport_name", "sportName")) or "Baseball",
+        "league": _extract_first(item, ("league", "league_name", "leagueName", "competition", "sport_key")) or "MLB",
+        "league_id": _extract_first(item, ("league_id", "leagueId", "competition_id")) or "mlb",
         "home_team": {"name": home},
         "away_team": {"name": away},
         "start_time": start_time,
-        "status": _extract_first(item, ("status", "event_status")) or ("live" if is_live else "scheduled"),
-        "is_live": bool(is_live or _extract_first(item, ("is_live", "live", "in_play")) is True),
+        "status": _extract_first(item, ("status", "event_status", "eventStatus")) or ("live" if is_live else "scheduled"),
+        "is_live": bool(is_live or _extract_first(item, ("is_live", "isLive", "live", "in_play", "inPlay")) is True),
         "source_url": None,
         "scraped_at": _now(),
         "markets": markets,
         "market_count": len(markets),
         "raw": item,
     }
+
+
+def _looks_like_flat_odds_row(row: Dict[str, Any]) -> bool:
+    return bool(_extract_first(row, _PRICE_KEYS) is not None and (_extract_first(row, _MARKET_KEYS) is not None or _extract_first(row, _SELECTION_KEYS) is not None))
+
+
+def _event_name_from_row(row: Dict[str, Any], event_id: str, away: Optional[str], home: Optional[str]) -> str:
+    explicit = _extract_first(row, ("event_name", "eventName", "matchup", "name", "description"))
+    if explicit:
+        return str(explicit)
+    if away or home:
+        return f"{away} @ {home}"
+    return event_id
+
+
+def _events_from_flat_rows(rows: List[Dict[str, Any]], is_live: bool = False) -> List[Dict[str, Any]]:
+    groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict) or not _looks_like_flat_odds_row(row):
+            continue
+        groups[_event_id(row, idx)].append(row)
+
+    events: List[Dict[str, Any]] = []
+    for event_index, (event_id, event_rows) in enumerate(groups.items()):
+        seed = event_rows[0]
+        away, home = _team_names(seed)
+        start_time = _iso(_extract_first(seed, _START_KEYS))
+        market_groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for row in event_rows:
+            raw_market = _extract_first(row, _MARKET_KEYS) or _extract_first(seed, _MARKET_KEYS) or "market"
+            line = _line_from_selection(row)
+            key = f"{_market_key(raw_market)}:{line if line is not None else 'none'}"
+            market_groups[key].append(row)
+
+        markets: List[Dict[str, Any]] = []
+        for market_index, (market_group_key, market_rows) in enumerate(market_groups.items()):
+            first = market_rows[0]
+            raw_key = _extract_first(first, _MARKET_KEYS) or market_group_key.split(":", 1)[0]
+            market_key = _market_key(raw_key)
+            line = _line_from_selection(first)
+            markets.append({
+                "market_id": _extract_first(first, ("market_id", "marketId", "id", "key")) or f"{event_id}_market_{market_index}",
+                "market_key": market_key,
+                "market_name": raw_key or market_key,
+                "market_type": market_key,
+                "line": line,
+                "period": _extract_first(first, ("period", "period_name", "periodName")),
+                "is_open": bool(_extract_first(first, ("is_open", "open", "active", "is_active")) if _extract_first(first, ("is_open", "open", "active", "is_active")) is not None else True),
+                "last_update": _extract_first(first, ("last_update", "lastUpdate", "updated_at", "updatedAt", "timestamp")),
+                "bookmaker_key": "bet105",
+                "bookmaker_title": _BOOK,
+                "selections": [_normalize_selection(row, first, idx) for idx, row in enumerate(market_rows)],
+                "raw": {"rows": market_rows},
+            })
+
+        events.append({
+            "event_id": event_id,
+            "name": _event_name_from_row(seed, event_id, away, home),
+            "sport": _extract_first(seed, ("sport", "sport_title", "sport_name", "sportName")) or "Baseball",
+            "league": _extract_first(seed, ("league", "league_name", "leagueName", "competition", "sport_key")) or "MLB",
+            "league_id": _extract_first(seed, ("league_id", "leagueId", "competition_id")) or "mlb",
+            "home_team": {"name": home},
+            "away_team": {"name": away},
+            "start_time": start_time,
+            "status": _extract_first(seed, ("status", "event_status", "eventStatus")) or ("live" if is_live else "scheduled"),
+            "is_live": bool(is_live or _extract_first(seed, ("is_live", "isLive", "live", "in_play", "inPlay")) is True),
+            "source_url": None,
+            "scraped_at": _now(),
+            "markets": markets,
+            "market_count": len(markets),
+            "raw": {"rows": event_rows},
+        })
+    return events
+
+
+def _normalize_payload_items(items: List[Dict[str, Any]], is_live: bool = False) -> List[Dict[str, Any]]:
+    nested_events = [_normalize_event(item, idx, is_live=is_live) for idx, item in enumerate(items)]
+    nested_events = [event for event in nested_events if event.get("markets")]
+    flat_events = _events_from_flat_rows(items, is_live=is_live)
+    if flat_events and (not nested_events or sum(event.get("market_count", 0) for event in flat_events) >= sum(event.get("market_count", 0) for event in nested_events)):
+        return flat_events
+    if nested_events:
+        return nested_events
+    return [_normalize_event(item, idx, is_live=is_live) for idx, item in enumerate(items) if _row_signal(item) > 0]
 
 
 def _flatten_markets(events: List[Dict[str, Any]], game_pk: Optional[Any] = None) -> List[Dict[str, Any]]:
@@ -555,6 +728,15 @@ def _without_raw_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return cleaned
 
 
+def _try_fetch_and_normalize(scope: str, params: Dict[str, Any], game_pk: Optional[Any], is_live: bool) -> Tuple[Any, str, List[Dict[str, Any]], List[Dict[str, Any]]]:
+    payload, path = _fetch_kibl_payload(scope, params, event_id=str(game_pk) if game_pk is not None else None)
+    items = _find_list_payload(payload)
+    events = _normalize_payload_items(items, is_live=is_live)
+    if game_pk is not None:
+        events = [event for event in events if str(event.get("event_id")) == str(game_pk)]
+    return payload, path, items, events
+
+
 def fetch_kibl_bet105_odds(
     scope: str = "events",
     game_pk: Optional[Any] = None,
@@ -568,21 +750,27 @@ def fetch_kibl_bet105_odds(
 ) -> Dict[str, Any]:
     if not _configured():
         return _not_configured(scope, game_pk=game_pk)
+
+    is_live = bool(live_only or str(scope).lower() == "live")
     params = build_kibl_bet105_request_params(scope, date=date, props_only=props_only, market_types=market_types, live_only=live_only, event_id=str(game_pk) if game_pk is not None else None)
-    cache_key = f"kibl:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}"
+    cache_key = f"kibl:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:v2"
     cached = _cache_get(cache_key)
     if cached:
         return cached
+
+    retry_notes: List[str] = []
     try:
-        payload, path = _fetch_kibl_payload(scope, params, event_id=str(game_pk) if game_pk is not None else None)
-        items = _find_list_payload(payload)
-        is_live = bool(live_only or str(scope).lower() == "live")
-        events = [_normalize_event(item, idx, is_live=is_live) for idx, item in enumerate(items)]
-        if game_pk is not None:
-            events = [event for event in events if str(event.get("event_id")) == str(game_pk)]
+        payload, path, items, events = _try_fetch_and_normalize(scope, params, game_pk, is_live)
+        if not events and params.get("markets"):
+            retry_params = build_kibl_bet105_request_params(scope, date=date, props_only=props_only, market_types=None, live_only=live_only, event_id=str(game_pk) if game_pk is not None else None, include_markets=False)
+            retry_payload, retry_path, retry_items, retry_events = _try_fetch_and_normalize(scope, retry_params, game_pk, is_live)
+            retry_notes.append("retried_without_markets_filter")
+            if retry_events or len(retry_items) > len(items):
+                payload, path, items, events, params = retry_payload, retry_path, retry_items, retry_events, retry_params
         markets = _flatten_markets(events, game_pk=game_pk)
     except Exception as exc:
         return _provider_error(scope, game_pk, exc, request_params=params)
+
     normalized: Dict[str, Any] = {
         "provider": _PROVIDER,
         "book": _BOOK,
@@ -602,9 +790,10 @@ def fetch_kibl_bet105_odds(
         "errors": [],
         "request_params": _redact({**params, "path": path}),
         "cache_hit": False,
+        "normalization_notes": retry_notes,
     }
     if raw or scope == "debug":
-        normalized["raw_items_sample"] = items[:10]
+        normalized["raw_items_sample"] = _redact(items[:10])
     _cache_set(cache_key, normalized)
     return normalized
 
