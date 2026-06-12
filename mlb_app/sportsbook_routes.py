@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter
 
-from .kibl_bet105_provider import fetch_kibl_bet105_event_odds, fetch_kibl_bet105_events
+from .kibl_bet105_sportsbook_provider import fetch_kibl_bet105_event_odds, fetch_kibl_bet105_events
 from .odds_provider import fetch_draftkings_events
 
 router = APIRouter()
@@ -132,9 +132,9 @@ def _payload_market_count(payload: Dict[str, Any]) -> int:
 def _normalize_bet105_route_status(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     The sportsbook page needs a hard distinction between real odds boards and
-    fixture-only responses. The canonical provider already returns normalized
-    fixtures/markets; enforce the route contract here so the frontend never has
-    to infer provider state from missing odds.
+    fixture-only responses. The provider returns normalized fixtures/markets;
+    enforce the route contract here so the frontend never has to infer provider
+    state from missing odds.
     """
     if not isinstance(payload, dict):
         return payload
