@@ -51,10 +51,6 @@ def _market_request_bodies(params: Dict[str, Any], fixture_ids: List[str]) -> Li
 
 
 def _market_body_sets(params: Dict[str, Any], fixture_ids: List[str]) -> List[tuple[str, Dict[str, Any], List[Dict[str, Any]]]]:
-    """
-    Fixtures are date-scoped. KIBL markets are often feed-scoped/current-state rows,
-    so try both dated and core feed params before concluding fixture-only.
-    """
     core_params = _core_market_params(params)
     return [
         ("dated", params, _market_request_bodies(params, fixture_ids)),
@@ -77,7 +73,6 @@ def _event_market_count(events: List[Dict[str, Any]]) -> int:
 
 
 def _prefer_market_candidate(candidate_events: List[Dict[str, Any]], current_events: List[Dict[str, Any]], game_pk: Optional[Any] = None) -> bool:
-    """Prefer candidates with real flattenable markets over fixture-like events."""
     candidate_flat = _flattened_market_count(candidate_events, game_pk=game_pk)
     current_flat = _flattened_market_count(current_events, game_pk=game_pk)
     if candidate_flat != current_flat:
@@ -89,6 +84,139 @@ def _prefer_market_candidate(candidate_events: List[Dict[str, Any]], current_eve
         return candidate_markets > current_markets
 
     return len(candidate_events) > len(current_events)
+
+
+def _extract_fixture_id_from_event(event: Dict[str, Any]) -> Optional[str]:
+    raw = event.get("raw")
+    if isinstance(raw, dict):
+        if raw.get("fixture_id") is not None:
+            return str(raw.get("fixture_id"))
+        rows = raw.get("rows")
+        if isinstance(rows, list) and rows:
+            first = rows[0]
+            if isinstance(first, dict) and first.get("fixture_id") is not None:
+                return str(first.get("fixture_id"))
+    return None
+
+
+def _placeholder_team_name(value: Any) -> bool:
+    name = None
+    if isinstance(value, dict):
+        name = value.get("name")
+    elif value is not None:
+        name = str(value)
+    if name is None:
+        return True
+    return str(name).strip() in {"", "Away", "Home", "Unknown"}
+
+
+def _placeholder_event_name(value: Any) -> bool:
+    if value is None:
+        return True
+    text = str(value).strip()
+    return text in {"", "Away @ Home", "Home @ Away", "Unknown @ Unknown"}
+
+
+def _fixture_metadata_from_item(item: Dict[str, Any], fallback_index: int = 0) -> Dict[str, Any]:
+    away, home = base._team_names(item)
+    start_time = base._iso(base._extract_first(item, base._START_KEYS))
+    event_id = str(base._event_id(item, fallback_index))
+    fixture_id = item.get("fixture_id")
+    if fixture_id is not None:
+        fixture_id = str(fixture_id)
+    return {
+        "event_id": event_id,
+        "fixture_id": fixture_id,
+        "name": f"{away} @ {home}" if away or home else None,
+        "sport": base._extract_first(item, ("sport", "sport_title", "sport_name", "sportName")) or None,
+        "league": base._extract_first(item, ("league", "league_name", "leagueName", "competition", "sport_key")) or None,
+        "league_id": base._extract_first(item, ("league_id", "leagueId", "competition_id")) or None,
+        "home_team": {"name": home} if home else None,
+        "away_team": {"name": away} if away else None,
+        "start_time": start_time,
+        "status": base._extract_first(item, ("status", "event_status", "eventStatus")) or None,
+        "is_live": item.get("is_live"),
+    }
+
+
+def _build_fixture_indexes(fixture_items: List[Dict[str, Any]], fixture_events: List[Dict[str, Any]]) -> tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    by_event_id: Dict[str, Dict[str, Any]] = {}
+    by_fixture_id: Dict[str, Dict[str, Any]] = {}
+
+    for idx, item in enumerate(fixture_items):
+        metadata = _fixture_metadata_from_item(item, idx)
+        if metadata.get("event_id"):
+            by_event_id[str(metadata["event_id"])] = metadata
+        if metadata.get("fixture_id"):
+            by_fixture_id[str(metadata["fixture_id"])] = metadata
+
+    for event in fixture_events:
+        metadata = {
+            "event_id": str(event.get("event_id")) if event.get("event_id") is not None else None,
+            "fixture_id": _extract_fixture_id_from_event(event),
+            "name": event.get("name"),
+            "sport": event.get("sport"),
+            "league": event.get("league"),
+            "league_id": event.get("league_id"),
+            "home_team": event.get("home_team"),
+            "away_team": event.get("away_team"),
+            "start_time": event.get("start_time"),
+            "status": event.get("status"),
+            "is_live": event.get("is_live"),
+        }
+        if metadata.get("event_id"):
+            existing = by_event_id.get(str(metadata["event_id"]), {})
+            by_event_id[str(metadata["event_id"])] = {**existing, **{k: v for k, v in metadata.items() if v not in (None, "", {"name": None})}}
+        if metadata.get("fixture_id"):
+            existing = by_fixture_id.get(str(metadata["fixture_id"]), {})
+            by_fixture_id[str(metadata["fixture_id"])] = {**existing, **{k: v for k, v in metadata.items() if v not in (None, "", {"name": None})}}
+
+    return by_event_id, by_fixture_id
+
+
+def _enrich_market_events_with_fixture_metadata(
+    market_events: List[Dict[str, Any]],
+    fixture_items: List[Dict[str, Any]],
+    fixture_events: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    by_event_id, by_fixture_id = _build_fixture_indexes(fixture_items, fixture_events)
+    enriched: List[Dict[str, Any]] = []
+
+    for event in market_events:
+        fixture_id = _extract_fixture_id_from_event(event)
+        metadata = None
+        if fixture_id:
+            metadata = by_fixture_id.get(str(fixture_id))
+        if metadata is None and event.get("event_id") is not None:
+            metadata = by_event_id.get(str(event.get("event_id")))
+        if metadata is None:
+            enriched.append(event)
+            continue
+
+        event_copy = dict(event)
+        if _placeholder_team_name(event_copy.get("away_team")) and metadata.get("away_team"):
+            event_copy["away_team"] = metadata["away_team"]
+        if _placeholder_team_name(event_copy.get("home_team")) and metadata.get("home_team"):
+            event_copy["home_team"] = metadata["home_team"]
+        if not event_copy.get("start_time") and metadata.get("start_time"):
+            event_copy["start_time"] = metadata["start_time"]
+        if _placeholder_event_name(event_copy.get("name")):
+            away_name = None
+            home_name = None
+            if isinstance(event_copy.get("away_team"), dict):
+                away_name = event_copy["away_team"].get("name")
+            if isinstance(event_copy.get("home_team"), dict):
+                home_name = event_copy["home_team"].get("name")
+            if away_name or home_name:
+                event_copy["name"] = f"{away_name or 'Away'} @ {home_name or 'Home'}"
+            elif metadata.get("name"):
+                event_copy["name"] = metadata["name"]
+        for key in ("sport", "league", "league_id", "status", "is_live"):
+            if event_copy.get(key) in (None, "") and metadata.get(key) not in (None, ""):
+                event_copy[key] = metadata[key]
+        enriched.append(event_copy)
+
+    return enriched
 
 
 def fetch_kibl_bet105_events(date: Optional[str] = None, raw: bool = False, live_only: Optional[bool] = None) -> Dict[str, Any]:
@@ -132,7 +260,7 @@ def fetch_kibl_bet105_odds(
         live_only=live_only,
         event_id=str(game_pk) if game_pk is not None else None,
     )
-    cache_key = f"kibl-sportsbook:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:fixture-first-v3"
+    cache_key = f"kibl-sportsbook:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:fixture-first-v4"
     cached = base._cache_get(cache_key)
     if cached:
         return cached
@@ -204,7 +332,11 @@ def fetch_kibl_bet105_odds(
                 except Exception as exc:
                     notes.append(f"markets_no_filter_core_error:{exc}")
 
-        events = base._merge_fixture_metadata(market_events, fixture_events) if market_events else fixture_events
+        if market_events:
+            market_events = base._merge_fixture_metadata(market_events, fixture_events)
+            events = _enrich_market_events_with_fixture_metadata(market_events, fixture_items, fixture_events)
+        else:
+            events = fixture_events
         markets = base._flatten_markets(events, game_pk=game_pk)
         raw_items = market_items or fixture_items
     except Exception as exc:
