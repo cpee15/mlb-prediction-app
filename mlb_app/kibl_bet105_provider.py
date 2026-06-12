@@ -66,7 +66,7 @@ _START_KEYS = (
 _MARKET_KEYS = (
     "market_key", "marketKey", "market_type", "marketType", "market_name", "marketName",
     "market", "bet_type", "betType", "wager_type", "wagerType", "type", "name",
-    "description", "key", "label",
+    "description", "key", "label", "market_type_id",
 )
 _SELECTION_KEYS = (
     "selection", "selection_name", "selectionName", "outcome", "outcome_name", "outcomeName",
@@ -75,8 +75,9 @@ _SELECTION_KEYS = (
 )
 _PRICE_KEYS = (
     "american", "american_odds", "americanOdds", "odds_american", "price", "line_price",
-    "moneyline", "odds", "current_price", "currentPrice", "value", "odds_value",
+    "moneyline", "odds", "current_price", "currentPrice", "value", "odds_value", "price_american",
 )
+_DECIMAL_KEYS = ("decimal", "decimal_odds", "decimalOdds", "odds_decimal", "price_decimal")
 _LINE_KEYS = ("line", "point", "points", "handicap", "spread", "total", "threshold")
 
 _MARKET_ALIASES = {
@@ -86,17 +87,22 @@ _MARKET_ALIASES = {
     "money_line": "h2h",
     "money_line_3_way": "h2h",
     "ml": "h2h",
+    "1": "h2h",
     "spreads": "spreads",
     "spread": "spreads",
     "point_spread": "spreads",
     "run_line": "spreads",
     "runline": "spreads",
+    "2": "spreads",
     "totals": "totals",
     "total": "totals",
     "total_runs": "totals",
     "over_under": "totals",
     "ou": "totals",
+    "3": "totals",
 }
+
+_SIDE_ID_LABELS = {1: "away", 2: "home", 3: "over", 4: "under", 5: "draw"}
 
 
 def _now() -> int:
@@ -243,7 +249,7 @@ def _row_signal(row: Dict[str, Any]) -> int:
         score += 2
     if keys.intersection(_SELECTION_KEYS):
         score += 1
-    if keys.intersection(_PRICE_KEYS):
+    if keys.intersection(_PRICE_KEYS) or keys.intersection(_DECIMAL_KEYS):
         score += 3
     if keys.intersection(_START_KEYS):
         score += 1
@@ -375,10 +381,7 @@ def _get_access_token() -> str:
     response = client.initiate_auth(
         ClientId=os.getenv("KIBL_COGNITO_CLIENT_ID", _DEFAULT_CLIENT_ID),
         AuthFlow=os.getenv("KIBL_COGNITO_AUTH_FLOW", "USER_PASSWORD_AUTH"),
-        AuthParameters={
-            "USERNAME": os.environ["KIBL_USERNAME"],
-            "PASSWORD": os.environ["KIBL_PASSWORD"],
-        },
+        AuthParameters={"USERNAME": os.environ["KIBL_USERNAME"], "PASSWORD": os.environ["KIBL_PASSWORD"]},
     )
     auth = response.get("AuthenticationResult") or {}
     access_token = auth.get("AccessToken")
@@ -392,11 +395,7 @@ def _get_access_token() -> str:
 
 def _post_kibl_json(url: str, params: Dict[str, Any], timeout: int) -> Any:
     def _headers(token: str) -> Dict[str, str]:
-        return {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
+        return {"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"}
 
     token = _get_access_token()
     response = requests.post(url, json=params, headers=_headers(token), timeout=timeout)
@@ -423,22 +422,11 @@ def _market_filter(market_types: Optional[List[str]], props_only: bool = False) 
     return values
 
 
-def build_kibl_bet105_request_params(
-    scope: str = "events",
-    date: Optional[str] = None,
-    props_only: bool = False,
-    market_types: Optional[List[str]] = None,
-    live_only: Optional[bool] = None,
-    event_id: Optional[str] = None,
-    include_markets: bool = True,
-) -> Dict[str, Any]:
+def build_kibl_bet105_request_params(scope: str = "events", date: Optional[str] = None, props_only: bool = False, market_types: Optional[List[str]] = None, live_only: Optional[bool] = None, event_id: Optional[str] = None, include_markets: bool = True) -> Dict[str, Any]:
     is_live = bool(live_only or str(scope).lower() == "live")
     params: Dict[str, Any] = {
         "feed_source_id": int(os.getenv("KIBL_FEED_SOURCE_ID", _DEFAULT_FEED_SOURCE_ID)),
-        "betting_type_id": int(os.getenv(
-            "KIBL_LIVE_BETTING_TYPE_ID" if is_live else "KIBL_PREMATCH_BETTING_TYPE_ID",
-            _DEFAULT_LIVE_BETTING_TYPE_ID if is_live else _DEFAULT_PREMATCH_BETTING_TYPE_ID,
-        )),
+        "betting_type_id": int(os.getenv("KIBL_LIVE_BETTING_TYPE_ID" if is_live else "KIBL_PREMATCH_BETTING_TYPE_ID", _DEFAULT_LIVE_BETTING_TYPE_ID if is_live else _DEFAULT_PREMATCH_BETTING_TYPE_ID)),
         "league_id": os.getenv("KIBL_LEAGUE_ID", _DEFAULT_LEAGUE_ID),
         "from_cache": False,
     }
@@ -504,21 +492,29 @@ def _market_key(raw: Any) -> str:
 def _price_from_selection(selection: Dict[str, Any]) -> Optional[int]:
     american = _extract_first(selection, _PRICE_KEYS)
     if isinstance(american, dict):
-        nested = _extract_first(american, ("american", "american_odds", "americanOdds", "price"))
+        nested = _extract_first(american, ("american", "american_odds", "americanOdds", "price", "price_american"))
         parsed = _safe_int(nested)
-        if parsed is not None and abs(parsed) >= 100:
+        if parsed is not None:
             return parsed
-        decimal_price = _safe_float(_extract_first(american, ("decimal", "decimal_odds", "decimalOdds")))
-        return _american_from_decimal(decimal_price)
+        return _american_from_decimal(_safe_float(_extract_first(american, _DECIMAL_KEYS)))
     parsed = _safe_int(american)
-    if parsed is not None and abs(parsed) >= 100:
+    if parsed is not None:
         return parsed
-    decimal_price = _safe_float(_extract_first(selection, ("decimal", "decimal_odds", "decimalOdds", "odds_decimal")))
-    return _american_from_decimal(decimal_price)
+    return _american_from_decimal(_safe_float(_extract_first(selection, _DECIMAL_KEYS)))
 
 
 def _line_from_selection(selection: Dict[str, Any], market: Optional[Dict[str, Any]] = None) -> Optional[float]:
     return _safe_float(_extract_first(selection, _LINE_KEYS) or _extract_first(market or {}, _LINE_KEYS))
+
+
+def _team_name_for_side(selection: Dict[str, Any], market: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    market = market or {}
+    side_id = _safe_int(_extract_first(selection, ("participant_side_id", "side_id", "sideId", "participantSideId")))
+    if side_id == 1:
+        return _nested_name(_extract_first(market, ("away_team", "awayTeam", "away", "away_name", "awayName"))) or "Away"
+    if side_id == 2:
+        return _nested_name(_extract_first(market, ("home_team", "homeTeam", "home", "home_name", "homeName"))) or "Home"
+    return None
 
 
 def _selection_name(selection: Dict[str, Any], market: Optional[Dict[str, Any]] = None) -> Optional[str]:
@@ -526,9 +522,11 @@ def _selection_name(selection: Dict[str, Any], market: Optional[Dict[str, Any]] 
     if isinstance(value, dict):
         value = _nested_name(value)
     if value is None:
-        side = _extract_first(selection, ("side", "designation"))
-        if side:
-            value = side
+        value = _team_name_for_side(selection, market)
+    if value is None:
+        side = _safe_int(_extract_first(selection, ("participant_side_id", "side_id", "sideId", "participantSideId")))
+        if side in _SIDE_ID_LABELS:
+            value = _SIDE_ID_LABELS[side].title()
     return str(value) if value is not None else None
 
 
@@ -537,20 +535,15 @@ def _normalize_selection(selection: Dict[str, Any], market: Optional[Dict[str, A
     name = _selection_name(selection, market) or "Selection"
     line = _line_from_selection(selection, market)
     return {
-        "selection_id": _extract_first(selection, ("id", "selection_id", "selectionId", "outcome_id", "outcomeId")) or f"selection_{index}",
+        "selection_id": _extract_first(selection, ("id", "selection_id", "selectionId", "outcome_id", "outcomeId", "fixture_participant_id", "participant_id")) or f"selection_{index}",
         "name": name,
         "description": _extract_first(selection, ("description", "label", "market_description", "marketDescription")) or name,
-        "team": _nested_name(_extract_first(selection, ("team", "team_name", "participant"))) or name,
-        "side": _extract_first(selection, ("side", "designation")) or name,
+        "team": _nested_name(_extract_first(selection, ("team", "team_name", "participant"))) or _team_name_for_side(selection, market) or name,
+        "side": _extract_first(selection, ("side", "designation")) or _SIDE_ID_LABELS.get(_safe_int(_extract_first(selection, ("participant_side_id", "side_id", "sideId", "participantSideId"))), name),
         "line": line,
-        "odds": {
-            "american": price,
-            "decimal": _decimal_from_american(price),
-            "fractional": None,
-            "implied_probability": _implied_from_american(price),
-        },
+        "odds": {"american": price, "decimal": _safe_float(_extract_first(selection, _DECIMAL_KEYS)) or _decimal_from_american(price), "fractional": _extract_first(selection, ("price_fraction", "fractional", "fractional_odds")), "implied_probability": _implied_from_american(price)},
         "price": price,
-        "is_open": bool(_extract_first(selection, ("is_open", "open", "active", "is_active")) if _extract_first(selection, ("is_open", "open", "active", "is_active")) is not None else True),
+        "is_open": bool(_extract_first(selection, ("is_current", "is_open", "open", "active", "is_active")) if _extract_first(selection, ("is_current", "is_open", "open", "active", "is_active")) is not None else True),
         "raw": selection,
     }
 
@@ -582,14 +575,14 @@ def _normalize_market(market: Dict[str, Any], index: int) -> Dict[str, Any]:
     market_key = _market_key(raw_key)
     selections = [_normalize_selection(selection, market, idx) for idx, selection in enumerate(_selection_lists(market))]
     return {
-        "market_id": _extract_first(market, ("id", "market_id", "marketId", "key")) or f"market_{index}",
+        "market_id": _extract_first(market, ("id", "market_id", "marketId", "key", "market_type_id")) or f"market_{index}",
         "market_key": market_key,
         "market_name": raw_key or market_key,
         "market_type": market_key,
         "line": _safe_float(_extract_first(market, _LINE_KEYS)),
-        "period": _extract_first(market, ("period", "period_name", "periodName")),
-        "is_open": bool(_extract_first(market, ("is_open", "open", "active", "is_active")) if _extract_first(market, ("is_open", "open", "active", "is_active")) is not None else True),
-        "last_update": _extract_first(market, ("last_update", "lastUpdate", "updated_at", "updatedAt", "timestamp")),
+        "period": _extract_first(market, ("period", "period_name", "periodName", "segment_id")),
+        "is_open": bool(_extract_first(market, ("is_current", "is_open", "open", "active", "is_active")) if _extract_first(market, ("is_current", "is_open", "open", "active", "is_active")) is not None else True),
+        "last_update": _extract_first(market, ("last_update", "lastUpdate", "updated_at", "updatedAt", "timestamp", "inserted_on")),
         "bookmaker_key": "bet105",
         "bookmaker_title": _BOOK,
         "selections": selections,
@@ -655,7 +648,9 @@ def _normalize_event(item: Dict[str, Any], index: int, is_live: bool = False) ->
 
 
 def _looks_like_flat_odds_row(row: Dict[str, Any]) -> bool:
-    return bool(_extract_first(row, _PRICE_KEYS) is not None and (_extract_first(row, _MARKET_KEYS) is not None or _extract_first(row, _SELECTION_KEYS) is not None))
+    has_price = _extract_first(row, _PRICE_KEYS) is not None or _extract_first(row, _DECIMAL_KEYS) is not None
+    has_market_or_side = _extract_first(row, _MARKET_KEYS) is not None or _extract_first(row, _SELECTION_KEYS) is not None or _extract_first(row, ("participant_side_id", "side_id", "sideId")) is not None
+    return bool(has_price and has_market_or_side)
 
 
 def _event_name_from_row(row: Dict[str, Any], event_id: str, away: Optional[str], home: Optional[str]) -> str:
@@ -688,22 +683,24 @@ def _events_from_flat_rows(rows: List[Dict[str, Any]], is_live: bool = False) ->
 
         markets: List[Dict[str, Any]] = []
         for market_index, (market_group_key, market_rows) in enumerate(market_groups.items()):
-            first = market_rows[0]
+            first = dict(market_rows[0])
+            first.setdefault("away_team", {"name": away} if away else None)
+            first.setdefault("home_team", {"name": home} if home else None)
             raw_key = _extract_first(first, _MARKET_KEYS) or market_group_key.split(":", 1)[0]
             market_key = _market_key(raw_key)
             line = _line_from_selection(first)
             markets.append({
-                "market_id": _extract_first(first, ("market_id", "marketId", "id", "key")) or f"{event_id}_market_{market_index}",
+                "market_id": _extract_first(first, ("market_id", "marketId", "id", "key", "market_type_id")) or f"{event_id}_market_{market_index}",
                 "market_key": market_key,
                 "market_name": raw_key or market_key,
                 "market_type": market_key,
                 "line": line,
-                "period": _extract_first(first, ("period", "period_name", "periodName")),
-                "is_open": bool(_extract_first(first, ("is_open", "open", "active", "is_active")) if _extract_first(first, ("is_open", "open", "active", "is_active")) is not None else True),
-                "last_update": _extract_first(first, ("last_update", "lastUpdate", "updated_at", "updatedAt", "timestamp")),
+                "period": _extract_first(first, ("period", "period_name", "periodName", "segment_id")),
+                "is_open": bool(_extract_first(first, ("is_current", "is_open", "open", "active", "is_active")) if _extract_first(first, ("is_current", "is_open", "open", "active", "is_active")) is not None else True),
+                "last_update": _extract_first(first, ("last_update", "lastUpdate", "updated_at", "updatedAt", "timestamp", "inserted_on")),
                 "bookmaker_key": "bet105",
                 "bookmaker_title": _BOOK,
-                "selections": [_normalize_selection(row, first, idx) for idx, row in enumerate(market_rows)],
+                "selections": [_normalize_selection({**row, "away_team": first.get("away_team"), "home_team": first.get("home_team")}, first, idx) for idx, row in enumerate(market_rows)],
                 "raw": {"rows": market_rows},
             })
 
@@ -741,11 +738,7 @@ def _normalize_payload_items(items: List[Dict[str, Any]], is_live: bool = False)
 def _merge_fixture_metadata(market_events: List[Dict[str, Any]], fixture_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not fixture_events:
         return market_events
-
-    fixture_index: Dict[str, Dict[str, Any]] = {}
-    for fixture in fixture_events:
-        fixture_index[str(fixture.get("event_id"))] = fixture
-
+    fixture_index: Dict[str, Dict[str, Any]] = {str(fixture.get("event_id")): fixture for fixture in fixture_events}
     merged: List[Dict[str, Any]] = []
     for event in market_events:
         fixture = fixture_index.get(str(event.get("event_id")))
@@ -805,58 +798,41 @@ def _fetch_items(scope: str, params: Dict[str, Any], game_pk: Optional[Any], is_
     return payload, path, items, events
 
 
-def fetch_kibl_bet105_odds(
-    scope: str = "events",
-    game_pk: Optional[Any] = None,
-    props_only: bool = False,
-    date: Optional[str] = None,
-    raw: bool = False,
-    league: Optional[str] = None,
-    market_types: Optional[List[str]] = None,
-    live_only: Optional[bool] = None,
-    state: Optional[str] = None
-) -> Dict[str, Any]:
+def fetch_kibl_bet105_odds(scope: str = "events", game_pk: Optional[Any] = None, props_only: bool = False, date: Optional[str] = None, raw: bool = False, league: Optional[str] = None, market_types: Optional[List[str]] = None, live_only: Optional[bool] = None, state: Optional[str] = None) -> Dict[str, Any]:
     if not _configured():
         return _not_configured(scope, game_pk=game_pk)
-
     is_live = bool(live_only or str(scope).lower() == "live")
     params = build_kibl_bet105_request_params(scope, date=date, props_only=props_only, market_types=market_types, live_only=live_only, event_id=str(game_pk) if game_pk is not None else None)
-    cache_key = f"kibl:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:post-info-v1"
+    cache_key = f"kibl:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:post-info-v2"
     cached = _cache_get(cache_key)
     if cached:
         return cached
-
     retry_notes: List[str] = []
     raw_items: List[Dict[str, Any]] = []
     request_path = None
     try:
-        market_payload, market_path, market_items, market_events = _fetch_items(scope, params, game_pk, is_live, kind="markets")
+        _, market_path, market_items, market_events = _fetch_items(scope, params, game_pk, is_live, kind="markets")
         raw_items = market_items
         request_path = market_path
-
         fixture_items: List[Dict[str, Any]] = []
         fixture_events: List[Dict[str, Any]] = []
         try:
-            fixture_payload, fixture_path, fixture_items, fixture_events = _fetch_items(scope, params, game_pk, is_live, kind="fixtures")
+            _, fixture_path, fixture_items, fixture_events = _fetch_items(scope, params, game_pk, is_live, kind="fixtures")
             retry_notes.append(f"fixtures_path:{fixture_path}")
         except Exception as exc:
             retry_notes.append(f"fixtures_fetch_skipped:{exc}")
-
         events = _merge_fixture_metadata(market_events, fixture_events) if market_events else fixture_events
         if fixture_items and len(fixture_items) > len(raw_items):
             raw_items = fixture_items if not market_items else market_items + fixture_items
-
         if not events and params.get("markets"):
             retry_params = build_kibl_bet105_request_params(scope, date=date, props_only=props_only, market_types=None, live_only=live_only, event_id=str(game_pk) if game_pk is not None else None, include_markets=False)
-            retry_payload, retry_path, retry_items, retry_events = _fetch_items(scope, retry_params, game_pk, is_live, kind="markets")
+            _, retry_path, retry_items, retry_events = _fetch_items(scope, retry_params, game_pk, is_live, kind="markets")
             retry_notes.append("retried_without_markets_filter")
             if retry_events or len(retry_items) > len(raw_items):
                 params, raw_items, events, request_path = retry_params, retry_items, retry_events, retry_path
-
         markets = _flatten_markets(events, game_pk=game_pk)
     except Exception as exc:
         return _provider_error(scope, game_pk, exc, request_params=params)
-
     normalized: Dict[str, Any] = {
         "provider": _PROVIDER,
         "book": _BOOK,
@@ -885,13 +861,7 @@ def fetch_kibl_bet105_odds(
 
 
 def fetch_kibl_bet105_event_odds(event_id: str, props_only: bool = False, raw: bool = False, market_types: Optional[List[str]] = None) -> Dict[str, Any]:
-    payload = fetch_kibl_bet105_odds(
-        scope="event_props" if props_only else "event",
-        game_pk=event_id,
-        props_only=props_only,
-        raw=raw,
-        market_types=market_types,
-    )
+    payload = fetch_kibl_bet105_odds(scope="event_props" if props_only else "event", game_pk=event_id, props_only=props_only, raw=raw, market_types=market_types)
     events = payload.get("events") or []
     payload["event"] = events[0] if events else None
     return payload
