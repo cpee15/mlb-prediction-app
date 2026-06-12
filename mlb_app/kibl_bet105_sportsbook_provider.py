@@ -62,6 +62,35 @@ def _market_body_sets(params: Dict[str, Any], fixture_ids: List[str]) -> List[tu
     ]
 
 
+def _flattened_market_count(events: List[Dict[str, Any]], game_pk: Optional[Any] = None) -> int:
+    return len(base._flatten_markets(events, game_pk=game_pk))
+
+
+def _event_market_count(events: List[Dict[str, Any]]) -> int:
+    total = 0
+    for event in events:
+        try:
+            total += int(event.get("market_count") or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def _prefer_market_candidate(candidate_events: List[Dict[str, Any]], current_events: List[Dict[str, Any]], game_pk: Optional[Any] = None) -> bool:
+    """Prefer candidates with real flattenable markets over fixture-like events."""
+    candidate_flat = _flattened_market_count(candidate_events, game_pk=game_pk)
+    current_flat = _flattened_market_count(current_events, game_pk=game_pk)
+    if candidate_flat != current_flat:
+        return candidate_flat > current_flat
+
+    candidate_markets = _event_market_count(candidate_events)
+    current_markets = _event_market_count(current_events)
+    if candidate_markets != current_markets:
+        return candidate_markets > current_markets
+
+    return len(candidate_events) > len(current_events)
+
+
 def fetch_kibl_bet105_events(date: Optional[str] = None, raw: bool = False, live_only: Optional[bool] = None) -> Dict[str, Any]:
     scope = "live" if live_only else "events"
     return fetch_kibl_bet105_odds(scope=scope, date=date, raw=raw, live_only=live_only)
@@ -103,7 +132,7 @@ def fetch_kibl_bet105_odds(
         live_only=live_only,
         event_id=str(game_pk) if game_pk is not None else None,
     )
-    cache_key = f"kibl-sportsbook:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:fixture-first-v2"
+    cache_key = f"kibl-sportsbook:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:fixture-first-v3"
     cached = base._cache_get(cache_key)
     if cached:
         return cached
@@ -114,6 +143,7 @@ def fetch_kibl_bet105_odds(
     fixture_events: List[Dict[str, Any]] = []
     market_items: List[Dict[str, Any]] = []
     market_events: List[Dict[str, Any]] = []
+    best_flattened_market_count = 0
     request_path: Optional[str] = None
     request_params: Dict[str, Any] = dict(params)
 
@@ -129,20 +159,24 @@ def fetch_kibl_bet105_odds(
             for body in bodies:
                 try:
                     _, market_path, items, events = base._fetch_items(scope, body, game_pk, is_live, kind="markets")
-                    notes.append(f"markets_{label}:{market_path}:{len(items)}:{len(events)}:{','.join(sorted(set(body) - set(body_base))) or 'base'}")
-                    if len(events) > len(market_events) or sum(event.get("market_count", 0) for event in events) > sum(event.get("market_count", 0) for event in market_events):
+                    flattened_market_count = _flattened_market_count(events, game_pk=game_pk)
+                    notes.append(
+                        f"markets_{label}:{market_path}:{len(items)}:{len(events)}:{flattened_market_count}:{','.join(sorted(set(body) - set(body_base))) or 'base'}"
+                    )
+                    if _prefer_market_candidate(events, market_events, game_pk=game_pk):
                         market_items = items
                         market_events = events
                         request_path = market_path
                         request_params = body
-                    if base._flatten_markets(events, game_pk=game_pk):
+                        best_flattened_market_count = _flattened_market_count(market_events, game_pk=game_pk)
+                    if flattened_market_count > 0:
                         break
                 except Exception as exc:
                     notes.append(f"markets_{label}_error:{exc}")
-            if base._flatten_markets(market_events, game_pk=game_pk):
+            if best_flattened_market_count > 0:
                 break
 
-        if not market_events and params.get("markets"):
+        if best_flattened_market_count == 0 and params.get("markets"):
             retry_params = base.build_kibl_bet105_request_params(
                 scope,
                 date=None,
@@ -155,12 +189,17 @@ def fetch_kibl_bet105_odds(
             for body in _market_request_bodies(retry_params, ids):
                 try:
                     _, market_path, items, events = base._fetch_items(scope, body, game_pk, is_live, kind="markets")
-                    notes.append(f"markets_no_filter_core:{market_path}:{len(items)}:{len(events)}:{','.join(sorted(set(body) - set(retry_params))) or 'base'}")
-                    if events:
+                    flattened_market_count = _flattened_market_count(events, game_pk=game_pk)
+                    notes.append(
+                        f"markets_no_filter_core:{market_path}:{len(items)}:{len(events)}:{flattened_market_count}:{','.join(sorted(set(body) - set(retry_params))) or 'base'}"
+                    )
+                    if _prefer_market_candidate(events, market_events, game_pk=game_pk):
                         market_items = items
                         market_events = events
                         request_path = market_path
                         request_params = body
+                        best_flattened_market_count = _flattened_market_count(market_events, game_pk=game_pk)
+                    if flattened_market_count > 0:
                         break
                 except Exception as exc:
                     notes.append(f"markets_no_filter_core_error:{exc}")
