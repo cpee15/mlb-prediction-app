@@ -21,6 +21,12 @@ def _fixture_ids(fixture_items: List[Dict[str, Any]], fixture_events: List[Dict[
     return ids
 
 
+def _core_market_params(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep KIBL feed filters, but drop fixture date-window filters for markets."""
+    date_keys = {"start_date", "end_date", "from", "to"}
+    return {key: value for key, value in params.items() if key not in date_keys}
+
+
 def _market_request_bodies(params: Dict[str, Any], fixture_ids: List[str]) -> List[Dict[str, Any]]:
     bodies: List[Dict[str, Any]] = [dict(params)]
     if not fixture_ids:
@@ -42,6 +48,18 @@ def _market_request_bodies(params: Dict[str, Any], fixture_ids: List[str]) -> Li
             seen.add(fingerprint)
             deduped.append(body)
     return deduped
+
+
+def _market_body_sets(params: Dict[str, Any], fixture_ids: List[str]) -> List[tuple[str, Dict[str, Any], List[Dict[str, Any]]]]:
+    """
+    Fixtures are date-scoped. KIBL markets are often feed-scoped/current-state rows,
+    so try both dated and core feed params before concluding fixture-only.
+    """
+    core_params = _core_market_params(params)
+    return [
+        ("dated", params, _market_request_bodies(params, fixture_ids)),
+        ("core", core_params, _market_request_bodies(core_params, fixture_ids)),
+    ]
 
 
 def fetch_kibl_bet105_events(date: Optional[str] = None, raw: bool = False, live_only: Optional[bool] = None) -> Dict[str, Any]:
@@ -85,7 +103,7 @@ def fetch_kibl_bet105_odds(
         live_only=live_only,
         event_id=str(game_pk) if game_pk is not None else None,
     )
-    cache_key = f"kibl-sportsbook:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:fixture-first-v1"
+    cache_key = f"kibl-sportsbook:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:fixture-first-v2"
     cached = base._cache_get(cache_key)
     if cached:
         return cached
@@ -107,24 +125,27 @@ def fetch_kibl_bet105_odds(
             notes.append(f"fixtures_error:{exc}")
 
         ids = _fixture_ids(fixture_items, fixture_events)
-        for body in _market_request_bodies(params, ids):
-            try:
-                _, market_path, items, events = base._fetch_items(scope, body, game_pk, is_live, kind="markets")
-                notes.append(f"markets:{market_path}:{len(items)}:{len(events)}:{','.join(sorted(set(body) - set(params))) or 'base'}")
-                if len(events) > len(market_events) or sum(event.get("market_count", 0) for event in events) > sum(event.get("market_count", 0) for event in market_events):
-                    market_items = items
-                    market_events = events
-                    request_path = market_path
-                    request_params = body
-                if base._flatten_markets(events, game_pk=game_pk):
-                    break
-            except Exception as exc:
-                notes.append(f"markets_error:{exc}")
+        for label, body_base, bodies in _market_body_sets(params, ids):
+            for body in bodies:
+                try:
+                    _, market_path, items, events = base._fetch_items(scope, body, game_pk, is_live, kind="markets")
+                    notes.append(f"markets_{label}:{market_path}:{len(items)}:{len(events)}:{','.join(sorted(set(body) - set(body_base))) or 'base'}")
+                    if len(events) > len(market_events) or sum(event.get("market_count", 0) for event in events) > sum(event.get("market_count", 0) for event in market_events):
+                        market_items = items
+                        market_events = events
+                        request_path = market_path
+                        request_params = body
+                    if base._flatten_markets(events, game_pk=game_pk):
+                        break
+                except Exception as exc:
+                    notes.append(f"markets_{label}_error:{exc}")
+            if base._flatten_markets(market_events, game_pk=game_pk):
+                break
 
         if not market_events and params.get("markets"):
             retry_params = base.build_kibl_bet105_request_params(
                 scope,
-                date=date,
+                date=None,
                 props_only=props_only,
                 market_types=None,
                 live_only=live_only,
@@ -134,7 +155,7 @@ def fetch_kibl_bet105_odds(
             for body in _market_request_bodies(retry_params, ids):
                 try:
                     _, market_path, items, events = base._fetch_items(scope, body, game_pk, is_live, kind="markets")
-                    notes.append(f"markets_no_filter:{market_path}:{len(items)}:{len(events)}:{','.join(sorted(set(body) - set(retry_params))) or 'base'}")
+                    notes.append(f"markets_no_filter_core:{market_path}:{len(items)}:{len(events)}:{','.join(sorted(set(body) - set(retry_params))) or 'base'}")
                     if events:
                         market_items = items
                         market_events = events
@@ -142,7 +163,7 @@ def fetch_kibl_bet105_odds(
                         request_params = body
                         break
                 except Exception as exc:
-                    notes.append(f"markets_no_filter_error:{exc}")
+                    notes.append(f"markets_no_filter_core_error:{exc}")
 
         events = base._merge_fixture_metadata(market_events, fixture_events) if market_events else fixture_events
         markets = base._flatten_markets(events, game_pk=game_pk)
