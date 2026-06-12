@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 import re
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter
@@ -10,6 +12,28 @@ from .kibl_bet105_provider import fetch_kibl_bet105_event_odds, fetch_kibl_bet10
 from .odds_provider import fetch_draftkings_events
 
 router = APIRouter()
+
+_PROVIDER_ENV_KEYS = ("ODDS_PROVIDER", "DRAFTKINGS_ODDS_PROVIDER", "SPORTSBOOK_ODDS_PROVIDER")
+
+
+@contextmanager
+def _force_default_draftkings_provider():
+    """
+    The comparison endpoint must fetch the real DraftKings provider even when the
+    app-wide ODDS_PROVIDER is set to kibl_bet105 for the main Daily Odds flow.
+    This local override is intentionally scoped to the single provider call.
+    """
+    previous = {key: os.environ.get(key) for key in _PROVIDER_ENV_KEYS}
+    try:
+        for key in _PROVIDER_ENV_KEYS:
+            os.environ.pop(key, None)
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -214,7 +238,8 @@ def compare_odds_events(date: Optional[str] = None, books: str = "bet105,draftki
     if "bet105" in requested:
         payloads["bet105"] = fetch_kibl_bet105_events(date=date, raw=False)
     if "draftkings" in requested:
-        payloads["draftkings"] = fetch_draftkings_events(date=date, raw=False)
+        with _force_default_draftkings_provider():
+            payloads["draftkings"] = fetch_draftkings_events(date=date, raw=False)
     return _comparison_payload(date=date, books=list(payloads.keys()), payloads=payloads)
 
 
