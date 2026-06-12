@@ -81,8 +81,9 @@ function OddsButton({ event, market, selection, selected, onToggle }) {
 function BetSlip({ legs, stake, setStake, onRemove, onClear }) {
   const decimal = legs.reduce((product, leg) => product * (americanToDecimal(leg.price) || 1), 1)
   const activeDecimal = legs.length ? decimal : null
-  const payout = activeDecimal ? Number(stake || 0) * activeDecimal : 0
-  const profit = Math.max(payout - Number(stake || 0), 0)
+  const stakeValue = Number(stake || 0)
+  const payout = activeDecimal ? stakeValue * activeDecimal : 0
+  const profit = Math.max(payout - stakeValue, 0)
   const warnings = new Set()
   const seen = new Set()
   legs.forEach(leg => { const key = `${leg.event_id}:${leg.market_key}`; if (seen.has(key)) warnings.add('Multiple selections from the same game market may be correlated.'); seen.add(key) })
@@ -165,7 +166,8 @@ export default function Bet105SportsbookPage() {
   function removeLeg(leg) { const key = legKey(leg); setLegs(prev => prev.filter(item => legKey(item) !== key)) }
 
   useEffect(() => { load(false) }, [date, live])
-  useEffect(() => { if (activeTab === 'compare' && !comparison) loadComparison(false) }, [activeTab])
+  useEffect(() => { setComparison(null) }, [date])
+  useEffect(() => { if (activeTab === 'compare') loadComparison(false) }, [activeTab, date])
 
   return <div style={s.page}>
     <style>{`@media (max-width: 1100px){.bet105-shell{grid-template-columns:1fr!important}.bet105-slip{position:static!important}.bet105-game-rail{order:1}.bet105-board{order:2}.bet105-slip{order:3}}`}</style>
