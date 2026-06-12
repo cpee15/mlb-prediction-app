@@ -21,6 +21,7 @@ _DEFAULT_REGION = "us-west-2"
 _DEFAULT_CLIENT_ID = "3udv7qsqgju8c4riqvk72bqcl"
 _DEFAULT_BASE_URL = "https://api.kibl.io/sports/get"
 _DEFAULT_FEED_SOURCE_ID = "171"
+_DEFAULT_LEAGUE_ID = "20,643"
 _DEFAULT_PREMATCH_BETTING_TYPE_ID = "1"
 _DEFAULT_LIVE_BETTING_TYPE_ID = "3"
 _DEFAULT_TIMEOUT_SECONDS = 20
@@ -32,11 +33,58 @@ _RESPONSE_CACHE: Dict[str, Dict[str, Any]] = {}
 _ET = ZoneInfo(os.getenv("KIBL_TIMEZONE", "America/New_York"))
 _UTC = dt.timezone.utc
 
+_SECRET_KEYS = {"password", "token", "authorization", "access_token", "accesstoken", "id_token", "refresh_token"}
+
+# KIBL's Bet105 feed uses POSTs to /sports/get/info/fixtures/ and /sports/get/info/markets/.
+# Keep legacy path names as a last-resort fallback for environment overrides or older feed variants.
+_FIXTURE_PATHS = ("info/fixtures", "fixtures", "events")
+_MARKET_PATHS = ("info/markets", "markets", "odds", "lines")
+_DEBUG_PATHS = ("info/markets", "info/fixtures", "markets", "fixtures", "odds", "events", "lines")
+
+_LIST_KEYS = (
+    "events", "games", "data", "items", "results", "fixtures", "matches",
+    "odds", "lines", "rows", "records", "markets", "prices", "tickets",
+)
+_EVENT_ID_KEYS = (
+    "event_id", "eventId", "eventID", "fixture_id", "fixtureId", "fixtureID",
+    "game_id", "gameId", "gameID", "match_id", "matchId", "id", "event",
+    "event_key", "kibl_event_id", "sports_event_id",
+)
+_HOME_KEYS = (
+    "home_team", "homeTeam", "home_team_name", "homeTeamName", "home", "home_name",
+    "homeName", "team_home", "home_participant", "homeParticipant", "home_competitor",
+)
+_AWAY_KEYS = (
+    "away_team", "awayTeam", "away_team_name", "awayTeamName", "away", "away_name",
+    "awayName", "team_away", "away_participant", "awayParticipant", "away_competitor",
+)
+_START_KEYS = (
+    "start_time", "startTime", "commence_time", "commenceTime", "game_time", "gameTime",
+    "scheduled", "scheduled_time", "event_time", "eventTime", "startDate", "start_date",
+    "eventDate", "event_date", "date", "match_date", "fixture_date",
+)
+_MARKET_KEYS = (
+    "market_key", "marketKey", "market_type", "marketType", "market_name", "marketName",
+    "market", "bet_type", "betType", "wager_type", "wagerType", "type", "name",
+    "description", "key", "label",
+)
+_SELECTION_KEYS = (
+    "selection", "selection_name", "selectionName", "outcome", "outcome_name", "outcomeName",
+    "runner", "runner_name", "label", "team", "team_name", "participant", "participant_name",
+    "player_name", "playerName", "name", "side", "designation", "description",
+)
+_PRICE_KEYS = (
+    "american", "american_odds", "americanOdds", "odds_american", "price", "line_price",
+    "moneyline", "odds", "current_price", "currentPrice", "value", "odds_value",
+)
+_LINE_KEYS = ("line", "point", "points", "handicap", "spread", "total", "threshold")
+
 _MARKET_ALIASES = {
     "h2h": "h2h",
     "head_to_head": "h2h",
     "moneyline": "h2h",
     "money_line": "h2h",
+    "money_line_3_way": "h2h",
     "ml": "h2h",
     "spreads": "spreads",
     "spread": "spreads",
@@ -49,33 +97,6 @@ _MARKET_ALIASES = {
     "over_under": "totals",
     "ou": "totals",
 }
-
-_SECRET_KEYS = {"password", "token", "authorization", "access_token", "accesstoken", "id_token", "refresh_token"}
-_LIST_KEYS = (
-    "events", "games", "data", "items", "results", "fixtures", "matches", "odds", "lines", "rows", "records", "markets", "prices"
-)
-_EVENT_ID_KEYS = (
-    "event_id", "eventId", "eventID", "game_id", "gameId", "gameID", "fixture_id", "fixtureId", "match_id", "matchId", "id", "event", "event_key", "kibl_event_id"
-)
-_HOME_KEYS = (
-    "home_team", "homeTeam", "home_team_name", "homeTeamName", "home", "home_name", "homeName", "team_home", "home_participant", "homeParticipant"
-)
-_AWAY_KEYS = (
-    "away_team", "awayTeam", "away_team_name", "awayTeamName", "away", "away_name", "awayName", "team_away", "away_participant", "awayParticipant"
-)
-_START_KEYS = (
-    "start_time", "startTime", "commence_time", "commenceTime", "game_time", "gameTime", "scheduled", "scheduled_time", "event_time", "eventTime", "startDate", "start_date", "eventDate", "event_date", "date", "match_date"
-)
-_MARKET_KEYS = (
-    "market_key", "marketKey", "market_type", "marketType", "market", "bet_type", "betType", "wager_type", "wagerType", "type", "name", "description", "key"
-)
-_SELECTION_KEYS = (
-    "selection", "selection_name", "selectionName", "outcome", "outcome_name", "outcomeName", "label", "team", "team_name", "participant", "participant_name", "player_name", "playerName", "name", "side", "designation", "description"
-)
-_PRICE_KEYS = (
-    "american", "american_odds", "americanOdds", "odds_american", "price", "line_price", "moneyline", "odds", "current_price", "currentPrice"
-)
-_LINE_KEYS = ("line", "point", "points", "handicap", "spread", "total", "value", "threshold")
 
 
 def _now() -> int:
@@ -119,9 +140,7 @@ def _safe_float(value: Any) -> Optional[float]:
 
 def _safe_int(value: Any) -> Optional[int]:
     number = _safe_float(value)
-    if number is None:
-        return None
-    return int(round(number))
+    return int(round(number)) if number is not None else None
 
 
 def _decimal_from_american(price: Optional[float]) -> Optional[float]:
@@ -360,7 +379,7 @@ def _get_access_token() -> str:
 
 def _market_filter(market_types: Optional[List[str]], props_only: bool = False) -> List[str]:
     if props_only:
-        env_value = os.getenv("KIBL_PROP_MARKETS", "player_props,pitcher_props,batter_props")
+        env_value = os.getenv("KIBL_PROP_MARKETS", "")
     elif market_types:
         env_value = ",".join(market_types)
     else:
@@ -368,9 +387,8 @@ def _market_filter(market_types: Optional[List[str]], props_only: bool = False) 
     values: List[str] = []
     for piece in env_value.split(","):
         raw = piece.strip()
-        if not raw:
-            continue
-        values.append(_MARKET_ALIASES.get(raw.lower(), raw))
+        if raw:
+            values.append(_MARKET_ALIASES.get(raw.lower(), raw))
     return values
 
 
@@ -385,11 +403,13 @@ def build_kibl_bet105_request_params(
 ) -> Dict[str, Any]:
     is_live = bool(live_only or str(scope).lower() == "live")
     params: Dict[str, Any] = {
-        "feed_source_id": os.getenv("KIBL_FEED_SOURCE_ID", _DEFAULT_FEED_SOURCE_ID),
-        "betting_type_id": os.getenv(
+        "feed_source_id": int(os.getenv("KIBL_FEED_SOURCE_ID", _DEFAULT_FEED_SOURCE_ID)),
+        "betting_type_id": int(os.getenv(
             "KIBL_LIVE_BETTING_TYPE_ID" if is_live else "KIBL_PREMATCH_BETTING_TYPE_ID",
             _DEFAULT_LIVE_BETTING_TYPE_ID if is_live else _DEFAULT_PREMATCH_BETTING_TYPE_ID,
-        ),
+        )),
+        "league_id": os.getenv("KIBL_LEAGUE_ID", _DEFAULT_LEAGUE_ID),
+        "from_cache": False,
     }
     markets = _market_filter(market_types, props_only=props_only) if include_markets else []
     if markets:
@@ -400,14 +420,16 @@ def build_kibl_bet105_request_params(
     return params
 
 
-def _candidate_paths(scope: str, event_id: Optional[str] = None) -> List[str]:
+def _candidate_paths(scope: str, event_id: Optional[str] = None, kind: str = "markets") -> List[str]:
     configured_path = os.getenv("KIBL_ODDS_PATH")
     if configured_path:
         paths = [configured_path]
-    elif event_id:
-        paths = ["odds", "events", "lines"]
+    elif kind == "fixtures":
+        paths = list(_FIXTURE_PATHS)
+    elif kind == "debug":
+        paths = list(_DEBUG_PATHS)
     else:
-        paths = ["odds", "events", "lines"]
+        paths = list(_MARKET_PATHS)
     clean: List[str] = []
     for path in paths:
         value = str(path).strip("/")
@@ -420,17 +442,17 @@ def _payload_item_count(payload: Any) -> int:
     return len(_find_list_payload(payload))
 
 
-def _fetch_kibl_payload(scope: str, params: Dict[str, Any], event_id: Optional[str] = None) -> Tuple[Any, str]:
+def _fetch_kibl_payload(scope: str, params: Dict[str, Any], event_id: Optional[str] = None, kind: str = "markets") -> Tuple[Any, str]:
     token = _get_access_token()
     base_url = os.getenv("KIBL_BASE_URL", _DEFAULT_BASE_URL).rstrip("/")
     timeout = int(os.getenv("KIBL_TIMEOUT_SECONDS", str(_DEFAULT_TIMEOUT_SECONDS)))
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"}
     errors: List[str] = []
     first_success: Optional[Tuple[Any, str]] = None
-    for path in _candidate_paths(scope, event_id=event_id):
+    for path in _candidate_paths(scope, event_id=event_id, kind=kind):
         url = f"{base_url}/{path}/"
         try:
-            response = requests.get(url, params=params, headers=headers, timeout=timeout)
+            response = requests.post(url, json=params, headers=headers, timeout=timeout)
             response.raise_for_status()
             payload = response.json()
             if first_success is None:
@@ -689,6 +711,25 @@ def _normalize_payload_items(items: List[Dict[str, Any]], is_live: bool = False)
     return [_normalize_event(item, idx, is_live=is_live) for idx, item in enumerate(items) if _row_signal(item) > 0]
 
 
+def _merge_fixture_metadata(market_events: List[Dict[str, Any]], fixture_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not fixture_events:
+        return market_events
+
+    fixture_index: Dict[str, Dict[str, Any]] = {}
+    for fixture in fixture_events:
+        fixture_index[str(fixture.get("event_id"))] = fixture
+
+    merged: List[Dict[str, Any]] = []
+    for event in market_events:
+        fixture = fixture_index.get(str(event.get("event_id")))
+        if fixture:
+            for key in ("name", "sport", "league", "league_id", "home_team", "away_team", "start_time", "status", "is_live"):
+                if not event.get(key) or event.get(key) in ({"name": None}, {"name": ""}):
+                    event[key] = fixture.get(key)
+        merged.append(event)
+    return merged
+
+
 def _flatten_markets(events: List[Dict[str, Any]], game_pk: Optional[Any] = None) -> List[Dict[str, Any]]:
     flat: List[Dict[str, Any]] = []
     for event in events:
@@ -728,8 +769,8 @@ def _without_raw_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return cleaned
 
 
-def _try_fetch_and_normalize(scope: str, params: Dict[str, Any], game_pk: Optional[Any], is_live: bool) -> Tuple[Any, str, List[Dict[str, Any]], List[Dict[str, Any]]]:
-    payload, path = _fetch_kibl_payload(scope, params, event_id=str(game_pk) if game_pk is not None else None)
+def _fetch_items(scope: str, params: Dict[str, Any], game_pk: Optional[Any], is_live: bool, kind: str) -> Tuple[Any, str, List[Dict[str, Any]], List[Dict[str, Any]]]:
+    payload, path = _fetch_kibl_payload(scope, params, event_id=str(game_pk) if game_pk is not None else None, kind=kind)
     items = _find_list_payload(payload)
     events = _normalize_payload_items(items, is_live=is_live)
     if game_pk is not None:
@@ -753,20 +794,38 @@ def fetch_kibl_bet105_odds(
 
     is_live = bool(live_only or str(scope).lower() == "live")
     params = build_kibl_bet105_request_params(scope, date=date, props_only=props_only, market_types=market_types, live_only=live_only, event_id=str(game_pk) if game_pk is not None else None)
-    cache_key = f"kibl:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:v2"
+    cache_key = f"kibl:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:post-info-v1"
     cached = _cache_get(cache_key)
     if cached:
         return cached
 
     retry_notes: List[str] = []
+    raw_items: List[Dict[str, Any]] = []
+    request_path = None
     try:
-        payload, path, items, events = _try_fetch_and_normalize(scope, params, game_pk, is_live)
+        market_payload, market_path, market_items, market_events = _fetch_items(scope, params, game_pk, is_live, kind="markets")
+        raw_items = market_items
+        request_path = market_path
+
+        fixture_items: List[Dict[str, Any]] = []
+        fixture_events: List[Dict[str, Any]] = []
+        try:
+            fixture_payload, fixture_path, fixture_items, fixture_events = _fetch_items(scope, params, game_pk, is_live, kind="fixtures")
+            retry_notes.append(f"fixtures_path:{fixture_path}")
+        except Exception as exc:
+            retry_notes.append(f"fixtures_fetch_skipped:{exc}")
+
+        events = _merge_fixture_metadata(market_events, fixture_events) if market_events else fixture_events
+        if fixture_items and len(fixture_items) > len(raw_items):
+            raw_items = fixture_items if not market_items else market_items + fixture_items
+
         if not events and params.get("markets"):
             retry_params = build_kibl_bet105_request_params(scope, date=date, props_only=props_only, market_types=None, live_only=live_only, event_id=str(game_pk) if game_pk is not None else None, include_markets=False)
-            retry_payload, retry_path, retry_items, retry_events = _try_fetch_and_normalize(scope, retry_params, game_pk, is_live)
+            retry_payload, retry_path, retry_items, retry_events = _fetch_items(scope, retry_params, game_pk, is_live, kind="markets")
             retry_notes.append("retried_without_markets_filter")
-            if retry_events or len(retry_items) > len(items):
-                payload, path, items, events, params = retry_payload, retry_path, retry_items, retry_events, retry_params
+            if retry_events or len(retry_items) > len(raw_items):
+                params, raw_items, events, request_path = retry_params, retry_items, retry_events, retry_path
+
         markets = _flatten_markets(events, game_pk=game_pk)
     except Exception as exc:
         return _provider_error(scope, game_pk, exc, request_params=params)
@@ -784,16 +843,16 @@ def fetch_kibl_bet105_odds(
         "events": events if raw else _without_raw_events(events),
         "markets": markets,
         "last_updated": _now(),
-        "raw_count": len(items),
+        "raw_count": len(raw_items),
         "event_count": len(events),
         "market_count": len(markets),
         "errors": [],
-        "request_params": _redact({**params, "path": path}),
+        "request_params": _redact({**params, "path": request_path}),
         "cache_hit": False,
         "normalization_notes": retry_notes,
     }
     if raw or scope == "debug":
-        normalized["raw_items_sample"] = _redact(items[:10])
+        normalized["raw_items_sample"] = _redact(raw_items[:10])
     _cache_set(cache_key, normalized)
     return normalized
 
