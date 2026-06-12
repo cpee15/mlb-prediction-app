@@ -56,7 +56,17 @@ const s = {
 }
 
 function asArray(value) { return Array.isArray(value) ? value : [] }
-function eventName(event) { return `${event?.away_team?.name || event?.away_team || 'Away'} @ ${event?.home_team?.name || event?.home_team || 'Home'}` }
+function hasPrice(selection) { return selection?.price !== null && selection?.price !== undefined && Number.isFinite(Number(selection.price)) }
+function teamName(team) {
+  if (!team) return null
+  if (typeof team === 'string') return team
+  return team.name || team.display_name || team.displayName || team.fullName || team.full_name || team.team?.name || team.participant?.name || null
+}
+function eventName(event) {
+  const away = teamName(event?.away_team) || 'Away'
+  const home = teamName(event?.home_team) || 'Home'
+  return `${away} @ ${home}`
+}
 function formatTime(iso) { if (!iso) return 'Time pending'; try { return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET' } catch { return 'Time pending' } }
 function american(price) { const n = Number(price); if (!Number.isFinite(n)) return '—'; return n > 0 ? `+${n}` : `${n}` }
 function pct(v) { const n = Number(v); if (!Number.isFinite(n)) return '—'; return `${Math.round(n * 1000) / 10}%` }
@@ -67,7 +77,7 @@ function legKey(leg) { return [leg.event_id, leg.market_key, leg.label, leg.line
 function americanToDecimal(price) { const n = Number(price); if (!Number.isFinite(n) || n === 0) return null; return n > 0 ? 1 + n / 100 : 1 + 100 / Math.abs(n) }
 function decimalToAmerican(decimal) { const n = Number(decimal); if (!Number.isFinite(n) || n <= 1) return null; return n >= 2 ? Math.round((n - 1) * 100) : Math.round(-100 / (n - 1)) }
 function categoryFor(market) { const key = marketKey(market).toLowerCase(); if (['h2h', 'spreads', 'totals'].includes(key)) return 'Game Lines'; if (key.includes('batter')) return 'Batter Props'; if (key.includes('pitcher')) return 'Pitcher Props'; if (key.includes('inning') || key.includes('period')) return 'Innings / Periods'; if (key.includes('team')) return 'Team Props'; return 'Other Markets' }
-function groupMarkets(event) { const groups = { Featured: [], 'Game Lines': [], 'Team Props': [], 'Batter Props': [], 'Pitcher Props': [], 'Innings / Periods': [], 'Other Markets': [] }; asArray(event?.markets).filter(m => asArray(m?.selections).length).forEach(m => { const cat = categoryFor(m); groups[cat].push(m); if (['h2h', 'spreads', 'totals'].includes(marketKey(m))) groups.Featured.push(m) }); return groups }
+function groupMarkets(event) { const groups = { Featured: [], 'Game Lines': [], 'Team Props': [], 'Batter Props': [], 'Pitcher Props': [], 'Innings / Periods': [], 'Other Markets': [] }; asArray(event?.markets).map(market => ({ ...market, selections: asArray(market?.selections).filter(hasPrice) })).filter(market => market.selections.length).forEach(market => { const cat = categoryFor(market); groups[cat].push(market); if (['h2h', 'spreads', 'totals'].includes(marketKey(market))) groups.Featured.push(market) }); return groups }
 
 function OddsButton({ event, market, selection, selected, onToggle }) {
   const leg = { book: 'Bet105', event_id: event.event_id, game: eventName(event), market_key: marketKey(market), market_name: market.market_name || marketKey(market), label: selectionLabel(selection), selection: selection.name || selection.description, line: selection.line, price: selection.price, implied_probability: selection?.odds?.implied_probability }
@@ -117,7 +127,7 @@ function MarketBoard({ event, selectedKeys, onToggle }) {
     <div style={s.marketWrap}>{ordered.map(category => {
       const markets = groups[category] || []
       if (!markets.length) return null
-      return <div key={category} style={s.accordion}><div style={s.accordionHead}><div style={s.marketTitle}>{category}</div><span style={s.chip}>{markets.length} markets</span></div>{markets.map((market, idx) => <div key={`${category}-${marketKey(market)}-${idx}`}><div style={{ ...s.panelSub, padding: '12px 12px 0', color: '#58a6ff', fontWeight: 950 }}>{cleanMarketName(market.market_name || marketKey(market))}</div><div style={s.oddsGrid}>{asArray(market.selections).map((selection, sidx) => { const tempLeg = { event_id: event.event_id, market_key: marketKey(market), label: selectionLabel(selection), line: selection.line, price: selection.price }; return <OddsButton key={`${selectionLabel(selection)}-${selection.price}-${sidx}`} event={event} market={market} selection={selection} selected={selectedKeys.has(legKey(tempLeg))} onToggle={onToggle} /> })}</div></div>)}</div>
+      return <div key={category} style={s.accordion}><div style={s.accordionHead}><div style={s.marketTitle}>{category}</div><span style={s.chip}>{markets.length} markets</span></div>{markets.map((market, idx) => <div key={`${category}-${marketKey(market)}-${idx}`}><div style={{ ...s.panelSub, padding: '12px 12px 0', color: '#58a6ff', fontWeight: 950 }}>{cleanMarketName(market.market_name || marketKey(market))}</div><div style={s.oddsGrid}>{asArray(market.selections).filter(hasPrice).map((selection, sidx) => { const tempLeg = { event_id: event.event_id, market_key: marketKey(market), label: selectionLabel(selection), line: selection.line, price: selection.price }; return <OddsButton key={`${selectionLabel(selection)}-${selection.price}-${sidx}`} event={event} market={market} selection={selection} selected={selectedKeys.has(legKey(tempLeg))} onToggle={onToggle} /> })}</div></div>)}</div>
     })}</div>
   </section>
 }
@@ -144,15 +154,18 @@ export default function Bet105SportsbookPage() {
   const [lastRefreshed, setLastRefreshed] = useState(null)
 
   const events = asArray(payload?.events)
-  const selectedEvent = events.find(event => String(event.event_id) === String(selectedEventId)) || events[0]
+  const marketCount = Number(payload?.market_count ?? events.reduce((sum, event) => sum + asArray(event.markets).length, 0))
+  const boardEvents = marketCount > 0 ? events.filter(event => asArray(event.markets).some(market => asArray(market.selections).some(hasPrice))) : []
+  const selectedEvent = boardEvents.find(event => String(event.event_id) === String(selectedEventId)) || boardEvents[0]
   const selectedKeys = useMemo(() => new Set(legs.map(legKey)), [legs])
-  const marketCount = events.reduce((sum, event) => sum + asArray(event.markets).length, 0)
 
   function load(forceRefresh = false) {
     setLoading(true); setError(null)
     const url = `${API_BASE}/odds/bet105/events?date=${date}&live=${live ? 'true' : 'false'}`
     fetchJson(url, { ttlSeconds: TTL, forceRefresh }).then(json => {
-      setPayload(json); setSelectedEventId(asArray(json?.events)[0]?.event_id || ''); setLastRefreshed(new Date()); setLoading(false)
+      const nextEvents = asArray(json?.events)
+      const nextMarketCount = Number(json?.market_count ?? nextEvents.reduce((sum, event) => sum + asArray(event.markets).length, 0))
+      setPayload(json); setSelectedEventId(nextMarketCount > 0 ? nextEvents[0]?.event_id || '' : ''); setLastRefreshed(new Date()); setLoading(false)
     }).catch(err => { setError(String(err?.message || err)); setLoading(false) })
   }
 
@@ -173,7 +186,7 @@ export default function Bet105SportsbookPage() {
     <style>{`@media (max-width: 1100px){.bet105-shell{grid-template-columns:1fr!important}.bet105-slip{position:static!important}.bet105-game-rail{order:1}.bet105-board{order:2}.bet105-slip{order:3}}`}</style>
     <section style={s.hero}><div style={s.header}><div><div style={s.eyebrow}>Bet105 Sportsbook</div><h1 style={s.title}>Premium MLB Odds Board</h1><div style={s.subtitle}>Browse normalized Bet105 markets, build an informational slip, and compare prices against DraftKings without leaving MLBGPT.</div></div><div style={s.controls}><input type="date" value={date} onChange={e => setDate(e.target.value)} style={s.input} /><button type="button" style={live ? s.button : s.mutedButton} onClick={() => setLive(v => !v)}>{live ? 'Live On' : 'Prematch'}</button><button type="button" style={s.button} onClick={() => { load(true); if (activeTab === 'compare') loadComparison(true) }} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh'}</button></div></div><div style={s.tabs}><button type="button" style={s.tab(activeTab === 'board')} onClick={() => setActiveTab('board')}>Sportsbook Board</button><button type="button" style={s.tab(activeTab === 'compare')} onClick={() => setActiveTab('compare')}>Compare Books</button></div><div style={s.stats}><div style={s.stat}><div style={s.statLabel}>Bet105 Events</div><div style={s.statValue}>{events.length}</div></div><div style={s.stat}><div style={s.statLabel}>Markets</div><div style={s.statValue}>{marketCount}</div></div><div style={s.stat}><div style={s.statLabel}>Slip Legs</div><div style={s.statValue}>{legs.length}</div></div><div style={s.stat}><div style={s.statLabel}>Provider</div><div style={{ ...s.statValue, fontSize: 16 }}>{payload?.status || 'pending'}</div></div><div style={s.stat}><div style={s.statLabel}>Last Refreshed</div><div style={{ ...s.statValue, fontSize: 16 }}>{lastRefreshed ? lastRefreshed.toLocaleTimeString() : 'Not loaded'}</div></div></div></section>
     {error && <div style={s.error}>{error}</div>}
-    {activeTab === 'board' && <div className="bet105-shell" style={s.shell}><aside className="bet105-game-rail" style={s.panel}><div style={s.panelInner}><div style={s.panelTitle}>Games</div><div style={s.panelSub}>Select a game to expand all available Bet105 markets.</div>{loading && <div style={{ ...s.empty, marginTop: 12 }}>Loading board...</div>}{!loading && events.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No Bet105 events returned for {date}.</div>}{events.map(event => <button type="button" key={event.event_id} style={s.gameButton(String(event.event_id) === String(selectedEvent?.event_id))} onClick={() => setSelectedEventId(event.event_id)}><div style={s.gameName}>{eventName(event)}</div><div style={s.chipRow}><span style={s.chip}>{formatTime(event.start_time)}</span><span style={s.chip}>{asArray(event.markets).length} markets</span></div></button>)}</div></aside><main className="bet105-board">{selectedEvent ? <MarketBoard event={selectedEvent} selectedKeys={selectedKeys} onToggle={toggleLeg} /> : <div style={s.empty}>Choose a game to view markets.</div>}</main><div className="bet105-slip"><BetSlip legs={legs} stake={stake} setStake={setStake} onRemove={removeLeg} onClear={() => setLegs([])} /></div></div>}
+    {activeTab === 'board' && <div className="bet105-shell" style={s.shell}><aside className="bet105-game-rail" style={s.panel}><div style={s.panelInner}><div style={s.panelTitle}>Games</div><div style={s.panelSub}>Select a game to expand all available Bet105 markets.</div>{loading && <div style={{ ...s.empty, marginTop: 12 }}>Loading board...</div>}{!loading && events.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No Bet105 events returned for {date}.</div>}{!loading && events.length > 0 && marketCount === 0 && <div style={{ ...s.empty, marginTop: 12 }}>Bet105 returned fixtures but no markets for {date}.</div>}{boardEvents.map(event => <button type="button" key={event.event_id} style={s.gameButton(String(event.event_id) === String(selectedEvent?.event_id))} onClick={() => setSelectedEventId(event.event_id)}><div style={s.gameName}>{eventName(event)}</div><div style={s.chipRow}><span style={s.chip}>{formatTime(event.start_time)}</span><span style={s.chip}>{asArray(event.markets).length} markets</span></div></button>)}</div></aside><main className="bet105-board">{marketCount > 0 && selectedEvent ? <MarketBoard event={selectedEvent} selectedKeys={selectedKeys} onToggle={toggleLeg} /> : <div style={s.empty}>{events.length > 0 ? 'No Bet105 market board is available for this slate yet.' : 'Choose a game to view markets.'}</div>}</main><div className="bet105-slip"><BetSlip legs={legs} stake={stake} setStake={setStake} onRemove={removeLeg} onClear={() => setLegs([])} /></div></div>}
     {activeTab === 'compare' && <ComparisonPanel comparison={comparison} loading={compareLoading} error={compareError} />}
   </div>
 }
