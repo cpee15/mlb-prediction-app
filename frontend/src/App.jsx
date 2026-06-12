@@ -13,6 +13,7 @@ import AIPage from './pages/AIPage'
 import LiveScoreboardPage from './pages/LiveScoreboardPage'
 import LiveGamePageRestored from './pages/LiveGamePageRestored'
 import DailyOddsPage from './pages/DailyOddsPage'
+import Bet105SportsbookPage from './pages/Bet105SportsbookPage'
 import ModelProjectionsPage from './pages/ModelProjectionsPage'
 import NewsPage from './pages/NewsPage'
 import MyDashboardWorkspacePage from './pages/MyDashboardWorkspacePage'
@@ -51,6 +52,7 @@ export default function App() {
           <NavLink to="/" end className={navLinkClass}>Matchups</NavLink>
           <NavLink to="/landing-v2" className={navLinkClass}>Landing V2</NavLink>
           <NavLink to="/daily-odds" className={navLinkClass}>Daily Odds</NavLink>
+          <NavLink to="/sportsbook/bet105" className={navLinkClass}>Bet105 Sportsbook</NavLink>
           <NavLink to="/news" className={navLinkClass}>News</NavLink>
           <NavLink to="/models/projections" className={navLinkClass}>Model Projections</NavLink>
           <NavLink to="/my-dashboard" className={navLinkClass}>My Dashboard</NavLink>
@@ -68,6 +70,7 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/landing-v2" element={<LandingV2Page />} />
             <Route path="/daily-odds" element={<DailyOddsPage />} />
+            <Route path="/sportsbook/bet105" element={<Bet105SportsbookPage />} />
             <Route path="/news" element={<NewsPage />} />
             <Route path="/models/projections" element={<ModelProjectionsPage />} />
             <Route path="/model-tracker" element={<ModelTrackerPage />} />
