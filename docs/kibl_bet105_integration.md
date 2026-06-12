@@ -1,6 +1,9 @@
 # KIBL Bet105 odds integration
 
-This app treats Bet105 as a real sportsbook odds provider, not as a mock book. The existing Daily Odds API continues to use the normalized odds contract already consumed by the frontend and modeling layer. When `ODDS_PROVIDER=kibl_bet105`, `fetch_draftkings_events()` delegates to the KIBL provider so the current `/daily-odds/models` endpoint receives Bet105 prices without a frontend rewrite.
+This app treats Bet105 as a real sportsbook odds provider, not as a mock book. Bet105 data is normalized into the same odds contract already used by the app, then surfaced in two places:
+
+- `/sportsbook/bet105` for the dedicated Bet105 sportsbook-style board and informational slip calculator.
+- `/daily-odds` for the model/edge intelligence layer.
 
 ## Railway variables
 
@@ -29,26 +32,76 @@ KIBL_ODDS_PATH=odds
 
 The provider tries `odds`, `events`, then `lines` under `KIBL_BASE_URL` unless `KIBL_ODDS_PATH` is set.
 
-## Main endpoint
+## Explicit sportsbook endpoints
 
-Use the existing endpoint:
+The feature branch adds a standalone router module at `mlb_app/sportsbook_routes.py`. Wire it in `app.py` with:
 
-```text
-GET /daily-odds/models?date=YYYY-MM-DD&include_unified=true
+```python
+from .sportsbook_routes import router as sportsbook_router
+app.include_router(sportsbook_router)
 ```
 
-With `ODDS_PROVIDER=kibl_bet105`, this endpoint returns Bet105 odds in the same normalized shape used by the existing DraftKings/Odds API flow:
+Routes provided by the router:
 
-- `provider: "kibl_bet105"`
-- `book: "Bet105"`
+```text
+GET  /odds/bet105/events?date=YYYY-MM-DD&live=false
+GET  /odds/bet105/event/{event_id}/markets
+GET  /odds/bet105/event/{event_id}/props
+GET  /odds/bet105/debug?date=YYYY-MM-DD
+GET  /odds/compare/events?date=YYYY-MM-DD&books=bet105,draftkings
+POST /odds/parlay/calculate
+```
+
+The explicit Bet105 endpoints do not need `ODDS_PROVIDER=kibl_bet105`. That keeps Bet105 and DraftKings available side-by-side.
+
+## Frontend sportsbook wrapper
+
+Route:
+
+```text
+/sportsbook/bet105
+```
+
+Page:
+
+```text
+frontend/src/pages/Bet105SportsbookPage.jsx
+```
+
+The page includes:
+
+- premium dark sportsbook layout
+- date picker
+- prematch/live toggle
+- left game rail
+- selected game market board
+- grouped markets: Featured, Game Lines, Batter Props, Pitcher Props, Team Props, Innings / Periods, Other Markets
+- Bet105 odds buttons
+- informational slip calculator
+- Bet105 vs DraftKings comparison tab
+- mobile responsive shell
+
+The slip is an informational calculator only. It does not execute wagers or send transactions.
+
+## Normalized odds contract
+
+All sportsbook UI expects the normalized shape:
+
+- `provider`
+- `book`
+- `status`
 - `events[]`
 - `markets[]`
 - `selections[]`
+- `price`
 - `odds.american`
 - `odds.decimal`
 - `odds.implied_probability`
+- `last_updated`
 
-## Smoke test in Railway shell
+## Smoke tests
+
+Provider smoke test:
 
 ```bash
 python - <<'PY'
@@ -57,12 +110,19 @@ print(fetch_kibl_bet105_events(date="2026-06-12", raw=False))
 PY
 ```
 
+Router smoke test after app wiring:
+
+```bash
+curl "$API_BASE/odds/bet105/events?date=2026-06-12"
+curl "$API_BASE/odds/compare/events?date=2026-06-12&books=bet105,draftkings"
+```
+
 Expected result:
 
 - `status` is `ok` or `empty`.
-- `provider` is `kibl_bet105`.
-- No credentials or bearer tokens appear in `request_params`, `errors`, or logs.
+- `provider` is `kibl_bet105` for Bet105 payloads.
+- No credentials or bearer tokens appear in `request_params`, `errors`, API responses, or logs.
 
 ## Product decision
 
-Do not create a fake/mock sportsbook from Bet105 data. Normalize Bet105 as a real provider and overlay it beside the model output. That lets the app compare model probability against Bet105 implied probability and later compare Bet105 against DraftKings or other books for market-shopping and edge detection.
+Do not create a fake/mock sportsbook from Bet105 data. Normalize Bet105 as a real provider and wrap it in a premium in-app sportsbook page. Use DraftKings as a comparison book and MLBGPT model outputs as the intelligence layer for edge detection.
