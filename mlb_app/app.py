@@ -116,6 +116,7 @@ from .pitcher_profile_store import (
     serialize_pitcher_profile_arsenal,
     serialize_pitcher_profile_recent_games,
 )
+from .sportsbook_routes import router as sportsbook_router
 from .model_tracker_routes import router as model_tracker_router
 
 MLB_STATS_BASE = "https://statsapi.mlb.com/api/v1"
@@ -1396,6 +1397,7 @@ def create_app():
     app.include_router(ai_data_assistant_router)
     app.include_router(news_router)
     app.include_router(model_tracker_router)
+    app.include_router(sportsbook_router)
 
     @app.get("/health")
     def health():
