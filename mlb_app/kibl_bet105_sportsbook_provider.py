@@ -283,6 +283,9 @@ def fetch_kibl_bet105_odds(
             notes.append(f"fixtures_error:{exc}")
 
         ids = _fixture_ids(fixture_items, fixture_events)
+        # Iterate over all combinations of request bodies for markets. Do not break early on
+        # the first successful response; instead, collect the best candidate across all
+        # requests based on flattened market count and market count.
         for label, body_base, bodies in _market_body_sets(params, ids):
             for body in bodies:
                 try:
@@ -297,14 +300,15 @@ def fetch_kibl_bet105_odds(
                         request_path = market_path
                         request_params = body
                         best_flattened_market_count = _flattened_market_count(market_events, game_pk=game_pk)
-                    if flattened_market_count > 0:
-                        break
+                    # Do not break on the first market; additional requests may return more markets.
                 except Exception as exc:
                     notes.append(f"markets_{label}_error:{exc}")
-            if best_flattened_market_count > 0:
-                break
+            # No break here; continue evaluating other body sets to find the richest market payload.
 
-        if best_flattened_market_count == 0 and params.get("markets"):
+        # If any market filters were requested, perform an unfiltered fallback search.  This helps
+        # surface additional markets that might be excluded by filter parameters. We do this
+        # regardless of whether we already found markets above.
+        if params.get("markets"):
             retry_params = base.build_kibl_bet105_request_params(
                 scope,
                 date=None,
@@ -327,8 +331,7 @@ def fetch_kibl_bet105_odds(
                         request_path = market_path
                         request_params = body
                         best_flattened_market_count = _flattened_market_count(market_events, game_pk=game_pk)
-                    if flattened_market_count > 0:
-                        break
+                    # Do not break; evaluate all fallback bodies.
                 except Exception as exc:
                     notes.append(f"markets_no_filter_core_error:{exc}")
 
