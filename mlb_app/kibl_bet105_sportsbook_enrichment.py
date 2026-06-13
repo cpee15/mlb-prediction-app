@@ -4,11 +4,24 @@ from typing import Any, Dict, List, Optional
 
 from . import kibl_bet105_provider as base
 
+# Display names for known market keys. These map canonical Bet105/KIBL market identifiers
+# to human‑friendly labels.
 _MARKET_DISPLAY_NAMES = {
     "h2h": "Moneyline",
     "spreads": "Spread",
     "totals": "Total",
 }
+
+# Mapping of KIBL numeric market_type_id values to canonical market keys. If a
+# market_type_id is present on a KIBL market row, we use this map to derive the
+# internal market_key and market_type. Unknown IDs are surfaced as their raw
+# numeric identifier for debugging purposes.
+_KIBL_MARKET_TYPE_MAP = {
+    1: "h2h",
+    2: "spreads",
+    3: "totals",
+}
+
 _SELECTION_PLACEHOLDERS = {"", "away", "home", "over", "under", "draw", "unknown", "selection"}
 
 
@@ -66,7 +79,6 @@ def fixture_team_names(item: Dict[str, Any]) -> tuple[Optional[str], Optional[st
     away, home = base._team_names(item)
     if away and home:
         return away, home
-
     competitors = item.get("competitors") or item.get("participants") or item.get("teams")
     if isinstance(competitors, list):
         for participant in competitors:
@@ -124,14 +136,12 @@ def build_fixture_indexes(
 ) -> tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
     by_event_id: Dict[str, Dict[str, Any]] = {}
     by_fixture_id: Dict[str, Dict[str, Any]] = {}
-
     for idx, item in enumerate(fixture_items):
         metadata = fixture_metadata_from_item(item, idx)
         if metadata.get("event_id"):
             by_event_id[str(metadata["event_id"])] = metadata
         if metadata.get("fixture_id"):
             by_fixture_id[str(metadata["fixture_id"])] = metadata
-
     for event in fixture_events:
         metadata = {
             "event_id": str(event.get("event_id")) if event.get("event_id") is not None else None,
@@ -158,7 +168,6 @@ def build_fixture_indexes(
                 **existing,
                 **{k: v for k, v in metadata.items() if v not in (None, "", {"name": None})},
             }
-
     return by_event_id, by_fixture_id
 
 
@@ -186,17 +195,71 @@ def selection_display_name(selection: Dict[str, Any], event: Dict[str, Any]) -> 
 
 
 def market_display_name(market: Dict[str, Any]) -> str:
-    market_key = str(market.get("market_key") or market.get("market_type") or "")
-    return _MARKET_DISPLAY_NAMES.get(market_key, str(market.get("market_name") or market_key or "Market"))
+    """
+    Resolve the market display name. Prefer canonical market keys mapped from the
+    KIBL market_type_id when available. Unknown market_type_id values are surfaced
+    explicitly to aid diagnostics rather than silently falling back to a generic label.
+    """
+    market_key = market.get("market_key") or market.get("market_type") or ""
+    # Attempt to derive a numeric market_type_id from the market or its raw payload.
+    market_type_id = None
+    raw = market.get("raw") if isinstance(market.get("raw"), dict) else None
+    if market.get("market_type_id") is not None:
+        market_type_id = market.get("market_type_id")
+    elif raw and raw.get("market_type_id") is not None:
+        market_type_id = raw.get("market_type_id")
+    try:
+        mt_int = int(market_type_id) if market_type_id is not None else None
+    except (TypeError, ValueError):
+        mt_int = None
+    # If this id maps to a canonical key, override the market_key for display purposes.
+    if mt_int is not None:
+        canonical_key = _KIBL_MARKET_TYPE_MAP.get(mt_int)
+        if canonical_key:
+            market_key = canonical_key
+        else:
+            return f"Unknown Market Type {mt_int}"
+    key_str = str(market_key)
+    return _MARKET_DISPLAY_NAMES.get(key_str, str(market.get("market_name") or key_str or "Market"))
 
 
 def enrich_market(event: Dict[str, Any], market: Dict[str, Any]) -> Dict[str, Any]:
     market_copy = dict(market)
+    # Attempt to map KIBL's numeric market_type_id to a canonical market key. This
+    # ensures that markets such as moneyline, spread, and totals are consistently
+    # labeled regardless of KIBL's raw identifiers. Unknown identifiers are preserved.
+    market_type_id = None
+    raw = market_copy.get("raw") if isinstance(market_copy.get("raw"), dict) else None
+    if market_copy.get("market_type_id") is not None:
+        market_type_id = market_copy.get("market_type_id")
+    elif raw and raw.get("market_type_id") is not None:
+        market_type_id = raw.get("market_type_id")
+    try:
+        mt_int = int(market_type_id) if market_type_id is not None else None
+    except (TypeError, ValueError):
+        mt_int = None
+    if mt_int is not None:
+        canonical_key = _KIBL_MARKET_TYPE_MAP.get(mt_int)
+        if canonical_key:
+            # Set both market_key and market_type to the canonical name when absent.
+            if not market_copy.get("market_key"):
+                market_copy["market_key"] = canonical_key
+            if not market_copy.get("market_type"):
+                market_copy["market_type"] = canonical_key
+        else:
+            # Preserve unknown ids as string identifiers for debugging.
+            if not market_copy.get("market_key"):
+                market_copy["market_key"] = str(market_type_id)
+            if not market_copy.get("market_type"):
+                market_copy["market_type"] = str(market_type_id)
+    # Ensure market_type is present when only market_key is available.
     if not market_copy.get("market_type"):
         market_copy["market_type"] = market_copy.get("market_key")
-    if placeholder_market_name(market_copy.get("market_name"), str(market_copy.get("market_key") or market_copy.get("market_type") or "")):
+    # Compute a user‑friendly market_name using the resolved market_key or fallback.
+    if placeholder_market_name(
+        market_copy.get("market_name"), str(market_copy.get("market_key") or market_copy.get("market_type") or "")
+    ):
         market_copy["market_name"] = market_display_name(market_copy)
-
     selections: List[Dict[str, Any]] = []
     for selection in market.get("selections", []) or []:
         selection_copy = dict(selection)
@@ -224,13 +287,11 @@ def enrich_market_events_with_fixture_metadata(
 ) -> List[Dict[str, Any]]:
     by_event_id, by_fixture_id = build_fixture_indexes(fixture_items, fixture_events)
     enriched: List[Dict[str, Any]] = []
-
     for event in market_events:
         fixture_id = extract_fixture_id_from_event(event)
         metadata = by_fixture_id.get(str(fixture_id)) if fixture_id else None
         if metadata is None and event.get("event_id") is not None:
             metadata = by_event_id.get(str(event.get("event_id")))
-
         event_copy = dict(event)
         if metadata:
             if placeholder_team_name(event_copy.get("away_team")) and metadata.get("away_team"):
@@ -249,9 +310,7 @@ def enrich_market_events_with_fixture_metadata(
             for key in ("sport", "league", "league_id", "status", "is_live"):
                 if event_copy.get(key) in (None, "") and metadata.get(key) not in (None, ""):
                     event_copy[key] = metadata[key]
-
-        event_copy["markets"] = [enrich_market(event_copy, market) for market in event.get("markets", []) or []]
+        event_copy["markets"] = [enrich_market(event_copy, m) for m in event.get("markets", []) or []]
         event_copy["market_count"] = len(event_copy["markets"])
         enriched.append(event_copy)
-
     return enriched
