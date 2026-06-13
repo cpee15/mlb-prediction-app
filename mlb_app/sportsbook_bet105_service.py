@@ -89,7 +89,7 @@ def fetch_board(
         live_only=live_only,
         event_id=str(game_pk) if game_pk is not None else None,
     )
-    cache_key = f"kibl-sportsbook:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:fixture-first-v6"
+    cache_key = f"kibl-sportsbook:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:fixture-first-v7"
     cached = base._cache_get(cache_key)
     if cached:
         return cached
@@ -145,14 +145,13 @@ def fetch_board(
                         request_path = market_path
                         request_params = body
                         best_flattened_market_count = flattened_market_count
-                    if flattened_market_count > 0:
-                        break
+                    # Keep scanning every request body. KIBL can return partial market boards
+                    # for early request shapes, so stopping after the first non-empty response
+                    # can lock production into one-event/one-market incomplete_normalization.
                 except Exception as exc:
                     notes.append(f"markets_{label}_error:{exc}")
-            if best_flattened_market_count > 0:
-                break
 
-        if best_flattened_market_count == 0 and params.get("markets"):
+        if params.get("markets"):
             retry_params = base.build_kibl_bet105_request_params(
                 scope,
                 date=None,
@@ -173,8 +172,7 @@ def fetch_board(
                         request_path = market_path
                         request_params = body
                         best_flattened_market_count = flattened_market_count
-                    if flattened_market_count > 0:
-                        break
+                    # Do not break here either; the unfiltered response may also be partial.
                 except Exception as exc:
                     notes.append(f"markets_no_filter_core_error:{exc}")
 
@@ -187,6 +185,7 @@ def fetch_board(
     except Exception as exc:
         return base._provider_error(scope, game_pk, exc, request_params=params)
 
+    raw_debug_items = (market_items or []) + (fixture_items or [])
     normalized: Dict[str, Any] = {
         "provider": base._PROVIDER,
         "book": base._BOOK,
@@ -209,7 +208,7 @@ def fetch_board(
         "normalization_notes": notes,
     }
     if raw or scope == "debug":
-        normalized["raw_items_sample"] = base._redact((market_items or fixture_items)[:10])
+        normalized["raw_items_sample"] = base._redact(raw_debug_items[:10])
         normalized["diagnostics"] = diagnostics
         normalized["fixtures"] = {
             "count": len(fixture_items),
@@ -218,6 +217,7 @@ def fetch_board(
         normalized["markets_meta"] = {
             "row_count": len(market_items),
             "market_type_ids": [base._extract_first(item, ("market_type_id", "marketTypeId")) for item in market_items[:20]],
+            "best_flattened_market_count": best_flattened_market_count,
         }
     base._cache_set(cache_key, normalized)
     return normalized
