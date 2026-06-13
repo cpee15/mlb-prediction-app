@@ -76,6 +76,41 @@ def _kibl_market_rows():
     ]
 
 
+def _kibl_full_market_rows():
+    rows = list(_kibl_market_rows())
+    rows.extend(
+        [
+            {
+                **_kibl_market_rows()[0],
+                "participant_id": 52888,
+                "participant_side_id": 1,
+                "fixture_participant_id": 945154,
+                "market_id": 2465698421,
+                "market_type_id": 2,
+                "point": -1.5,
+                "price_american": -105,
+                "price_decimal": 1.9524,
+                "price_fraction": "20/21",
+                "side_id": 1,
+            },
+            {
+                **_kibl_market_rows()[0],
+                "participant_id": None,
+                "participant_side_id": 3,
+                "fixture_participant_id": 945156,
+                "market_id": 2465698422,
+                "market_type_id": 3,
+                "point": 8.5,
+                "price_american": -110,
+                "price_decimal": 1.9091,
+                "price_fraction": "10/11",
+                "side_id": 3,
+            },
+        ]
+    )
+    return rows
+
+
 def test_fixture_first_service_enriches_real_matchup_labels(monkeypatch):
     _common_monkeypatch(monkeypatch)
 
@@ -135,3 +170,36 @@ def test_fixture_first_service_exposes_debug_diagnostics(monkeypatch):
     assert payload["diagnostics"]["placeholder_event_names"] == 0
     assert payload["diagnostics"]["placeholder_market_names"] == 0
     assert payload["diagnostics"]["placeholder_selection_names"] == 0
+
+
+def test_fixture_first_service_does_not_stop_after_first_market_response(monkeypatch):
+    _common_monkeypatch(monkeypatch)
+    market_fetches = []
+
+    def fake_fetch_kibl_payload(scope, params, event_id=None, kind="markets"):
+        if kind == "fixtures":
+            return _kibl_fixture_payload(), "info/fixtures"
+        return {"data": _kibl_market_rows()}, "info/markets"
+
+    def fake_fetch_items(scope, params, game_pk, is_live, kind):
+        market_fetches.append(dict(params))
+        if len(market_fetches) == 1:
+            rows = _kibl_market_rows()
+        else:
+            rows = _kibl_full_market_rows()
+        return {}, "info/markets", rows, base._normalize_payload_items(rows, is_live=is_live)
+
+    monkeypatch.setattr(base, "_fetch_kibl_payload", fake_fetch_kibl_payload)
+    monkeypatch.setattr(base, "_fetch_items", fake_fetch_items)
+
+    payload = service.fetch_board(date="2026-06-12", raw=True, live_only=False)
+
+    assert len(market_fetches) > 1
+    assert payload["market_count"] == 3
+    assert payload["markets_meta"]["best_flattened_market_count"] == 3
+    assert {market["market_name"] for market in payload["events"][0]["markets"]} == {"Moneyline", "Spread", "Total"}
+    selections = [selection for market in payload["events"][0]["markets"] for selection in market["selections"]]
+    assert {selection["name"] for selection in selections} >= {"Boston Red Sox", "New York Yankees", "Over"}
+    assert "Away @ Home" not in payload["events"][0]["name"]
+    assert all(market["market_name"] != "market" for market in payload["events"][0]["markets"])
+    assert all(selection["name"] != "Selection" for selection in selections)
