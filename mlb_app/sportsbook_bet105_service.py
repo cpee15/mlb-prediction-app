@@ -92,13 +92,40 @@ def _market_group_line(market: Dict[str, Any]) -> Any:
     return line if line is not None else "none"
 
 
+def _selection_fingerprint(selection: Dict[str, Any]) -> tuple[Any, ...]:
+    raw = _raw_dict(selection)
+    return (
+        base._extract_first(selection, ("selection_id", "selectionId", "id", "outcome_id", "outcomeId", "fixture_participant_id"))
+        or base._extract_first(raw, ("selection_id", "selectionId", "id", "outcome_id", "outcomeId", "fixture_participant_id")),
+        base._extract_first(selection, ("participant_id", "participantId"))
+        or base._extract_first(raw, ("participant_id", "participantId")),
+        _selection_side_id(selection),
+        base._extract_first(raw, ("market_id", "marketId")),
+        base._extract_first(selection, ("price", "price_american")) or base._price_from_selection(raw),
+        selection.get("line") if selection.get("line") is not None else base._extract_first(raw, base._LINE_KEYS),
+    )
+
+
 def _merge_market_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
     merged = dict(group[0])
     selections: List[Dict[str, Any]] = []
+    seen_selections: set[tuple[Any, ...]] = set()
     raw_rows: List[Dict[str, Any]] = []
+    seen_rows: set[str] = set()
     for market in group:
-        selections.extend([dict(selection) for selection in market.get("selections", []) or []])
-        raw_rows.extend(_raw_market_rows(market))
+        for selection in market.get("selections", []) or []:
+            selection_copy = dict(selection)
+            fingerprint = _selection_fingerprint(selection_copy)
+            if fingerprint in seen_selections:
+                continue
+            seen_selections.add(fingerprint)
+            selections.append(selection_copy)
+        for row in _raw_market_rows(market):
+            row_key = repr(sorted(row.items()))
+            if row_key in seen_rows:
+                continue
+            seen_rows.add(row_key)
+            raw_rows.append(row)
     merged["selections"] = selections
     if raw_rows:
         merged["raw"] = {"rows": raw_rows}
@@ -108,6 +135,63 @@ def _merge_market_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
 def _selection_side_id(selection: Dict[str, Any]) -> Optional[int]:
     raw = _raw_dict(selection)
     return base._safe_int(base._extract_first(raw, ("participant_side_id", "side_id", "sideId", "participantSideId")) or base._extract_first(selection, ("participant_side_id", "side_id", "sideId", "participantSideId")))
+
+
+def _event_merge_key(event: Dict[str, Any], fallback_index: int) -> str:
+    fixture_id = enrichment.extract_fixture_id_from_event(event)
+    if fixture_id:
+        return f"fixture:{fixture_id}"
+    event_id = event.get("event_id")
+    if event_id not in (None, ""):
+        return f"event:{event_id}"
+    return f"fallback:{fallback_index}"
+
+
+def _merge_market_event_candidates(candidate_sets: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Union market candidates returned by different KIBL request bodies.
+
+    KIBL can return a partial board for a specific request body, especially when
+    fixture-specific filters are used. The board endpoint should keep scanning
+    every viable request and combine compatible event buckets instead of keeping
+    only the single largest response.
+    """
+
+    merged_by_key: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+    for candidate_set in candidate_sets:
+        for event in candidate_set:
+            key = _event_merge_key(event, len(order))
+            if key not in merged_by_key:
+                event_copy = dict(event)
+                event_copy["markets"] = [dict(market) for market in event.get("markets", []) or []]
+                merged_by_key[key] = event_copy
+                order.append(key)
+                continue
+
+            target = merged_by_key[key]
+            for meta_key in ("name", "sport", "league", "league_id", "home_team", "away_team", "start_time", "commence_time", "status", "is_live", "source_url"):
+                current = target.get(meta_key)
+                incoming = event.get(meta_key)
+                if current in (None, "", {"name": None}, {"name": ""}) and incoming not in (None, "", {"name": None}, {"name": ""}):
+                    target[meta_key] = incoming
+            target.setdefault("markets", [])
+            target["markets"].extend([dict(market) for market in event.get("markets", []) or []])
+            target["market_count"] = len(target["markets"])
+            if target.get("raw") is None and event.get("raw") is not None:
+                target["raw"] = event.get("raw")
+    return [merged_by_key[key] for key in order]
+
+
+def _dedupe_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deduped: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        key = repr(sorted(item.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
 
 
 def _finalize_selection(selection: Dict[str, Any]) -> Dict[str, Any]:
@@ -241,7 +325,7 @@ def fetch_board(
         live_only=live_only,
         event_id=str(game_pk) if game_pk is not None else None,
     )
-    cache_key = f"kibl-sportsbook:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:fixture-first-v8"
+    cache_key = f"kibl-sportsbook:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:fixture-first-v9"
     cached = base._cache_get(cache_key)
     if cached:
         return cached
@@ -251,6 +335,8 @@ def fetch_board(
     fixture_events: List[Dict[str, Any]] = []
     market_items: List[Dict[str, Any]] = []
     market_events: List[Dict[str, Any]] = []
+    candidate_event_sets: List[List[Dict[str, Any]]] = []
+    candidate_market_items: List[Dict[str, Any]] = []
     request_path: Optional[str] = None
     request_params: Dict[str, Any] = dict(params)
 
@@ -293,6 +379,10 @@ def fetch_board(
                     _, market_path, items, events = base._fetch_items(scope, body, game_pk, is_live, kind="markets")
                     flattened_market_count = legacy._flattened_market_count(events, game_pk=game_pk)
                     notes.append(f"markets_{label}:{market_path}:{len(items)}:{len(events)}:{flattened_market_count}:{','.join(sorted(set(body) - set(body_base))) or 'base'}")
+                    if events:
+                        candidate_event_sets.append(events)
+                    if items:
+                        candidate_market_items.extend(items)
                     if legacy._prefer_market_candidate(events, market_events, game_pk=game_pk):
                         market_items = items
                         market_events = events
@@ -320,6 +410,10 @@ def fetch_board(
                     _, market_path, items, events = base._fetch_items(scope, body, game_pk, is_live, kind="markets")
                     flattened_market_count = legacy._flattened_market_count(events, game_pk=game_pk)
                     notes.append(f"markets_no_filter_core:{market_path}:{len(items)}:{len(events)}:{flattened_market_count}:{','.join(sorted(set(body) - set(retry_params))) or 'base'}")
+                    if events:
+                        candidate_event_sets.append(events)
+                    if items:
+                        candidate_market_items.extend(items)
                     if legacy._prefer_market_candidate(events, market_events, game_pk=game_pk):
                         market_items = items
                         market_events = events
@@ -329,6 +423,18 @@ def fetch_board(
                     # Do not break here either; the unfiltered response may also be partial.
                 except Exception as exc:
                     notes.append(f"markets_no_filter_core_error:{exc}")
+
+        union_market_events = _merge_market_event_candidates(candidate_event_sets)
+        union_flattened_market_count = legacy._flattened_market_count(union_market_events, game_pk=game_pk)
+        if union_market_events and union_flattened_market_count > best_flattened_market_count:
+            notes.append(f"markets_union_selected:{len(candidate_event_sets)}:{len(union_market_events)}:{union_flattened_market_count}")
+            market_events = union_market_events
+            market_items = _dedupe_items(candidate_market_items)
+            best_flattened_market_count = union_flattened_market_count
+            request_path = request_path or "info/markets"
+            request_params = {**params, "combined_market_candidates": True}
+        elif candidate_event_sets:
+            notes.append(f"markets_union_not_selected:{len(candidate_event_sets)}:{len(union_market_events)}:{union_flattened_market_count}")
 
         events = enrichment.enrich_market_events_with_fixture_metadata(market_events, fixture_items, fixture_events) if market_events else fixture_events
         events = _finalize_events(events)
@@ -354,7 +460,7 @@ def fetch_board(
         "events": events if raw else base._without_raw_events(events),
         "markets": markets,
         "last_updated": base._now(),
-        "raw_count": len(market_items or fixture_items),
+        "raw_count": len(raw_debug_items),
         "event_count": len(events),
         "market_count": len(markets),
         "errors": [],
@@ -373,6 +479,7 @@ def fetch_board(
             "row_count": len(market_items),
             "market_type_ids": [base._extract_first(item, ("market_type_id", "marketTypeId")) for item in market_items[:20]],
             "best_flattened_market_count": best_flattened_market_count,
+            "candidate_event_set_count": len(candidate_event_sets),
         }
     base._cache_set(cache_key, normalized)
     return normalized
