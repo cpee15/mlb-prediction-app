@@ -23,11 +23,8 @@ class FakeClient:
         return {"data": []}
 
 
-def test_fixture_discovery_splits_baseball_leagues_without_book_filters():
-    client = FakeClient()
-    repo = KiblBet105Repository(client=client)
-    notes = []
-    filters = {
+def _filters():
+    return {
         "feed_source_id": 171,
         "betting_type_id": 1,
         "league_id": "20,643",
@@ -37,7 +34,13 @@ def test_fixture_discovery_splits_baseball_leagues_without_book_filters():
         "to": "2026-06-15 00:00:00",
     }
 
-    rows = repo.fetch_fixture_summary(filters, notes)
+
+def test_fixture_discovery_splits_baseball_leagues_without_book_filters():
+    client = FakeClient()
+    repo = KiblBet105Repository(client=client)
+    notes = []
+
+    rows = repo.fetch_fixture_summary(_filters(), notes)
 
     assert [row["fixture_id"] for row in rows] == ["fx-20", "fx-643"]
     fixture_calls = [body for path, body in client.calls if path == "info/fixtures"]
@@ -49,22 +52,11 @@ def test_fixture_discovery_splits_baseball_leagues_without_book_filters():
     assert any("fixture_summary:info/fixtures:raw=2:deduped=2" in note for note in notes)
 
 
-def test_fetch_board_uses_fixture_ids_before_book_scoped_market_calls(monkeypatch):
+def test_fetch_board_keeps_fixture_seeded_market_calls_disabled_by_default(monkeypatch):
     client = FakeClient()
     repo = KiblBet105Repository(client=client)
-    monkeypatch.setattr(
-        repo,
-        "build_filters",
-        lambda date=None, live_only=None, event_id=None: {
-            "feed_source_id": 171,
-            "betting_type_id": 1,
-            "league_id": "20,643",
-            "start_date": "2026-06-14 00:00:00",
-            "end_date": "2026-06-15 00:00:00",
-            "from": "2026-06-14 00:00:00",
-            "to": "2026-06-15 00:00:00",
-        },
-    )
+    monkeypatch.delenv("KIBL_ENABLE_FIXTURE_SEEDED_MARKETS", raising=False)
+    monkeypatch.setattr(repo, "build_filters", lambda date=None, live_only=None, event_id=None: _filters())
 
     board = repo.fetch_board(date="2026-06-14", live_only=False)
 
@@ -73,5 +65,21 @@ def test_fetch_board_uses_fixture_ids_before_book_scoped_market_calls(monkeypatc
     assert market_calls
     assert all(body.get("feed_source_id") == 171 for body in market_calls)
     assert all(body.get("betting_type_id") == 1 for body in market_calls)
-    assert any(body.get("fixture_id") in {"fx-20", "fx-643"} for body in market_calls)
+    assert all("fixture_id" not in body for body in market_calls)
     assert any("fixture_ids_from_summary:2" in note for note in board.notes)
+    assert any("fixture_seeded_market_requests_disabled" in note for note in board.notes)
+
+
+def test_fixture_seeded_market_calls_are_explicit_opt_in(monkeypatch):
+    client = FakeClient()
+    repo = KiblBet105Repository(client=client)
+    monkeypatch.setenv("KIBL_ENABLE_FIXTURE_SEEDED_MARKETS", "true")
+    monkeypatch.setenv("KIBL_MARKET_FIXTURE_ID_LIMIT", "1")
+    monkeypatch.setenv("KIBL_MARKET_FIXTURE_BATCH_LIMIT", "0")
+    monkeypatch.setattr(repo, "build_filters", lambda date=None, live_only=None, event_id=None: _filters())
+
+    board = repo.fetch_board(date="2026-06-14", live_only=False)
+
+    assert [row["fixture_id"] for row in board.fixture_rows] == ["fx-20", "fx-643"]
+    market_calls = [body for path, body in client.calls if path == "info/markets"]
+    assert any(body.get("fixture_id") == "fx-20" for body in market_calls)
