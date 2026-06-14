@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">MLB GPT</title>
+  <desc id="desc">MLB GPT cream baseball diamond mark on a dark navy background.</desc>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="75%">
+      <stop offset="0%" stop-color="#263238"/>
+      <stop offset="58%" stop-color="#20282e"/>
+      <stop offset="100%" stop-color="#151d22"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="130" y1="110" x2="390" y2="410" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#f1d3a5"/>
+      <stop offset="52%" stop-color="#dec198"/>
+      <stop offset="100%" stop-color="#cfae7f"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="104" fill="url(#bg)"/>
+  <g transform="translate(256 252) rotate(45) translate(-132 -132)">
+    <rect x="12" y="12" width="240" height="240" rx="16" fill="url(#gold)"/>
+    <path d="M63 9 C103 70 104 187 63 255" fill="none" stroke="#20282e" stroke-width="20" stroke-linecap="round"/>
+    <path d="M201 9 C161 70 160 187 201 255" fill="none" stroke="#20282e" stroke-width="20" stroke-linecap="round"/>
+  </g>
+</svg>
