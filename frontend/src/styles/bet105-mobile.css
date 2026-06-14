@@ -1,0 +1,59 @@
+@media (max-width: 1100px) {
+  .bet105-shell {
+    display: flex !important;
+    flex-direction: column !important;
+    grid-template-columns: none !important;
+    align-items: stretch !important;
+    overflow: visible !important;
+    min-height: 0 !important;
+    height: auto !important;
+  }
+
+  .bet105-game-rail,
+  .bet105-board,
+  .bet105-slip {
+    order: initial !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    position: static !important;
+    top: auto !important;
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+  }
+
+  .bet105-game-rail {
+    order: 1 !important;
+  }
+
+  .bet105-board {
+    order: 2 !important;
+  }
+
+  .bet105-slip {
+    order: 3 !important;
+    padding-bottom: 28px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .bet105-shell {
+    gap: 14px !important;
+    padding-bottom: 44px !important;
+  }
+
+  .bet105-game-rail {
+    margin-bottom: 4px !important;
+  }
+
+  .bet105-game-rail::after {
+    content: "Showing full Bet105 slate — scroll page for all games";
+    display: block;
+    margin: 10px 4px 0;
+    color: #8b949e;
+    font-size: 11px;
+    font-weight: 800;
+    text-align: center;
+  }
+}
