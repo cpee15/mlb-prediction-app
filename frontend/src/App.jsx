@@ -1,5 +1,6 @@
 import React from 'react'
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import './styles/bet105-mobile.css'
 import HomePage from './pages/HomePage'
 import LandingV2Page from './pages/LandingV2Page'
 import MatchupDetailPage from './pages/MatchupDetailPage'
