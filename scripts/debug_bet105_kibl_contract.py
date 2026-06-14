@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Capture the KIBL request/response contract without touching the app route.
+"""Capture baseball-scoped KIBL request/response contract summaries.
 
 Run this only in an environment that already has credentials configured.
-It intentionally prints compact, redacted summaries rather than full payloads.
+This script intentionally stays scoped to the configured baseball league IDs.
+It does not touch the user-facing app route.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from mlb_app.kibl_client import KiblClient, find_rows
 
 MARKET_PATH = "info/markets"
 FIXTURE_PATH = "info/fixtures"
+BASEBALL_LEAGUE_IDS = ("20", "643")
 
 
 ROUTING_FIELD_SETS: Tuple[Tuple[str, ...], ...] = (
@@ -114,8 +116,20 @@ def _body_without_dates(filters: Dict[str, Any]) -> Dict[str, Any]:
     return {key: value for key, value in filters.items() if key not in {"start_date", "end_date", "from", "to"}}
 
 
-def _body_without_book(filters: Dict[str, Any]) -> Dict[str, Any]:
-    return {key: value for key, value in filters.items() if key not in {"feed_source_id", "betting_type_id"}}
+def _baseball_body(filters: Dict[str, Any], league_id: str | None = None) -> Dict[str, Any]:
+    body = dict(filters)
+    if league_id:
+        body["league_id"] = league_id
+    return body
+
+
+def _core_baseball_body(filters: Dict[str, Any], league_id: str | None = None) -> Dict[str, Any]:
+    return _body_without_dates(_baseball_body(filters, league_id))
+
+
+def _is_baseball_routing_map(body: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+    league = str(body.get("league_id") or filters.get("league_id") or "")
+    return any(piece.strip() in BASEBALL_LEAGUE_IDS for piece in league.split(","))
 
 
 def _routing_bodies(filters: Dict[str, Any], seed: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
@@ -123,42 +137,48 @@ def _routing_bodies(filters: Dict[str, Any], seed: Dict[str, Any]) -> List[Tuple
     if not parts:
         return []
 
-    out: List[Tuple[str, Dict[str, Any]]] = [("routing_parts_only", {"routing_key_parts": parts})]
-    for idx, value in enumerate(parts):
-        out.append((f"routing_part_{idx}", {**filters, f"routing_part_{idx}": value}))
+    out: List[Tuple[str, Dict[str, Any]]] = []
 
     for field_set_idx, fields in enumerate(ROUTING_FIELD_SETS):
         if len(parts) < len(fields):
             continue
         body = dict(zip(fields, parts[: len(fields)]))
+        if not _is_baseball_routing_map(body, filters):
+            continue
         out.append((f"routing_map_{field_set_idx}", body))
         out.append((f"routing_map_{field_set_idx}+dates", {**body, **{key: filters[key] for key in ("start_date", "end_date", "from", "to") if key in filters}}))
         out.append((f"routing_map_{field_set_idx}+league_feed", {**body, "league_id": filters.get("league_id"), "feed_source_id": filters.get("feed_source_id"), "betting_type_id": filters.get("betting_type_id")}))
 
-    # Target likely dimensions from the observed routing key without relying on exact names.
-    for key_name in ("sport_id", "sport_type_id", "provider_id", "region_id", "competition_id"):
+    # Keep likely dimensions scoped to baseball filters. Do not issue unconstrained provider/book probes.
+    for key_name in ("sport_id", "sport_type_id", "region_id", "competition_id"):
         for value in parts[:6]:
             out.append((f"{key_name}_{value}", {**filters, key_name: value}))
-            out.append((f"core_{key_name}_{value}", {**_body_without_dates(filters), key_name: value}))
+            out.append((f"core_{key_name}_{value}", {**_core_baseball_body(filters), key_name: value}))
+            for league_id in BASEBALL_LEAGUE_IDS:
+                out.append((f"{key_name}_{value}_league{league_id}", {**_baseball_body(filters, league_id), key_name: value}))
 
     return out
 
 
 def _diagnostic_filter_bodies(filters: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
-    core = _body_without_dates(filters)
-    no_book = _body_without_book(filters)
     out: List[Tuple[str, Dict[str, Any]]] = [
-        ("diag_core_no_dates", core),
-        ("diag_feed_betting_only", {"feed_source_id": filters.get("feed_source_id"), "betting_type_id": filters.get("betting_type_id")}),
-        ("diag_feed_betting_league20", {"feed_source_id": filters.get("feed_source_id"), "betting_type_id": filters.get("betting_type_id"), "league_id": "20"}),
-        ("diag_feed_betting_league643", {"feed_source_id": filters.get("feed_source_id"), "betting_type_id": filters.get("betting_type_id"), "league_id": "643"}),
-        ("diag_no_book_filters", no_book),
-        ("diag_no_dates_no_book", _body_without_dates(no_book)),
-        ("diag_league20_full_dates", {**filters, "league_id": "20"}),
-        ("diag_league643_full_dates", {**filters, "league_id": "643"}),
-        ("diag_league20_no_dates", {**core, "league_id": "20"}),
-        ("diag_league643_no_dates", {**core, "league_id": "643"}),
+        ("diag_baseball_core_no_dates", _core_baseball_body(filters)),
     ]
+    for league_id in BASEBALL_LEAGUE_IDS:
+        out.extend(
+            [
+                (f"diag_baseball_league{league_id}_full_dates", _baseball_body(filters, league_id)),
+                (f"diag_baseball_league{league_id}_no_dates", _core_baseball_body(filters, league_id)),
+                (
+                    f"diag_baseball_feed_betting_league{league_id}",
+                    {
+                        "feed_source_id": filters.get("feed_source_id"),
+                        "betting_type_id": filters.get("betting_type_id"),
+                        "league_id": league_id,
+                    },
+                ),
+            ]
+        )
     return out
 
 
@@ -166,7 +186,7 @@ def _seeded_market_bodies(filters: Dict[str, Any], seed: Dict[str, Any]) -> List
     base = dict(filters)
     body_specs: List[Tuple[str, Dict[str, Any]]] = [("base", base)]
 
-    # Direct row-derived fields from the known-good market row.
+    # Direct row-derived fields from the known-good baseball market row.
     for key in (
         "fixture_id",
         "event_id",
@@ -182,7 +202,9 @@ def _seeded_market_bodies(filters: Dict[str, Any], seed: Dict[str, Any]) -> List
         value = _row_value(seed, key)
         if value not in (None, ""):
             body_specs.append((key, {**base, key: value}))
-            body_specs.append((f"core_{key}", {**_body_without_dates(base), key: value}))
+            body_specs.append((f"core_{key}", {**_core_baseball_body(base), key: value}))
+            for league_id in BASEBALL_LEAGUE_IDS:
+                body_specs.append((f"{key}_league{league_id}", {**_baseball_body(base, league_id), key: value}))
 
     fixture_id = _row_value(seed, "fixture_id")
     market_id = _row_value(seed, "market_id")
@@ -201,27 +223,37 @@ def _seeded_market_bodies(filters: Dict[str, Any], seed: Dict[str, Any]) -> List
         clean_extra = _clean_body(extra)
         if clean_extra:
             body_specs.append((label, {**base, **clean_extra}))
-            body_specs.append((f"core_{label}", {**_body_without_dates(base), **clean_extra}))
+            body_specs.append((f"core_{label}", {**_core_baseball_body(base), **clean_extra}))
+            for league_id in BASEBALL_LEAGUE_IDS:
+                body_specs.append((f"{label}_league{league_id}", {**_baseball_body(base, league_id), **clean_extra}))
 
     body_specs.extend(_diagnostic_filter_bodies(filters))
     body_specs.extend(_routing_bodies(filters, seed))
 
-    # Check whether offset acts as a cursor without multiplying production requests.
+    # Check whether offset acts as a cursor, but keep every request baseball-scoped.
     for offset in range(0, int(os.getenv("BET105_CONTRACT_PROBE_OFFSETS", "6"))):
         body_specs.append((f"base_offset_{offset}", {**base, "offset": offset, "limit": 250}))
+        for league_id in BASEBALL_LEAGUE_IDS:
+            body_specs.append((f"league{league_id}_offset_{offset}", {**_baseball_body(base, league_id), "offset": offset, "limit": 250}))
 
     seen: set[str] = set()
     out: List[Tuple[str, Dict[str, Any]]] = []
     for label, body in body_specs:
-        fp = repr(sorted((key, str(value)) for key, value in _clean_body(body).items()))
+        clean = _clean_body(body)
+        # Final guardrail: never run a diagnostic request unless it is constrained to a baseball league.
+        if "league_id" not in clean:
+            continue
+        if not _is_baseball_routing_map(clean, filters):
+            continue
+        fp = repr(sorted((key, str(value)) for key, value in clean.items()))
         if fp not in seen:
             seen.add(fp)
-            out.append((label, body))
+            out.append((label, clean))
     return out
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Capture request contract summaries.")
+    parser = argparse.ArgumentParser(description="Capture baseball-scoped request contract summaries.")
     parser.add_argument("--date", default=os.getenv("BET105_DEBUG_DATE"), help="Slate date, YYYY-MM-DD")
     parser.add_argument("--live", action="store_true", help="Use live type id")
     parser.add_argument("--raw-samples", action="store_true", help="Include first-row samples in output")
@@ -243,14 +275,12 @@ def main() -> int:
             results.append(_request(client, MARKET_PATH, label, body))
 
         fixture_id = _row_value(seed, "fixture_id")
-        fixture_bodies = [
-            ("fixture_by_fixture_id", {**filters, "fixture_id": fixture_id, "offset": 0, "limit": 250}),
-            ("fixture_by_id", {**filters, "id": fixture_id, "offset": 0, "limit": 250}),
-            ("fixture_core_by_fixture_id", {**_body_without_dates(filters), "fixture_id": fixture_id, "offset": 0, "limit": 250}),
-            ("fixture_no_book_by_fixture_id", {**_body_without_book(filters), "fixture_id": fixture_id, "offset": 0, "limit": 250}),
-        ]
         if fixture_id not in (None, ""):
-            for label, body in fixture_bodies:
+            for label, body in [
+                ("fixture_by_fixture_id", {**filters, "fixture_id": fixture_id, "offset": 0, "limit": 250}),
+                ("fixture_by_id", {**filters, "id": fixture_id, "offset": 0, "limit": 250}),
+                ("fixture_core_by_fixture_id", {**_core_baseball_body(filters), "fixture_id": fixture_id, "offset": 0, "limit": 250}),
+            ]:
                 results.append(_request(client, FIXTURE_PATH, label, body))
 
     if not args.raw_samples:
@@ -260,6 +290,8 @@ def main() -> int:
     winners = [result for result in results if int(result.get("row_count") or 0) > 1]
     payload = {
         "status": "ok" if results else "empty",
+        "scope": "baseball_only",
+        "baseball_league_ids": list(BASEBALL_LEAGUE_IDS),
         "date": args.date,
         "live": bool(args.live),
         "base_filters": filters,
