@@ -126,6 +126,7 @@ def _market_name(row: Dict[str, Any]) -> tuple[str, str]:
 
 
 def _selection(row: Dict[str, Any], participant_rows: Dict[str, Dict[str, Any]], event: Dict[str, Any], index: int) -> Dict[str, Any]:
+    market_key, market_name = _market_name(row)
     label = _binary_side(row)
     participant = None
     info = row.get("info") if isinstance(row.get("info"), dict) else {}
@@ -152,6 +153,10 @@ def _selection(row: Dict[str, Any], participant_rows: Dict[str, Dict[str, Any]],
             label = "Over"
         elif side_id == 4:
             label = "Under"
+    if not label and market_key == "totals":
+        label = "Total Runs"
+    if not label and market_key == "spreads":
+        label = enrichment.event_team_name(event, "away") or enrichment.event_team_name(event, "home") or market_name
     label = label or "Selection metadata missing"
     price = _price(row)
     return {
