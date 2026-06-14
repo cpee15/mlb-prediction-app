@@ -8,7 +8,8 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter
 
-from .kibl_bet105_sportsbook_runtime import fetch_kibl_bet105_event_odds, fetch_kibl_bet105_events
+from .sportsbook_bet105_runtime_v10 import fetch_event_board as fetch_kibl_bet105_event_odds
+from .sportsbook_bet105_runtime_v10 import fetch_board as fetch_kibl_bet105_events
 from .odds_provider import fetch_draftkings_events
 
 router = APIRouter()
@@ -186,7 +187,7 @@ def _index_events(payload: Dict[str, Any], book: str) -> Dict[str, Dict[str, Any
                     "books": {},
                     "best_book": None,
                     "best_price": None,
-                    "price_gap": None,
+                    "price_gap": None
                 })
                 bucket["books"][book] = _book_selection(selection)
     return indexed
