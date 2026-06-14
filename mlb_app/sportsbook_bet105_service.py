@@ -43,6 +43,158 @@ def _fixture_items_from_payload(payload: Any) -> List[Dict[str, Any]]:
     return items
 
 
+def _raw_dict(item: Dict[str, Any]) -> Dict[str, Any]:
+    raw = item.get("raw")
+    return raw if isinstance(raw, dict) else item
+
+
+def _raw_market_rows(market: Dict[str, Any]) -> List[Dict[str, Any]]:
+    raw = _raw_dict(market)
+    rows = raw.get("rows")
+    if isinstance(rows, list):
+        return [row for row in rows if isinstance(row, dict)]
+    return [raw] if raw else []
+
+
+def _extract_market_type_id(market: Dict[str, Any]) -> Any:
+    if market.get("market_type_id") is not None:
+        return market.get("market_type_id")
+    for row in _raw_market_rows(market):
+        value = base._extract_first(row, ("market_type_id", "marketTypeId", "marketTypeID"))
+        if value is not None:
+            return value
+    return None
+
+
+def _canonical_market_key(market: Dict[str, Any]) -> str:
+    market_type_id = _extract_market_type_id(market)
+    try:
+        market_type_int = int(market_type_id) if market_type_id is not None else None
+    except (TypeError, ValueError):
+        market_type_int = None
+    if market_type_int in enrichment._KIBL_MARKET_TYPE_MAP:
+        return enrichment._KIBL_MARKET_TYPE_MAP[market_type_int]
+    return str(market.get("market_key") or market.get("market_type") or base._market_key(market_type_id) or "unknown_market")
+
+
+def _market_group_line(market: Dict[str, Any]) -> Any:
+    key = _canonical_market_key(market)
+    line = base._safe_float(market.get("line"))
+    if line is None:
+        for row in _raw_market_rows(market):
+            line = base._safe_float(base._extract_first(row, base._LINE_KEYS))
+            if line is not None:
+                break
+    if key == "h2h":
+        return "none"
+    if key == "spreads" and line is not None:
+        return abs(line)
+    return line if line is not None else "none"
+
+
+def _merge_market_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
+    merged = dict(group[0])
+    selections: List[Dict[str, Any]] = []
+    raw_rows: List[Dict[str, Any]] = []
+    for market in group:
+        selections.extend([dict(selection) for selection in market.get("selections", []) or []])
+        raw_rows.extend(_raw_market_rows(market))
+    merged["selections"] = selections
+    if raw_rows:
+        merged["raw"] = {"rows": raw_rows}
+    return merged
+
+
+def _selection_side_id(selection: Dict[str, Any]) -> Optional[int]:
+    raw = _raw_dict(selection)
+    return base._safe_int(base._extract_first(raw, ("participant_side_id", "side_id", "sideId", "participantSideId")) or base._extract_first(selection, ("participant_side_id", "side_id", "sideId", "participantSideId")))
+
+
+def _finalize_selection(selection: Dict[str, Any]) -> Dict[str, Any]:
+    selection_copy = dict(selection)
+    raw = _raw_dict(selection_copy)
+    side_id = _selection_side_id(selection_copy)
+    participant_id = base._extract_first(raw, ("participant_id", "participantId", "participantID")) or selection_copy.get("participant_id")
+    price_american = selection_copy.get("price")
+    if price_american is None:
+        price_american = base._price_from_selection(raw)
+    price_decimal = None
+    odds = selection_copy.get("odds") if isinstance(selection_copy.get("odds"), dict) else {}
+    if odds:
+        price_decimal = odds.get("decimal")
+    if price_decimal is None:
+        price_decimal = base._safe_float(base._extract_first(raw, base._DECIMAL_KEYS)) or base._decimal_from_american(price_american)
+    price_fraction = None
+    if odds:
+        price_fraction = odds.get("fractional")
+    if price_fraction is None:
+        price_fraction = base._extract_first(raw, ("price_fraction", "fractional", "fractional_odds", "fractionalOdds"))
+    implied_probability = None
+    if odds:
+        implied_probability = odds.get("implied_probability")
+    if implied_probability is None:
+        implied_probability = base._implied_from_american(price_american)
+    is_current = base._extract_first(raw, ("is_current", "isCurrent", "active", "is_active", "isActive"))
+    if is_current is None:
+        is_current = selection_copy.get("is_open", True)
+    selection_copy.update(
+        {
+            "side_id": side_id,
+            "participant_id": participant_id,
+            "price": price_american,
+            "price_american": price_american,
+            "price_decimal": price_decimal,
+            "price_fraction": price_fraction,
+            "implied_probability": implied_probability,
+            "is_current": bool(is_current),
+            "active": bool(is_current),
+        }
+    )
+    selection_copy["odds"] = {
+        "american": price_american,
+        "decimal": price_decimal,
+        "fractional": price_fraction,
+        "implied_probability": implied_probability,
+    }
+    return selection_copy
+
+
+def _finalize_market(market: Dict[str, Any]) -> Dict[str, Any]:
+    market_copy = dict(market)
+    market_type_id = _extract_market_type_id(market_copy)
+    market_key = _canonical_market_key(market_copy)
+    market_copy["market_type_id"] = market_type_id
+    market_copy["market_key"] = market_key
+    market_copy["market_type"] = market_key
+    if enrichment.placeholder_market_name(market_copy.get("market_name"), market_key):
+        market_copy["market_name"] = enrichment.market_display_name(market_copy)
+    if not market_copy.get("period"):
+        for row in _raw_market_rows(market_copy):
+            period = base._extract_first(row, ("period", "period_name", "periodName", "segment_id", "segmentId"))
+            if period is not None:
+                market_copy["period"] = period
+                break
+    market_copy["selections"] = [_finalize_selection(selection) for selection in market_copy.get("selections", []) or []]
+    return market_copy
+
+
+def _finalize_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    finalized: List[Dict[str, Any]] = []
+    for event in events:
+        event_copy = dict(event)
+        if event_copy.get("start_time") and not event_copy.get("commence_time"):
+            event_copy["commence_time"] = event_copy["start_time"]
+        market_groups: Dict[tuple[Any, Any, Any], List[Dict[str, Any]]] = {}
+        for market in event_copy.get("markets", []) or []:
+            key = (_canonical_market_key(market), market.get("period"), _market_group_line(market))
+            market_groups.setdefault(key, []).append(market)
+        merged_markets = [_finalize_market(_merge_market_group(group)) for group in market_groups.values()]
+        event_copy["markets"] = merged_markets
+        event_copy["market_count"] = len(merged_markets)
+        finalized.append(event_copy)
+    return finalized
+
+
 def _incomplete_count(events: List[Dict[str, Any]]) -> Dict[str, int]:
     placeholder_event_names = 0
     placeholder_market_names = 0
@@ -89,7 +241,7 @@ def fetch_board(
         live_only=live_only,
         event_id=str(game_pk) if game_pk is not None else None,
     )
-    cache_key = f"kibl-sportsbook:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:fixture-first-v6"
+    cache_key = f"kibl-sportsbook:{scope}:{game_pk or 'all'}:{props_only}:{date or 'any'}:{params}:{raw}:{live_only}:fixture-first-v8"
     cached = base._cache_get(cache_key)
     if cached:
         return cached
@@ -109,6 +261,7 @@ def fetch_board(
             fixture_events = [
                 {
                     "event_id": meta.get("event_id"),
+                    "fixture_id": meta.get("fixture_id"),
                     "name": meta.get("name"),
                     "sport": meta.get("sport") or "Baseball",
                     "league": meta.get("league") or "MLB",
@@ -116,6 +269,7 @@ def fetch_board(
                     "home_team": meta.get("home_team"),
                     "away_team": meta.get("away_team"),
                     "start_time": meta.get("start_time"),
+                    "commence_time": meta.get("start_time"),
                     "status": meta.get("status") or ("live" if is_live else "scheduled"),
                     "is_live": bool(is_live if meta.get("is_live") is None else meta.get("is_live")),
                     "source_url": None,
@@ -145,14 +299,13 @@ def fetch_board(
                         request_path = market_path
                         request_params = body
                         best_flattened_market_count = flattened_market_count
-                    if flattened_market_count > 0:
-                        break
+                    # Keep scanning every request body. KIBL can return partial market boards
+                    # for early request shapes, so stopping after the first non-empty response
+                    # can lock production into one-event/one-market incomplete_normalization.
                 except Exception as exc:
                     notes.append(f"markets_{label}_error:{exc}")
-            if best_flattened_market_count > 0:
-                break
 
-        if best_flattened_market_count == 0 and params.get("markets"):
+        if params.get("markets"):
             retry_params = base.build_kibl_bet105_request_params(
                 scope,
                 date=None,
@@ -173,12 +326,12 @@ def fetch_board(
                         request_path = market_path
                         request_params = body
                         best_flattened_market_count = flattened_market_count
-                    if flattened_market_count > 0:
-                        break
+                    # Do not break here either; the unfiltered response may also be partial.
                 except Exception as exc:
                     notes.append(f"markets_no_filter_core_error:{exc}")
 
         events = enrichment.enrich_market_events_with_fixture_metadata(market_events, fixture_items, fixture_events) if market_events else fixture_events
+        events = _finalize_events(events)
         markets = base._flatten_markets(events, game_pk=game_pk)
         diagnostics = _incomplete_count(events)
         status = "ok" if markets else ("fixtures_only" if events else "empty")
@@ -187,6 +340,7 @@ def fetch_board(
     except Exception as exc:
         return base._provider_error(scope, game_pk, exc, request_params=params)
 
+    raw_debug_items = (market_items or []) + (fixture_items or [])
     normalized: Dict[str, Any] = {
         "provider": base._PROVIDER,
         "book": base._BOOK,
@@ -209,7 +363,7 @@ def fetch_board(
         "normalization_notes": notes,
     }
     if raw or scope == "debug":
-        normalized["raw_items_sample"] = base._redact((market_items or fixture_items)[:10])
+        normalized["raw_items_sample"] = base._redact(raw_debug_items[:10])
         normalized["diagnostics"] = diagnostics
         normalized["fixtures"] = {
             "count": len(fixture_items),
@@ -218,6 +372,7 @@ def fetch_board(
         normalized["markets_meta"] = {
             "row_count": len(market_items),
             "market_type_ids": [base._extract_first(item, ("market_type_id", "marketTypeId")) for item in market_items[:20]],
+            "best_flattened_market_count": best_flattened_market_count,
         }
     base._cache_set(cache_key, normalized)
     return normalized
