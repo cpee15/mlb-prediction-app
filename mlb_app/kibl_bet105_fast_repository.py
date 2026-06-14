@@ -45,9 +45,16 @@ class KiblBet105Repository(FullMarketRepository):
             configured = 8
         return max(1, min(configured, 12))
 
-    def _summary_rows(self, path: str, body: Dict[str, Any], notes: List[str], label: str) -> List[Dict[str, Any]]:
+    def _increment_call_count(self) -> None:
         self.performance_meta["kibl_call_count"] = int(self.performance_meta.get("kibl_call_count") or 0) + 1
+
+    def _summary_rows(self, path: str, body: Dict[str, Any], notes: List[str], label: str) -> List[Dict[str, Any]]:
+        self._increment_call_count()
         return super()._summary_rows(path, body, notes, label)
+
+    def _market_rows_for_body(self, body: Dict[str, Any], notes: List[str], label: str, fixture_ids: List[str]) -> List[Dict[str, Any]]:
+        self._increment_call_count()
+        return super()._market_rows_for_body(body, notes, label, fixture_ids)
 
     def market_request_bodies(self, filters: Dict[str, Any], fixture_ids: List[str]) -> List[Tuple[str, Dict[str, Any]]]:
         clean = self._clean_market_body(filters)
@@ -114,7 +121,7 @@ class KiblBet105Repository(FullMarketRepository):
                 idx, label = future_map[future]
                 try:
                     rows = future.result()
-                except Exception as exc:  # noqa: BLE001 - record per-request failures without killing the full slate.
+                except Exception as exc:
                     notes.append(f"fixture_market_summary_error:label={stage}:{label}:error={exc}")
                     rows = []
                 results[idx] = rows
