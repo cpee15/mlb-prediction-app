@@ -64,6 +64,16 @@ def _fixture_indexes(board: Bet105RawBoard) -> tuple[Dict[str, Dict[str, Any]], 
     return by_fixture, by_event
 
 
+def _fixture_summary_ids(board: Bet105RawBoard) -> List[str]:
+    ids: List[str] = []
+    for row in board.fixture_rows:
+        for key in ("fixture_id", "event_id", "id"):
+            value = _id(row.get(key))
+            if value and value not in ids:
+                ids.append(value)
+    return ids
+
+
 def _participant_index(board: Bet105RawBoard) -> Dict[str, Dict[str, Any]]:
     index: Dict[str, Dict[str, Any]] = {}
     for row in board.participant_rows:
@@ -133,6 +143,16 @@ def _market_name(row: Dict[str, Any]) -> tuple[str, str]:
     return f"market_{market_type_id or 'unknown'}", f"Unknown Market Type {market_type_id or 'unknown'}"
 
 
+def _status(markets: List[Dict[str, Any]], diagnostics: Dict[str, int], board: Bet105RawBoard) -> str:
+    if not markets:
+        return "fixtures_only" if board.fixture_rows else "empty"
+    if board.fixture_rows and len(board.fixture_rows) > 1 and len(markets) <= 1:
+        return "incomplete_market_discovery"
+    if any(diagnostics.values()):
+        return "incomplete_normalization"
+    return "ok"
+
+
 def normalize_board(board: Bet105RawBoard, live_only: Optional[bool] = None, game_pk: Optional[Any] = None, raw: bool = False) -> Dict[str, Any]:
     by_fixture, by_event = _fixture_indexes(board)
     participants = _participant_index(board)
@@ -193,11 +213,11 @@ def normalize_board(board: Bet105RawBoard, live_only: Optional[bool] = None, gam
         "placeholder_selection_names": sum(1 for event in events for market in event.get("markets") or [] for selection in market.get("selections") or [] if "metadata missing" in str(selection.get("name") or "").lower()),
         "missing_start_times": sum(1 for event in events if not event.get("start_time")),
     }
-    status = "ok" if markets and not any(diagnostics.values()) else "incomplete_normalization" if markets else "empty"
+    fixture_summary_ids = _fixture_summary_ids(board)
     payload = {
         "provider": "kibl_bet105",
         "book": "bet105",
-        "status": status,
+        "status": _status(markets, diagnostics, board),
         "scope": "live" if live_only else "events",
         "events": events,
         "markets": markets,
@@ -209,7 +229,7 @@ def normalize_board(board: Bet105RawBoard, live_only: Optional[bool] = None, gam
         "diagnostics": diagnostics,
         "fixtures": {
             "count": len(board.fixture_rows),
-            "fixture_ids": board.ids.get("fixture_id") or [],
+            "fixture_ids": fixture_summary_ids or board.ids.get("fixture_id") or [],
             "market_detail_ids": board.ids,
             "fixture_row_count": len(board.fixture_rows),
             "participant_row_count": len(board.participant_rows),
