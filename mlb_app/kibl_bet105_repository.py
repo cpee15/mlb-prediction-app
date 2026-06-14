@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from . import kibl_bet105_provider as legacy
 from .kibl_bet105_types import Bet105RawBoard
@@ -13,6 +15,8 @@ class KiblBet105Repository:
     market_summary_path = "info/markets"
     mlb_sport_id = "2"
     mlb_league_id = "7"
+    game_fixture_type_id = "1"
+    eastern_tz = ZoneInfo("America/New_York")
     fixture_excluded_filter_keys = {
         "feed_source_id",
         "betting_type_id",
@@ -117,12 +121,11 @@ class KiblBet105Repository:
         return rows
 
     def _date_body(self, filters: Dict[str, Any]) -> Dict[str, Any]:
-        body = {
+        return {
             key: value
             for key, value in filters.items()
             if key not in self.fixture_excluded_filter_keys and value not in (None, "")
         }
-        return body
 
     def _fixture_request_bodies(self, filters: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
         body = {
@@ -131,6 +134,53 @@ class KiblBet105Repository:
             "league_id": self.mlb_league_id,
         }
         return [("mlb_sport2_league7", body)]
+
+    def _selected_eastern_date(self, filters: Dict[str, Any]) -> Optional[str]:
+        for key in ("start_date", "from", "date"):
+            value = self._safe_text(filters.get(key))
+            if value:
+                return value[:10]
+        return None
+
+    def _parse_utc_start(self, value: Any) -> Optional[datetime]:
+        text = self._safe_text(value)
+        if not text:
+            return None
+        normalized = text.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            try:
+                parsed = datetime.strptime(text[:19], "%Y-%m-%dT%H:%M:%S")
+            except ValueError:
+                return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def _is_selected_mlb_game_fixture(self, row: Dict[str, Any], selected_date: Optional[str]) -> bool:
+        if self._safe_text(row.get("sport_id")) != self.mlb_sport_id:
+            return False
+        if self._safe_text(row.get("league_id")) != self.mlb_league_id:
+            return False
+        # KIBL routing shows fixture_type_id=1 for real games; 3=props, 4=futures/outrights, 6=other alternates.
+        if self._safe_text(row.get("fixture_type_id")) != self.game_fixture_type_id:
+            return False
+        if selected_date:
+            start = self._parse_utc_start(row.get("start_time") or row.get("start_date") or row.get("date"))
+            if not start:
+                return False
+            if start.astimezone(self.eastern_tz).date().isoformat() != selected_date:
+                return False
+        return True
+
+    def _filter_fixture_rows_to_selected_games(self, rows: List[Dict[str, Any]], filters: Dict[str, Any], notes: List[str]) -> List[Dict[str, Any]]:
+        selected_date = self._selected_eastern_date(filters)
+        kept = [row for row in rows if self._is_selected_mlb_game_fixture(row, selected_date)]
+        notes.append(
+            f"fixture_game_filter:selected_date={selected_date}:raw={len(rows)}:kept={len(kept)}:sport_id=2:league_id=7:fixture_type_id=1"
+        )
+        return kept
 
     def _dedupe_fixture_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         seen: set[str] = set()
@@ -157,8 +207,9 @@ class KiblBet105Repository:
                 f"fixture_candidate:{label}:keys={','.join(sorted(body.keys()))}:rows={len(rows)}:book_filters_removed={not any(key in body for key in ('feed_source_id', 'betting_type_id'))}"
             )
             all_rows.extend(rows)
-        deduped = self._dedupe_fixture_rows(all_rows)
-        notes.append(f"fixture_summary:{self.fixture_summary_path}:raw={len(all_rows)}:deduped={len(deduped)}:scope=sport_id=2,league_id=7")
+        game_rows = self._filter_fixture_rows_to_selected_games(all_rows, filters, notes)
+        deduped = self._dedupe_fixture_rows(game_rows)
+        notes.append(f"fixture_summary:{self.fixture_summary_path}:raw={len(all_rows)}:games={len(game_rows)}:deduped={len(deduped)}:scope=sport_id=2,league_id=7")
         return deduped
 
     def fixture_ids_from_fixtures(self, fixture_rows: List[Dict[str, Any]]) -> List[str]:
@@ -186,7 +237,7 @@ class KiblBet105Repository:
         kept = [row for row in rows if str(row.get("fixture_id") or row.get("event_id") or row.get("id") or "") in allowed]
         dropped = len(rows) - len(kept)
         if dropped:
-            notes.append(f"{label}:dropped_non_mlb_market_rows={dropped}:allowed_fixture_ids={len(allowed)}")
+            notes.append(f"{label}:dropped_non_selected_mlb_market_rows={dropped}:allowed_fixture_ids={len(allowed)}")
         return kept
 
     def market_request_bodies(self, filters: Dict[str, Any], fixture_ids: List[str]) -> List[Tuple[str, Dict[str, Any]]]:
