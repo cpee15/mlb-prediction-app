@@ -27,16 +27,68 @@ class KiblBet105Repository:
         filters.pop("from_cache", None)
         return filters
 
+    @staticmethod
+    def _csv_values(value: Any) -> set[str]:
+        if value in (None, ""):
+            return set()
+        if isinstance(value, (list, tuple, set)):
+            return {str(item).strip() for item in value if item not in (None, "")}
+        return {piece.strip() for piece in str(value).split(",") if piece.strip()}
+
+    @staticmethod
+    def _safe_text(value: Any) -> Optional[str]:
+        if value in (None, ""):
+            return None
+        return str(value).strip()
+
+    def _row_matches_requested_feed(self, row: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+        expected_feed = self._safe_text(filters.get("feed_source_id"))
+        expected_betting = self._safe_text(filters.get("betting_type_id"))
+        row_feed = self._safe_text(row.get("feed_source_id"))
+        row_betting = self._safe_text(row.get("betting_type_id"))
+        if expected_feed and row_feed and row_feed != expected_feed:
+            return False
+        if expected_betting and row_betting and row_betting != expected_betting:
+            return False
+        return True
+
+    def _row_matches_requested_league(self, row: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+        requested = self._csv_values(filters.get("league_id"))
+        if not requested:
+            return True
+        row_values: set[str] = set()
+        for key in ("league_id", "leagueId", "competition_id", "competitionId", "sport_id", "sportId"):
+            row_values.update(self._csv_values(row.get(key)))
+        if not row_values:
+            # Current KIBL market rows may not carry league_id directly. Keep the row,
+            # but diagnostics will show that the filter was request-only.
+            return True
+        return bool(row_values.intersection(requested))
+
+    def _filter_market_rows(self, rows: List[Dict[str, Any]], filters: Dict[str, Any], notes: List[str]) -> List[Dict[str, Any]]:
+        kept: List[Dict[str, Any]] = []
+        for row in rows:
+            if not self._row_matches_requested_feed(row, filters):
+                continue
+            if not self._row_matches_requested_league(row, filters):
+                continue
+            kept.append(row)
+        notes.append(
+            f"market_filter:raw={len(rows)}:kept={len(kept)}:feed={filters.get('feed_source_id')}:betting={filters.get('betting_type_id')}:league={filters.get('league_id')}"
+        )
+        return kept
+
     def fetch_market_summary(self, filters: Dict[str, Any], notes: List[str]) -> List[Dict[str, Any]]:
         rows: List[Dict[str, Any]] = []
-        limit = int(os.getenv("KIBL_SUMMARY_LIMIT", "1000"))
-        max_pages = int(os.getenv("KIBL_SUMMARY_MAX_PAGES", "5"))
+        limit = int(os.getenv("KIBL_SUMMARY_LIMIT", "250"))
+        max_pages = int(os.getenv("KIBL_SUMMARY_MAX_PAGES", "1"))
         for page in range(max_pages):
             offset = page * limit
             payload = self.client.post_summary(self.market_summary_path, filters, offset=offset, limit=limit)
             page_rows = find_rows(payload)
-            notes.append(f"market_summary:{self.market_summary_path}:offset={offset}:limit={limit}:rows={len(page_rows)}")
-            rows.extend(page_rows)
+            filtered = self._filter_market_rows(page_rows, filters, notes)
+            notes.append(f"market_summary:{self.market_summary_path}:offset={offset}:limit={limit}:raw={len(page_rows)}:kept={len(filtered)}")
+            rows.extend(filtered)
             if len(page_rows) < limit:
                 break
         return rows
@@ -73,7 +125,7 @@ class KiblBet105Repository:
                 if not values:
                     continue
                 for body_key in (source_key, f"{source_key}s", "ids"):
-                    bodies.append((f"{source_key}->{body_key}", {**root, body_key: values[:500]}))
+                    bodies.append((f"{source_key}->{body_key}", {**root, body_key: values[:100]}))
         seen: set[str] = set()
         out: List[tuple[str, Dict[str, Any]]] = []
         for label, body in bodies:
@@ -84,9 +136,18 @@ class KiblBet105Repository:
         return out
 
     def fetch_details(self, paths: tuple[str, ...], filters: Dict[str, Any], ids: Dict[str, List[str]], keys: List[str], notes: List[str], label: str) -> List[Dict[str, Any]]:
+        if not any(ids.get(key) for key in keys):
+            notes.append(f"{label}_detail_skipped:no_ids")
+            return []
         rows: List[Dict[str, Any]] = []
+        max_attempts = int(os.getenv("KIBL_DETAIL_MAX_ATTEMPTS", "12"))
+        attempts = 0
         for path in paths:
             for body_label, body in self._detail_bodies(filters, ids, keys):
+                attempts += 1
+                if attempts > max_attempts:
+                    notes.append(f"{label}_detail_stopped:max_attempts={max_attempts}")
+                    return rows
                 try:
                     payload = self.client.post(path, body)
                     found = find_rows(payload)
@@ -103,6 +164,9 @@ class KiblBet105Repository:
         board = Bet105RawBoard(filters=filters)
         board.market_rows = self.fetch_market_summary(filters, board.notes)
         board.ids = self.extract_ids(board.market_rows)
+        board.notes.append(
+            f"market_ids:fixtures={len(board.ids.get('fixture_id') or [])}:participants={len(board.ids.get('participant_id') or [])}:fixture_participants={len(board.ids.get('fixture_participant_id') or [])}:markets={len(board.ids.get('market_id') or [])}"
+        )
         board.fixture_rows = self.fetch_details(self.fixture_paths, filters, board.ids, ["fixture_id"], board.notes, "fixture")
         board.participant_rows = self.fetch_details(
             self.metadata_paths,
