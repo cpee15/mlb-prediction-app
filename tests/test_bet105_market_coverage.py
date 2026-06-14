@@ -1,4 +1,5 @@
 from mlb_app.bet105_normalizer import normalize_board
+from mlb_app.kibl_bet105_fast_repository import KiblBet105Repository
 from mlb_app.kibl_bet105_types import Bet105RawBoard
 
 
@@ -16,10 +17,57 @@ FIXTURE = {
 }
 
 
+def request_filters():
+    return {
+        "feed_source_id": 171,
+        "betting_type_id": 1,
+        "sport_id": "2",
+        "league_id": "7",
+        "start_date": "2026-06-14 00:00:00",
+        "end_date": "2026-06-15 00:00:00",
+    }
+
+
 def row(**kwargs):
     base = {"fixture_id": "fx-1", "is_current": True, "price_decimal": 1.91}
     base.update(kwargs)
     return base
+
+
+def test_fast_mode_builds_only_three_market_type_requests_per_fixture():
+    repo = KiblBet105Repository(client=None, discovery_probes=False)
+
+    bodies = repo.market_request_bodies(request_filters(), ["fixture-a", "fixture-b"])
+    labels = [label for label, _body in bodies]
+
+    assert len(bodies) == 6
+    assert all("market_type_id:" in label for label in labels)
+    assert not any("market_type_ids:list" in label for label in labels)
+    assert not any("market_type_ids:csv" in label for label in labels)
+    assert [body["market_type_id"] for _label, body in bodies[:3]] == [1, 2, 3]
+
+
+def test_discovery_mode_keeps_extra_probe_variants():
+    repo = KiblBet105Repository(client=None, discovery_probes=True)
+
+    bodies = repo.market_request_bodies(request_filters(), ["fixture-a"])
+    labels = [label for label, _body in bodies]
+
+    assert len(bodies) == 6
+    assert "dated:fixture_id:fixture-a" in labels
+    assert "dated:fixture_id:fixture-a:market_type_id:1" in labels
+    assert "dated:fixture_id:fixture-a:market_type_id:2" in labels
+    assert "dated:fixture_id:fixture-a:market_type_id:3" in labels
+    assert "dated:fixture_id:fixture-a:market_type_ids:list" in labels
+    assert "dated:fixture_id:fixture-a:market_type_ids:csv" in labels
+
+
+def test_worker_count_is_bounded(monkeypatch):
+    monkeypatch.setenv("KIBL_BET105_MARKET_WORKERS", "999")
+    assert KiblBet105Repository._worker_count() == 12
+
+    monkeypatch.setenv("KIBL_BET105_MARKET_WORKERS", "0")
+    assert KiblBet105Repository._worker_count() == 1
 
 
 def test_normalizer_preserves_three_game_line_families():
