@@ -11,6 +11,7 @@ from .kibl_client import KiblClient, find_rows
 class KiblBet105Repository:
     fixture_summary_path = "info/fixtures"
     market_summary_path = "info/markets"
+    fixture_excluded_filter_keys = {"feed_source_id", "betting_type_id", "from_cache", "path", "combined_market_candidates", "markets"}
 
     def __init__(self, client: Optional[KiblClient] = None) -> None:
         self.client = client or KiblClient()
@@ -115,10 +116,57 @@ class KiblBet105Repository:
                 break
         return rows
 
+    def _fixture_request_bodies(self, filters: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
+        """Build baseball fixture requests.
+
+        KIBL fixture summaries are schedule data, not sportsbook/book data. Including
+        feed_source_id or betting_type_id makes info/fixtures return zero rows for the
+        Bet105 board. Split the baseball leagues so both league buckets are discovered.
+        """
+        base = {
+            key: value
+            for key, value in filters.items()
+            if key not in self.fixture_excluded_filter_keys and value not in (None, "")
+        }
+        leagues = list(self._csv_values(base.get("league_id"))) or list(self._csv_values(filters.get("league_id")))
+        if not leagues:
+            leagues = ["20", "643"]
+        # Keep deterministic order for notes/tests.
+        ordered_leagues = [league for league in ("20", "643") if league in set(leagues)] + [league for league in leagues if league not in {"20", "643"}]
+        bodies: List[Tuple[str, Dict[str, Any]]] = []
+        for league_id in ordered_leagues:
+            body = {**base, "league_id": league_id}
+            bodies.append((f"league{league_id}", body))
+        return bodies
+
+    def _dedupe_fixture_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen: set[str] = set()
+        out: List[Dict[str, Any]] = []
+        for idx, row in enumerate(rows):
+            fixture_id = None
+            for key in ("fixture_id", "event_id", "id"):
+                values = self._csv_values(row.get(key))
+                if values:
+                    fixture_id = sorted(values)[0]
+                    break
+            fp = fixture_id or f"row:{idx}:{repr(sorted(row.items()))[:200]}"
+            if fp not in seen:
+                seen.add(fp)
+                out.append(row)
+        return out
+
     def fetch_fixture_summary(self, filters: Dict[str, Any], notes: List[str]) -> List[Dict[str, Any]]:
-        rows = self._paged_summary_rows(self.fixture_summary_path, filters, notes, "fixture")
-        notes.append(f"fixture_summary:{self.fixture_summary_path}:rows={len(rows)}")
-        return rows
+        all_rows: List[Dict[str, Any]] = []
+        bodies = self._fixture_request_bodies(filters)
+        for label, body in bodies:
+            rows = self._paged_summary_rows(self.fixture_summary_path, body, notes, f"fixture:{label}")
+            notes.append(
+                f"fixture_candidate:{label}:keys={','.join(sorted(body.keys()))}:rows={len(rows)}:book_filters_removed={not any(key in body for key in ('feed_source_id', 'betting_type_id'))}"
+            )
+            all_rows.extend(rows)
+        deduped = self._dedupe_fixture_rows(all_rows)
+        notes.append(f"fixture_summary:{self.fixture_summary_path}:raw={len(all_rows)}:deduped={len(deduped)}:leagues={','.join(label for label, _ in bodies)}")
+        return deduped
 
     def fixture_ids_from_fixtures(self, fixture_rows: List[Dict[str, Any]]) -> List[str]:
         values: List[str] = []
@@ -142,15 +190,19 @@ class KiblBet105Repository:
         clean = {key: value for key, value in filters.items() if key not in {"from_cache", "path", "combined_market_candidates"} and value not in (None, "")}
         core = {key: value for key, value in clean.items() if key not in {"start_date", "end_date", "from", "to"}}
         roots = (("dated", clean), ("core", core))
+        fixture_id_limit = int(os.getenv("KIBL_MARKET_FIXTURE_ID_LIMIT", "20"))
+        batch_limit = int(os.getenv("KIBL_MARKET_FIXTURE_BATCH_LIMIT", "100"))
+        limited_fixture_ids = fixture_ids[: max(0, fixture_id_limit)]
+        batched_fixture_ids = fixture_ids[: max(0, batch_limit)]
         bodies: List[Tuple[str, Dict[str, Any]]] = []
         for root_label, root in roots:
             bodies.append((f"{root_label}:base", root))
             if fixture_ids:
-                bodies.append((f"{root_label}:fixture_ids", {**root, "fixture_ids": fixture_ids[:100]}))
-                bodies.append((f"{root_label}:event_ids", {**root, "event_ids": fixture_ids[:100]}))
-                bodies.append((f"{root_label}:ids", {**root, "ids": fixture_ids[:100]}))
-                bodies.append((f"{root_label}:fixture_ids_csv", {**root, "fixture_ids": ",".join(fixture_ids[:100])}))
-                for value in fixture_ids[:20]:
+                bodies.append((f"{root_label}:fixture_ids", {**root, "fixture_ids": batched_fixture_ids}))
+                bodies.append((f"{root_label}:event_ids", {**root, "event_ids": batched_fixture_ids}))
+                bodies.append((f"{root_label}:ids", {**root, "ids": batched_fixture_ids}))
+                bodies.append((f"{root_label}:fixture_ids_csv", {**root, "fixture_ids": ",".join(batched_fixture_ids)}))
+                for value in limited_fixture_ids:
                     bodies.append((f"{root_label}:fixture_id", {**root, "fixture_id": value}))
                     bodies.append((f"{root_label}:event_id", {**root, "event_id": value}))
                     bodies.append((f"{root_label}:id", {**root, "id": value}))
@@ -240,5 +292,7 @@ class KiblBet105Repository:
         )
         if not board.fixture_rows and board.ids.get("fixture_id"):
             board.notes.append("fixture_summary_empty:market_rows_have_fixture_ids")
+        if board.fixture_rows and not board.market_rows:
+            board.notes.append("fixture_summary_present:market_rows_empty")
         board.participant_rows = []
         return board
