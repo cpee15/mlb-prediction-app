@@ -8,22 +8,39 @@ class FakeClient:
     def post(self, path, body):
         self.calls.append((path, dict(body)))
         if path == "info/fixtures":
-            league_id = str(body.get("league_id"))
             assert "feed_source_id" not in body
             assert "betting_type_id" not in body
-            if league_id == "20":
-                return {"data": [{"fixture_id": "fx-20", "league_id": 20, "start_time": "2026-06-14T12:00:00.000Z"}]}
-            if league_id == "643":
-                return {"data": [{"fixture_id": "fx-643", "league_id": 643, "start_time": "2026-06-14T13:00:00.000Z"}]}
-            return {"data": []}
+            assert str(body.get("sport_id")) == "2"
+            assert str(body.get("league_id")) == "7"
+            return {
+                "data": [
+                    {
+                        "fixture_id": "fx-mlb-1",
+                        "sport_id": 2,
+                        "league_id": 7,
+                        "name": "New York Yankees vs Toronto Blue Jays",
+                        "start_time": "2026-06-14T17:37:00.000Z",
+                    },
+                    {
+                        "fixture_id": "fx-mlb-2",
+                        "sport_id": 2,
+                        "league_id": 7,
+                        "name": "Los Angeles Dodgers vs Chicago White Sox",
+                        "start_time": "2026-06-14T18:10:00.000Z",
+                    },
+                ]
+            }
         if path == "info/markets":
             assert body.get("feed_source_id") == 171
             assert body.get("betting_type_id") == 1
+            assert str(body.get("sport_id")) == "2"
+            assert str(body.get("league_id")) == "7"
             return {"data": []}
         return {"data": []}
 
 
 def _filters():
+    # Legacy provider may still produce the old tennis league filter; repository must override it.
     return {
         "feed_source_id": 171,
         "betting_type_id": 1,
@@ -35,21 +52,22 @@ def _filters():
     }
 
 
-def test_fixture_discovery_splits_baseball_leagues_without_book_filters():
+def test_fixture_discovery_uses_mlb_sport_2_league_7_without_book_filters():
     client = FakeClient()
     repo = KiblBet105Repository(client=client)
     notes = []
 
     rows = repo.fetch_fixture_summary(_filters(), notes)
 
-    assert [row["fixture_id"] for row in rows] == ["fx-20", "fx-643"]
+    assert [row["fixture_id"] for row in rows] == ["fx-mlb-1", "fx-mlb-2"]
     fixture_calls = [body for path, body in client.calls if path == "info/fixtures"]
-    assert [body["league_id"] for body in fixture_calls] == ["20", "643"]
-    assert all("feed_source_id" not in body for body in fixture_calls)
-    assert all("betting_type_id" not in body for body in fixture_calls)
-    assert any("fixture_candidate:league20" in note for note in notes)
-    assert any("fixture_candidate:league643" in note for note in notes)
-    assert any("fixture_summary:info/fixtures:raw=2:deduped=2" in note for note in notes)
+    assert len(fixture_calls) == 1
+    assert fixture_calls[0]["sport_id"] == "2"
+    assert fixture_calls[0]["league_id"] == "7"
+    assert "feed_source_id" not in fixture_calls[0]
+    assert "betting_type_id" not in fixture_calls[0]
+    assert any("fixture_candidate:mlb_sport2_league7" in note for note in notes)
+    assert any("fixture_summary:info/fixtures:raw=2:deduped=2:scope=sport_id=2,league_id=7" in note for note in notes)
 
 
 def test_fetch_board_keeps_fixture_seeded_market_calls_disabled_by_default(monkeypatch):
@@ -60,11 +78,13 @@ def test_fetch_board_keeps_fixture_seeded_market_calls_disabled_by_default(monke
 
     board = repo.fetch_board(date="2026-06-14", live_only=False)
 
-    assert [row["fixture_id"] for row in board.fixture_rows] == ["fx-20", "fx-643"]
+    assert [row["fixture_id"] for row in board.fixture_rows] == ["fx-mlb-1", "fx-mlb-2"]
     market_calls = [body for path, body in client.calls if path == "info/markets"]
     assert market_calls
     assert all(body.get("feed_source_id") == 171 for body in market_calls)
     assert all(body.get("betting_type_id") == 1 for body in market_calls)
+    assert all(str(body.get("sport_id")) == "2" for body in market_calls)
+    assert all(str(body.get("league_id")) == "7" for body in market_calls)
     assert all("fixture_id" not in body for body in market_calls)
     assert any("fixture_ids_from_summary:2" in note for note in board.notes)
     assert any("fixture_seeded_market_requests_disabled" in note for note in board.notes)
@@ -80,6 +100,6 @@ def test_fixture_seeded_market_calls_are_explicit_opt_in(monkeypatch):
 
     board = repo.fetch_board(date="2026-06-14", live_only=False)
 
-    assert [row["fixture_id"] for row in board.fixture_rows] == ["fx-20", "fx-643"]
+    assert [row["fixture_id"] for row in board.fixture_rows] == ["fx-mlb-1", "fx-mlb-2"]
     market_calls = [body for path, body in client.calls if path == "info/markets"]
-    assert any(body.get("fixture_id") == "fx-20" for body in market_calls)
+    assert any(body.get("fixture_id") == "fx-mlb-1" for body in market_calls)

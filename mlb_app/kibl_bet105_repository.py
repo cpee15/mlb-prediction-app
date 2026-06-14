@@ -11,7 +11,18 @@ from .kibl_client import KiblClient, find_rows
 class KiblBet105Repository:
     fixture_summary_path = "info/fixtures"
     market_summary_path = "info/markets"
-    fixture_excluded_filter_keys = {"feed_source_id", "betting_type_id", "from_cache", "path", "combined_market_candidates", "markets"}
+    mlb_sport_id = "2"
+    mlb_league_id = "7"
+    fixture_excluded_filter_keys = {
+        "feed_source_id",
+        "betting_type_id",
+        "from_cache",
+        "path",
+        "combined_market_candidates",
+        "markets",
+        "league_id",
+        "sport_id",
+    }
 
     def __init__(self, client: Optional[KiblClient] = None) -> None:
         self.client = client or KiblClient()
@@ -61,20 +72,26 @@ class KiblBet105Repository:
         return True
 
     def _row_matches_requested_league(self, row: Dict[str, Any], filters: Dict[str, Any]) -> bool:
-        requested = self._csv_values(filters.get("league_id"))
-        if not requested:
+        requested_leagues = self._csv_values(filters.get("league_id"))
+        requested_sports = self._csv_values(filters.get("sport_id"))
+        if not requested_leagues and not requested_sports:
             return True
-        row_values: set[str] = set()
-        for key in ("league_id", "leagueId", "competition_id", "competitionId", "sport_id", "sportId"):
-            row_values.update(self._csv_values(row.get(key)))
-        if not row_values:
-            return True
-        return bool(row_values.intersection(requested))
+        row_leagues: set[str] = set()
+        row_sports: set[str] = set()
+        for key in ("league_id", "leagueId", "competition_id", "competitionId"):
+            row_leagues.update(self._csv_values(row.get(key)))
+        for key in ("sport_id", "sportId"):
+            row_sports.update(self._csv_values(row.get(key)))
+        if requested_leagues and row_leagues and not row_leagues.intersection(requested_leagues):
+            return False
+        if requested_sports and row_sports and not row_sports.intersection(requested_sports):
+            return False
+        return True
 
     def _filter_rows(self, rows: List[Dict[str, Any]], filters: Dict[str, Any], notes: List[str], label: str) -> List[Dict[str, Any]]:
         kept = [row for row in rows if self._row_matches_requested_feed(row, filters) and self._row_matches_requested_league(row, filters)]
         notes.append(
-            f"{label}_filter:raw={len(rows)}:kept={len(kept)}:feed={filters.get('feed_source_id')}:betting={filters.get('betting_type_id')}:league={filters.get('league_id')}"
+            f"{label}_filter:raw={len(rows)}:kept={len(kept)}:feed={filters.get('feed_source_id')}:betting={filters.get('betting_type_id')}:sport={filters.get('sport_id')}:league={filters.get('league_id')}"
         )
         return kept
 
@@ -88,7 +105,6 @@ class KiblBet105Repository:
     def _paged_summary_rows(self, path: str, body: Dict[str, Any], notes: List[str], label: str) -> List[Dict[str, Any]]:
         limit = int(os.getenv("KIBL_SUMMARY_LIMIT", "250"))
         max_pages = int(os.getenv("KIBL_SUMMARY_MAX_PAGES", "20"))
-        short_page_probe_offsets = int(os.getenv("KIBL_SHORT_PAGE_PROBE_OFFSETS", "0"))
         rows: List[Dict[str, Any]] = []
         for page in range(max_pages):
             offset = page * limit
@@ -97,36 +113,24 @@ class KiblBet105Repository:
             notes.append(f"{label}_page:{path}:offset={offset}:limit={limit}:rows={len(page_rows)}")
             rows.extend(page_rows)
             if len(page_rows) < limit:
-                if page == 0 and page_rows and short_page_probe_offsets > 0:
-                    empty_streak = 0
-                    for probe_offset in range(1, short_page_probe_offsets + 1):
-                        probe_body = {**body, "offset": probe_offset, "limit": limit}
-                        probe_rows = self._summary_rows(path, probe_body, notes, f"{label}:probe{probe_offset}")
-                        notes.append(f"{label}_probe:{path}:offset={probe_offset}:limit={limit}:rows={len(probe_rows)}")
-                        rows.extend(probe_rows)
-                        if probe_rows:
-                            empty_streak = 0
-                        else:
-                            empty_streak += 1
-                        if empty_streak >= 3:
-                            notes.append(f"{label}_probe_stopped:empty_streak={empty_streak}:last_offset={probe_offset}")
-                            break
-                elif page == 0 and page_rows:
-                    notes.append("short_page_probe_disabled:set_KIBL_SHORT_PAGE_PROBE_OFFSETS_to_enable")
                 break
         return rows
 
-    def _fixture_request_bodies(self, filters: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
-        base = {
+    def _date_body(self, filters: Dict[str, Any]) -> Dict[str, Any]:
+        body = {
             key: value
             for key, value in filters.items()
             if key not in self.fixture_excluded_filter_keys and value not in (None, "")
         }
-        leagues = list(self._csv_values(base.get("league_id"))) or list(self._csv_values(filters.get("league_id")))
-        if not leagues:
-            leagues = ["20", "643"]
-        ordered_leagues = [league for league in ("20", "643") if league in set(leagues)] + [league for league in leagues if league not in {"20", "643"}]
-        return [(f"league{league_id}", {**base, "league_id": league_id}) for league_id in ordered_leagues]
+        return body
+
+    def _fixture_request_bodies(self, filters: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
+        body = {
+            **self._date_body(filters),
+            "sport_id": self.mlb_sport_id,
+            "league_id": self.mlb_league_id,
+        }
+        return [("mlb_sport2_league7", body)]
 
     def _dedupe_fixture_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         seen: set[str] = set()
@@ -154,7 +158,7 @@ class KiblBet105Repository:
             )
             all_rows.extend(rows)
         deduped = self._dedupe_fixture_rows(all_rows)
-        notes.append(f"fixture_summary:{self.fixture_summary_path}:raw={len(all_rows)}:deduped={len(deduped)}:leagues={','.join(label for label, _ in bodies)}")
+        notes.append(f"fixture_summary:{self.fixture_summary_path}:raw={len(all_rows)}:deduped={len(deduped)}:scope=sport_id=2,league_id=7")
         return deduped
 
     def fixture_ids_from_fixtures(self, fixture_rows: List[Dict[str, Any]]) -> List[str]:
@@ -182,11 +186,16 @@ class KiblBet105Repository:
         kept = [row for row in rows if str(row.get("fixture_id") or row.get("event_id") or row.get("id") or "") in allowed]
         dropped = len(rows) - len(kept)
         if dropped:
-            notes.append(f"{label}:dropped_non_fixture_market_rows={dropped}:allowed_fixture_ids={len(allowed)}")
+            notes.append(f"{label}:dropped_non_mlb_market_rows={dropped}:allowed_fixture_ids={len(allowed)}")
         return kept
 
     def market_request_bodies(self, filters: Dict[str, Any], fixture_ids: List[str]) -> List[Tuple[str, Dict[str, Any]]]:
-        clean = {key: value for key, value in filters.items() if key not in {"from_cache", "path", "combined_market_candidates"} and value not in (None, "")}
+        clean = {
+            key: value
+            for key, value in filters.items()
+            if key not in {"from_cache", "path", "combined_market_candidates", "league_id", "sport_id"} and value not in (None, "")
+        }
+        clean.update({"sport_id": self.mlb_sport_id, "league_id": self.mlb_league_id})
         core = {key: value for key, value in clean.items() if key not in {"start_date", "end_date", "from", "to"}}
         roots = (("dated", clean), ("core", core))
         fixture_seeded_enabled = os.getenv("KIBL_ENABLE_FIXTURE_SEEDED_MARKETS", "false").strip().lower() in {"1", "true", "yes", "on"}
