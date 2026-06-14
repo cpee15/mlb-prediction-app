@@ -1,3 +1,7 @@
+.app-main > div:has(.bet105-shell) > section:first-child > div:first-child > div:first-child > div:nth-child(3) {
+  display: none !important;
+}
+
 @media (max-width: 1100px) {
   .bet105-shell {
     display: flex !important;
