@@ -74,13 +74,37 @@ def _fixture_summary_ids(board: Bet105RawBoard) -> List[str]:
     return ids
 
 
+def _index_participant(index: Dict[str, Dict[str, Any]], participant: Dict[str, Any]) -> None:
+    for key in (
+        "fixture_participant_id",
+        "fixtureParticipantId",
+        "participant_id",
+        "participantId",
+        "contestant_id",
+        "contestantId",
+        "line_id",
+        "lineId",
+        "id",
+    ):
+        value = _id(_value(participant, (key,)))
+        if value:
+            index[value] = participant
+    nested = participant.get("participant") if isinstance(participant.get("participant"), dict) else None
+    if nested:
+        for key in ("id", "participant_id", "participantId", "contestant_id", "line_id"):
+            value = _id(_value(nested, (key,)))
+            if value:
+                index[value] = participant
+
+
 def _participant_index(board: Bet105RawBoard) -> Dict[str, Dict[str, Any]]:
     index: Dict[str, Dict[str, Any]] = {}
+    for fixture in board.fixture_rows:
+        for participant in fixture.get("participants") or fixture.get("competitors") or fixture.get("teams") or []:
+            if isinstance(participant, dict):
+                _index_participant(index, participant)
     for row in board.participant_rows:
-        for key in ("fixture_participant_id", "participant_id", "contestant_id", "line_id", "id"):
-            value = _id(_value(row, (key,)))
-            if value:
-                index[value] = row
+        _index_participant(index, row)
     return index
 
 
@@ -97,8 +121,10 @@ def _selection(row: Dict[str, Any], participant_rows: Dict[str, Dict[str, Any]],
             participant = participant_rows.get(_id(info.get(key)) or "")
             if participant:
                 break
-    if not label and participant:
-        label = _name(participant)
+    if participant:
+        participant_name = _name(participant)
+        if participant_name:
+            label = participant_name
     if not label:
         side_id = legacy._safe_int(row.get("participant_side_id") or row.get("side_id"))
         if side_id == 1:
@@ -139,7 +165,7 @@ def _market_name(row: Dict[str, Any]) -> tuple[str, str]:
     if market_type_id == "3":
         return "totals", "Total Runs"
     if market_type_id == "0":
-        return "binary_yes_no", "Binary Yes/No Market"
+        return "other", "Other Market"
     return f"market_{market_type_id or 'unknown'}", f"Unknown Market Type {market_type_id or 'unknown'}"
 
 
