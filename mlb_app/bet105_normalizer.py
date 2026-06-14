@@ -157,6 +157,8 @@ def normalize_board(board: Bet105RawBoard, live_only: Optional[bool] = None, gam
     by_fixture, by_event = _fixture_indexes(board)
     participants = _participant_index(board)
     groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for fixture_id in _fixture_summary_ids(board):
+        groups[fixture_id] = []
     for row in board.market_rows:
         fixture_id = _id(row.get("fixture_id")) or _id(row.get("event_id")) or "unknown_fixture"
         groups[fixture_id].append(row)
@@ -168,14 +170,14 @@ def normalize_board(board: Bet105RawBoard, live_only: Optional[bool] = None, gam
         home = meta.get("home_team")
         away_name = away.get("name") if isinstance(away, dict) else None
         home_name = home.get("name") if isinstance(home, dict) else None
-        event_name = f"{away_name} @ {home_name}" if away_name and home_name else fixture_id
+        event_name = meta.get("name") or (f"{away_name} @ {home_name}" if away_name and home_name else fixture_id)
         event = {
             "event_id": fixture_id,
             "fixture_id": fixture_id,
             "name": event_name,
             "sport": meta.get("sport") or "Baseball",
             "league": meta.get("league") or "MLB",
-            "league_id": meta.get("league_id") or "mlb",
+            "league_id": meta.get("league_id") or "7",
             "home_team": home,
             "away_team": away,
             "start_time": meta.get("start_time"),
