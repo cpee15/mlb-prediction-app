@@ -29,6 +29,7 @@ const s = {
   gameName: { fontWeight: 950, fontSize: 13.5, lineHeight: 1.3 },
   chipRow: { display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 8 },
   chip: { color: '#8b949e', border: '1px solid #30363d', borderRadius: 999, padding: '4px 8px', fontSize: 10.5, fontWeight: 850, background: 'rgba(1,4,9,.44)' },
+  warningChip: { color: '#f2cc60', border: '1px solid rgba(242,204,96,.45)', borderRadius: 999, padding: '4px 8px', fontSize: 10.5, fontWeight: 850, background: 'rgba(154,103,0,.18)' },
   boardHero: { borderBottom: '1px solid #30363d', padding: 18, background: 'linear-gradient(135deg,rgba(88,166,255,.13),rgba(126,231,135,.07))' },
   matchup: { fontSize: 24, fontWeight: 950, color: '#f0f6fc' },
   marketWrap: { padding: 16, display: 'grid', gap: 12 },
@@ -52,20 +53,27 @@ const s = {
   th: { textAlign: 'left', color: '#8b949e', fontSize: 11, textTransform: 'uppercase', letterSpacing: .7, padding: 11, background: '#111820', borderBottom: '1px solid #30363d' },
   td: { color: '#c9d1d9', padding: 11, borderBottom: '1px solid #21262d', fontSize: 12.5 },
   error: { color: '#ffb4b4', background: '#2b1218', border: '1px solid #6e2633', borderRadius: 16, padding: 14 },
+  warn: { color: '#f2cc60', background: 'rgba(154,103,0,.15)', border: '1px solid rgba(242,204,96,.35)', borderRadius: 16, padding: 14 },
   empty: { color: '#8b949e', textAlign: 'center', padding: 24, border: '1px solid #30363d', borderRadius: 16, background: '#0d1117' },
+  pre: { overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#010409', border: '1px solid #30363d', borderRadius: 12, color: '#c9d1d9', padding: 12, fontSize: 11, lineHeight: 1.45, marginTop: 10 },
 }
 
 function asArray(value) { return Array.isArray(value) ? value : [] }
 function hasPrice(selection) { return selection?.price !== null && selection?.price !== undefined && Number.isFinite(Number(selection.price)) }
+function missingText(value) { return !value || ['Away', 'Home', 'Unknown', 'Selection', 'market', 'Away @ Home'].includes(String(value).trim()) }
 function teamName(team) {
   if (!team) return null
-  if (typeof team === 'string') return team
-  return team.name || team.display_name || team.displayName || team.fullName || team.full_name || team.team?.name || team.participant?.name || null
+  if (typeof team === 'string') return missingText(team) ? null : team
+  const value = team.name || team.display_name || team.displayName || team.fullName || team.full_name || team.team?.name || team.participant?.name || null
+  return missingText(value) ? null : value
 }
 function eventName(event) {
-  const away = teamName(event?.away_team) || 'Away'
-  const home = teamName(event?.home_team) || 'Home'
-  return `${away} @ ${home}`
+  const explicit = event?.name
+  if (explicit && !['Away @ Home', 'Home @ Away', 'Unknown @ Unknown'].includes(String(explicit).trim())) return explicit
+  const away = teamName(event?.away_team)
+  const home = teamName(event?.home_team)
+  if (away && home) return `${away} @ ${home}`
+  return 'Team metadata missing'
 }
 function formatTime(iso) {
   if (!iso) return 'Time pending'
@@ -77,13 +85,18 @@ function formatTime(iso) {
 }
 function american(price) { const n = Number(price); if (!Number.isFinite(n)) return '—'; return n > 0 ? `+${n}` : `${n}` }
 function pct(v) { const n = Number(v); if (!Number.isFinite(n)) return '—'; return `${Math.round(n * 1000) / 10}%` }
-function cleanMarketName(name) { return String(name || 'Market').replaceAll('_', ' ') }
+function cleanMarketName(name) {
+  const value = String(name || '').trim()
+  if (!value || ['market', 'unknown_market'].includes(value.toLowerCase())) return 'Market metadata missing'
+  return value.replaceAll('_', ' ')
+}
 function marketKey(m) { return String(m?.market_key || m?.market_type || m?.market_name || 'other') }
 function marketDisplayKey(market) {
   return [market?.market_id || '', marketKey(market), market?.line ?? 'none', asArray(market?.selections).map(selection => `${selection?.selection_id || selection?.name || selection?.team}:${selection?.price}`).join('|')].join('::')
 }
 function selectionLabel(selection, market) {
-  const baseLabel = selection?.description || selection?.name || selection?.team || 'Selection'
+  const rawLabel = selection?.description || selection?.name || selection?.team
+  const baseLabel = missingText(rawLabel) ? 'Selection metadata missing' : rawLabel
   const key = marketKey(market)
   const line = selection?.line
   if (['h2h', 'moneyline'].includes(key) || line == null || Number(line) === 0) return `${baseLabel}`
@@ -115,6 +128,33 @@ function groupMarkets(event) {
   const featuredKeys = new Set(groups.Featured.map(marketDisplayKey))
   groups['Game Lines'] = groups['Game Lines'].filter(market => !featuredKeys.has(marketDisplayKey(market)))
   return groups
+}
+function hasPlaceholders(payload) {
+  const events = asArray(payload?.events)
+  if (['incomplete_normalization', 'fixtures_only', 'provider_error', 'provider_not_configured', 'empty'].includes(payload?.status)) return true
+  return events.some(event => eventName(event) === 'Team metadata missing' || asArray(event.markets).some(market => cleanMarketName(market.market_name || marketKey(market)) === 'Market metadata missing' || asArray(market.selections).some(selection => selectionLabel(selection, market).includes('metadata missing'))))
+}
+function summarizeDebug(debugPayload) {
+  if (!debugPayload) return null
+  return {
+    status: debugPayload.status,
+    event_count: debugPayload.event_count,
+    market_count: debugPayload.market_count,
+    raw_count: debugPayload.raw_count,
+    diagnostics: debugPayload.diagnostics,
+    fixtures: debugPayload.fixtures,
+    markets_meta: debugPayload.markets_meta,
+    request_params: debugPayload.request_params,
+    normalization_notes: asArray(debugPayload.normalization_notes).slice(0, 18),
+    raw_items_sample: asArray(debugPayload.raw_items_sample).slice(0, 2),
+  }
+}
+
+function DiagnosticsPanel({ payload, debugPayload, loading, error, onRefreshDebug }) {
+  const show = hasPlaceholders(payload) || debugPayload || error
+  if (!show) return null
+  const summary = summarizeDebug(debugPayload)
+  return <section style={s.warn}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}><div><div style={{ fontWeight: 950, color: '#f2cc60' }}>Bet105 diagnostics</div><div style={{ marginTop: 4, color: '#d29922', fontSize: 12 }}>The page is no longer hiding incomplete normalization behind generic labels. Use this panel to see the live backend/debug shape.</div></div><button type="button" style={s.mutedButton} onClick={onRefreshDebug} disabled={loading}>{loading ? 'Loading debug...' : 'Refresh debug'}</button></div>{error && <div style={{ ...s.error, marginTop: 10 }}>{error}</div>}{summary && <pre style={s.pre}>{JSON.stringify(summary, null, 2)}</pre>}{!summary && !error && <div style={{ ...s.panelSub, marginTop: 10 }}>Debug payload has not loaded yet.</div>}</section>
 }
 
 function OddsButton({ event, market, selection, selected, onToggle }) {
@@ -153,7 +193,8 @@ function BetSlip({ legs, stake, setStake, onRemove, onClear }) {
 function MarketBoard({ event, selectedKeys, onToggle }) {
   const groups = groupMarkets(event)
   const ordered = ['Featured', 'Game Lines', 'Batter Props', 'Pitcher Props', 'Team Props', 'Innings / Periods', 'Other Markets']
-  return <section style={s.panel}><div style={s.boardHero}><div style={s.matchup}>{eventName(event)}</div><div style={s.chipRow}><span style={s.chip}>{formatTime(event?.start_time)}</span><span style={s.chip}>Bet105</span><span style={s.chip}>{asArray(event?.markets).length} markets</span></div></div><div style={s.marketWrap}>{ordered.map(category => { const markets = groups[category] || []; if (!markets.length) return null; return <div key={category} style={s.accordion}><div style={s.accordionHead}><div style={s.marketTitle}>{category}</div><span style={s.chip}>{markets.length} markets</span></div>{markets.map((market, idx) => <div key={`${category}-${marketDisplayKey(market)}-${idx}`}><div style={{ ...s.panelSub, padding: '12px 12px 0', color: '#58a6ff', fontWeight: 950 }}>{cleanMarketName(market.market_name || marketKey(market))}</div><div style={s.oddsGrid}>{asArray(market.selections).filter(hasPrice).map((selection, sidx) => { const tempLeg = { event_id: event.event_id, market_key: marketKey(market), label: selectionLabel(selection, market), line: ['h2h', 'moneyline'].includes(marketKey(market)) ? null : selection.line, price: selection.price }; return <OddsButton key={`${selectionLabel(selection, market)}-${selection.price}-${sidx}`} event={event} market={market} selection={selection} selected={selectedKeys.has(legKey(tempLeg))} onToggle={onToggle} /> })}</div></div>)}</div> })}</div></section>
+  const missingGame = eventName(event) === 'Team metadata missing'
+  return <section style={s.panel}><div style={s.boardHero}><div style={s.matchup}>{eventName(event)}</div><div style={s.chipRow}><span style={s.chip}>{formatTime(event?.start_time)}</span><span style={s.chip}>Bet105</span><span style={s.chip}>{asArray(event?.markets).length} markets</span>{missingGame && <span style={s.warningChip}>missing team metadata</span>}</div></div><div style={s.marketWrap}>{ordered.map(category => { const markets = groups[category] || []; if (!markets.length) return null; return <div key={category} style={s.accordion}><div style={s.accordionHead}><div style={s.marketTitle}>{category}</div><span style={s.chip}>{markets.length} markets</span></div>{markets.map((market, idx) => <div key={`${category}-${marketDisplayKey(market)}-${idx}`}><div style={{ ...s.panelSub, padding: '12px 12px 0', color: '#58a6ff', fontWeight: 950 }}>{cleanMarketName(market.market_name || marketKey(market))}</div><div style={s.oddsGrid}>{asArray(market.selections).filter(hasPrice).map((selection, sidx) => { const tempLeg = { event_id: event.event_id, market_key: marketKey(market), label: selectionLabel(selection, market), line: ['h2h', 'moneyline'].includes(marketKey(market)) ? null : selection.line, price: selection.price }; return <OddsButton key={`${selectionLabel(selection, market)}-${selection.price}-${sidx}`} event={event} market={market} selection={selection} selected={selectedKeys.has(legKey(tempLeg))} onToggle={onToggle} /> })}</div></div>)}</div> })}</div></section>
 }
 
 function ComparisonPanel({ comparison, loading, error }) {
@@ -167,13 +208,16 @@ export default function Bet105SportsbookPage() {
   const [live, setLive] = useState(false)
   const [activeTab, setActiveTab] = useState('board')
   const [payload, setPayload] = useState(null)
+  const [debugPayload, setDebugPayload] = useState(null)
   const [comparison, setComparison] = useState(null)
   const [selectedEventId, setSelectedEventId] = useState('')
   const [legs, setLegs] = useState([])
   const [stake, setStake] = useState('25')
   const [loading, setLoading] = useState(false)
+  const [debugLoading, setDebugLoading] = useState(false)
   const [compareLoading, setCompareLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [debugError, setDebugError] = useState(null)
   const [compareError, setCompareError] = useState(null)
   const [lastRefreshed, setLastRefreshed] = useState(null)
 
@@ -182,6 +226,19 @@ export default function Bet105SportsbookPage() {
   const boardEvents = marketCount > 0 ? events.filter(event => asArray(event.markets).some(market => asArray(market.selections).some(hasPrice))) : []
   const selectedEvent = boardEvents.find(event => String(event.event_id) === String(selectedEventId)) || boardEvents[0]
   const selectedKeys = useMemo(() => new Set(legs.map(legKey)), [legs])
+
+  function loadDebug(forceRefresh = false) {
+    setDebugLoading(true)
+    setDebugError(null)
+    const url = `${API_BASE}/odds/bet105/debug?date=${date}&live=${live ? 'true' : 'false'}`
+    fetchJson(url, { ttlSeconds: TTL, forceRefresh }).then(json => {
+      setDebugPayload(json)
+      setDebugLoading(false)
+    }).catch(err => {
+      setDebugError(String(err?.message || err))
+      setDebugLoading(false)
+    })
+  }
 
   function load(forceRefresh = false) {
     setLoading(true)
@@ -194,6 +251,7 @@ export default function Bet105SportsbookPage() {
       setSelectedEventId(nextMarketCount > 0 ? nextEvents[0]?.event_id || '' : '')
       setLastRefreshed(new Date())
       setLoading(false)
+      if (hasPlaceholders(json)) loadDebug(forceRefresh)
     }).catch(err => {
       setError(String(err?.message || err))
       setLoading(false)
@@ -216,15 +274,16 @@ export default function Bet105SportsbookPage() {
   function toggleLeg(leg) { const key = legKey(leg); setLegs(prev => prev.some(item => legKey(item) === key) ? prev.filter(item => legKey(item) !== key) : [...prev, leg]) }
   function removeLeg(leg) { const key = legKey(leg); setLegs(prev => prev.filter(item => legKey(item) !== key)) }
 
-  useEffect(() => { load(false) }, [date, live])
+  useEffect(() => { setDebugPayload(null); load(false) }, [date, live])
   useEffect(() => { setComparison(null) }, [date])
   useEffect(() => { if (activeTab === 'compare') loadComparison(false) }, [activeTab, date])
 
   return <div style={s.page}>
     <style>{`@media (max-width: 1100px){.bet105-shell{grid-template-columns:1fr!important}.bet105-slip{position:static!important}.bet105-game-rail{order:1}.bet105-board{order:2}.bet105-slip{order:3}}`}</style>
-    <section style={s.hero}><div style={s.header}><div><div style={s.eyebrow}>Bet105 Sportsbook</div><h1 style={s.title}>Premium MLB Odds Board</h1><div style={s.subtitle}>Browse normalized Bet105 markets, build an informational slip, and compare prices against DraftKings without leaving MLBGPT.</div></div><div style={s.controls}><input type="date" value={date} onChange={e => setDate(e.target.value)} style={s.input} /><button type="button" style={live ? s.button : s.mutedButton} onClick={() => setLive(v => !v)}>{live ? 'Live On' : 'Prematch'}</button><button type="button" style={s.button} onClick={() => { load(true); if (activeTab === 'compare') loadComparison(true) }} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh'}</button></div></div><div style={s.tabs}><button type="button" style={s.tab(activeTab === 'board')} onClick={() => setActiveTab('board')}>Sportsbook Board</button><button type="button" style={s.tab(activeTab === 'compare')} onClick={() => setActiveTab('compare')}>Compare Books</button></div><div style={s.stats}><div style={s.stat}><div style={s.statLabel}>Bet105 Events</div><div style={s.statValue}>{events.length}</div></div><div style={s.stat}><div style={s.statLabel}>Markets</div><div style={s.statValue}>{marketCount}</div></div><div style={s.stat}><div style={s.statLabel}>Slip Legs</div><div style={s.statValue}>{legs.length}</div></div><div style={s.stat}><div style={s.statLabel}>Provider</div><div style={{ ...s.statValue, fontSize: 16 }}>{payload?.status || 'pending'}</div></div><div style={s.stat}><div style={s.statLabel}>Last Refreshed</div><div style={{ ...s.statValue, fontSize: 16 }}>{lastRefreshed ? lastRefreshed.toLocaleTimeString() : 'Not loaded'}</div></div></div></section>
+    <section style={s.hero}><div style={s.header}><div><div style={s.eyebrow}>Bet105 Sportsbook</div><h1 style={s.title}>Premium MLB Odds Board</h1><div style={s.subtitle}>Browse normalized Bet105 markets, build an informational slip, and compare prices against DraftKings without leaving MLBGPT. If KIBL normalization is incomplete, live diagnostics are shown below instead of fake placeholder labels.</div></div><div style={s.controls}><input type="date" value={date} onChange={e => setDate(e.target.value)} style={s.input} /><button type="button" style={live ? s.button : s.mutedButton} onClick={() => setLive(v => !v)}>{live ? 'Live On' : 'Prematch'}</button><button type="button" style={s.button} onClick={() => { load(true); loadDebug(true); if (activeTab === 'compare') loadComparison(true) }} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh'}</button></div></div><div style={s.tabs}><button type="button" style={s.tab(activeTab === 'board')} onClick={() => setActiveTab('board')}>Sportsbook Board</button><button type="button" style={s.tab(activeTab === 'compare')} onClick={() => setActiveTab('compare')}>Compare Books</button></div><div style={s.stats}><div style={s.stat}><div style={s.statLabel}>Bet105 Events</div><div style={s.statValue}>{events.length}</div></div><div style={s.stat}><div style={s.statLabel}>Markets</div><div style={s.statValue}>{marketCount}</div></div><div style={s.stat}><div style={s.statLabel}>Slip Legs</div><div style={s.statValue}>{legs.length}</div></div><div style={s.stat}><div style={s.statLabel}>Provider</div><div style={{ ...s.statValue, fontSize: 16 }}>{payload?.status || 'pending'}</div></div><div style={s.stat}><div style={s.statLabel}>Last Refreshed</div><div style={{ ...s.statValue, fontSize: 16 }}>{lastRefreshed ? lastRefreshed.toLocaleTimeString() : 'Not loaded'}</div></div></div></section>
     {error && <div style={s.error}>{error}</div>}
-    {activeTab === 'board' && <div className="bet105-shell" style={s.shell}><aside className="bet105-game-rail" style={s.panel}><div style={s.panelInner}><div style={s.panelTitle}>Games</div><div style={s.panelSub}>Select a game to expand all available Bet105 markets.</div>{loading && <div style={{ ...s.empty, marginTop: 12 }}>Loading board...</div>}{!loading && events.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No Bet105 events returned for {date}.</div>}{!loading && events.length > 0 && marketCount === 0 && <div style={{ ...s.empty, marginTop: 12 }}>Bet105 returned fixtures but no markets for {date}.</div>}{boardEvents.map(event => <button type="button" key={event.event_id} style={s.gameButton(String(event.event_id) === String(selectedEvent?.event_id))} onClick={() => setSelectedEventId(event.event_id)}><div style={s.gameName}>{eventName(event)}</div><div style={s.chipRow}><span style={s.chip}>{formatTime(event.start_time)}</span><span style={s.chip}>{asArray(event.markets).length} markets</span></div></button>)}</div></aside><main className="bet105-board">{marketCount > 0 && selectedEvent ? <MarketBoard event={selectedEvent} selectedKeys={selectedKeys} onToggle={toggleLeg} /> : <div style={s.empty}>{events.length > 0 ? 'No Bet105 market board is available for this slate yet.' : 'Choose a game to view markets.'}</div>}</main><div className="bet105-slip"><BetSlip legs={legs} stake={stake} setStake={setStake} onRemove={removeLeg} onClear={() => setLegs([])} /></div></div>}
+    <DiagnosticsPanel payload={payload} debugPayload={debugPayload} loading={debugLoading} error={debugError} onRefreshDebug={() => loadDebug(true)} />
+    {activeTab === 'board' && <div className="bet105-shell" style={s.shell}><aside className="bet105-game-rail" style={s.panel}><div style={s.panelInner}><div style={s.panelTitle}>Games</div><div style={s.panelSub}>Select a game to expand all available Bet105 markets.</div>{loading && <div style={{ ...s.empty, marginTop: 12 }}>Loading board...</div>}{!loading && events.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No Bet105 events returned for {date}.</div>}{!loading && events.length > 0 && marketCount === 0 && <div style={{ ...s.empty, marginTop: 12 }}>Bet105 returned fixtures but no markets for {date}.</div>}{boardEvents.map(event => <button type="button" key={event.event_id} style={s.gameButton(String(event.event_id) === String(selectedEvent?.event_id))} onClick={() => setSelectedEventId(event.event_id)}><div style={s.gameName}>{eventName(event)}</div><div style={s.chipRow}><span style={s.chip}>{formatTime(event.start_time)}</span><span style={s.chip}>{asArray(event.markets).length} markets</span>{eventName(event) === 'Team metadata missing' && <span style={s.warningChip}>debug needed</span>}</div></button>)}</div></aside><main className="bet105-board">{marketCount > 0 && selectedEvent ? <MarketBoard event={selectedEvent} selectedKeys={selectedKeys} onToggle={toggleLeg} /> : <div style={s.empty}>{events.length > 0 ? 'No Bet105 market board is available for this slate yet.' : 'Choose a game to view markets.'}</div>}</main><div className="bet105-slip"><BetSlip legs={legs} stake={stake} setStake={setStake} onRemove={removeLeg} onClear={() => setLegs([])} /></div></div>}
     {activeTab === 'compare' && <ComparisonPanel comparison={comparison} loading={compareLoading} error={compareError} />}
   </div>
 }
