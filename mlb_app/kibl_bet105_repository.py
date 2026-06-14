@@ -84,11 +84,23 @@ class KiblBet105Repository:
         notes.append(f"{label}_request:{path}:keys={','.join(sorted(body.keys()))}:raw={len(rows)}:kept={len(filtered)}")
         return filtered
 
-    def fetch_fixture_summary(self, filters: Dict[str, Any], notes: List[str]) -> List[Dict[str, Any]]:
+    def _paged_summary_rows(self, path: str, body: Dict[str, Any], notes: List[str], label: str) -> List[Dict[str, Any]]:
         limit = int(os.getenv("KIBL_SUMMARY_LIMIT", "250"))
-        body = {**filters, "offset": 0, "limit": limit}
-        rows = self._summary_rows(self.fixture_summary_path, body, notes, "fixture")
-        notes.append(f"fixture_summary:{self.fixture_summary_path}:offset=0:limit={limit}:rows={len(rows)}")
+        max_pages = int(os.getenv("KIBL_SUMMARY_MAX_PAGES", "20"))
+        rows: List[Dict[str, Any]] = []
+        for page in range(max_pages):
+            offset = page * limit
+            page_body = {**body, "offset": offset, "limit": limit}
+            page_rows = self._summary_rows(path, page_body, notes, f"{label}:page{page}")
+            notes.append(f"{label}_page:{path}:offset={offset}:limit={limit}:rows={len(page_rows)}")
+            rows.extend(page_rows)
+            if len(page_rows) < limit:
+                break
+        return rows
+
+    def fetch_fixture_summary(self, filters: Dict[str, Any], notes: List[str]) -> List[Dict[str, Any]]:
+        rows = self._paged_summary_rows(self.fixture_summary_path, filters, notes, "fixture")
+        notes.append(f"fixture_summary:{self.fixture_summary_path}:rows={len(rows)}")
         return rows
 
     def fixture_ids_from_fixtures(self, fixture_rows: List[Dict[str, Any]]) -> List[str]:
@@ -100,24 +112,31 @@ class KiblBet105Repository:
                         values.append(value)
         return values
 
+    def fixture_ids_from_markets(self, market_rows: List[Dict[str, Any]]) -> List[str]:
+        values: List[str] = []
+        for row in market_rows:
+            for key in ("fixture_id", "event_id", "id"):
+                for value in self._csv_values(row.get(key)):
+                    if value and value not in values:
+                        values.append(value)
+        return values
+
     def market_request_bodies(self, filters: Dict[str, Any], fixture_ids: List[str]) -> List[Tuple[str, Dict[str, Any]]]:
         clean = {key: value for key, value in filters.items() if key not in {"from_cache", "path", "combined_market_candidates"} and value not in (None, "")}
         core = {key: value for key, value in clean.items() if key not in {"start_date", "end_date", "from", "to"}}
-        limit = int(os.getenv("KIBL_SUMMARY_LIMIT", "250"))
         roots = (("dated", clean), ("core", core))
         bodies: List[Tuple[str, Dict[str, Any]]] = []
         for root_label, root in roots:
-            base = {**root, "offset": 0, "limit": limit}
-            bodies.append((f"{root_label}:base", base))
+            bodies.append((f"{root_label}:base", root))
             if fixture_ids:
-                bodies.append((f"{root_label}:fixture_ids", {**base, "fixture_ids": fixture_ids[:100]}))
-                bodies.append((f"{root_label}:event_ids", {**base, "event_ids": fixture_ids[:100]}))
-                bodies.append((f"{root_label}:ids", {**base, "ids": fixture_ids[:100]}))
-                bodies.append((f"{root_label}:fixture_ids_csv", {**base, "fixture_ids": ",".join(fixture_ids[:100])}))
+                bodies.append((f"{root_label}:fixture_ids", {**root, "fixture_ids": fixture_ids[:100]}))
+                bodies.append((f"{root_label}:event_ids", {**root, "event_ids": fixture_ids[:100]}))
+                bodies.append((f"{root_label}:ids", {**root, "ids": fixture_ids[:100]}))
+                bodies.append((f"{root_label}:fixture_ids_csv", {**root, "fixture_ids": ",".join(fixture_ids[:100])}))
                 for value in fixture_ids[:20]:
-                    bodies.append((f"{root_label}:fixture_id", {**base, "fixture_id": value}))
-                    bodies.append((f"{root_label}:event_id", {**base, "event_id": value}))
-                    bodies.append((f"{root_label}:id", {**base, "id": value}))
+                    bodies.append((f"{root_label}:fixture_id", {**root, "fixture_id": value}))
+                    bodies.append((f"{root_label}:event_id", {**root, "event_id": value}))
+                    bodies.append((f"{root_label}:id", {**root, "id": value}))
         seen: set[str] = set()
         out: List[Tuple[str, Dict[str, Any]]] = []
         for label, body in bodies:
@@ -127,18 +146,59 @@ class KiblBet105Repository:
                 out.append((label, body))
         return out
 
-    def fetch_market_summary(self, filters: Dict[str, Any], fixture_ids: List[str], notes: List[str]) -> List[Dict[str, Any]]:
-        best_label = "none"
-        best_rows: List[Dict[str, Any]] = []
+    def _market_fingerprint(self, row: Dict[str, Any]) -> str:
+        info = row.get("info") if isinstance(row.get("info"), dict) else {}
+        parts = [
+            row.get("fixture_id"),
+            row.get("market_id"),
+            row.get("participant_id"),
+            row.get("fixture_participant_id"),
+            row.get("market_type_id"),
+            row.get("segment_id"),
+            row.get("point"),
+            row.get("side_id"),
+            info.get("line_id"),
+            info.get("contestant_id"),
+            row.get("price_american"),
+            row.get("price_decimal"),
+        ]
+        return "|".join(str(part) for part in parts)
+
+    def _dedupe_market_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen: set[str] = set()
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            fp = self._market_fingerprint(row)
+            if fp not in seen:
+                seen.add(fp)
+                out.append(row)
+        return out
+
+    def fetch_market_candidates(self, filters: Dict[str, Any], fixture_ids: List[str], notes: List[str], stage: str) -> List[Dict[str, Any]]:
+        all_rows: List[Dict[str, Any]] = []
         candidates = self.market_request_bodies(filters, fixture_ids)
         for label, body in candidates:
-            rows = self._summary_rows(self.market_summary_path, body, notes, f"market_{label}")
-            notes.append(f"market_candidate:{label}:rows={len(rows)}")
-            if len(rows) > len(best_rows):
-                best_label = label
-                best_rows = rows
-        notes.append(f"market_selected:{best_label}:rows={len(best_rows)}:candidates={len(candidates)}")
-        return best_rows
+            rows = self._paged_summary_rows(self.market_summary_path, body, notes, f"market_{stage}:{label}")
+            notes.append(f"market_candidate:{stage}:{label}:rows={len(rows)}")
+            all_rows.extend(rows)
+        deduped = self._dedupe_market_rows(all_rows)
+        notes.append(f"market_union:{stage}:raw={len(all_rows)}:deduped={len(deduped)}:candidates={len(candidates)}")
+        return deduped
+
+    def fetch_market_summary(self, filters: Dict[str, Any], fixture_ids: List[str], notes: List[str]) -> List[Dict[str, Any]]:
+        base_rows = self.fetch_market_candidates(filters, fixture_ids, notes, "base")
+        seeded_ids = self.fixture_ids_from_markets(base_rows)
+        for value in seeded_ids:
+            if value not in fixture_ids:
+                fixture_ids.append(value)
+        notes.append(f"fixture_ids_from_market_rows:{len(seeded_ids)}:total_fixture_ids={len(fixture_ids)}")
+        if seeded_ids:
+            retry_rows = self.fetch_market_candidates(filters, fixture_ids, notes, "seeded")
+            combined = self._dedupe_market_rows(base_rows + retry_rows)
+        else:
+            combined = base_rows
+        notes.append(f"market_selected:union:rows={len(combined)}")
+        return combined
 
     def extract_ids(self, market_rows: List[Dict[str, Any]]) -> Dict[str, List[str]]:
         ids: Dict[str, List[str]] = {key: [] for key in ("fixture_id", "market_id", "participant_id", "fixture_participant_id", "contestant_id", "line_id")}
