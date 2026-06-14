@@ -87,6 +87,7 @@ class KiblBet105Repository:
     def _paged_summary_rows(self, path: str, body: Dict[str, Any], notes: List[str], label: str) -> List[Dict[str, Any]]:
         limit = int(os.getenv("KIBL_SUMMARY_LIMIT", "250"))
         max_pages = int(os.getenv("KIBL_SUMMARY_MAX_PAGES", "20"))
+        short_page_probe_offsets = int(os.getenv("KIBL_SHORT_PAGE_PROBE_OFFSETS", "20"))
         rows: List[Dict[str, Any]] = []
         for page in range(max_pages):
             offset = page * limit
@@ -95,6 +96,24 @@ class KiblBet105Repository:
             notes.append(f"{label}_page:{path}:offset={offset}:limit={limit}:rows={len(page_rows)}")
             rows.extend(page_rows)
             if len(page_rows) < limit:
+                # Normal row-offset pagination would be complete here. KIBL production
+                # currently returns exactly one Bet105 baseball row at offset 0. Probe
+                # small offsets 1..N to detect APIs that treat offset as an item/page
+                # cursor or ignore limit, without changing the known-good base filters.
+                if page == 0 and page_rows and short_page_probe_offsets > 0:
+                    empty_streak = 0
+                    for probe_offset in range(1, short_page_probe_offsets + 1):
+                        probe_body = {**body, "offset": probe_offset, "limit": limit}
+                        probe_rows = self._summary_rows(path, probe_body, notes, f"{label}:probe{probe_offset}")
+                        notes.append(f"{label}_probe:{path}:offset={probe_offset}:limit={limit}:rows={len(probe_rows)}")
+                        rows.extend(probe_rows)
+                        if probe_rows:
+                            empty_streak = 0
+                        else:
+                            empty_streak += 1
+                        if empty_streak >= 3:
+                            notes.append(f"{label}_probe_stopped:empty_streak={empty_streak}:last_offset={probe_offset}")
+                            break
                 break
         return rows
 
