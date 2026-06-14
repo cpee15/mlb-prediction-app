@@ -81,3 +81,32 @@ def test_normalizer_labels_participantless_total_rows_from_kibl():
     assert total["market_key"] == "totals"
     assert total["selections"][0]["name"] == "Total Runs"
     assert total["selections"][0]["price"] == -110
+
+
+def test_normalizer_extracts_nested_kibl_price_object():
+    board = Bet105RawBoard(
+        filters={"date": "2026-06-14"},
+        fixture_rows=[FIXTURE],
+        market_rows=[
+            {
+                "fixture_id": "fx-1",
+                "market_id": 1,
+                "market_type_id": 1,
+                "fixture_participant_id": "fp-away",
+                "participant_id": "p-away",
+                "price": {"american": -128, "decimal": 1.78125},
+                "is_current": True,
+            }
+        ],
+        participant_rows=[],
+        notes=[],
+        ids={},
+    )
+
+    payload = normalize_board(board, live_only=False, raw=True)
+    selection = payload["events"][0]["markets"][0]["selections"][0]
+
+    assert selection["name"] == "Arizona Diamondbacks"
+    assert selection["price"] == -128
+    assert selection["odds"]["american"] == -128
+    assert selection["odds"]["implied_probability"] == 0.5614
