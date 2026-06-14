@@ -6,6 +6,7 @@ from . import kibl_bet105_provider as base
 from . import kibl_bet105_sportsbook_enrichment as enrichment
 from . import sportsbook_bet105_fixture_discovery as discovery
 from . import sportsbook_bet105_service as service
+from . import sportsbook_bet105_service_v11 as v11
 
 _ID_KEYS = ("fixture_id", "fixtureId", "fixtureID", "event_id", "eventId", "id")
 _DROP = {"path", "from_cache", "combined_market_candidates"}
@@ -156,24 +157,8 @@ def _refresh(payload: Dict[str, Any], game_pk: Optional[Any], raw: bool) -> Dict
 
 
 def fetch_board(date: Optional[str] = None, raw: bool = False, live_only: Optional[bool] = None, game_pk: Optional[Any] = None, props_only: bool = False, market_types: Optional[List[str]] = None) -> Dict[str, Any]:
-    payload = service.fetch_board(date=date, raw=True, live_only=live_only, game_pk=game_pk, props_only=props_only, market_types=market_types)
-    payload.setdefault("fixtures", {})["market_fixture_ids"] = _fixture_ids(payload)[:20]
-    fixtures = payload.get("fixtures") if isinstance(payload.get("fixtures"), dict) else {}
-    if not fixtures.get("count"):
-        params = payload.get("request_params") if isinstance(payload.get("request_params"), dict) else {}
-        scope = str(payload.get("scope") or ("live" if live_only else "events"))
-        items = _retry_fixture_items(payload, params, scope)
-        if items:
-            live = bool(live_only or scope == "live")
-            fixture_events = _fixture_events(items, live)
-            payload["events"] = enrichment.enrich_market_events_with_fixture_metadata(payload.get("events") or [], items, fixture_events)
-            payload["fixtures"].update({"count": len(items), "fixture_ids": [str(enrichment.deep_extract_first(item, _ID_KEYS)) for item in items[:20]]})
-            payload["normalization_notes"].append(f"fixtures_id_list_retry_selected:{len(items)}:{len(fixture_events)}")
-    return _refresh(payload, game_pk, raw)
+    return v11.fetch_board(date=date, raw=raw, live_only=live_only, game_pk=game_pk, props_only=props_only, market_types=market_types)
 
 
 def fetch_event_board(event_id: str, props_only: bool = False, raw: bool = False, market_types: Optional[List[str]] = None) -> Dict[str, Any]:
-    payload = fetch_board(game_pk=event_id, props_only=props_only, raw=raw, market_types=market_types)
-    events = payload.get("events") or []
-    payload["event"] = events[0] if events else None
-    return payload
+    return v11.fetch_event_board(event_id=event_id, props_only=props_only, raw=raw, market_types=market_types)
