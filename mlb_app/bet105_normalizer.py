@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import kibl_bet105_provider as legacy
 from . import kibl_bet105_sportsbook_enrichment as enrichment
@@ -38,6 +38,10 @@ def _binary_side(row: Dict[str, Any]) -> Optional[str]:
         return "Yes"
     if text in {"no", "n"}:
         return "No"
+    if text in {"over", "o"}:
+        return "Over"
+    if text in {"under", "u"}:
+        return "Under"
     return None
 
 
@@ -108,6 +112,19 @@ def _participant_index(board: Bet105RawBoard) -> Dict[str, Dict[str, Any]]:
     return index
 
 
+def _market_name(row: Dict[str, Any]) -> tuple[str, str]:
+    market_type_id = _id(row.get("market_type_id"))
+    if market_type_id == "1":
+        return "h2h", "Moneyline"
+    if market_type_id == "2":
+        return "spreads", "Run Line"
+    if market_type_id == "3":
+        return "totals", "Total Runs"
+    if market_type_id == "0":
+        return "other", "Other Market"
+    return f"market_{market_type_id or 'unknown'}", f"Unknown Market Type {market_type_id or 'unknown'}"
+
+
 def _selection(row: Dict[str, Any], participant_rows: Dict[str, Dict[str, Any]], event: Dict[str, Any], index: int) -> Dict[str, Any]:
     label = _binary_side(row)
     participant = None
@@ -156,17 +173,15 @@ def _selection(row: Dict[str, Any], participant_rows: Dict[str, Dict[str, Any]],
     }
 
 
-def _market_name(row: Dict[str, Any]) -> tuple[str, str]:
-    market_type_id = _id(row.get("market_type_id"))
-    if market_type_id == "1":
-        return "h2h", "Moneyline"
-    if market_type_id == "2":
-        return "spreads", "Run Line"
-    if market_type_id == "3":
-        return "totals", "Total Runs"
-    if market_type_id == "0":
-        return "other", "Other Market"
-    return f"market_{market_type_id or 'unknown'}", f"Unknown Market Type {market_type_id or 'unknown'}"
+def _market_group_key(row: Dict[str, Any]) -> Tuple[str, str]:
+    market_key, _ = _market_name(row)
+    point = legacy._safe_float(row.get("point"))
+    segment = _id(row.get("segment_id") or row.get("period_id") or row.get("game_part_id")) or "game"
+    if market_key in {"spreads", "totals"} and point is not None:
+        return market_key, f"{segment}:{abs(point)}"
+    if market_key == "h2h":
+        return market_key, segment
+    return market_key, _id(row.get("market_id")) or f"{segment}:{point}"
 
 
 def _status(markets: List[Dict[str, Any]], diagnostics: Dict[str, int], board: Bet105RawBoard) -> str:
@@ -177,6 +192,17 @@ def _status(markets: List[Dict[str, Any]], diagnostics: Dict[str, int], board: B
     if any(diagnostics.values()):
         return "incomplete_normalization"
     return "ok"
+
+
+def _coverage_notes(markets: List[Dict[str, Any]]) -> List[str]:
+    game_lines = [market for market in markets if market.get("market_key") in {"h2h", "spreads", "totals"} and market.get("selection_count", 0) > 0]
+    keys = {market.get("market_key") for market in game_lines}
+    if keys == {"h2h"}:
+        return ["Only Moneyline returned by Bet105/KIBL for this fixture request."]
+    if game_lines:
+        names = ", ".join(market.get("market_name") or market.get("market_key") for market in game_lines)
+        return [f"Game-line markets returned: {names}."]
+    return []
 
 
 def normalize_board(board: Bet105RawBoard, live_only: Optional[bool] = None, game_pk: Optional[Any] = None, raw: bool = False) -> Dict[str, Any]:
@@ -215,22 +241,24 @@ def normalize_board(board: Bet105RawBoard, live_only: Optional[bool] = None, gam
             "markets": [],
             "raw": {"rows": rows, "fixture_meta": meta},
         }
-        market_groups: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        market_groups: Dict[Tuple[str, str], List[Dict[str, Any]]] = defaultdict(list)
         for row in rows:
-            market_key, market_name = _market_name(row)
-            market_groups[market_key].append(row)
-        for market_key, market_rows in market_groups.items():
+            market_groups[_market_group_key(row)].append(row)
+        for (market_key, line_key), market_rows in market_groups.items():
             _, market_name = _market_name(market_rows[0])
             selections = [_selection(row, participants, event, sel_idx) for sel_idx, row in enumerate(market_rows)]
             event["markets"].append({
                 "market_key": market_key,
                 "market_type": market_key,
                 "market_name": market_name,
+                "line_key": line_key,
                 "selections": selections,
                 "selection_count": len(selections),
                 "raw": {"rows": market_rows},
             })
+        event["markets"].sort(key=lambda row: ({"h2h": 0, "spreads": 1, "totals": 2}.get(row.get("market_key"), 99), row.get("line_key") or ""))
         event["market_count"] = len(event["markets"])
+        event["coverage_notes"] = _coverage_notes(event["markets"])
         events.append(event)
 
     events = sorted(events, key=lambda row: (row.get("start_time") or "", row.get("event_id") or ""))
@@ -262,6 +290,7 @@ def normalize_board(board: Bet105RawBoard, live_only: Optional[bool] = None, gam
             "fixture_row_count": len(board.fixture_rows),
             "participant_row_count": len(board.participant_rows),
         },
+        "markets_meta": getattr(board, "markets_meta", {}),
         "request_params": board.filters,
         "normalization_notes": board.notes,
         "raw_items_sample": board.market_rows[:5],
