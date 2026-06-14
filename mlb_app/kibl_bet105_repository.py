@@ -131,7 +131,6 @@ class KiblBet105Repository:
         leagues = list(self._csv_values(base.get("league_id"))) or list(self._csv_values(filters.get("league_id")))
         if not leagues:
             leagues = ["20", "643"]
-        # Keep deterministic order for notes/tests.
         ordered_leagues = [league for league in ("20", "643") if league in set(leagues)] + [league for league in leagues if league not in {"20", "643"}]
         bodies: List[Tuple[str, Dict[str, Any]]] = []
         for league_id in ordered_leagues:
@@ -190,18 +189,20 @@ class KiblBet105Repository:
         clean = {key: value for key, value in filters.items() if key not in {"from_cache", "path", "combined_market_candidates"} and value not in (None, "")}
         core = {key: value for key, value in clean.items() if key not in {"start_date", "end_date", "from", "to"}}
         roots = (("dated", clean), ("core", core))
-        fixture_id_limit = int(os.getenv("KIBL_MARKET_FIXTURE_ID_LIMIT", "20"))
-        batch_limit = int(os.getenv("KIBL_MARKET_FIXTURE_BATCH_LIMIT", "100"))
+        fixture_seeded_enabled = os.getenv("KIBL_ENABLE_FIXTURE_SEEDED_MARKETS", "false").strip().lower() in {"1", "true", "yes", "on"}
+        fixture_id_limit = int(os.getenv("KIBL_MARKET_FIXTURE_ID_LIMIT", "0"))
+        batch_limit = int(os.getenv("KIBL_MARKET_FIXTURE_BATCH_LIMIT", "0"))
         limited_fixture_ids = fixture_ids[: max(0, fixture_id_limit)]
         batched_fixture_ids = fixture_ids[: max(0, batch_limit)]
         bodies: List[Tuple[str, Dict[str, Any]]] = []
         for root_label, root in roots:
             bodies.append((f"{root_label}:base", root))
-            if fixture_ids:
-                bodies.append((f"{root_label}:fixture_ids", {**root, "fixture_ids": batched_fixture_ids}))
-                bodies.append((f"{root_label}:event_ids", {**root, "event_ids": batched_fixture_ids}))
-                bodies.append((f"{root_label}:ids", {**root, "ids": batched_fixture_ids}))
-                bodies.append((f"{root_label}:fixture_ids_csv", {**root, "fixture_ids": ",".join(batched_fixture_ids)}))
+            if fixture_ids and fixture_seeded_enabled:
+                if batched_fixture_ids:
+                    bodies.append((f"{root_label}:fixture_ids", {**root, "fixture_ids": batched_fixture_ids}))
+                    bodies.append((f"{root_label}:event_ids", {**root, "event_ids": batched_fixture_ids}))
+                    bodies.append((f"{root_label}:ids", {**root, "ids": batched_fixture_ids}))
+                    bodies.append((f"{root_label}:fixture_ids_csv", {**root, "fixture_ids": ",".join(batched_fixture_ids)}))
                 for value in limited_fixture_ids:
                     bodies.append((f"{root_label}:fixture_id", {**root, "fixture_id": value}))
                     bodies.append((f"{root_label}:event_id", {**root, "event_id": value}))
@@ -216,7 +217,7 @@ class KiblBet105Repository:
         return out
 
     def _market_fingerprint(self, row: Dict[str, Any]) -> str:
-        info = row.get("info") if isinstance(row.get("info"), dict) else {}
+        info = row.get("info") if isinstance(row.get("info", {}), dict) else {}
         parts = [
             row.get("fixture_id"),
             row.get("market_id"),
@@ -246,6 +247,11 @@ class KiblBet105Repository:
     def fetch_market_candidates(self, filters: Dict[str, Any], fixture_ids: List[str], notes: List[str], stage: str) -> List[Dict[str, Any]]:
         all_rows: List[Dict[str, Any]] = []
         candidates = self.market_request_bodies(filters, fixture_ids)
+        if fixture_ids and os.getenv("KIBL_ENABLE_FIXTURE_SEEDED_MARKETS", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+            notes.append(
+                "fixture_seeded_market_requests_disabled:set_KIBL_ENABLE_FIXTURE_SEEDED_MARKETS=true_to_enable:"
+                f"fixture_ids_available={len(fixture_ids)}"
+            )
         for label, body in candidates:
             rows = self._paged_summary_rows(self.market_summary_path, body, notes, f"market_{stage}:{label}")
             notes.append(f"market_candidate:{stage}:{label}:rows={len(rows)}")
