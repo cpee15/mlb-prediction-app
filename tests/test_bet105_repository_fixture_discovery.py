@@ -18,6 +18,7 @@ class FakeClient:
                         "fixture_id": "fx-mlb-1",
                         "sport_id": 2,
                         "league_id": 7,
+                        "fixture_type_id": 1,
                         "name": "New York Yankees vs Toronto Blue Jays",
                         "start_time": "2026-06-14T17:37:00.000Z",
                     },
@@ -25,8 +26,41 @@ class FakeClient:
                         "fixture_id": "fx-mlb-2",
                         "sport_id": 2,
                         "league_id": 7,
+                        "fixture_type_id": 1,
                         "name": "Los Angeles Dodgers vs Chicago White Sox",
                         "start_time": "2026-06-14T18:10:00.000Z",
+                    },
+                    {
+                        "fixture_id": "fx-prev-day",
+                        "sport_id": 2,
+                        "league_id": 7,
+                        "fixture_type_id": 1,
+                        "name": "Chicago Cubs vs San Francisco Giants",
+                        "start_time": "2026-06-14T02:05:00.000Z",
+                    },
+                    {
+                        "fixture_id": "fx-prop",
+                        "sport_id": 2,
+                        "league_id": 7,
+                        "fixture_type_id": 3,
+                        "name": "Grayson Rodriguez Props",
+                        "start_time": "2026-06-14T20:07:00.000Z",
+                    },
+                    {
+                        "fixture_id": "fx-future",
+                        "sport_id": 2,
+                        "league_id": 7,
+                        "fixture_type_id": 4,
+                        "name": "2026 World Series Champion",
+                        "start_time": "2026-09-08T22:00:00.000Z",
+                    },
+                    {
+                        "fixture_id": "fx-kbo",
+                        "sport_id": 2,
+                        "league_id": 14,
+                        "fixture_type_id": 1,
+                        "name": "Doosan Bears vs Kia Tigers",
+                        "start_time": "2026-06-14T08:00:00.000Z",
                     },
                 ]
             }
@@ -67,7 +101,8 @@ def test_fixture_discovery_uses_mlb_sport_2_league_7_without_book_filters():
     assert "feed_source_id" not in fixture_calls[0]
     assert "betting_type_id" not in fixture_calls[0]
     assert any("fixture_candidate:mlb_sport2_league7" in note for note in notes)
-    assert any("fixture_summary:info/fixtures:raw=2:deduped=2:scope=sport_id=2,league_id=7" in note for note in notes)
+    assert any("fixture_game_filter:selected_date=2026-06-14:raw=6:kept=2" in note for note in notes)
+    assert any("fixture_summary:info/fixtures:raw=6:games=2:deduped=2:scope=sport_id=2,league_id=7" in note for note in notes)
 
 
 def test_fetch_board_keeps_fixture_seeded_market_calls_disabled_by_default(monkeypatch):
