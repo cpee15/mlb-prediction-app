@@ -117,12 +117,6 @@ class KiblBet105Repository:
         return rows
 
     def _fixture_request_bodies(self, filters: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
-        """Build baseball fixture requests.
-
-        KIBL fixture summaries are schedule data, not sportsbook/book data. Including
-        feed_source_id or betting_type_id makes info/fixtures return zero rows for the
-        Bet105 board. Split the baseball leagues so both league buckets are discovered.
-        """
         base = {
             key: value
             for key, value in filters.items()
@@ -132,11 +126,7 @@ class KiblBet105Repository:
         if not leagues:
             leagues = ["20", "643"]
         ordered_leagues = [league for league in ("20", "643") if league in set(leagues)] + [league for league in leagues if league not in {"20", "643"}]
-        bodies: List[Tuple[str, Dict[str, Any]]] = []
-        for league_id in ordered_leagues:
-            body = {**base, "league_id": league_id}
-            bodies.append((f"league{league_id}", body))
-        return bodies
+        return [(f"league{league_id}", {**base, "league_id": league_id}) for league_id in ordered_leagues]
 
     def _dedupe_fixture_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         seen: set[str] = set()
@@ -184,6 +174,16 @@ class KiblBet105Repository:
                     if value and value not in values:
                         values.append(value)
         return values
+
+    def _market_rows_matching_fixtures(self, rows: List[Dict[str, Any]], fixture_ids: List[str], notes: List[str], label: str) -> List[Dict[str, Any]]:
+        if not fixture_ids:
+            return rows
+        allowed = set(str(value) for value in fixture_ids)
+        kept = [row for row in rows if str(row.get("fixture_id") or row.get("event_id") or row.get("id") or "") in allowed]
+        dropped = len(rows) - len(kept)
+        if dropped:
+            notes.append(f"{label}:dropped_non_fixture_market_rows={dropped}:allowed_fixture_ids={len(allowed)}")
+        return kept
 
     def market_request_bodies(self, filters: Dict[str, Any], fixture_ids: List[str]) -> List[Tuple[str, Dict[str, Any]]]:
         clean = {key: value for key, value in filters.items() if key not in {"from_cache", "path", "combined_market_candidates"} and value not in (None, "")}
@@ -254,6 +254,7 @@ class KiblBet105Repository:
             )
         for label, body in candidates:
             rows = self._paged_summary_rows(self.market_summary_path, body, notes, f"market_{stage}:{label}")
+            rows = self._market_rows_matching_fixtures(rows, fixture_ids, notes, f"market_{stage}:{label}")
             notes.append(f"market_candidate:{stage}:{label}:rows={len(rows)}")
             all_rows.extend(rows)
         deduped = self._dedupe_market_rows(all_rows)
