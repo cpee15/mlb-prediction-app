@@ -45,11 +45,64 @@ def _binary_side(row: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _price(row: Dict[str, Any]) -> Optional[int]:
-    parsed = legacy._safe_int(_value(row, ("price_american", "american", "price", "line_price")))
+def _direct_value(row: Dict[str, Any], keys: tuple[str, ...]) -> Any:
+    info = row.get("info") if isinstance(row.get("info"), dict) else {}
+    for key in keys:
+        if row.get(key) not in (None, ""):
+            return row.get(key)
+        if info.get(key) not in (None, ""):
+            return info.get(key)
+    return None
+
+
+def _american_from_value(value: Any) -> Optional[int]:
+    parsed = legacy._safe_int(value)
+    if parsed is None or parsed == 0:
+        return None
+    return parsed
+
+
+def _decimal_from_value(value: Any) -> Optional[float]:
+    parsed = legacy._safe_float(value)
+    if parsed is None or parsed <= 1:
+        return None
+    return parsed
+
+
+def _price_from_object(value: Any) -> Optional[int]:
+    if isinstance(value, dict):
+        for key in ("price_american", "american", "american_odds", "americanOdds", "odds_american", "line_price", "value"):
+            parsed = _american_from_value(value.get(key))
+            if parsed is not None:
+                return parsed
+        for key in ("price_decimal", "decimal", "decimal_odds", "decimalOdds", "odds_decimal"):
+            decimal = _decimal_from_value(value.get(key))
+            if decimal is not None:
+                return legacy._american_from_decimal(decimal)
+        return None
+    parsed = _american_from_value(value)
     if parsed is not None:
         return parsed
-    return legacy._american_from_decimal(legacy._safe_float(_value(row, ("price_decimal", "decimal", "decimal_odds"))))
+    decimal = _decimal_from_value(value)
+    if decimal is not None:
+        return legacy._american_from_decimal(decimal)
+    return None
+
+
+def _price(row: Dict[str, Any]) -> Optional[int]:
+    for key in ("price_american", "american", "american_odds", "americanOdds", "odds_american", "line_price"):
+        parsed = _american_from_value(_direct_value(row, (key,)))
+        if parsed is not None:
+            return parsed
+    for key in ("price", "odds", "current_price", "currentPrice"):
+        parsed = _price_from_object(_direct_value(row, (key,)))
+        if parsed is not None:
+            return parsed
+    for key in ("price_decimal", "decimal", "decimal_odds", "decimalOdds", "odds_decimal"):
+        decimal = _decimal_from_value(_direct_value(row, (key,)))
+        if decimal is not None:
+            return legacy._american_from_decimal(decimal)
+    return None
 
 
 def _fixture_meta(row: Dict[str, Any], index: int = 0) -> Dict[str, Any]:
