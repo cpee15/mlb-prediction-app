@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from . import kibl_bet105_provider as base
 from . import kibl_bet105_sportsbook_enrichment as enrichment
+from . import sportsbook_bet105_fixture_discovery as discovery
 from . import sportsbook_bet105_service as service
 
 _ID_KEYS = ("fixture_id", "fixtureId", "fixtureID", "event_id", "eventId", "id")
@@ -114,6 +115,9 @@ def _retry_fixture_items(payload: Dict[str, Any], params: Dict[str, Any], scope:
             notes.append(f"fixtures_id_list_retry_error:{label}:{exc}")
     payload.setdefault("fixtures", {})["fixture_retry_labels"] = labels[:40]
     payload["fixtures"]["market_detail_ids"] = _detail_ids(payload)
+    if not items:
+        notes.append("fixtures_id_list_retry_empty:starting_path_discovery")
+        items = discovery.discover_fixture_items(payload, params)
     return service._dedupe_items(items)
 
 
