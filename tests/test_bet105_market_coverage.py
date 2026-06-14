@@ -61,3 +61,23 @@ def test_normalizer_marks_moneyline_only_coverage_truthfully():
     payload = normalize_board(board, live_only=False, raw=True)
 
     assert payload["events"][0]["coverage_notes"] == ["Only Moneyline returned by Bet105/KIBL for this fixture request."]
+
+
+def test_normalizer_labels_participantless_total_rows_from_kibl():
+    board = Bet105RawBoard(
+        filters={"date": "2026-06-14"},
+        fixture_rows=[FIXTURE],
+        market_rows=[row(market_id=3, market_type_id=3, participant_id=0, fixture_participant_id=0, price_american=-110)],
+        participant_rows=[],
+        notes=[],
+        ids={},
+    )
+
+    payload = normalize_board(board, live_only=False, raw=True)
+    total = payload["events"][0]["markets"][0]
+
+    assert payload["status"] == "ok"
+    assert payload["diagnostics"]["placeholder_selection_names"] == 0
+    assert total["market_key"] == "totals"
+    assert total["selections"][0]["name"] == "Total Runs"
+    assert total["selections"][0]["price"] == -110
