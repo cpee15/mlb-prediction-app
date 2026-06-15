@@ -6,11 +6,13 @@ import re
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from .sportsbook_bet105_runtime_v10 import fetch_event_board as fetch_kibl_bet105_event_odds
 from .sportsbook_bet105_runtime_v10 import fetch_board as fetch_kibl_bet105_events
 from .odds_provider import fetch_draftkings_events
+from .database import create_tables, get_engine, get_session
+from .model_tracker_price_snapshots import capture_bet105_price_snapshots, list_price_snapshots
 
 router = APIRouter()
 
@@ -35,6 +37,22 @@ def _force_default_draftkings_provider():
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+
+def _session_factory():
+    database_url = os.getenv("DATABASE_URL") or os.getenv("SQLALCHEMY_DATABASE_URL") or os.getenv("POSTGRES_URL") or "sqlite:///mlb.db"
+    engine = get_engine(database_url)
+    create_tables(engine)
+    return get_session(engine)
+
+
+def _target_date(value: Optional[str]) -> str:
+    target = (value or dt.date.today().isoformat())[:10]
+    try:
+        dt.date.fromisoformat(target)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date: {value}") from exc
+    return target
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -275,6 +293,26 @@ def compare_odds_events(date: Optional[str] = None, books: str = "bet105,draftki
         with _force_default_draftkings_provider():
             payloads["draftkings"] = fetch_draftkings_events(date=date, raw=False)
     return _comparison_payload(date=date, books=list(payloads.keys()), payloads=payloads)
+
+
+@router.post("/model-tracker/price-snapshots")
+def model_tracker_price_snapshot_capture(date: Optional[str] = None, provider: str = "bet105") -> Dict[str, Any]:
+    target = _target_date(date)
+    selected_provider = (provider or "bet105").strip().lower()
+    if selected_provider != "bet105":
+        raise HTTPException(status_code=400, detail="Only provider=bet105 is implemented for price snapshots in this phase")
+    Session = _session_factory()
+    with Session() as session:
+        return capture_bet105_price_snapshots(session, target)
+
+
+@router.get("/model-tracker/price-snapshots")
+def model_tracker_price_snapshot_list(date: Optional[str] = None, provider: Optional[str] = "bet105") -> Dict[str, Any]:
+    target = _target_date(date)
+    selected_provider = (provider or "").strip().lower() or None
+    Session = _session_factory()
+    with Session() as session:
+        return list_price_snapshots(session, target, provider=selected_provider)
 
 
 @router.post("/odds/parlay/calculate")
