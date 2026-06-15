@@ -55,7 +55,6 @@ const s = {
   error: { color: '#ffb4b4', background: '#2b1218', border: '1px solid #6e2633', borderRadius: 16, padding: 14 },
   warn: { color: '#f2cc60', background: 'rgba(154,103,0,.15)', border: '1px solid rgba(242,204,96,.35)', borderRadius: 16, padding: 14 },
   empty: { color: '#8b949e', textAlign: 'center', padding: 24, border: '1px solid #30363d', borderRadius: 16, background: '#0d1117' },
-  pre: { overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#010409', border: '1px solid #30363d', borderRadius: 12, color: '#c9d1d9', padding: 12, fontSize: 11, lineHeight: 1.45, marginTop: 10 },
 }
 
 function asArray(value) { return Array.isArray(value) ? value : [] }
@@ -133,33 +132,6 @@ function onlyMoneyline(event) {
   const markets = asArray(event?.markets).filter(market => asArray(market?.selections).some(hasPrice))
   return markets.length === 1 && ['h2h', 'moneyline'].includes(marketKey(markets[0]))
 }
-function hasPlaceholders(payload) {
-  const events = asArray(payload?.events)
-  if (['incomplete_normalization', 'fixtures_only', 'provider_error', 'provider_not_configured', 'empty'].includes(payload?.status)) return true
-  return events.some(event => eventName(event) === 'Team metadata missing' || asArray(event.markets).some(market => cleanMarketName(market.market_name || marketKey(market)) === 'Market metadata missing' || asArray(market.selections).some(selection => selectionLabel(selection, market).includes('metadata missing'))))
-}
-function summarizeDebug(debugPayload) {
-  if (!debugPayload) return null
-  return {
-    status: debugPayload.status,
-    event_count: debugPayload.event_count,
-    market_count: debugPayload.market_count,
-    raw_count: debugPayload.raw_count,
-    diagnostics: debugPayload.diagnostics,
-    fixtures: debugPayload.fixtures,
-    markets_meta: debugPayload.markets_meta,
-    request_params: debugPayload.request_params,
-    normalization_notes: asArray(debugPayload.normalization_notes).slice(0, 18),
-    raw_items_sample: asArray(debugPayload.raw_items_sample).slice(0, 2),
-  }
-}
-
-function DiagnosticsPanel({ payload, debugPayload, loading, error, onRefreshDebug }) {
-  const show = hasPlaceholders(payload) || debugPayload || error
-  if (!show) return null
-  const summary = summarizeDebug(debugPayload)
-  return <section style={s.warn}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}><div><div style={{ fontWeight: 950, color: '#f2cc60' }}>Bet105 diagnostics</div><div style={{ marginTop: 4, color: '#d29922', fontSize: 12 }}>The page is no longer hiding incomplete normalization behind generic labels. Use this panel to see the live backend/debug shape.</div></div><button type="button" style={s.mutedButton} onClick={onRefreshDebug} disabled={loading}>{loading ? 'Loading debug...' : 'Refresh debug'}</button></div>{error && <div style={{ ...s.error, marginTop: 10 }}>{error}</div>}{summary && <pre style={s.pre}>{JSON.stringify(summary, null, 2)}</pre>}{!summary && !error && <div style={{ ...s.panelSub, marginTop: 10 }}>Debug payload has not loaded yet.</div>}</section>
-}
 
 function OddsButton({ event, market, selection, selected, onToggle }) {
   const label = selectionLabel(selection, market)
@@ -216,16 +188,13 @@ export default function Bet105SportsbookPage() {
   const [live, setLive] = useState(false)
   const [activeTab, setActiveTab] = useState('board')
   const [payload, setPayload] = useState(null)
-  const [debugPayload, setDebugPayload] = useState(null)
   const [comparison, setComparison] = useState(null)
   const [selectedEventId, setSelectedEventId] = useState('')
   const [legs, setLegs] = useState([])
   const [stake, setStake] = useState('25')
   const [loading, setLoading] = useState(false)
-  const [debugLoading, setDebugLoading] = useState(false)
   const [compareLoading, setCompareLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [debugError, setDebugError] = useState(null)
   const [compareError, setCompareError] = useState(null)
   const [lastRefreshed, setLastRefreshed] = useState(null)
 
@@ -234,19 +203,6 @@ export default function Bet105SportsbookPage() {
   const boardEvents = marketCount > 0 ? events.filter(event => asArray(event.markets).some(market => asArray(market.selections).some(hasPrice))) : []
   const selectedEvent = boardEvents.find(event => String(event.event_id) === String(selectedEventId)) || boardEvents[0]
   const selectedKeys = useMemo(() => new Set(legs.map(legKey)), [legs])
-
-  function loadDebug(forceRefresh = false) {
-    setDebugLoading(true)
-    setDebugError(null)
-    const url = `${API_BASE}/odds/bet105/debug?date=${date}&live=${live ? 'true' : 'false'}`
-    fetchJson(url, { ttlSeconds: TTL, forceRefresh }).then(json => {
-      setDebugPayload(json)
-      setDebugLoading(false)
-    }).catch(err => {
-      setDebugError(String(err?.message || err))
-      setDebugLoading(false)
-    })
-  }
 
   function load(forceRefresh = false) {
     setLoading(true)
@@ -259,7 +215,6 @@ export default function Bet105SportsbookPage() {
       setSelectedEventId(nextMarketCount > 0 ? nextEvents[0]?.event_id || '' : '')
       setLastRefreshed(new Date())
       setLoading(false)
-      if (hasPlaceholders(json) || nextEvents.some(onlyMoneyline)) loadDebug(forceRefresh)
     }).catch(err => {
       setError(String(err?.message || err))
       setLoading(false)
@@ -282,16 +237,15 @@ export default function Bet105SportsbookPage() {
   function toggleLeg(leg) { const key = legKey(leg); setLegs(prev => prev.some(item => legKey(item) === key) ? prev.filter(item => legKey(item) !== key) : [...prev, leg]) }
   function removeLeg(leg) { const key = legKey(leg); setLegs(prev => prev.filter(item => legKey(item) !== key)) }
 
-  useEffect(() => { setDebugPayload(null); load(false) }, [date, live])
+  useEffect(() => { load(false) }, [date, live])
   useEffect(() => { setComparison(null) }, [date])
   useEffect(() => { if (activeTab === 'compare') loadComparison(false) }, [activeTab, date])
 
   return <div style={s.page}>
     <style>{`@media (max-width: 1100px){.bet105-shell{grid-template-columns:1fr!important}.bet105-slip{position:static!important}.bet105-game-rail{order:1}.bet105-board{order:2}.bet105-slip{order:3}}`}</style>
-    <section style={s.hero}><div style={s.header}><div><div style={s.eyebrow}>Bet105 Sportsbook</div><h1 style={s.title}>Premium MLB Odds Board</h1><div style={s.subtitle}>Browse normalized Bet105 markets, build an informational slip, and compare prices against DraftKings without leaving MLBGPT. If KIBL normalization is incomplete, live diagnostics are shown below instead of fake placeholder labels.</div></div><div style={s.controls}><input type="date" value={date} onChange={e => setDate(e.target.value)} style={s.input} /><button type="button" style={live ? s.button : s.mutedButton} onClick={() => setLive(v => !v)}>{live ? 'Live On' : 'Prematch'}</button><button type="button" style={s.button} onClick={() => { load(true); loadDebug(true); if (activeTab === 'compare') loadComparison(true) }} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh'}</button></div></div><div style={s.tabs}><button type="button" style={s.tab(activeTab === 'board')} onClick={() => setActiveTab('board')}>Sportsbook Board</button><button type="button" style={s.tab(activeTab === 'compare')} onClick={() => setActiveTab('compare')}>Compare Books</button></div><div style={s.stats}><div style={s.stat}><div style={s.statLabel}>Bet105 Events</div><div style={s.statValue}>{events.length}</div></div><div style={s.stat}><div style={s.statLabel}>Markets</div><div style={s.statValue}>{marketCount}</div></div><div style={s.stat}><div style={s.statLabel}>Slip Legs</div><div style={s.statValue}>{legs.length}</div></div><div style={s.stat}><div style={s.statLabel}>Provider</div><div style={{ ...s.statValue, fontSize: 16 }}>{payload?.status || 'pending'}</div></div><div style={s.stat}><div style={s.statLabel}>Last Refreshed</div><div style={{ ...s.statValue, fontSize: 16 }}>{lastRefreshed ? lastRefreshed.toLocaleTimeString() : 'Not loaded'}</div></div></div></section>
+    <section style={s.hero}><div style={s.header}><div><div style={s.eyebrow}>Bet105 Sportsbook</div><h1 style={s.title}>Premium MLB Odds Board</h1><div style={s.subtitle}>Browse normalized Bet105 markets, build an informational slip, and compare prices against DraftKings without leaving MLBGPT.</div></div><div style={s.controls}><input type="date" value={date} onChange={e => setDate(e.target.value)} style={s.input} /><button type="button" style={live ? s.button : s.mutedButton} onClick={() => setLive(v => !v)}>{live ? 'Live On' : 'Prematch'}</button><button type="button" style={s.button} onClick={() => { load(true); if (activeTab === 'compare') loadComparison(true) }} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh'}</button></div></div><div style={s.tabs}><button type="button" style={s.tab(activeTab === 'board')} onClick={() => setActiveTab('board')}>Sportsbook Board</button><button type="button" style={s.tab(activeTab === 'compare')} onClick={() => setActiveTab('compare')}>Compare Books</button></div><div style={s.stats}><div style={s.stat}><div style={s.statLabel}>Bet105 Events</div><div style={s.statValue}>{events.length}</div></div><div style={s.stat}><div style={s.statLabel}>Markets</div><div style={s.statValue}>{marketCount}</div></div><div style={s.stat}><div style={s.statLabel}>Slip Legs</div><div style={s.statValue}>{legs.length}</div></div><div style={s.stat}><div style={s.statLabel}>Provider</div><div style={{ ...s.statValue, fontSize: 16 }}>{payload?.status || 'pending'}</div></div><div style={s.stat}><div style={s.statLabel}>Last Refreshed</div><div style={{ ...s.statValue, fontSize: 16 }}>{lastRefreshed ? lastRefreshed.toLocaleTimeString() : 'Not loaded'}</div></div></div></section>
     {error && <div style={s.error}>{error}</div>}
-    <DiagnosticsPanel payload={payload} debugPayload={debugPayload} loading={debugLoading} error={debugError} onRefreshDebug={() => loadDebug(true)} />
-    {activeTab === 'board' && <div className="bet105-shell" style={s.shell}><aside className="bet105-game-rail" style={s.panel}><div style={s.panelInner}><div style={s.panelTitle}>Games</div><div style={s.panelSub}>Select a game to expand all available Bet105 markets.</div>{loading && <div style={{ ...s.empty, marginTop: 12 }}>Loading board...</div>}{!loading && events.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No Bet105 events returned for {date}.</div>}{!loading && events.length > 0 && marketCount === 0 && <div style={{ ...s.empty, marginTop: 12 }}>Bet105 returned fixtures but no markets for {date}.</div>}{boardEvents.map(event => <button type="button" key={event.event_id} style={s.gameButton(String(event.event_id) === String(selectedEvent?.event_id))} onClick={() => setSelectedEventId(event.event_id)}><div style={s.gameName}>{eventName(event)}</div><div style={s.chipRow}><span style={s.chip}>{formatTime(event.start_time)}</span><span style={s.chip}>{asArray(event.markets).length} markets</span>{eventName(event) === 'Team metadata missing' && <span style={s.warningChip}>debug needed</span>}{onlyMoneyline(event) && <span style={s.warningChip}>moneyline only</span>}</div></button>)}</div></aside><main className="bet105-board">{marketCount > 0 && selectedEvent ? <MarketBoard event={selectedEvent} selectedKeys={selectedKeys} onToggle={toggleLeg} /> : <div style={s.empty}>{events.length > 0 ? 'No Bet105 market board is available for this slate yet.' : 'Choose a game to view markets.'}</div>}</main><div className="bet105-slip"><BetSlip legs={legs} stake={stake} setStake={setStake} onRemove={removeLeg} onClear={() => setLegs([])} /></div></div>}
+    {activeTab === 'board' && <div className="bet105-shell" style={s.shell}><aside className="bet105-game-rail" style={s.panel}><div style={s.panelInner}><div style={s.panelTitle}>Games</div><div style={s.panelSub}>Select a game to expand all available Bet105 markets.</div>{loading && <div style={{ ...s.empty, marginTop: 12 }}>Loading board...</div>}{!loading && events.length === 0 && <div style={{ ...s.empty, marginTop: 12 }}>No Bet105 events returned for {date}.</div>}{!loading && events.length > 0 && marketCount === 0 && <div style={{ ...s.empty, marginTop: 12 }}>Bet105 returned fixtures but no markets for {date}.</div>}{boardEvents.map(event => <button type="button" key={event.event_id} style={s.gameButton(String(event.event_id) === String(selectedEvent?.event_id))} onClick={() => setSelectedEventId(event.event_id)}><div style={s.gameName}>{eventName(event)}</div><div style={s.chipRow}><span style={s.chip}>{formatTime(event.start_time)}</span><span style={s.chip}>{asArray(event.markets).length} markets</span>{eventName(event) === 'Team metadata missing' && <span style={s.warningChip}>team metadata missing</span>}{onlyMoneyline(event) && <span style={s.warningChip}>moneyline only</span>}</div></button>)}</div></aside><main className="bet105-board">{marketCount > 0 && selectedEvent ? <MarketBoard event={selectedEvent} selectedKeys={selectedKeys} onToggle={toggleLeg} /> : <div style={s.empty}>{events.length > 0 ? 'No Bet105 market board is available for this slate yet.' : 'Choose a game to view markets.'}</div>}</main><div className="bet105-slip"><BetSlip legs={legs} stake={stake} setStake={setStake} onRemove={removeLeg} onClear={() => setLegs([])} /></div></div>}
     {activeTab === 'compare' && <ComparisonPanel comparison={comparison} loading={compareLoading} error={compareError} />}
   </div>
 }
