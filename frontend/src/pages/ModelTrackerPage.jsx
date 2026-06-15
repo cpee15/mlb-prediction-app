@@ -37,10 +37,16 @@ const s = {
   blockTitle: { color: 'var(--text-primary)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 900, marginBottom: 8 },
   bulletList: { margin: 0, paddingLeft: 16, color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.45 },
   flipButton: { borderRadius: 10, border: '1px solid rgba(148,163,184,0.24)', background: 'rgba(30,41,59,0.52)', color: 'var(--text-primary)', padding: '9px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer' },
-  tableWrap: { overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch', border: '1px solid var(--border-subtle)', borderRadius: 14, scrollbarGutter: 'stable' },
-  table: { width: 'max-content', minWidth: '100%', borderCollapse: 'collapse', fontSize: 12 },
-  th: { textAlign: 'left', padding: '9px 10px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', whiteSpace: 'nowrap' },
-  td: { padding: '9px 10px', borderBottom: '1px solid rgba(148, 163, 184, 0.14)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' },
+  tableWrap: { overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch', border: '1px solid var(--border-subtle)', borderRadius: 14, scrollbarGutter: 'stable', background: 'rgba(7, 11, 18, 0.38)' },
+  table: { width: '100%', minWidth: 980, borderCollapse: 'separate', borderSpacing: 0, fontSize: 12, tableLayout: 'fixed' },
+  th: { textAlign: 'left', padding: '11px 12px', borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', whiteSpace: 'nowrap', background: 'rgba(15,23,42,0.94)', position: 'sticky', top: 0, zIndex: 1 },
+  td: { padding: '12px', borderBottom: '1px solid rgba(148, 163, 184, 0.14)', color: 'var(--text-secondary)', verticalAlign: 'top' },
+  pickCell: { minWidth: 0, display: 'grid', gap: 5 },
+  pickTitle: { color: 'var(--text-primary)', fontSize: 13, fontWeight: 950, lineHeight: 1.25, overflowWrap: 'anywhere' },
+  tableMeta: { color: 'var(--text-muted)', fontSize: 11, lineHeight: 1.35, overflowWrap: 'anywhere' },
+  metricPills: { display: 'flex', flexWrap: 'wrap', gap: 6 },
+  metricPill: { border: '1px solid rgba(148,163,184,0.18)', borderRadius: 999, padding: '4px 7px', background: 'rgba(15,23,42,0.68)', color: 'var(--text-secondary)', fontSize: 11, fontWeight: 850, whiteSpace: 'nowrap' },
+  reasonText: { color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.4, overflowWrap: 'anywhere' },
 }
 
 function StatCard({ label, value }) {
@@ -137,6 +143,30 @@ function gameLabel(rowOrGame) {
   return 'Ungrouped'
 }
 
+function displayValue(value, fallback = 'N/A') {
+  return value === null || value === undefined || value === '' ? fallback : value
+}
+
+function rowEntity(row) {
+  return row.player_name || row.team_name || row.pick_label || 'Tracked output'
+}
+
+function shortText(value, max = 170) {
+  const text = textValue(value || '').replace(/\s+/g, ' ').trim()
+  if (!text) return 'No reason stored.'
+  return text.length > max ? `${text.slice(0, max - 3).trim()}...` : text
+}
+
+function tableMetrics(row) {
+  return [
+    ['Score', fmt(row.score)],
+    ['Conf', fmt(row.confidence)],
+    ['Line', fmt(row.line)],
+    ['Price', fmt(row.price, 0)],
+    ['Edge', fmt(row.edge)],
+  ].filter(([, value]) => value !== 'Unavailable')
+}
+
 function TrackerRowCard({ row }) {
   const [flipped, setFlipped] = useState(false)
   const metrics = metricList(row)
@@ -206,6 +236,31 @@ function GameTrackerCard({ game }) {
     {rows.length > 2 && <div style={s.rowMeta}>Swipe horizontally to inspect richer tracker cards and flip each card for analyst context.</div>}
     <div style={s.rowRail}><div style={s.rowRailInner}>{rows.length ? rows.map(row => <TrackerRowCard key={row.id || row.tracker_key} row={row} />) : <div style={s.rowMeta}>No model rows available for this game.</div>}</div></div>
   </article>
+}
+
+function TableView({ rows }) {
+  return <div style={s.tableWrap}>
+    <table style={s.table}>
+      <colgroup>
+        <col style={{ width: '28%' }} />
+        <col style={{ width: '18%' }} />
+        <col style={{ width: '18%' }} />
+        <col style={{ width: '16%' }} />
+        <col style={{ width: '20%' }} />
+      </colgroup>
+      <thead><tr><th style={s.th}>Pick / Player</th><th style={s.th}>Game</th><th style={s.th}>Source / Model</th><th style={s.th}>Metrics</th><th style={s.th}>Status / Reason</th></tr></thead>
+      <tbody>{rows.map(row => {
+        const metrics = tableMetrics(row)
+        return <tr key={row.id || row.tracker_key}>
+          <td style={s.td}><div style={s.pickCell}><div style={s.pickTitle}>{displayValue(row.pick_label || rowEntity(row))}</div><div style={s.tableMeta}>{displayValue(row.market_type || row.pick_type, 'model')} · {displayValue(row.player_name || row.team_name, 'No player/team')}</div><div style={s.tableMeta}>{displayValue(row.snapshot_date)}</div></div></td>
+          <td style={s.td}><div style={s.pickCell}><div style={s.pickTitle}>{gameLabel(row)}</div><div style={s.tableMeta}>Game PK {row.game_pk || 'N/A'}</div></div></td>
+          <td style={s.td}><div style={s.pickCell}><div style={s.pickTitle}>{displayValue(row.source)}</div><div style={s.tableMeta}>{displayValue(row.source_component, 'component missing')}</div><div style={s.tableMeta}>{displayValue(row.model_name, 'model missing')}</div></div></td>
+          <td style={s.td}>{metrics.length ? <div style={s.metricPills}>{metrics.map(([label, value]) => <span key={label} style={s.metricPill}>{label}: {value}</span>)}</div> : <span style={s.tableMeta}>No numeric metrics</span>}</td>
+          <td style={s.td}><div style={s.pickCell}><div style={s.chipRail}><span style={s.chip}>{row.result_status || 'pending'}</span><span style={s.chip}>{row.grade || 'ungraded'}</span></div><div style={s.reasonText}>{shortText(row.grade_reason || row.primary_reason)}</div></div></td>
+        </tr>
+      })}</tbody>
+    </table>
+  </div>
 }
 
 export default function ModelTrackerPage() {
@@ -400,8 +455,8 @@ export default function ModelTrackerPage() {
     </section>
 
     <section style={s.section}>
-      <div style={s.sectionHeader}><div><div style={s.sectionTitle}>Table View</div><div style={s.rowMeta}>Every stored model output, including ungraded watchlist rows and final comparison state. Scroll horizontally to inspect every column.</div></div></div>
-      <div style={s.tableWrap}><table style={s.table}><thead><tr><th style={s.th}>Date</th><th style={s.th}>Source</th><th style={s.th}>Game</th><th style={s.th}>Type</th><th style={s.th}>Pick</th><th style={s.th}>Player/Team</th><th style={s.th}>Model</th><th style={s.th}>Score</th><th style={s.th}>Confidence</th><th style={s.th}>Line</th><th style={s.th}>Price</th><th style={s.th}>Status</th><th style={s.th}>Grade</th><th style={s.th}>Reason</th></tr></thead><tbody>{filteredRows.map(row => <tr key={row.id || row.tracker_key}><td style={s.td}>{row.snapshot_date}</td><td style={s.td}>{row.source}</td><td style={s.td}>{gameLabel(row)}</td><td style={s.td}>{row.market_type || row.pick_type}</td><td style={s.td}>{row.pick_label || 'N/A'}</td><td style={s.td}>{row.player_name || row.team_name || 'N/A'}</td><td style={s.td}>{row.model_name || 'N/A'}</td><td style={s.td}>{fmt(row.score)}</td><td style={s.td}>{fmt(row.confidence)}</td><td style={s.td}>{fmt(row.line)}</td><td style={s.td}>{fmt(row.price, 0)}</td><td style={s.td}>{row.result_status}</td><td style={s.td}>{row.grade}</td><td style={{ ...s.td, whiteSpace: 'pre-wrap', minWidth: 300, maxWidth: 520 }}>{textValue(row.grade_reason || row.primary_reason || 'N/A')}</td></tr>)}</tbody></table></div>
+      <div style={s.sectionHeader}><div><div style={s.sectionTitle}>Table View</div><div style={s.rowMeta}>Clean tracking table focused on pick, game, source/model, metrics, and result context.</div></div></div>
+      <TableView rows={filteredRows} />
     </section>
   </div>
 }
