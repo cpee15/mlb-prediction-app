@@ -51,7 +51,6 @@ export default function App() {
             <span>MLB Prediction Engine</span>
           </NavLink>
           <NavLink to="/" end className={navLinkClass}>Matchups</NavLink>
-          <NavLink to="/landing-v2" className={navLinkClass}>Landing V2</NavLink>
           <NavLink to="/daily-odds" className={navLinkClass}>Daily Odds</NavLink>
           <NavLink to="/sportsbook/bet105" className={navLinkClass}>Bet105 Sportsbook</NavLink>
           <NavLink to="/news" className={navLinkClass}>News</NavLink>
