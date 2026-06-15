@@ -1,0 +1,17 @@
+game_pk,game_date,home_team,away_team,home_score,away_score,home_win_binary,source_artifact
+824852,2026-04-26,Baltimore Orioles,Boston Red Sox,3,5,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+824934,2026-04-26,Atlanta Braves,Philadelphia Phillies,6,2,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+822824,2026-04-26,Toronto Blue Jays,Cleveland Guardians,4,2,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+824528,2026-04-26,Cincinnati Reds,Detroit Tigers,3,8,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+823635,2026-04-26,New York Mets,Colorado Rockies,1,3,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+823637,2026-04-26,New York Mets,Colorado Rockies,0,3,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+822991,2026-04-26,Tampa Bay Rays,Minnesota Twins,4,2,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+824612,2026-04-26,Chicago White Sox,Washington Nationals,1,2,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+824202,2026-04-26,Houston Astros,New York Yankees,7,4,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+823797,2026-04-26,Milwaukee Brewers,Pittsburgh Pirates,5,0,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+823068,2026-04-26,St. Louis Cardinals,Seattle Mariners,2,3,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+822911,2026-04-26,Texas Rangers,Athletics,1,2,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+825094,2026-04-26,Arizona Diamondbacks,San Diego Padres,12,7,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+823230,2026-04-26,San Francisco Giants,Miami Marlins,6,3,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+824122,2026-04-26,Kansas City Royals,Los Angeles Angels,11,9,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+823959,2026-04-26,Los Angeles Dodgers,Chicago Cubs,6,0,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
