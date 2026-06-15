@@ -1,17 +1,276 @@
 game_pk,game_date,home_team,away_team,home_score,away_score,home_win_binary,source_artifact
-824852,2026-04-26,Baltimore Orioles,Boston Red Sox,3,5,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
-824934,2026-04-26,Atlanta Braves,Philadelphia Phillies,6,2,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+822749,2026-04-20,Washington Nationals,Atlanta Braves,4,9,0,tmp/statsapi_cache/schedule/2026-04-20_67c90adbdf18.json
+822994,2026-04-20,Tampa Bay Rays,Cincinnati Reds,1,6,0,tmp/statsapi_cache/schedule/2026-04-20_67c90adbdf18.json
+823149,2026-04-20,Seattle Mariners,Athletics,4,6,0,tmp/statsapi_cache/schedule/2026-04-20_67c90adbdf18.json
+823879,2026-04-20,Miami Marlins,St. Louis Cardinals,5,3,1,tmp/statsapi_cache/schedule/2026-04-20_67c90adbdf18.json
+824046,2026-04-20,Los Angeles Angels,Toronto Blue Jays,2,5,0,tmp/statsapi_cache/schedule/2026-04-20_67c90adbdf18.json
+824125,2026-04-20,Kansas City Royals,Baltimore Orioles,5,7,0,tmp/statsapi_cache/schedule/2026-04-20_67c90adbdf18.json
+824370,2026-04-20,Colorado Rockies,Los Angeles Dodgers,3,12,0,tmp/statsapi_cache/schedule/2026-04-20_67c90adbdf18.json
+824450,2026-04-20,Cleveland Guardians,Houston Astros,2,9,0,tmp/statsapi_cache/schedule/2026-04-20_67c90adbdf18.json
+824692,2026-04-20,Chicago Cubs,Philadelphia Phillies,5,1,1,tmp/statsapi_cache/schedule/2026-04-20_67c90adbdf18.json
+824776,2026-04-20,Boston Red Sox,Detroit Tigers,8,6,1,tmp/statsapi_cache/schedule/2026-04-20_67c90adbdf18.json
+822747,2026-04-21,Washington Nationals,Atlanta Braves,11,4,1,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+822914,2026-04-21,Texas Rangers,Pittsburgh Pirates,5,1,1,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+822995,2026-04-21,Tampa Bay Rays,Cincinnati Reds,6,12,0,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+823148,2026-04-21,Seattle Mariners,Athletics,2,5,0,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+823236,2026-04-21,San Francisco Giants,Los Angeles Dodgers,3,1,1,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+823640,2026-04-21,New York Mets,Minnesota Twins,3,5,0,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+823880,2026-04-21,Miami Marlins,St. Louis Cardinals,3,5,0,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+824045,2026-04-21,Los Angeles Angels,Toronto Blue Jays,2,4,0,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+824127,2026-04-21,Kansas City Royals,Baltimore Orioles,6,5,1,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+824290,2026-04-21,Detroit Tigers,Milwaukee Brewers,4,12,0,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+824369,2026-04-21,Colorado Rockies,San Diego Padres,0,1,0,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+824448,2026-04-21,Cleveland Guardians,Houston Astros,8,5,1,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+824690,2026-04-21,Chicago Cubs,Philadelphia Phillies,7,4,1,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+824773,2026-04-21,Boston Red Sox,New York Yankees,0,4,0,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+825099,2026-04-21,Arizona Diamondbacks,Chicago White Sox,5,11,0,tmp/statsapi_cache/schedule/2026-04-21_a22df82ca6f5.json
+822748,2026-04-22,Washington Nationals,Atlanta Braves,6,8,0,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+822913,2026-04-22,Texas Rangers,Pittsburgh Pirates,4,8,0,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+822993,2026-04-22,Tampa Bay Rays,Cincinnati Reds,6,1,1,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+823147,2026-04-22,Seattle Mariners,Athletics,5,4,1,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+823231,2026-04-22,San Francisco Giants,Los Angeles Dodgers,3,0,1,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+823641,2026-04-22,New York Mets,Minnesota Twins,3,2,1,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+823878,2026-04-22,Miami Marlins,St. Louis Cardinals,4,1,1,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+824044,2026-04-22,Los Angeles Angels,Toronto Blue Jays,7,3,1,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+824123,2026-04-22,Kansas City Royals,Baltimore Orioles,6,8,0,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+824286,2026-04-22,Detroit Tigers,Milwaukee Brewers,5,2,1,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+824367,2026-04-22,Colorado Rockies,San Diego Padres,8,3,1,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+824449,2026-04-22,Cleveland Guardians,Houston Astros,0,2,0,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+824688,2026-04-22,Chicago Cubs,Philadelphia Phillies,7,2,1,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+824774,2026-04-22,Boston Red Sox,New York Yankees,1,4,0,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+825097,2026-04-22,Arizona Diamondbacks,Chicago White Sox,11,7,1,tmp/statsapi_cache/schedule/2026-04-22_103ee2ed87bc.json
+822745,2026-04-23,Washington Nationals,Atlanta Braves,2,7,0,tmp/statsapi_cache/schedule/2026-04-23_29c0bca5a1d7.json
+822912,2026-04-23,Texas Rangers,Pittsburgh Pirates,6,1,1,tmp/statsapi_cache/schedule/2026-04-23_29c0bca5a1d7.json
+823233,2026-04-23,San Francisco Giants,Los Angeles Dodgers,0,3,0,tmp/statsapi_cache/schedule/2026-04-23_29c0bca5a1d7.json
+823639,2026-04-23,New York Mets,Minnesota Twins,10,8,1,tmp/statsapi_cache/schedule/2026-04-23_29c0bca5a1d7.json
+824288,2026-04-23,Detroit Tigers,Milwaukee Brewers,5,4,1,tmp/statsapi_cache/schedule/2026-04-23_29c0bca5a1d7.json
+824368,2026-04-23,Colorado Rockies,San Diego Padres,8,10,0,tmp/statsapi_cache/schedule/2026-04-23_29c0bca5a1d7.json
+824689,2026-04-23,Chicago Cubs,Philadelphia Phillies,8,7,1,tmp/statsapi_cache/schedule/2026-04-23_29c0bca5a1d7.json
+824770,2026-04-23,Boston Red Sox,New York Yankees,2,4,0,tmp/statsapi_cache/schedule/2026-04-23_29c0bca5a1d7.json
+825096,2026-04-23,Arizona Diamondbacks,Chicago White Sox,1,4,0,tmp/statsapi_cache/schedule/2026-04-23_29c0bca5a1d7.json
+822827,2026-04-24,Toronto Blue Jays,Cleveland Guardians,6,8,0,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+822909,2026-04-24,Texas Rangers,Athletics,1,8,0,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+822992,2026-04-24,Tampa Bay Rays,Minnesota Twins,6,2,1,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+823069,2026-04-24,St. Louis Cardinals,Seattle Mariners,2,3,0,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+823232,2026-04-24,San Francisco Giants,Miami Marlins,4,9,0,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+823638,2026-04-24,New York Mets,Colorado Rockies,3,4,0,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+823800,2026-04-24,Milwaukee Brewers,Pittsburgh Pirates,0,6,0,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+823962,2026-04-24,Los Angeles Dodgers,Chicago Cubs,4,6,0,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+824124,2026-04-24,Kansas City Royals,Los Angeles Angels,6,3,1,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+824204,2026-04-24,Houston Astros,New York Yankees,4,12,0,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+824529,2026-04-24,Cincinnati Reds,Detroit Tigers,9,8,1,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+824611,2026-04-24,Chicago White Sox,Washington Nationals,5,4,1,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+824854,2026-04-24,Baltimore Orioles,Boston Red Sox,10,3,1,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+824932,2026-04-24,Atlanta Braves,Philadelphia Phillies,5,3,1,tmp/statsapi_cache/schedule/2026-04-24_68683115f7f2.json
+822826,2026-04-25,Toronto Blue Jays,Cleveland Guardians,5,3,1,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+822910,2026-04-25,Texas Rangers,Athletics,4,3,1,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+822989,2026-04-25,Tampa Bay Rays,Minnesota Twins,6,1,1,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+823070,2026-04-25,St. Louis Cardinals,Seattle Mariners,9,11,0,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+823229,2026-04-25,San Francisco Giants,Miami Marlins,6,2,1,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+823799,2026-04-25,Milwaukee Brewers,Pittsburgh Pirates,3,6,0,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+823960,2026-04-25,Los Angeles Dodgers,Chicago Cubs,12,4,1,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+824121,2026-04-25,Kansas City Royals,Los Angeles Angels,12,1,1,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+824203,2026-04-25,Houston Astros,New York Yankees,3,8,0,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+824527,2026-04-25,Cincinnati Reds,Detroit Tigers,9,2,1,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+824613,2026-04-25,Chicago White Sox,Washington Nationals,3,6,0,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+824851,2026-04-25,Baltimore Orioles,Boston Red Sox,1,17,0,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+824933,2026-04-25,Atlanta Braves,Philadelphia Phillies,5,8,0,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
+825093,2026-04-25,Arizona Diamondbacks,San Diego Padres,4,6,0,tmp/statsapi_cache/schedule/2026-04-25_1a34765cf636.json
 822824,2026-04-26,Toronto Blue Jays,Cleveland Guardians,4,2,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
-824528,2026-04-26,Cincinnati Reds,Detroit Tigers,3,8,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+822911,2026-04-26,Texas Rangers,Athletics,1,2,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+822991,2026-04-26,Tampa Bay Rays,Minnesota Twins,4,2,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+823068,2026-04-26,St. Louis Cardinals,Seattle Mariners,2,3,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+823230,2026-04-26,San Francisco Giants,Miami Marlins,6,3,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
 823635,2026-04-26,New York Mets,Colorado Rockies,1,3,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
 823637,2026-04-26,New York Mets,Colorado Rockies,0,3,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
-822991,2026-04-26,Tampa Bay Rays,Minnesota Twins,4,2,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
-824612,2026-04-26,Chicago White Sox,Washington Nationals,1,2,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
-824202,2026-04-26,Houston Astros,New York Yankees,7,4,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
 823797,2026-04-26,Milwaukee Brewers,Pittsburgh Pirates,5,0,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
-823068,2026-04-26,St. Louis Cardinals,Seattle Mariners,2,3,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
-822911,2026-04-26,Texas Rangers,Athletics,1,2,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
-825094,2026-04-26,Arizona Diamondbacks,San Diego Padres,12,7,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
-823230,2026-04-26,San Francisco Giants,Miami Marlins,6,3,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
-824122,2026-04-26,Kansas City Royals,Los Angeles Angels,11,9,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
 823959,2026-04-26,Los Angeles Dodgers,Chicago Cubs,6,0,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+824122,2026-04-26,Kansas City Royals,Los Angeles Angels,11,9,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+824202,2026-04-26,Houston Astros,New York Yankees,7,4,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+824528,2026-04-26,Cincinnati Reds,Detroit Tigers,3,8,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+824612,2026-04-26,Chicago White Sox,Washington Nationals,1,2,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+824852,2026-04-26,Baltimore Orioles,Boston Red Sox,3,5,0,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+824934,2026-04-26,Atlanta Braves,Philadelphia Phillies,6,2,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+825094,2026-04-26,Arizona Diamondbacks,San Diego Padres,12,7,1,tmp/statsapi_cache/schedule/2026-04-26_8faa8365da78.json
+822825,2026-04-27,Toronto Blue Jays,Boston Red Sox,0,5,0,tmp/statsapi_cache/schedule/2026-04-27_3572e0f78a5f.json
+822906,2026-04-27,Texas Rangers,New York Yankees,2,4,0,tmp/statsapi_cache/schedule/2026-04-27_3572e0f78a5f.json
+823311,2026-04-27,San Diego Padres,Chicago Cubs,9,7,1,tmp/statsapi_cache/schedule/2026-04-27_3572e0f78a5f.json
+823395,2026-04-27,Pittsburgh Pirates,St. Louis Cardinals,2,4,0,tmp/statsapi_cache/schedule/2026-04-27_3572e0f78a5f.json
+823719,2026-04-27,Minnesota Twins,Seattle Mariners,11,4,1,tmp/statsapi_cache/schedule/2026-04-27_3572e0f78a5f.json
+823961,2026-04-27,Los Angeles Dodgers,Miami Marlins,5,4,1,tmp/statsapi_cache/schedule/2026-04-27_3572e0f78a5f.json
+824446,2026-04-27,Cleveland Guardians,Tampa Bay Rays,2,3,0,tmp/statsapi_cache/schedule/2026-04-27_3572e0f78a5f.json
+824609,2026-04-27,Chicago White Sox,Los Angeles Angels,8,7,1,tmp/statsapi_cache/schedule/2026-04-27_3572e0f78a5f.json
+822823,2026-04-28,Toronto Blue Jays,Boston Red Sox,3,0,1,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+822908,2026-04-28,Texas Rangers,New York Yankees,2,3,0,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+823310,2026-04-28,San Diego Padres,Chicago Cubs,3,8,0,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+823390,2026-04-28,Pittsburgh Pirates,St. Louis Cardinals,7,11,0,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+823473,2026-04-28,Philadelphia Phillies,San Francisco Giants,7,0,1,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+823636,2026-04-28,New York Mets,Washington Nationals,8,0,1,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+823716,2026-04-28,Minnesota Twins,Seattle Mariners,1,7,0,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+823798,2026-04-28,Milwaukee Brewers,Arizona Diamondbacks,13,2,1,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+823956,2026-04-28,Los Angeles Dodgers,Miami Marlins,1,2,0,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+824447,2026-04-28,Cleveland Guardians,Tampa Bay Rays,0,1,0,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+824526,2026-04-28,Cincinnati Reds,Colorado Rockies,7,2,1,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+824610,2026-04-28,Chicago White Sox,Los Angeles Angels,5,2,1,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+824849,2026-04-28,Baltimore Orioles,Houston Astros,5,3,1,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+824931,2026-04-28,Atlanta Braves,Detroit Tigers,5,2,1,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+825017,2026-04-28,Athletics,Kansas City Royals,1,4,0,tmp/statsapi_cache/schedule/2026-04-28_8ec0264af6d1.json
+822821,2026-04-29,Toronto Blue Jays,Boston Red Sox,8,1,1,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+822907,2026-04-29,Texas Rangers,New York Yankees,3,0,1,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+823312,2026-04-29,San Diego Padres,Chicago Cubs,4,5,0,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+823392,2026-04-29,Pittsburgh Pirates,St. Louis Cardinals,4,5,0,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+823633,2026-04-29,New York Mets,Washington Nationals,2,14,0,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+823717,2026-04-29,Minnesota Twins,Seattle Mariners,3,5,0,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+823796,2026-04-29,Milwaukee Brewers,Arizona Diamondbacks,2,6,0,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+823958,2026-04-29,Los Angeles Dodgers,Miami Marlins,2,3,0,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+824445,2026-04-29,Cleveland Guardians,Tampa Bay Rays,3,1,1,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+824525,2026-04-29,Cincinnati Reds,Colorado Rockies,2,13,0,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+824608,2026-04-29,Chicago White Sox,Los Angeles Angels,3,2,1,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+824930,2026-04-29,Atlanta Braves,Detroit Tigers,4,3,1,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+825015,2026-04-29,Athletics,Kansas City Royals,5,2,1,tmp/statsapi_cache/schedule/2026-04-29_ab4009700c73.json
+823391,2026-04-30,Pittsburgh Pirates,St. Louis Cardinals,5,10,0,tmp/statsapi_cache/schedule/2026-04-30_f51268c24f5e.json
+823471,2026-04-30,Philadelphia Phillies,San Francisco Giants,6,5,1,tmp/statsapi_cache/schedule/2026-04-30_f51268c24f5e.json
+823472,2026-04-30,Philadelphia Phillies,San Francisco Giants,3,2,1,tmp/statsapi_cache/schedule/2026-04-30_f51268c24f5e.json
+823634,2026-04-30,New York Mets,Washington Nationals,4,5,0,tmp/statsapi_cache/schedule/2026-04-30_f51268c24f5e.json
+823714,2026-04-30,Minnesota Twins,Toronto Blue Jays,7,1,1,tmp/statsapi_cache/schedule/2026-04-30_f51268c24f5e.json
+823795,2026-04-30,Milwaukee Brewers,Arizona Diamondbacks,13,1,1,tmp/statsapi_cache/schedule/2026-04-30_f51268c24f5e.json
+824524,2026-04-30,Cincinnati Reds,Colorado Rockies,6,4,1,tmp/statsapi_cache/schedule/2026-04-30_f51268c24f5e.json
+824848,2026-04-30,Baltimore Orioles,Houston Astros,10,3,1,tmp/statsapi_cache/schedule/2026-04-30_f51268c24f5e.json
+824850,2026-04-30,Baltimore Orioles,Houston Astros,5,11,0,tmp/statsapi_cache/schedule/2026-04-30_f51268c24f5e.json
+824929,2026-04-30,Atlanta Braves,Detroit Tigers,2,5,0,tmp/statsapi_cache/schedule/2026-04-30_f51268c24f5e.json
+825016,2026-04-30,Athletics,Kansas City Royals,6,3,1,tmp/statsapi_cache/schedule/2026-04-30_f51268c24f5e.json
+822744,2026-05-01,Washington Nationals,Milwaukee Brewers,1,6,0,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+822990,2026-05-01,Tampa Bay Rays,San Francisco Giants,3,0,1,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+823066,2026-05-01,St. Louis Cardinals,Los Angeles Dodgers,7,2,1,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+823146,2026-05-01,Seattle Mariners,Kansas City Royals,6,7,0,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+823309,2026-05-01,San Diego Padres,Chicago White Sox,2,8,0,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+823389,2026-05-01,Pittsburgh Pirates,Cincinnati Reds,9,1,1,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+823557,2026-05-01,New York Yankees,Baltimore Orioles,7,2,1,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+823713,2026-05-01,Minnesota Twins,Toronto Blue Jays,3,7,0,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+823877,2026-05-01,Miami Marlins,Philadelphia Phillies,5,6,0,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+824041,2026-05-01,Los Angeles Angels,New York Mets,3,4,0,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+824287,2026-05-01,Detroit Tigers,Texas Rangers,4,5,0,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+824366,2026-05-01,Colorado Rockies,Atlanta Braves,6,8,0,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+824686,2026-05-01,Chicago Cubs,Arizona Diamondbacks,6,5,1,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+824772,2026-05-01,Boston Red Sox,Houston Astros,3,1,1,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+825012,2026-05-01,Athletics,Cleveland Guardians,5,8,0,tmp/statsapi_cache/schedule/2026-05-01_a7adce5b36d1.json
+822746,2026-05-02,Washington Nationals,Milwaukee Brewers,1,4,0,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+822988,2026-05-02,Tampa Bay Rays,San Francisco Giants,5,1,1,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+823067,2026-05-02,St. Louis Cardinals,Los Angeles Dodgers,3,2,1,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+823144,2026-05-02,Seattle Mariners,Kansas City Royals,2,3,0,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+823308,2026-05-02,San Diego Padres,Chicago White Sox,0,4,0,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+823388,2026-05-02,Pittsburgh Pirates,Cincinnati Reds,17,7,1,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+823554,2026-05-02,New York Yankees,Baltimore Orioles,9,4,1,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+823715,2026-05-02,Minnesota Twins,Toronto Blue Jays,4,11,0,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+823876,2026-05-02,Miami Marlins,Philadelphia Phillies,4,0,1,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+824042,2026-05-02,Los Angeles Angels,New York Mets,4,3,1,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+824284,2026-05-02,Detroit Tigers,Texas Rangers,5,1,1,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+824365,2026-05-02,Colorado Rockies,Atlanta Braves,1,9,0,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+824685,2026-05-02,Chicago Cubs,Arizona Diamondbacks,2,0,1,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+824771,2026-05-02,Boston Red Sox,Houston Astros,3,6,0,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+825014,2026-05-02,Athletics,Cleveland Guardians,6,14,0,tmp/statsapi_cache/schedule/2026-05-02_c592e99e85c0.json
+822742,2026-05-03,Washington Nationals,Milwaukee Brewers,3,2,1,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+822987,2026-05-03,Tampa Bay Rays,San Francisco Giants,2,1,1,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+823065,2026-05-03,St. Louis Cardinals,Los Angeles Dodgers,1,4,0,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+823145,2026-05-03,Seattle Mariners,Kansas City Royals,1,4,0,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+823307,2026-05-03,San Diego Padres,Chicago White Sox,4,3,1,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+823387,2026-05-03,Pittsburgh Pirates,Cincinnati Reds,1,0,1,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+823555,2026-05-03,New York Yankees,Baltimore Orioles,11,3,1,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+823711,2026-05-03,Minnesota Twins,Toronto Blue Jays,4,3,1,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+823875,2026-05-03,Miami Marlins,Philadelphia Phillies,2,7,0,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+824043,2026-05-03,Los Angeles Angels,New York Mets,1,5,0,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+824285,2026-05-03,Detroit Tigers,Texas Rangers,7,1,1,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+824364,2026-05-03,Colorado Rockies,Atlanta Braves,6,11,0,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+824687,2026-05-03,Chicago Cubs,Arizona Diamondbacks,8,4,1,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+824769,2026-05-03,Boston Red Sox,Houston Astros,1,3,0,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+825013,2026-05-03,Athletics,Cleveland Guardians,7,1,1,tmp/statsapi_cache/schedule/2026-05-03_958c2c4d607f.json
+822741,2026-05-07,Washington Nationals,Minnesota Twins,7,5,1,tmp/statsapi_cache/schedule/2026-05-07_9ebfda7a74a7.json
+823306,2026-05-07,San Diego Padres,St. Louis Cardinals,1,2,0,tmp/statsapi_cache/schedule/2026-05-07_9ebfda7a74a7.json
+823467,2026-05-07,Philadelphia Phillies,Athletics,1,12,0,tmp/statsapi_cache/schedule/2026-05-07_9ebfda7a74a7.json
+823551,2026-05-07,New York Yankees,Texas Rangers,9,2,1,tmp/statsapi_cache/schedule/2026-05-07_9ebfda7a74a7.json
+823870,2026-05-07,Miami Marlins,Baltimore Orioles,4,3,1,tmp/statsapi_cache/schedule/2026-05-07_9ebfda7a74a7.json
+824117,2026-05-07,Kansas City Royals,Cleveland Guardians,5,8,0,tmp/statsapi_cache/schedule/2026-05-07_9ebfda7a74a7.json
+824362,2026-05-07,Colorado Rockies,New York Mets,6,2,1,tmp/statsapi_cache/schedule/2026-05-07_9ebfda7a74a7.json
+824681,2026-05-07,Chicago Cubs,Cincinnati Reds,8,3,1,tmp/statsapi_cache/schedule/2026-05-07_9ebfda7a74a7.json
+824767,2026-05-07,Boston Red Sox,Tampa Bay Rays,4,8,0,tmp/statsapi_cache/schedule/2026-05-07_9ebfda7a74a7.json
+825090,2026-05-07,Arizona Diamondbacks,Pittsburgh Pirates,2,4,0,tmp/statsapi_cache/schedule/2026-05-07_9ebfda7a74a7.json
+822822,2026-05-08,Toronto Blue Jays,Los Angeles Angels,2,0,1,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+822904,2026-05-08,Texas Rangers,Chicago Cubs,1,7,0,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+823225,2026-05-08,San Francisco Giants,Pittsburgh Pirates,5,2,1,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+823303,2026-05-08,San Diego Padres,St. Louis Cardinals,0,6,0,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+823466,2026-05-08,Philadelphia Phillies,Colorado Rockies,7,9,0,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+823794,2026-05-08,Milwaukee Brewers,New York Yankees,6,0,1,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+823871,2026-05-08,Miami Marlins,Washington Nationals,2,3,0,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+823957,2026-05-08,Los Angeles Dodgers,Atlanta Braves,3,1,1,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+824116,2026-05-08,Kansas City Royals,Detroit Tigers,4,3,1,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+824443,2026-05-08,Cleveland Guardians,Minnesota Twins,6,4,1,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+824522,2026-05-08,Cincinnati Reds,Houston Astros,0,10,0,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+824607,2026-05-08,Chicago White Sox,Seattle Mariners,8,12,0,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+824768,2026-05-08,Boston Red Sox,Tampa Bay Rays,2,0,1,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+824846,2026-05-08,Baltimore Orioles,Athletics,3,4,0,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+825088,2026-05-08,Arizona Diamondbacks,New York Mets,1,3,0,tmp/statsapi_cache/schedule/2026-05-08_b1dcb9d1516d.json
+822820,2026-05-09,Toronto Blue Jays,Los Angeles Angels,14,1,1,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+822905,2026-05-09,Texas Rangers,Chicago Cubs,6,0,1,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+823224,2026-05-09,San Francisco Giants,Pittsburgh Pirates,3,13,0,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+823304,2026-05-09,San Diego Padres,St. Louis Cardinals,4,2,1,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+823468,2026-05-09,Philadelphia Phillies,Colorado Rockies,9,3,1,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+823792,2026-05-09,Milwaukee Brewers,New York Yankees,4,3,1,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+823869,2026-05-09,Miami Marlins,Washington Nationals,8,7,1,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+823955,2026-05-09,Los Angeles Dodgers,Atlanta Braves,2,7,0,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+824115,2026-05-09,Kansas City Royals,Detroit Tigers,5,1,1,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+824444,2026-05-09,Cleveland Guardians,Minnesota Twins,1,2,0,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+824523,2026-05-09,Cincinnati Reds,Houston Astros,3,1,1,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+824606,2026-05-09,Chicago White Sox,Seattle Mariners,6,1,1,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+824847,2026-05-09,Baltimore Orioles,Athletics,2,6,0,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+825089,2026-05-09,Arizona Diamondbacks,New York Mets,2,1,1,tmp/statsapi_cache/schedule/2026-05-09_3b036023f0df.json
+822819,2026-05-10,Toronto Blue Jays,Los Angeles Angels,1,6,0,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+822902,2026-05-10,Texas Rangers,Chicago Cubs,3,0,1,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+823221,2026-05-10,San Francisco Giants,Pittsburgh Pirates,7,6,1,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+823305,2026-05-10,San Diego Padres,St. Louis Cardinals,3,2,1,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+823463,2026-05-10,Philadelphia Phillies,Colorado Rockies,6,0,1,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+823793,2026-05-10,Milwaukee Brewers,New York Yankees,4,3,1,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+823868,2026-05-10,Miami Marlins,Washington Nationals,5,2,1,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+823954,2026-05-10,Los Angeles Dodgers,Atlanta Braves,2,7,0,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+824113,2026-05-10,Kansas City Royals,Detroit Tigers,3,6,0,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+824440,2026-05-10,Cleveland Guardians,Minnesota Twins,4,5,0,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+824520,2026-05-10,Cincinnati Reds,Houston Astros,5,0,1,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+824605,2026-05-10,Chicago White Sox,Seattle Mariners,2,1,1,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+824765,2026-05-10,Boston Red Sox,Tampa Bay Rays,1,4,0,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+824845,2026-05-10,Baltimore Orioles,Athletics,2,1,1,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+825085,2026-05-10,Arizona Diamondbacks,New York Mets,5,1,1,tmp/statsapi_cache/schedule/2026-05-10_5820bdd912ec.json
+822818,2026-05-11,Toronto Blue Jays,Tampa Bay Rays,5,8,0,tmp/statsapi_cache/schedule/2026-05-11_c79267388c83.json
+822901,2026-05-11,Texas Rangers,Arizona Diamondbacks,0,1,0,tmp/statsapi_cache/schedule/2026-05-11_c79267388c83.json
+823953,2026-05-11,Los Angeles Dodgers,San Francisco Giants,3,9,0,tmp/statsapi_cache/schedule/2026-05-11_c79267388c83.json
+824199,2026-05-11,Houston Astros,Seattle Mariners,1,3,0,tmp/statsapi_cache/schedule/2026-05-11_c79267388c83.json
+824441,2026-05-11,Cleveland Guardians,Los Angeles Angels,7,2,1,tmp/statsapi_cache/schedule/2026-05-11_c79267388c83.json
+824844,2026-05-11,Baltimore Orioles,New York Yankees,3,2,1,tmp/statsapi_cache/schedule/2026-05-11_c79267388c83.json
+822817,2026-05-12,Toronto Blue Jays,Tampa Bay Rays,6,7,0,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+822903,2026-05-12,Texas Rangers,Arizona Diamondbacks,7,4,1,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+823385,2026-05-12,Pittsburgh Pirates,Colorado Rockies,3,1,1,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+823632,2026-05-12,New York Mets,Detroit Tigers,10,2,1,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+823712,2026-05-12,Minnesota Twins,Miami Marlins,3,0,1,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+823790,2026-05-12,Milwaukee Brewers,San Diego Padres,6,4,1,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+823951,2026-05-12,Los Angeles Dodgers,San Francisco Giants,2,6,0,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+824197,2026-05-12,Houston Astros,Seattle Mariners,2,10,0,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+824442,2026-05-12,Cleveland Guardians,Los Angeles Angels,3,2,1,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+824521,2026-05-12,Cincinnati Reds,Washington Nationals,4,10,0,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+824604,2026-05-12,Chicago White Sox,Kansas City Royals,6,5,1,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+824764,2026-05-12,Boston Red Sox,Philadelphia Phillies,1,2,0,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+824843,2026-05-12,Baltimore Orioles,New York Yankees,2,6,0,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+824927,2026-05-12,Atlanta Braves,Chicago Cubs,5,2,1,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+825011,2026-05-12,Athletics,St. Louis Cardinals,4,6,0,tmp/statsapi_cache/schedule/2026-05-12_09f32e4339c5.json
+822815,2026-05-13,Toronto Blue Jays,Tampa Bay Rays,5,3,1,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+822900,2026-05-13,Texas Rangers,Arizona Diamondbacks,6,5,1,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+823386,2026-05-13,Pittsburgh Pirates,Colorado Rockies,4,10,0,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+823631,2026-05-13,New York Mets,Detroit Tigers,3,2,1,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+823710,2026-05-13,Minnesota Twins,Miami Marlins,5,9,0,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+823791,2026-05-13,Milwaukee Brewers,San Diego Padres,1,3,0,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+823952,2026-05-13,Los Angeles Dodgers,San Francisco Giants,4,0,1,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+824195,2026-05-13,Houston Astros,Seattle Mariners,4,3,1,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+824438,2026-05-13,Cleveland Guardians,Los Angeles Angels,4,2,1,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+824519,2026-05-13,Cincinnati Reds,Washington Nationals,7,8,0,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+824603,2026-05-13,Chicago White Sox,Kansas City Royals,6,5,1,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+824763,2026-05-13,Boston Red Sox,Philadelphia Phillies,3,1,1,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+824841,2026-05-13,Baltimore Orioles,New York Yankees,7,0,1,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+824928,2026-05-13,Atlanta Braves,Chicago Cubs,4,1,1,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
+825010,2026-05-13,Athletics,St. Louis Cardinals,6,2,1,tmp/statsapi_cache/schedule/2026-05-13_6aed89388628.json
