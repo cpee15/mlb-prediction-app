@@ -39,13 +39,28 @@ export function normalizeStatus(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, '_')
 }
 
+function probabilityCandidate(value) {
+  const n = toNumber(value)
+  return n !== null && n >= 0 && n <= 1 ? n : null
+}
+
 export function numericScore(row) {
-  const candidates = [row?.confidence, row?.score, row?.model_probability].map(toNumber).filter(v => v !== null)
+  const candidates = [row?.confidence, row?.score, row?.model_probability].map(probabilityCandidate).filter(v => v !== null)
   return candidates.length ? Math.max(...candidates) : null
 }
 
+export function projectionValue(row) {
+  const score = toNumber(row?.score)
+  if (score !== null && score > 1) return score
+  return toNumber(row?.projection) ?? toNumber(row?.projected_total) ?? toNumber(row?.raw_payload?.projected_total) ?? toNumber(row?.raw_payload?.projection)
+}
+
+export function signalValue(row) {
+  return numericScore(row) ?? projectionValue(row) ?? toNumber(row?.expected_value) ?? toNumber(row?.edge)
+}
+
 export function confidenceBand(value) {
-  const n = toNumber(value)
+  const n = probabilityCandidate(value)
   if (n === null) return 'Unavailable'
   if (n >= 0.65) return '.65+'
   if (n >= 0.60) return '.60-.64'
@@ -88,12 +103,13 @@ export function recommendationBucket(row) {
   const score = numericScore(row)
   const edge = toNumber(row?.edge)
   const ev = toNumber(row?.expected_value)
+  const projection = projectionValue(row)
   const hasIdentity = Boolean(row?.pick_label || row?.player_name || row?.team_name)
-  const hasMetrics = [score, edge, ev, toNumber(row?.model_probability)].some(v => v !== null)
+  const hasMetrics = [score, edge, ev, projection].some(v => v !== null)
   if (!hasIdentity && !hasMetrics) return 'missing_data'
   if (isRejectedNoBet(row)) return 'rejected'
   if (status.includes('strong') || status.includes('recommended') || (score !== null && score >= 0.55) || (edge !== null && edge > 0) || (ev !== null && ev > 0)) return 'recommended'
-  if (row?.grade === 'watchlist_only' || row?.grade === 'ungraded' || (score !== null && score >= 0.50)) return 'lean'
+  if (projection !== null || row?.grade === 'watchlist_only' || row?.grade === 'ungraded' || (score !== null && score >= 0.50)) return 'lean'
   return 'missing_data'
 }
 
@@ -358,6 +374,7 @@ export function indexSeries(series = [], prefix = 'current') {
 
 export function playRank(row) {
   return {
+    projection: projectionValue(row) ?? -Infinity,
     score: numericScore(row) ?? -Infinity,
     edge: toNumber(row?.edge) ?? -Infinity,
     expected_value: toNumber(row?.expected_value) ?? -Infinity,
@@ -368,7 +385,40 @@ export function playRank(row) {
 export function comparePlayRank(a, b) {
   const ar = playRank(a)
   const br = playRank(b)
-  return (br.score - ar.score) || (br.edge - ar.edge) || (br.expected_value - ar.expected_value) || (br.has_price - ar.has_price)
+  return (br.score - ar.score) || (br.edge - ar.edge) || (br.expected_value - ar.expected_value) || (br.projection - ar.projection) || (br.has_price - ar.has_price)
+}
+
+export function compareModelOutputRank(a, b) {
+  const ar = playRank(a)
+  const br = playRank(b)
+  return (br.projection - ar.projection) || (br.score - ar.score) || (br.edge - ar.edge) || (br.expected_value - ar.expected_value) || (br.has_price - ar.has_price)
+}
+
+export function modelOutputKey(row) {
+  return [
+    row?.game_pk || 'ungrouped',
+    row?.away_team || '',
+    row?.home_team || '',
+    row?.market_type || row?.pick_type || '',
+    row?.pick_label || row?.player_name || row?.team_name || row?.model_name || '',
+    toNumber(row?.line) ?? '',
+    projectionValue(row) ?? '',
+    numericScore(row) ?? '',
+    toNumber(row?.edge) ?? '',
+    toNumber(row?.expected_value) ?? '',
+  ].join('|').toLowerCase()
+}
+
+export function uniqueModelOutputs(rows = []) {
+  const seen = new Set()
+  const output = []
+  rows.forEach(row => {
+    const key = modelOutputKey(row)
+    if (seen.has(key)) return
+    seen.add(key)
+    output.push(row)
+  })
+  return output
 }
 
 export function gameFilterValue(value) {
@@ -392,11 +442,12 @@ export function groupRowsByGame(rows = [], games = []) {
       buckets: { recommended: [], lean: [], low_confidence: [] },
       sources: [],
       best_score: null,
+      best_projection: null,
       best_edge: null,
       price_count: 0,
     })
   })
-  rows.forEach(row => {
+  uniqueModelOutputs(rows).forEach(row => {
     const key = gameFilterValue(row.game_pk)
     const game = map.get(key) || {
       key,
@@ -410,16 +461,19 @@ export function groupRowsByGame(rows = [], games = []) {
       buckets: { recommended: [], lean: [], low_confidence: [] },
       sources: [],
       best_score: null,
+      best_projection: null,
       best_edge: null,
       price_count: 0,
     }
     const bucket = productionBucket(row)
     const score = numericScore(row)
+    const projection = projectionValue(row)
     const edge = toNumber(row.edge)
     game.rows.push(row)
     game.buckets[bucket].push(row)
     if (row.source && !game.sources.includes(row.source)) game.sources.push(row.source)
     if (score !== null) game.best_score = game.best_score === null ? score : Math.max(game.best_score, score)
+    if (projection !== null) game.best_projection = game.best_projection === null ? projection : Math.max(game.best_projection, projection)
     if (edge !== null) game.best_edge = game.best_edge === null ? edge : Math.max(game.best_edge, edge)
     if (rowHasPrice(row)) game.price_count += 1
     map.set(key, game)
@@ -430,14 +484,20 @@ export function groupRowsByGame(rows = [], games = []) {
       ...game,
       buckets: {
         recommended: game.buckets.recommended.sort(comparePlayRank),
-        lean: game.buckets.lean.sort(comparePlayRank),
+        lean: game.buckets.lean.sort(compareModelOutputRank),
         low_confidence: game.buckets.low_confidence.sort(comparePlayRank),
       },
-      rows: game.rows.sort(comparePlayRank),
+      rows: game.rows.sort(compareModelOutputRank),
     }))
     .sort((a, b) => String(a.game_time || '').localeCompare(String(b.game_time || '')) || a.label.localeCompare(b.label))
 }
 
 export function highestConfidenceRows(rows = []) {
-  return rows.filter(row => productionBucket(row) === 'recommended').sort(comparePlayRank)
+  return uniqueModelOutputs(rows).filter(row => productionBucket(row) === 'recommended').sort(comparePlayRank)
+}
+
+export function topModelProjectionRows(rows = []) {
+  return uniqueModelOutputs(rows)
+    .filter(row => projectionValue(row) !== null || numericScore(row) !== null || toNumber(row?.edge) !== null || toNumber(row?.expected_value) !== null)
+    .sort(compareModelOutputRank)
 }
