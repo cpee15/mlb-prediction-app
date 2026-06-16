@@ -7,8 +7,11 @@ import {
   comparePeriods,
   confidenceBand,
   dailySeries,
+  decisionQualityLabel,
   edgeBand,
+  economicsCoverage,
   getPeriodWindows,
+  groupProfit,
   groupRowsByGame,
   highestConfidenceRows,
   maxDrawdown,
@@ -23,24 +26,17 @@ import {
   uniqueModelOutputs,
 } from './modelTrackerPnl.mjs'
 
-test('americanOddsToProfit handles positive odds wins', () => {
-  assert.equal(americanOddsToProfit(100, 150, 'won'), 150)
-})
+test('americanOddsToProfit handles positive odds wins', () => { assert.equal(americanOddsToProfit(100, 150, 'won'), 150) })
+test('americanOddsToProfit handles negative odds wins', () => { assert.equal(americanOddsToProfit(100, -200, 'won'), 50) })
+test('americanOddsToProfit handles losses and pushes', () => { assert.equal(americanOddsToProfit(100, -110, 'lost'), -100); assert.equal(americanOddsToProfit(100, -110, 'push'), 0) })
 
-test('americanOddsToProfit handles negative odds wins', () => {
-  assert.equal(americanOddsToProfit(100, -200, 'won'), 50)
-})
-
-test('americanOddsToProfit handles losses and pushes', () => {
-  assert.equal(americanOddsToProfit(100, -110, 'lost'), -100)
-  assert.equal(americanOddsToProfit(100, -110, 'push'), 0)
-})
-
-test('confidenceBand and edgeBand bucket values deterministically', () => {
+test('confidenceBand and edgeBand bucket values deterministically and hide missing values', () => {
   assert.equal(confidenceBand(0.57), '.55-.59')
   assert.equal(confidenceBand(0.66), '.65+')
+  assert.equal(confidenceBand(null), null)
   assert.equal(edgeBand(0.073), '+5% to +9.9%')
   assert.equal(edgeBand(-0.01), 'Negative')
+  assert.equal(edgeBand(null), null)
 })
 
 test('projection values are not treated as probability confidence', () => {
@@ -57,12 +53,22 @@ test('negative EV or edge cannot become a recommendation', () => {
   assert.equal(recommendationBucket({ pick_label: 'Baltimore Orioles 1.5', confidence: 1, edge: -0.121, expected_value: -0.191, price: -171 }), 'rejected')
 })
 
+test('decision quality separates actual result from pre-event economics', () => {
+  assert.equal(decisionQualityLabel({ edge: -0.121, expected_value: -0.191, price: -171 }), 'Negative EV / edge')
+  assert.equal(decisionQualityLabel({ edge: 0.05, expected_value: 0.1, price: -110 }), 'Positive EV priced')
+  assert.equal(decisionQualityLabel({ edge: 0.05, expected_value: 0.1 }), 'Positive EV unpriced')
+  assert.equal(decisionQualityLabel({ score: 10.2 }), 'Projection only')
+  assert.equal(economicsCoverage({ edge: 0.05, price: -110 }), 'Priced with EV/edge')
+  assert.equal(economicsCoverage({ price: -110 }), 'Priced, no EV/edge')
+  assert.equal(economicsCoverage({ score: 10.2 }), 'No market economics')
+})
+
 test('positive economics require usable price before recommendation', () => {
   assert.equal(recommendationBucket({ pick_label: 'Over 7.5', confidence: 0.58, edge: 0.183, expected_value: 0.356 }), 'lean')
   assert.equal(recommendationBucket({ pick_label: 'Over 7.5', confidence: 0.58, edge: 0.183, expected_value: 0.356, price: -106 }), 'recommended')
 })
 
-test('summarizePnl excludes pending rows from realized P&L', () => {
+test('summarizePnl excludes pending rows from realized P&L and reports coverage', () => {
   const summary = summarizePnl([
     { grade: 'won', price: 100, confidence: 0.57, edge: 0.03, pick_label: 'Cubs ML' },
     { grade: 'lost', price: -110, confidence: 0.52, pick_label: 'Yankees TT over' },
@@ -74,6 +80,8 @@ test('summarizePnl excludes pending rows from realized P&L', () => {
   assert.equal(summary.total_risked, 200)
   assert.equal(summary.profit, 0)
   assert.equal(summary.roi, 0)
+  assert.equal(summary.ev_coverage, 0.25)
+  assert.equal(summary.price_coverage, 1)
 })
 
 test('recommendationBucket keeps rejected/no-bet separate', () => {
@@ -102,13 +110,18 @@ test('dailySeries and maxDrawdown are ordered by date', () => {
 })
 
 test('comparePeriods returns current, previous, and deltas', () => {
-  const comparison = comparePeriods(
-    [{ grade: 'won', price: 100, pick_label: 'Current' }],
-    [{ grade: 'lost', price: -110, pick_label: 'Previous' }],
-  )
+  const comparison = comparePeriods([{ grade: 'won', price: 100, pick_label: 'Current' }], [{ grade: 'lost', price: -110, pick_label: 'Previous' }])
   assert.equal(comparison.current.profit, 100)
   assert.equal(comparison.previous.profit, -100)
   assert.equal(comparison.deltas.profit, 200)
+})
+
+test('groupProfit skips unavailable chart buckets', () => {
+  const grouped = groupProfit([
+    { profit: 100, edge_band: null },
+    { profit: -50, edge_band: 'Negative' },
+  ], row => row.edge_band)
+  assert.deepEqual(grouped.map(row => row.label), ['Negative'])
 })
 
 test('uniqueModelOutputs collapses duplicate projection rows', () => {
