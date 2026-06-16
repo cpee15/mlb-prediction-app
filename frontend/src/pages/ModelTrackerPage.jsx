@@ -5,23 +5,22 @@ import {
   UNIT_SIZE_DOLLARS,
   buildPeriodComparison,
   comparePlayRank,
-  confidenceBand,
   dailySeries,
   effectivePrice,
-  edgeBand,
   gameFilterValue,
   gameLabel,
   groupProfit,
   groupRowsByGame,
-  highestConfidenceRows,
   maxDrawdown,
   numericScore,
   periodDateKeys,
   productionBucketLabel,
+  projectionValue,
   recommendationBucket,
   rowHasPrice,
   summarizePnl,
   toNumber,
+  topModelProjectionRows,
 } from '../lib/modelTrackerPnl.mjs'
 
 const API = API_BASE
@@ -61,7 +60,9 @@ const s = {
   warnChip: { border: '1px solid rgba(250,204,21,0.42)', borderRadius: 999, padding: '4px 8px', fontSize: 11, color: '#fef08a', fontWeight: 900, background: 'rgba(113,63,18,0.26)' },
   bucketGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginTop: 12 },
   bucket: { border: '1px solid rgba(148,163,184,0.14)', borderRadius: 14, padding: 12, background: 'rgba(15,23,42,0.44)', minWidth: 0 },
-  playRow: { display: 'grid', gap: 7, borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: 10, marginTop: 10 },
+  playRow: { display: 'grid', gap: 6, borderTop: '1px solid rgba(148,163,184,0.12)', paddingTop: 9, marginTop: 9 },
+  topGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 10 },
+  topCard: { border: '1px solid rgba(148,163,184,0.16)', borderRadius: 14, padding: 12, background: 'rgba(8,12,20,0.42)', minWidth: 0 },
   rowTitle: { color: 'var(--text-primary)', fontSize: 13, fontWeight: 900, overflowWrap: 'anywhere' },
   tableWrap: { overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch', border: '1px solid var(--border-subtle)', borderRadius: 14, scrollbarGutter: 'stable' },
   table: { width: 'max-content', minWidth: '100%', borderCollapse: 'collapse', fontSize: 12 },
@@ -74,14 +75,17 @@ function fmt(value, digits = 3) { if (value === null || value === undefined || v
 function fmtPct(value, digits = 1) { const n = toNumber(value); return n === null ? 'Unavailable' : `${(n * 100).toFixed(digits)}%` }
 function fmtMoney(value) { const n = toNumber(value); if (n === null) return 'Unavailable'; return `${n > 0 ? '+' : n < 0 ? '-' : ''}$${Math.abs(n).toFixed(0)}` }
 function fmtUnits(value) { const n = toNumber(value); return n === null ? 'Unavailable' : `${n > 0 ? '+' : ''}${n.toFixed(2)}u` }
-function fmtPrice(value) { const n = toNumber(value); return n === null ? 'Price unavailable' : n > 0 ? `+${n}` : String(n) }
+function fmtPrice(value) { const n = toNumber(value); return n === null ? null : n > 0 ? `+${n}` : String(n) }
 function textValue(value) { if (value === null || value === undefined || value === '') return ''; if (typeof value === 'string') return value; try { return JSON.stringify(value) } catch { return String(value) } }
 function parseMaybeJson(value) { if (!value) return null; if (typeof value === 'object') return value; try { return JSON.parse(value) } catch { return null } }
 function compactValue(value) { if (value === null || value === undefined || value === '') return 'Unavailable'; if (Array.isArray(value)) return value.filter(Boolean).slice(0, 3).map(textValue).join(', ') || 'Unavailable'; if (typeof value === 'object') return Object.keys(value).slice(0, 3).map(key => `${key}: ${compactValue(value[key])}`).join(' · ') || 'Unavailable'; return String(value) }
 function rowIdentity(row) { return row.pick_label || row.player_name || row.team_name || row.model_name || 'Tracked output' }
 function gradeLabel(row) { if (row.grade === 'pending') return 'Pending Result'; if (row.result_status === 'live') return 'Live Tracking'; if (row.result_status === 'final' && row.grade === 'ungraded') return 'Final Ungraded'; if (GRADED.includes(row.grade)) return 'Graded'; if (row.grade === 'watchlist_only') return 'Watchlist'; if (row.grade === 'ungraded') return 'Awaiting Result'; return row.grade || 'Untracked' }
-function topReason(row) { if (Array.isArray(row.reasoning) && row.reasoning.length) return compactValue(row.reasoning[0]); return textValue(row.primary_reason) || textValue(row.grade_reason) || 'No reason stored.' }
+function topReason(row) { if (Array.isArray(row.reasoning) && row.reasoning.length) return compactValue(row.reasoning[0]); return textValue(row.primary_reason) || textValue(row.grade_reason) || '' }
+function shortReason(row) { const reason = topReason(row); return reason.length > 130 ? `${reason.slice(0, 130)}...` : reason }
 function normalizePayloadRows(payload) { return (payload?.rows || []).map(row => { const next = { ...row, reasoning: parseMaybeJson(row.reasoning) || row.reasoning, features_used: parseMaybeJson(row.features_used) || row.features_used, missing_inputs: parseMaybeJson(row.missing_inputs) || row.missing_inputs, raw_payload: parseMaybeJson(row.raw_payload) || row.raw_payload, actual_result: parseMaybeJson(row.actual_result) || row.actual_result }; next.bucket = recommendationBucket(next); return next }) }
+function signalChip(row) { const probability = numericScore(row); if (probability !== null) return `Confidence ${fmtPct(probability)}`; const projection = projectionValue(row); if (projection !== null) return `Projection ${fmt(projection, 2)}`; return null }
+function outputTypeLabel(row) { return projectionValue(row) !== null && numericScore(row) === null ? 'Model Projection' : productionBucketLabel(row.bucket) }
 
 function ChartBox({ title, subtitle, children }) {
   return <div style={s.chartBox}><div style={s.sectionHeader}><div><div style={s.sectionTitle}>{title}</div>{subtitle && <div style={s.rowMeta}>{subtitle}</div>}</div></div><div style={{ height: 215 }}>{children}</div></div>
@@ -90,26 +94,39 @@ function EmptyState({ children }) { return <div className="state-panel">{childre
 function DataTable({ headers, rows, renderRow }) { return <div style={s.tableWrap}><table style={s.table}><thead><tr>{headers.map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead><tbody>{rows.map(renderRow)}</tbody></table></div> }
 
 function MetricChips({ row }) {
-  return <div style={s.chipRail}>
-    <span style={row.bucket === 'recommended' ? s.hotChip : row.bucket === 'lean' ? s.warnChip : s.chip}>{productionBucketLabel(row.bucket)}</span>
-    <span style={s.chip}>Confidence {fmtPct(numericScore(row))}</span>
-    <span style={s.chip}>Edge {fmtPct(row.edge)}</span>
-    <span style={s.chip}>EV {fmt(row.expected_value)}</span>
-    <span style={s.chip}>{fmtPrice(effectivePrice(row))}</span>
-  </div>
+  const chips = [outputTypeLabel(row), signalChip(row)]
+  const edge = toNumber(row.edge)
+  const ev = toNumber(row.expected_value)
+  const price = fmtPrice(effectivePrice(row))
+  if (edge !== null) chips.push(`Edge ${fmtPct(edge)}`)
+  if (ev !== null) chips.push(`EV ${fmt(ev, 3)}`)
+  if (price) chips.push(price)
+  return <div style={s.chipRail}>{chips.filter(Boolean).map((chip, index) => <span key={`${chip}-${index}`} style={index === 0 && row.bucket === 'recommended' ? s.hotChip : index === 0 && row.bucket === 'lean' ? s.warnChip : s.chip}>{chip}</span>)}</div>
 }
 
 function CompactPlayRow({ row }) {
+  const reason = shortReason(row)
   return <div style={s.playRow}>
-    <div><div style={s.rowTitle}>{rowIdentity(row)}</div><div style={s.rowMeta}>{row.market_type || row.pick_type || 'model'} · {gradeLabel(row)}</div></div>
+    <div><div style={s.rowTitle}>{rowIdentity(row)}</div><div style={s.rowMeta}>{row.market_type || row.pick_type || 'model'} · {gradeLabel(row)} · {gameLabel(row)}</div></div>
     <MetricChips row={row} />
-    <div style={s.rowMeta}>{topReason(row)}</div>
+    {reason && <div style={s.rowMeta}>{reason}</div>}
   </div>
+}
+
+function TopProjectionCard({ row }) {
+  const reason = shortReason(row)
+  return <article style={s.topCard}>
+    <div style={s.rowTitle}>{rowIdentity(row)}</div>
+    <div style={s.rowMeta}>{gameLabel(row)} · {row.market_type || row.pick_type || 'model'}</div>
+    <div style={{ marginTop: 8 }}><MetricChips row={row} /></div>
+    {reason && <div style={{ ...s.rowMeta, marginTop: 8 }}>{reason}</div>}
+  </article>
 }
 
 function GameAccordion({ game, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen)
   const priceCoverage = game.rows.length ? `${game.price_count}/${game.rows.length} priced` : 'No prices'
+  const bestSignal = game.best_projection !== null ? `Top Projection ${fmt(game.best_projection, 2)}` : `Top Confidence ${fmtPct(game.best_score)}`
   return <article>
     <button type="button" style={s.gameButton} onClick={() => setOpen(prev => !prev)} aria-expanded={open}>
       <div style={s.gameHeader}>
@@ -118,23 +135,24 @@ function GameAccordion({ game, defaultOpen = false }) {
       </div>
       <div style={{ ...s.chipRail, marginTop: 10 }}>
         <span style={s.hotChip}>{game.buckets.recommended.length} Recommendations</span>
-        <span style={s.warnChip}>{game.buckets.lean.length} Leans</span>
+        <span style={s.warnChip}>{game.buckets.lean.length} Model/Lean</span>
         <span style={s.chip}>{game.buckets.low_confidence.length} Low Confidence</span>
-        <span style={s.chip}>Best Confidence {fmtPct(game.best_score)}</span>
-        <span style={s.chip}>Best Edge {fmtPct(game.best_edge)}</span>
+        <span style={s.chip}>{bestSignal}</span>
+        {game.best_edge !== null && <span style={s.chip}>Best Edge {fmtPct(game.best_edge)}</span>}
         <span style={s.chip}>{priceCoverage}</span>
       </div>
     </button>
     {open && <div style={s.bucketGrid}>
       <BucketColumn title="Recommendations" rows={game.buckets.recommended} empty="No recommendations for this game." />
-      <BucketColumn title="Leans" rows={game.buckets.lean} empty="No leans for this game." />
+      <BucketColumn title="Model Projections / Leans" rows={game.buckets.lean} empty="No model projections or leans for this game." />
       <BucketColumn title="Low Confidence / No Play" rows={game.buckets.low_confidence} empty="No low-confidence outputs for this game." />
     </div>}
   </article>
 }
 
 function BucketColumn({ title, rows, empty }) {
-  return <section style={s.bucket}><div style={s.sectionHeader}><div><div style={s.rowTitle}>{title}</div><div style={s.rowMeta}>{rows.length} outputs</div></div></div>{rows.length ? rows.map(row => <CompactPlayRow key={row.id || row.tracker_key || rowIdentity(row)} row={row} />) : <div style={s.rowMeta}>{empty}</div>}</section>
+  const visibleRows = rows.slice(0, 6)
+  return <section style={s.bucket}><div style={s.sectionHeader}><div><div style={s.rowTitle}>{title}</div><div style={s.rowMeta}>{rows.length} outputs</div></div></div>{visibleRows.length ? visibleRows.map(row => <CompactPlayRow key={row.id || row.tracker_key || rowIdentity(row)} row={row} />) : <div style={s.rowMeta}>{empty}</div>}{rows.length > visibleRows.length && <div style={{ ...s.rowMeta, marginTop: 10 }}>+{rows.length - visibleRows.length} more in Details</div>}</section>
 }
 
 function Filters({ options, values, setters }) {
@@ -144,7 +162,7 @@ function Filters({ options, values, setters }) {
       <label><div style={s.label}>Source</div><select className="input-control" style={s.input} value={values.sourceFilter} onChange={e => setters.setSourceFilter(e.target.value)}>{options.sourceOptions.map(source => <option key={source} value={source}>{source}</option>)}</select></label>
       <label><div style={s.label}>Grade</div><select className="input-control" style={s.input} value={values.gradeFilter} onChange={e => setters.setGradeFilter(e.target.value)}>{options.gradeOptions.map(grade => <option key={grade} value={grade}>{grade}</option>)}</select></label>
       <label><div style={s.label}>Game</div><select className="input-control" style={s.input} value={values.gameFilter} onChange={e => setters.setGameFilter(e.target.value)}>{options.gameOptions.map(game => <option key={game.value} value={game.value}>{game.label}</option>)}</select></label>
-      <label><div style={s.label}>Bucket</div><select className="input-control" style={s.input} value={values.bucketFilter} onChange={e => setters.setBucketFilter(e.target.value)}><option value="all">all</option><option value="recommended">recommendations</option><option value="lean">leans</option><option value="low_confidence">low confidence / no play</option></select></label>
+      <label><div style={s.label}>Bucket</div><select className="input-control" style={s.input} value={values.bucketFilter} onChange={e => setters.setBucketFilter(e.target.value)}><option value="all">all</option><option value="recommended">recommendations</option><option value="lean">model projections / leans</option><option value="low_confidence">low confidence / no play</option></select></label>
       <label><div style={s.label}>Minimum Confidence</div><select className="input-control" style={s.input} value={values.confidenceFilter} onChange={e => setters.setConfidenceFilter(e.target.value)}><option value="all">all</option><option value="0.50">.50+</option><option value="0.55">.55+</option><option value="0.60">.60+</option></select></label>
       <label><div style={s.label}>Has Price</div><select className="input-control" style={s.input} value={values.priceFilter} onChange={e => setters.setPriceFilter(e.target.value)}><option value="all">all</option><option value="has_price">has price</option><option value="missing_price">missing price</option></select></label>
       <label><div style={s.label}>Has Edge</div><select className="input-control" style={s.input} value={values.edgeFilter} onChange={e => setters.setEdgeFilter(e.target.value)}><option value="all">all</option><option value="positive_edge">positive edge</option><option value="no_edge">no edge</option></select></label>
@@ -154,14 +172,18 @@ function Filters({ options, values, setters }) {
 }
 
 function PlaysTab({ groupedGames, topRows, gameFilter }) {
+  const [gamesOpen, setGamesOpen] = useState(gameFilter !== 'all')
+  useEffect(() => { if (gameFilter !== 'all') setGamesOpen(true) }, [gameFilter])
+  const visibleTopRows = topRows.slice(0, 12)
   return <div style={s.page}>
     <section style={s.section}>
-      <div style={s.sectionHeader}><div><div style={s.sectionTitle}>Games</div><div style={s.rowMeta}>Open a game to review recommendations, leans, and low-confidence outputs without losing slate context.</div></div></div>
-      {groupedGames.length ? <div style={s.accordionStack}>{groupedGames.map(game => <GameAccordion key={game.key} game={game} defaultOpen={gameFilter !== 'all'} />)}</div> : <EmptyState>No model plays found for this slate.</EmptyState>}
+      <div style={s.sectionHeader}><div><div style={s.sectionTitle}>Top Model Projections</div><div style={s.rowMeta}>Best available model outputs for the slate. Projection values are shown as projections, not confidence percentages.</div></div><span className="status-badge">{topRows.length} signals</span></div>
+      {visibleTopRows.length ? <div style={s.topGrid}>{visibleTopRows.map(row => <TopProjectionCard key={row.id || row.tracker_key || rowIdentity(row)} row={row} />)}</div> : <EmptyState>No model projections match the current filters.</EmptyState>}
+      {topRows.length > visibleTopRows.length && <div style={{ ...s.rowMeta, marginTop: 12 }}>Showing top {visibleTopRows.length}; use filters or Details for the full slate.</div>}
     </section>
     <section style={s.section}>
-      <div style={s.sectionHeader}><div><div style={s.sectionTitle}>Highest Confidence Plays of the Day</div><div style={s.rowMeta}>Sorted by confidence, edge, expected value, and price availability.</div></div></div>
-      {topRows.length ? <div style={s.accordionStack}>{topRows.map(row => <CompactPlayRow key={row.id || row.tracker_key || rowIdentity(row)} row={row} />)}</div> : <EmptyState>No recommendations meet the current filters.</EmptyState>}
+      <div style={s.sectionHeader}><div><div style={s.sectionTitle}>Game Breakdown</div><div style={s.rowMeta}>Collapsed by default so the slate stays scannable.</div></div><button className="button-secondary" type="button" onClick={() => setGamesOpen(prev => !prev)}>{gamesOpen ? 'Hide Games' : `Show Games (${groupedGames.length})`}</button></div>
+      {gamesOpen && (groupedGames.length ? <div style={s.accordionStack}>{groupedGames.map(game => <GameAccordion key={game.key} game={game} defaultOpen={gameFilter !== 'all'} />)}</div> : <EmptyState>No model plays found for this slate.</EmptyState>)}
     </section>
   </div>
 }
@@ -220,7 +242,7 @@ function BreakdownBar({ title, data }) {
 }
 
 function PeriodDetailTable({ rows }) {
-  return <DataTable headers={['Date', 'Game', 'Pick', 'Type', 'Confidence', 'Edge', 'Price', 'Grade', 'Profit', 'Units']} rows={rows} renderRow={row => <tr key={row.id || row.tracker_key || `${row.snapshot_date}-${rowIdentity(row)}`}><td style={s.td}>{row.snapshot_date}</td><td style={s.td}>{gameLabel(row)}</td><td style={s.td}>{rowIdentity(row)}</td><td style={s.td}>{productionBucketLabel(row.bucket)}</td><td style={s.td}>{fmtPct(numericScore(row))}</td><td style={s.td}>{fmtPct(row.edge)}</td><td style={s.td}>{fmtPrice(effectivePrice(row))}</td><td style={s.td}>{row.grade || 'pending'}</td><td style={s.td}>{fmtMoney(row.profit)}</td><td style={s.td}>{fmtUnits(row.units)}</td></tr>} />
+  return <DataTable headers={['Date', 'Game', 'Pick', 'Type', 'Confidence', 'Edge', 'Price', 'Grade', 'Profit', 'Units']} rows={rows} renderRow={row => <tr key={row.id || row.tracker_key || `${row.snapshot_date}-${rowIdentity(row)}`}><td style={s.td}>{row.snapshot_date}</td><td style={s.td}>{gameLabel(row)}</td><td style={s.td}>{rowIdentity(row)}</td><td style={s.td}>{outputTypeLabel(row)}</td><td style={s.td}>{numericScore(row) !== null ? fmtPct(numericScore(row)) : 'Unavailable'}</td><td style={s.td}>{fmtPct(row.edge)}</td><td style={s.td}>{fmtPrice(effectivePrice(row)) || 'Unavailable'}</td><td style={s.td}>{row.grade || 'pending'}</td><td style={s.td}>{fmtMoney(row.profit)}</td><td style={s.td}>{fmtUnits(row.units)}</td></tr>} />
 }
 
 function PnlTab({ rows }) {
@@ -236,11 +258,11 @@ function PnlTab({ rows }) {
 }
 
 function QualityTable({ rows }) {
-  return <DataTable headers={['Type', 'Pick / Player / Team', 'Source', 'Game', 'Price', 'Result State', 'Missing Inputs', 'Reason']} rows={rows} renderRow={row => <tr key={row.id || row.tracker_key}><td style={s.td}>{productionBucketLabel(row.bucket)}</td><td style={s.td}>{rowIdentity(row)}</td><td style={s.td}>{row.source || 'Unavailable'}</td><td style={s.td}>{gameLabel(row)}</td><td style={s.td}>{rowHasPrice(row) ? 'Available' : 'Unavailable'}</td><td style={s.td}>{gradeLabel(row)}</td><td style={s.td}>{compactValue(row.missing_inputs)}</td><td style={s.td}>{topReason(row)}</td></tr>} />
+  return <DataTable headers={['Type', 'Pick / Player / Team', 'Source', 'Game', 'Price', 'Result State', 'Missing Inputs', 'Reason']} rows={rows} renderRow={row => <tr key={row.id || row.tracker_key}><td style={s.td}>{outputTypeLabel(row)}</td><td style={s.td}>{rowIdentity(row)}</td><td style={s.td}>{row.source || 'Unavailable'}</td><td style={s.td}>{gameLabel(row)}</td><td style={s.td}>{rowHasPrice(row) ? 'Available' : 'Unavailable'}</td><td style={s.td}>{gradeLabel(row)}</td><td style={s.td}>{compactValue(row.missing_inputs)}</td><td style={s.td}>{topReason(row)}</td></tr>} />
 }
 
 function DetailsTable({ rows }) {
-  return <DataTable headers={['Date', 'Source', 'Game', 'Type', 'Pick', 'Player / Team', 'Model', 'Score', 'Confidence', 'Line', 'Price', 'Status', 'Grade', 'Reason']} rows={rows} renderRow={row => <tr key={row.id || row.tracker_key}><td style={s.td}>{row.snapshot_date}</td><td style={s.td}>{row.source}</td><td style={s.td}>{gameLabel(row)}</td><td style={s.td}>{row.market_type || row.pick_type}</td><td style={s.td}>{row.pick_label}</td><td style={s.td}>{row.player_name || row.team_name}</td><td style={s.td}>{row.model_name}</td><td style={s.td}>{fmt(row.score)}</td><td style={s.td}>{fmt(row.confidence)}</td><td style={s.td}>{fmt(row.line)}</td><td style={s.td}>{fmtPrice(effectivePrice(row))}</td><td style={s.td}>{row.result_status}</td><td style={s.td}>{row.grade}</td><td style={s.td}>{topReason(row)}</td></tr>} />
+  return <DataTable headers={['Date', 'Source', 'Game', 'Type', 'Pick', 'Player / Team', 'Model', 'Signal', 'Line', 'Price', 'Status', 'Grade', 'Reason']} rows={rows} renderRow={row => <tr key={row.id || row.tracker_key}><td style={s.td}>{row.snapshot_date}</td><td style={s.td}>{row.source}</td><td style={s.td}>{gameLabel(row)}</td><td style={s.td}>{row.market_type || row.pick_type}</td><td style={s.td}>{row.pick_label}</td><td style={s.td}>{row.player_name || row.team_name}</td><td style={s.td}>{row.model_name}</td><td style={s.td}>{signalChip(row) || 'Unavailable'}</td><td style={s.td}>{fmt(row.line)}</td><td style={s.td}>{fmtPrice(effectivePrice(row)) || 'Unavailable'}</td><td style={s.td}>{row.result_status}</td><td style={s.td}>{row.grade}</td><td style={s.td}>{topReason(row)}</td></tr>} />
 }
 
 export default function ModelTrackerPage() {
@@ -300,7 +322,7 @@ export default function ModelTrackerPage() {
   const filteredRows = useMemo(() => rows.filter(filterRow).sort(comparePlayRank), [rows, sourceFilter, gradeFilter, gameFilter, bucketFilter, confidenceFilter, priceFilter, edgeFilter, search])
   const periodRows = useMemo(() => cachedRows.filter(filterRow).sort(comparePlayRank), [cachedRows, sourceFilter, gradeFilter, gameFilter, bucketFilter, confidenceFilter, priceFilter, edgeFilter, search])
   const groupedGames = useMemo(() => groupRowsByGame(filteredRows, games), [filteredRows, games])
-  const topRows = useMemo(() => highestConfidenceRows(filteredRows), [filteredRows])
+  const topRows = useMemo(() => topModelProjectionRows(filteredRows), [filteredRows])
   const pnl = useMemo(() => summarizePnl(filteredRows, UNIT_SIZE_DOLLARS), [filteredRows])
   const summary = { total: filteredRows.length, recommended: filteredRows.filter(r => r.bucket === 'recommended').length, lean: filteredRows.filter(r => r.bucket === 'lean').length, low: filteredRows.filter(r => !['recommended', 'lean'].includes(r.bucket)).length, pending: filteredRows.filter(r => r.grade === 'pending').length, graded: filteredRows.filter(r => GRADED.includes(r.grade)).length, price: filteredRows.filter(rowHasPrice).length }
   const qualityRows = filteredRows.filter(row => !['recommended', 'lean'].includes(row.bucket))
@@ -308,9 +330,9 @@ export default function ModelTrackerPage() {
   const filterProps = { options: { sourceOptions, gradeOptions, gameOptions, visibleCount: filteredRows.length }, values: { sourceFilter, gradeFilter, gameFilter, bucketFilter, confidenceFilter, priceFilter, edgeFilter, search }, setters: { setSourceFilter, setGradeFilter, setGameFilter, setBucketFilter, setConfidenceFilter, setPriceFilter, setEdgeFilter, setSearch } }
 
   return <div style={s.page}>
-    <section style={s.hero}><div style={s.header}><div><p className="page-kicker">Model Accountability</p><h1 className="page-title">Model Tracker</h1><p className="page-subtitle">Game-by-game recommendations, leans, low-confidence outputs, and performance analytics in one production dashboard.</p></div><div style={s.controls}><input className="input-control" type="date" value={date} onChange={e => setDate(e.target.value)} /><button className="button-primary" type="button" onClick={refreshPlays} disabled={refreshing}>{refreshing ? 'Refreshing...' : 'Refresh Model Plays'}</button><button className="button-secondary" type="button" onClick={refreshResults} disabled={resultRefreshing}>{resultRefreshing ? 'Refreshing...' : 'Refresh Results'}</button></div></div><div style={s.tabs}>{TABS.map(key => <button key={key} type="button" style={s.tab(activeTab === key)} onClick={() => setActiveTab(key)}>{TAB_LABELS[key]}</button>)}</div></section>
+    <section style={s.hero}><div style={s.header}><div><p className="page-kicker">Model Accountability</p><h1 className="page-title">Model Tracker</h1><p className="page-subtitle">Sleek slate view for model projections, actionable leans, game breakdowns, and results analytics.</p></div><div style={s.controls}><input className="input-control" type="date" value={date} onChange={e => setDate(e.target.value)} /><button className="button-primary" type="button" onClick={refreshPlays} disabled={refreshing}>{refreshing ? 'Refreshing...' : 'Refresh Model Plays'}</button><button className="button-secondary" type="button" onClick={refreshResults} disabled={resultRefreshing}>{resultRefreshing ? 'Refreshing...' : 'Refresh Results'}</button></div></div><div style={s.tabs}>{TABS.map(key => <button key={key} type="button" style={s.tab(activeTab === key)} onClick={() => setActiveTab(key)}>{TAB_LABELS[key]}</button>)}</div></section>
     {error && <div className="state-panel error">{error}</div>}{loading && <div className="state-panel">Loading model plays...</div>}
-    <section style={s.statsScroller}><div style={s.statRail}><StatCard label="Visible Outputs" value={summary.total} /><StatCard label="Recommendations" value={summary.recommended} /><StatCard label="Leans" value={summary.lean} /><StatCard label="Low Confidence" value={summary.low} /><StatCard label="Graded" value={summary.graded} /><StatCard label="Pending" value={summary.pending} /><StatCard label="Price Available" value={summary.price} /><StatCard label="Net P&L" value={fmtMoney(pnl.profit)} /></div></section>
+    <section style={s.statsScroller}><div style={s.statRail}><StatCard label="Visible Outputs" value={summary.total} /><StatCard label="Recommendations" value={summary.recommended} /><StatCard label="Model / Lean" value={summary.lean} /><StatCard label="Low Confidence" value={summary.low} /><StatCard label="Graded" value={summary.graded} /><StatCard label="Pending" value={summary.pending} /><StatCard label="Price Available" value={summary.price} /><StatCard label="Net P&L" value={fmtMoney(pnl.profit)} /></div></section>
     <Filters {...filterProps} />
     {activeTab === 'plays' && <PlaysTab groupedGames={groupedGames} topRows={topRows} gameFilter={gameFilter} />}
     {activeTab === 'results' && <ResultsTab rows={periodRows.length ? periodRows : filteredRows} selectedDate={date} period={resultsPeriod} setPeriod={setResultsPeriod} loading={periodLoading} />}
