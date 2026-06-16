@@ -12,6 +12,7 @@ import {
   groupRowsByGame,
   highestConfidenceRows,
   maxDrawdown,
+  modelDecision,
   numericScore,
   periodDateKeys,
   productionBucketLabel,
@@ -49,6 +50,18 @@ test('projection values are not treated as probability confidence', () => {
   assert.equal(recommendationBucket(row), 'lean')
 })
 
+test('negative EV or edge cannot become a recommendation', () => {
+  const decision = modelDecision({ pick_label: 'Baltimore Orioles 1.5', confidence: 1, edge: -0.121, expected_value: -0.191, price: -171 })
+  assert.equal(decision.bucket, 'rejected')
+  assert.equal(decision.label, 'No Play')
+  assert.equal(recommendationBucket({ pick_label: 'Baltimore Orioles 1.5', confidence: 1, edge: -0.121, expected_value: -0.191, price: -171 }), 'rejected')
+})
+
+test('positive economics require usable price before recommendation', () => {
+  assert.equal(recommendationBucket({ pick_label: 'Over 7.5', confidence: 0.58, edge: 0.183, expected_value: 0.356 }), 'lean')
+  assert.equal(recommendationBucket({ pick_label: 'Over 7.5', confidence: 0.58, edge: 0.183, expected_value: 0.356, price: -106 }), 'recommended')
+})
+
 test('summarizePnl excludes pending rows from realized P&L', () => {
   const summary = summarizePnl([
     { grade: 'won', price: 100, confidence: 0.57, edge: 0.03, pick_label: 'Cubs ML' },
@@ -65,7 +78,7 @@ test('summarizePnl excludes pending rows from realized P&L', () => {
 
 test('recommendationBucket keeps rejected/no-bet separate', () => {
   assert.equal(recommendationBucket({ pick_label: 'No bet', recommendation_status: 'no_bet', confidence: 0.70 }), 'rejected')
-  assert.equal(recommendationBucket({ pick_label: 'Strong play', confidence: 0.56 }), 'recommended')
+  assert.equal(recommendationBucket({ pick_label: 'Strong play', confidence: 0.56, edge: 0.02, expected_value: 0.05, price: 100 }), 'recommended')
   assert.equal(recommendationBucket({ pick_label: 'Watchlist', confidence: 0.51, grade: 'watchlist_only' }), 'lean')
 })
 
@@ -109,7 +122,7 @@ test('uniqueModelOutputs collapses duplicate projection rows', () => {
 test('groupRowsByGame creates production buckets per game', () => {
   const games = [{ game_pk: 1, away_team: 'Cubs', home_team: 'Brewers', game_time: '2026-06-16T18:10:00Z' }]
   const grouped = groupRowsByGame([
-    { game_pk: 1, away_team: 'Cubs', home_team: 'Brewers', pick_label: 'Cubs ML', confidence: 0.61, edge: 0.05, price: 120 },
+    { game_pk: 1, away_team: 'Cubs', home_team: 'Brewers', pick_label: 'Cubs ML', confidence: 0.61, edge: 0.05, expected_value: 0.08, price: 120 },
     { game_pk: 1, away_team: 'Cubs', home_team: 'Brewers', pick_label: 'Projected total 10.4', score: 10.4, grade: 'watchlist_only' },
     { game_pk: 1, away_team: 'Cubs', home_team: 'Brewers', pick_label: 'No play total', recommendation_status: 'no_bet', confidence: 0.70 },
   ], games)
@@ -124,7 +137,7 @@ test('groupRowsByGame creates production buckets per game', () => {
 test('highestConfidenceRows sorts by probability confidence and excludes no-bet rows', () => {
   const rows = highestConfidenceRows([
     { pick_label: 'Lower score', confidence: 0.56, edge: 0.30, expected_value: 2, price: 100 },
-    { pick_label: 'Top score', confidence: 0.62, edge: 0.01, expected_value: 1 },
+    { pick_label: 'Top score', confidence: 0.62, edge: 0.01, expected_value: 1, price: 100 },
     { pick_label: 'No play', recommendation_status: 'no_bet', confidence: 0.99 },
   ])
   assert.deepEqual(rows.map(row => row.pick_label), ['Top score', 'Lower score'])
@@ -134,7 +147,8 @@ test('topModelProjectionRows showcases projection values first', () => {
   const rows = topModelProjectionRows([
     { pick_label: 'Projected total 10.6', score: 10.6 },
     { pick_label: 'Projected total 10.9', score: 10.9 },
-    { pick_label: 'Probability play', confidence: 0.65 },
+    { pick_label: 'Probability play', confidence: 0.65, edge: 0.02, expected_value: 0.1, price: 100 },
+    { pick_label: 'Bad economics', confidence: 0.90, edge: -0.02, expected_value: -0.1, price: 100 },
   ])
   assert.deepEqual(rows.map(row => row.pick_label), ['Projected total 10.9', 'Projected total 10.6', 'Probability play'])
 })
