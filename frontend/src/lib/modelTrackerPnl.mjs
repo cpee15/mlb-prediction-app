@@ -106,6 +106,21 @@ export function recommendationLabel(bucket) {
   }[bucket] || 'Missing Data / Ungraded'
 }
 
+export function productionBucketLabel(bucket) {
+  return {
+    recommended: 'Recommendation',
+    lean: 'Lean',
+    rejected: 'Low Confidence / No Play',
+    missing_data: 'Low Confidence / No Play',
+    low_confidence: 'Low Confidence / No Play',
+  }[bucket] || 'Low Confidence / No Play'
+}
+
+export function productionBucket(row) {
+  const bucket = row?.bucket || recommendationBucket(row)
+  return bucket === 'recommended' || bucket === 'lean' ? bucket : 'low_confidence'
+}
+
 export function gradeProfit(row, unitSize = UNIT_SIZE_DOLLARS) {
   if (!isGradedDecision(row)) return null
   const price = effectivePrice(row)
@@ -218,4 +233,211 @@ export function comparePeriods(currentRows = [], previousRows = [], unitSize = U
       pending_count: current.pending_count - previous.pending_count,
     },
   }
+}
+
+function isoDate(date) {
+  return date.toISOString().slice(0, 10)
+}
+
+function parseDate(value) {
+  const [year, month, day] = String(value).slice(0, 10).split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day))
+}
+
+function addDays(value, days) {
+  const date = parseDate(value)
+  date.setUTCDate(date.getUTCDate() + days)
+  return isoDate(date)
+}
+
+function startOfMonth(value) {
+  const date = parseDate(value)
+  return isoDate(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)))
+}
+
+function endOfPreviousMonth(value) {
+  const date = parseDate(value)
+  return isoDate(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 0)))
+}
+
+function startOfPreviousMonth(value) {
+  const date = parseDate(value)
+  return isoDate(new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1)))
+}
+
+export function listDatesBetween(startDate, endDate) {
+  const dates = []
+  let cursor = startDate
+  while (cursor <= endDate) {
+    dates.push(cursor)
+    cursor = addDays(cursor, 1)
+  }
+  return dates
+}
+
+export function getPeriodWindows(period, selectedDate) {
+  const date = String(selectedDate).slice(0, 10)
+  if (period === 'dod') {
+    return {
+      label: 'DoD',
+      current: { start: date, end: date, label: date },
+      previous: { start: addDays(date, -1), end: addDays(date, -1), label: addDays(date, -1) },
+    }
+  }
+  if (period === 'wow' || period === 'rolling7') {
+    const currentStart = addDays(date, -6)
+    const previousEnd = addDays(currentStart, -1)
+    return {
+      label: period === 'wow' ? 'WoW' : 'Rolling 7',
+      current: { start: currentStart, end: date, label: `${currentStart} to ${date}` },
+      previous: { start: addDays(previousEnd, -6), end: previousEnd, label: `${addDays(previousEnd, -6)} to ${previousEnd}` },
+    }
+  }
+  if (period === 'mom') {
+    const currentStart = startOfMonth(date)
+    const previousStart = startOfPreviousMonth(date)
+    const daysIntoMonth = listDatesBetween(currentStart, date).length - 1
+    const previousEnd = addDays(previousStart, daysIntoMonth)
+    const previousMonthEnd = endOfPreviousMonth(date)
+    return {
+      label: 'MoM',
+      current: { start: currentStart, end: date, label: `${currentStart} to ${date}` },
+      previous: { start: previousStart, end: previousEnd > previousMonthEnd ? previousMonthEnd : previousEnd, label: `${previousStart} to ${previousEnd > previousMonthEnd ? previousMonthEnd : previousEnd}` },
+    }
+  }
+  if (period === 'rolling30') {
+    const currentStart = addDays(date, -29)
+    const previousEnd = addDays(currentStart, -1)
+    return {
+      label: 'Rolling 30',
+      current: { start: currentStart, end: date, label: `${currentStart} to ${date}` },
+      previous: { start: addDays(previousEnd, -29), end: previousEnd, label: `${addDays(previousEnd, -29)} to ${previousEnd}` },
+    }
+  }
+  const seasonStart = `${date.slice(0, 4)}-03-01`
+  return {
+    label: 'Season',
+    current: { start: seasonStart, end: date, label: `${seasonStart} to ${date}` },
+    previous: null,
+  }
+}
+
+export function periodDateKeys(period, selectedDate) {
+  const windows = getPeriodWindows(period, selectedDate)
+  const keys = listDatesBetween(windows.current.start, windows.current.end)
+  if (windows.previous) keys.push(...listDatesBetween(windows.previous.start, windows.previous.end))
+  return Array.from(new Set(keys))
+}
+
+export function rowsInRange(rows, range) {
+  if (!range) return []
+  return rows.filter(row => {
+    const rowDate = String(row.snapshot_date || row.date || '').slice(0, 10)
+    return rowDate >= range.start && rowDate <= range.end
+  })
+}
+
+export function buildPeriodComparison(rows = [], period, selectedDate, unitSize = UNIT_SIZE_DOLLARS) {
+  const windows = getPeriodWindows(period, selectedDate)
+  const currentRows = rowsInRange(rows, windows.current)
+  const previousRows = rowsInRange(rows, windows.previous)
+  const comparison = comparePeriods(currentRows, previousRows, unitSize)
+  return {
+    windows,
+    currentRows,
+    previousRows,
+    comparison,
+    currentSeries: indexSeries(dailySeries(summarizePnl(currentRows, unitSize).rows.filter(row => row.profit !== null)), 'current'),
+    previousSeries: indexSeries(dailySeries(summarizePnl(previousRows, unitSize).rows.filter(row => row.profit !== null)), 'previous'),
+  }
+}
+
+export function indexSeries(series = [], prefix = 'current') {
+  return series.map((point, index) => ({ ...point, day_index: index + 1, [`${prefix}_cumulative`]: point.cumulative, [`${prefix}_profit`]: point.profit }))
+}
+
+export function playRank(row) {
+  return {
+    score: numericScore(row) ?? -Infinity,
+    edge: toNumber(row?.edge) ?? -Infinity,
+    expected_value: toNumber(row?.expected_value) ?? -Infinity,
+    has_price: rowHasPrice(row) ? 1 : 0,
+  }
+}
+
+export function comparePlayRank(a, b) {
+  const ar = playRank(a)
+  const br = playRank(b)
+  return (br.score - ar.score) || (br.edge - ar.edge) || (br.expected_value - ar.expected_value) || (br.has_price - ar.has_price)
+}
+
+export function gameFilterValue(value) {
+  return String(value || 'ungrouped')
+}
+
+export function gameLabel(row) {
+  if (row?.away_team || row?.home_team) return `${row.away_team || 'Away'} @ ${row.home_team || 'Home'}`
+  return row?.game_pk ? `Game ${row.game_pk}` : 'Ungrouped'
+}
+
+export function groupRowsByGame(rows = [], games = []) {
+  const map = new Map()
+  games.forEach(game => {
+    const key = gameFilterValue(game.game_pk)
+    map.set(key, {
+      ...game,
+      key,
+      label: gameLabel(game),
+      rows: [],
+      buckets: { recommended: [], lean: [], low_confidence: [] },
+      sources: [],
+      best_score: null,
+      best_edge: null,
+      price_count: 0,
+    })
+  })
+  rows.forEach(row => {
+    const key = gameFilterValue(row.game_pk)
+    const game = map.get(key) || {
+      key,
+      game_pk: row.game_pk,
+      away_team: row.away_team,
+      home_team: row.home_team,
+      game_time: row.game_time || row.start_time || row.game_datetime,
+      game_status: row.game_status || row.status,
+      label: gameLabel(row),
+      rows: [],
+      buckets: { recommended: [], lean: [], low_confidence: [] },
+      sources: [],
+      best_score: null,
+      best_edge: null,
+      price_count: 0,
+    }
+    const bucket = productionBucket(row)
+    const score = numericScore(row)
+    const edge = toNumber(row.edge)
+    game.rows.push(row)
+    game.buckets[bucket].push(row)
+    if (row.source && !game.sources.includes(row.source)) game.sources.push(row.source)
+    if (score !== null) game.best_score = game.best_score === null ? score : Math.max(game.best_score, score)
+    if (edge !== null) game.best_edge = game.best_edge === null ? edge : Math.max(game.best_edge, edge)
+    if (rowHasPrice(row)) game.price_count += 1
+    map.set(key, game)
+  })
+  return Array.from(map.values())
+    .filter(game => game.rows.length > 0)
+    .map(game => ({
+      ...game,
+      buckets: {
+        recommended: game.buckets.recommended.sort(comparePlayRank),
+        lean: game.buckets.lean.sort(comparePlayRank),
+        low_confidence: game.buckets.low_confidence.sort(comparePlayRank),
+      },
+      rows: game.rows.sort(comparePlayRank),
+    }))
+    .sort((a, b) => String(a.game_time || '').localeCompare(String(b.game_time || '')) || a.label.localeCompare(b.label))
+}
+
+export function highestConfidenceRows(rows = []) {
+  return rows.filter(row => productionBucket(row) === 'recommended').sort(comparePlayRank)
 }
