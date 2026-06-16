@@ -12,10 +12,14 @@ import {
   groupRowsByGame,
   highestConfidenceRows,
   maxDrawdown,
+  numericScore,
   periodDateKeys,
   productionBucketLabel,
+  projectionValue,
   recommendationBucket,
   summarizePnl,
+  topModelProjectionRows,
+  uniqueModelOutputs,
 } from './modelTrackerPnl.mjs'
 
 test('americanOddsToProfit handles positive odds wins', () => {
@@ -36,6 +40,13 @@ test('confidenceBand and edgeBand bucket values deterministically', () => {
   assert.equal(confidenceBand(0.66), '.65+')
   assert.equal(edgeBand(0.073), '+5% to +9.9%')
   assert.equal(edgeBand(-0.01), 'Negative')
+})
+
+test('projection values are not treated as probability confidence', () => {
+  const row = { pick_label: 'Projected total 10.8301', score: 10.8301 }
+  assert.equal(numericScore(row), null)
+  assert.equal(projectionValue(row), 10.8301)
+  assert.equal(recommendationBucket(row), 'lean')
 })
 
 test('summarizePnl excludes pending rows from realized P&L', () => {
@@ -87,11 +98,19 @@ test('comparePeriods returns current, previous, and deltas', () => {
   assert.equal(comparison.deltas.profit, 200)
 })
 
+test('uniqueModelOutputs collapses duplicate projection rows', () => {
+  const rows = uniqueModelOutputs([
+    { game_pk: 1, market_type: 'total', pick_label: 'Projected total 10.8301', score: 10.8301, grade: 'watchlist_only' },
+    { game_pk: 1, market_type: 'total', pick_label: 'Projected total 10.8301', score: 10.8301, grade: 'ungraded' },
+  ])
+  assert.equal(rows.length, 1)
+})
+
 test('groupRowsByGame creates production buckets per game', () => {
   const games = [{ game_pk: 1, away_team: 'Cubs', home_team: 'Brewers', game_time: '2026-06-16T18:10:00Z' }]
   const grouped = groupRowsByGame([
     { game_pk: 1, away_team: 'Cubs', home_team: 'Brewers', pick_label: 'Cubs ML', confidence: 0.61, edge: 0.05, price: 120 },
-    { game_pk: 1, away_team: 'Cubs', home_team: 'Brewers', pick_label: 'Brewers F5 lean', confidence: 0.51, grade: 'watchlist_only' },
+    { game_pk: 1, away_team: 'Cubs', home_team: 'Brewers', pick_label: 'Projected total 10.4', score: 10.4, grade: 'watchlist_only' },
     { game_pk: 1, away_team: 'Cubs', home_team: 'Brewers', pick_label: 'No play total', recommendation_status: 'no_bet', confidence: 0.70 },
   ], games)
   assert.equal(grouped.length, 1)
@@ -102,13 +121,22 @@ test('groupRowsByGame creates production buckets per game', () => {
   assert.equal(grouped[0].price_count, 1)
 })
 
-test('highestConfidenceRows sorts by confidence, edge, expected value, then price availability', () => {
+test('highestConfidenceRows sorts by probability confidence and excludes no-bet rows', () => {
   const rows = highestConfidenceRows([
     { pick_label: 'Lower score', confidence: 0.56, edge: 0.30, expected_value: 2, price: 100 },
     { pick_label: 'Top score', confidence: 0.62, edge: 0.01, expected_value: 1 },
     { pick_label: 'No play', recommendation_status: 'no_bet', confidence: 0.99 },
   ])
   assert.deepEqual(rows.map(row => row.pick_label), ['Top score', 'Lower score'])
+})
+
+test('topModelProjectionRows showcases projection values first', () => {
+  const rows = topModelProjectionRows([
+    { pick_label: 'Projected total 10.6', score: 10.6 },
+    { pick_label: 'Projected total 10.9', score: 10.9 },
+    { pick_label: 'Probability play', confidence: 0.65 },
+  ])
+  assert.deepEqual(rows.map(row => row.pick_label), ['Projected total 10.9', 'Projected total 10.6', 'Probability play'])
 })
 
 test('period windows generate correct DoD, WoW, and MoM ranges', () => {
