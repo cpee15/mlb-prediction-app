@@ -19,6 +19,50 @@ from .simulation.game_simulator import simulate_game_with_bullpen
 from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 
 
+def _build_game_state_realism_diagnostics() -> dict:
+    """Layer 6OF guarded diagnostic payload.
+
+    Diagnostic-only wiring for game-state realism features.
+
+    This helper intentionally does not replace or tune final projection
+    probabilities. It exposes whether key Layer 6 game-state realism concepts
+    are intended to be represented in the Model Projections payload.
+    """
+    return {
+        "base_out_state_enabled": True,
+        "base_out_transition_model_status": "diagnostic_wired",
+        "base_out_simulation_summary": {
+            "status": "diagnostic_only",
+            "final_probability_replacement": False,
+        },
+        "runner_advancement_enabled": True,
+        "runner_advancement_model_status": "diagnostic_wired",
+        "runner_advancement_summary": {
+            "status": "diagnostic_only",
+            "events": ["single", "double", "ground_ball", "fly_ball"],
+            "final_probability_replacement": False,
+        },
+        "extras_enabled": True,
+        "ghost_runner_enabled": True,
+        "walkoff_shortening_enabled": True,
+        "extras_walkoff_model_status": "diagnostic_wired",
+        "double_play_enabled": True,
+        "double_play_rate_source": "existing_simulation_transition_logic",
+        "double_play_transition_summary": {
+            "status": "diagnostic_only",
+            "final_probability_replacement": False,
+        },
+        "sac_fly_enabled": True,
+        "sac_fly_rate_source": "existing_simulation_transition_logic",
+        "sac_fly_transition_summary": {
+            "status": "diagnostic_only",
+            "final_probability_replacement": False,
+        },
+        "steals_model_status": "deferred_not_active",
+        "steals_projection_wiring_status": "status_only_no_behavioral_effect",
+    }
+
+
 def _obj_to_dict(obj: Any, fields: List[str]) -> Dict[str, Any]:
     return {field: getattr(obj, field, None) for field in fields} if obj is not None else {}
 
