@@ -953,7 +953,6 @@ export default function ModelProjectionsPage() {
         <GameProjectionCard key={game.game_pk || `${game.away_team?.name}-${game.home_team?.name}`} game={game} />
       ))}
     
-      {renderGameStateRealismDiagnostics(projection?.game_state_realism || row?.game_state_realism || item?.game_state_realism)}
 </div>
   )
 }
