@@ -835,6 +835,51 @@ function GameProjectionCard({ game }) {
   )
 }
 
+
+
+const GAME_STATE_REALISM_FIELDS = [
+  ["base_out_state_enabled", "Base/out state"],
+  ["runner_advancement_enabled", "Runner advancement"],
+  ["extras_enabled", "Extra innings"],
+  ["ghost_runner_enabled", "Ghost runner"],
+  ["walkoff_shortening_enabled", "Walkoff shortening"],
+  ["double_play_enabled", "Double-play logic"],
+  ["sac_fly_enabled", "Sac-fly logic"],
+  ["steals_model_status", "Steals model"],
+];
+
+function formatGameStateRealismValue(value) {
+  if (value === true) return "Enabled";
+  if (value === false) return "Disabled";
+  if (value === null || value === undefined || value === "") return "Unavailable";
+  return String(value);
+}
+
+function renderGameStateRealismDiagnostics(gameStateRealism) {
+  if (!gameStateRealism) return null;
+
+  return (
+    <div className="mt-3 rounded border border-slate-700 bg-slate-900/40 p-3 text-xs text-slate-200">
+      <div className="mb-2 font-semibold text-slate-100">
+        Game-State Realism Diagnostics
+      </div>
+      <div className="mb-2 text-slate-400">
+        Diagnostic-only. Does not replace final projection probability.
+      </div>
+      <div className="grid gap-1 sm:grid-cols-2">
+        {GAME_STATE_REALISM_FIELDS.map(([field, label]) => (
+          <div key={field} className="flex justify-between gap-3">
+            <span className="text-slate-400">{label}</span>
+            <span className="font-medium text-slate-100">
+              {formatGameStateRealismValue(gameStateRealism[field])}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ModelProjectionsPage() {
   const [date, setDate] = useState(today())
   const [payload, setPayload] = useState(null)
@@ -907,6 +952,8 @@ export default function ModelProjectionsPage() {
       {games.map(game => (
         <GameProjectionCard key={game.game_pk || `${game.away_team?.name}-${game.home_team?.name}`} game={game} />
       ))}
-    </div>
+    
+      {renderGameStateRealismDiagnostics(projection?.game_state_realism || row?.game_state_realism || item?.game_state_realism)}
+</div>
   )
 }
