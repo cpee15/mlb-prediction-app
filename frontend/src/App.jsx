@@ -1,5 +1,5 @@
 import React from 'react'
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, NavLink, useParams } from 'react-router-dom'
 import './styles/bet105-mobile.css'
 import HomePage from './pages/HomePage'
 import LandingV2Page from './pages/LandingV2Page'
@@ -20,8 +20,6 @@ import NewsPage from './pages/NewsPage'
 import MyDashboardWorkspacePage from './pages/MyDashboardWorkspacePage'
 import ModelTrackerPage from './pages/ModelTrackerPage'
 
-// Set VITE_ENABLE_BATTER_PAGE=true in Railway env vars to re-enable the Batter routes.
-// Keep false until the leaderboard endpoint is validated stable in production.
 const ENABLE_BATTER_PAGE = import.meta.env.VITE_ENABLE_BATTER_PAGE === 'true'
 
 const BatterPage = ENABLE_BATTER_PAGE ? React.lazy(() => import('./pages/BatterPage')) : null
@@ -33,10 +31,15 @@ function BatterTemporarilyUnavailable() {
       <div className="status-badge warning" style={{ marginBottom: 12 }}>Temporarily Disabled</div>
       <h1 className="page-title" style={{ fontSize: 24 }}>Batter dashboard validation in progress</h1>
       <p className="page-subtitle" style={{ margin: '10px auto 0' }}>
-        The Batter dashboard is temporarily unavailable while the backend leaderboard endpoint is validated for production stability. Matchups, pitchers, teams, odds, live scores, and model projections remain available.
+        Batter routes are temporarily unavailable while the backend endpoint is validated. Matchups, pitchers, teams, odds, live scores, and model projections remain available.
       </p>
     </section>
   )
+}
+
+function MatchupRoute() {
+  const { game_pk } = useParams()
+  return <MatchupDetailPage key={game_pk} />
 }
 
 const navLinkClass = ({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`
@@ -75,7 +78,7 @@ export default function App() {
             <Route path="/models/projections" element={<ModelProjectionsPage />} />
             <Route path="/model-tracker" element={<ModelTrackerPage />} />
             <Route path="/my-dashboard" element={<MyDashboardWorkspacePage />} />
-            <Route path="/matchup/:game_pk" element={<MatchupDetailPage />} />
+            <Route path="/matchup/:game_pk" element={<MatchupRoute />} />
             <Route path="/matchup/:game_pk/competitive" element={<CompetitiveAnalysisPage />} />
             <Route path="/standings" element={<StandingsPage />} />
             <Route path="/pitcher" element={<PitcherPage />} />
