@@ -7,6 +7,8 @@ import os
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from .performance import record_cache_status
+
 CacheRecord = Tuple[float, Any]
 _CACHE: Dict[str, CacheRecord] = {}
 
@@ -52,11 +54,14 @@ def make_cache_key(*parts: Any) -> str:
 def get_cache(key: str, ttl_seconds: int) -> Optional[Any]:
     record = _CACHE.get(key)
     if not record:
+        record_cache_status("MISS")
         return None
     created_at, value = record
     if ttl_seconds <= 0 or _now() - created_at > ttl_seconds:
         _CACHE.pop(key, None)
+        record_cache_status("MISS")
         return None
+    record_cache_status("HIT")
     return copy.deepcopy(value)
 
 
