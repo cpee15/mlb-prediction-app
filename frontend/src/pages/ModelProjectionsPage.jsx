@@ -824,6 +824,8 @@ function GameProjectionCard({ game }) {
         ))}
       </div>
 
+      {renderGameStateRealismDiagnostics(game?.game_state_realism)}
+
       {(
         !awayRunModel ||
         !homeRunModel ||
