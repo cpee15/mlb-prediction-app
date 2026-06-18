@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { API_BASE, fetchJson, getMlbLiveDate, readCachedJson } from '../lib/api'
 
 const API = API_BASE
@@ -249,6 +249,11 @@ function statusClass(status) {
   return 'warning'
 }
 
+function openMatchupDetail(gamePk) {
+  if (!gamePk || typeof window === 'undefined') return
+  window.location.assign(`/matchup/${gamePk}`)
+}
+
 export default function HomePage() {
   const isMobile = useIsMobile()
   const today = getMlbLiveDate()
@@ -267,7 +272,6 @@ export default function HomePage() {
   const [oddsLoading, setOddsLoading] = useState(oddsEvents.length === 0)
   const [error, setError] = useState(null)
   const [oddsError, setOddsError] = useState(null)
-  const navigate = useNavigate()
 
   useEffect(() => {
     let cancelled = false
@@ -372,7 +376,7 @@ export default function HomePage() {
               key={m.game_pk || i}
               className="pro-card pro-card-hover card-pad responsive-matchup-card"
               style={s.card}
-              onClick={() => m.game_pk && navigate(`/matchup/${m.game_pk}`)}
+              onClick={() => openMatchupDetail(m.game_pk)}
             >
               <div style={{ ...s.slateMeta, ...(isMobile ? s.slateMetaMobile : {}) }}>
                 <div style={s.venue}>
