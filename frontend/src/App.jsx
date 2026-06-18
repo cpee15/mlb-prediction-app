@@ -20,6 +20,8 @@ import NewsPage from './pages/NewsPage'
 import MyDashboardWorkspacePage from './pages/MyDashboardWorkspacePage'
 import ModelTrackerPage from './pages/ModelTrackerPage'
 
+// Set VITE_ENABLE_BATTER_PAGE=true in Railway env vars to re-enable the Batter routes.
+// Keep false until the leaderboard endpoint is validated stable in production.
 const ENABLE_BATTER_PAGE = import.meta.env.VITE_ENABLE_BATTER_PAGE === 'true'
 
 const BatterPage = ENABLE_BATTER_PAGE ? React.lazy(() => import('./pages/BatterPage')) : null
@@ -31,7 +33,7 @@ function BatterTemporarilyUnavailable() {
       <div className="status-badge warning" style={{ marginBottom: 12 }}>Temporarily Disabled</div>
       <h1 className="page-title" style={{ fontSize: 24 }}>Batter dashboard validation in progress</h1>
       <p className="page-subtitle" style={{ margin: '10px auto 0' }}>
-        Batter routes are temporarily unavailable while the backend endpoint is validated. Matchups, pitchers, teams, odds, live scores, and model projections remain available.
+        The Batter dashboard is temporarily unavailable while the backend leaderboard endpoint is validated for production stability. Matchups, pitchers, teams, odds, live scores, and model projections remain available.
       </p>
     </section>
   )
