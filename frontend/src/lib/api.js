@@ -2,6 +2,7 @@ const PROD_API_BASE = 'https://mlb-prediction-app-production-732c.up.railway.app
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || PROD_API_BASE
 const JSON_CACHE = new Map()
+const IN_FLIGHT_JSON = new Map()
 const STORAGE_PREFIX = 'mlb-json-cache:v1:'
 
 function nowMs() {
@@ -94,17 +95,11 @@ export function writeCachedJson(url, value) {
 export function clearCachedJson(url) {
   const key = String(url || '')
   JSON_CACHE.delete(key)
+  IN_FLIGHT_JSON.delete(key)
   deleteStorageRecord(key)
 }
 
-export async function fetchJson(url, { ttlSeconds = 60, forceRefresh = false, signal } = {}) {
-  if (!forceRefresh) {
-    const cached = readCachedJson(url, ttlSeconds)
-    if (cached != null) return cached
-  } else {
-    clearCachedJson(url)
-  }
-
+async function fetchJsonUncached(url, signal) {
   const response = await fetch(url, { signal })
   if (!response.ok) {
     const body = await response.text()
@@ -120,6 +115,34 @@ export async function fetchJson(url, { ttlSeconds = 60, forceRefresh = false, si
   const json = await response.json()
   writeCachedJson(url, json)
   return cloneJson(json)
+}
+
+export async function fetchJson(url, { ttlSeconds = 60, forceRefresh = false, signal } = {}) {
+  const key = String(url || '')
+  if (!forceRefresh) {
+    const cached = readCachedJson(url, ttlSeconds)
+    if (cached != null) return cached
+  } else {
+    clearCachedJson(url)
+  }
+
+  const canDedupe = !forceRefresh && !signal
+  if (canDedupe && IN_FLIGHT_JSON.has(key)) {
+    return cloneJson(await IN_FLIGHT_JSON.get(key))
+  }
+
+  const requestPromise = fetchJsonUncached(url, signal)
+  if (canDedupe) {
+    IN_FLIGHT_JSON.set(key, requestPromise)
+  }
+
+  try {
+    return cloneJson(await requestPromise)
+  } finally {
+    if (canDedupe) {
+      IN_FLIGHT_JSON.delete(key)
+    }
+  }
 }
 
 export function getMlbToday() {
