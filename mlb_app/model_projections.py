@@ -651,6 +651,7 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
 
             games.append({
                 "game_pk": matchup.get("game_pk"),
+                "game_state_realism": _build_game_state_realism_diagnostics(),
                 "sharedSimulation": shared_simulation,
                 "game_date": matchup.get("game_date") or target_date,
                 "game_time": matchup.get("game_time"),
