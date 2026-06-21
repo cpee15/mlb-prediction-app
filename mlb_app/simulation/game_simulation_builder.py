@@ -12,6 +12,7 @@ slightly different function names while we migrate it into mlb_app/simulation.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Dict, Optional
 
 
@@ -135,6 +136,114 @@ def _normalize_metadata(
     return payload
 
 
+def _attach_pitching_plan_diagnostics(
+    payload: Dict[str, Any],
+    *,
+    config: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Append optional pitching-plan diagnostics without changing simulation
+    inputs, engine behavior, or canonical probability authority.
+
+    The classifier import is intentionally lazy so the disabled path neither
+    imports nor calls the classifier.
+    """
+
+    config_snapshot = deepcopy(
+        dict(config or {})
+    )
+
+    if not config_snapshot.get(
+        "pitching_plan_diagnostics_enabled",
+        False,
+    ):
+        return payload
+
+    version = str(
+        config_snapshot.get(
+            "pitching_plan_diagnostics_version",
+            "pitching-plan-diagnostics-v1",
+        )
+    )
+
+    evidence = deepcopy(
+        config_snapshot.get(
+            "pitching_plan_evidence"
+        )
+        or {}
+    )
+
+    diagnostic_payload: Dict[str, Any] = {
+        "enabled": True,
+        "status": "error",
+        "version": version,
+        "classification": None,
+        "validation": None,
+        "error": None,
+        "behavioral_effect": "none",
+        (
+            "canonical_probability_"
+            "authority_changed"
+        ): False,
+        "production_activation": False,
+    }
+
+    try:
+        from mlb_app.simulation.pitching_plan_classifier import (
+            classify_pitching_plan,
+            validate_pitching_plan_payload,
+        )
+
+        classification = classify_pitching_plan(
+            evidence
+        )
+
+        validation = (
+            validate_pitching_plan_payload(
+                classification
+            )
+        )
+
+        diagnostic_payload[
+            "classification"
+        ] = classification
+
+        diagnostic_payload[
+            "validation"
+        ] = validation
+
+        diagnostic_payload["status"] = (
+            "classified"
+            if validation.get("valid") is True
+            else "validation_failed"
+        )
+    except Exception as exc:
+        diagnostic_payload["status"] = "error"
+
+        diagnostic_payload["error"] = {
+            "type": type(exc).__name__,
+            "message": str(exc),
+        }
+
+    metadata = (
+        payload.get("meta")
+        or payload.get("metadata")
+        or {}
+    )
+
+    metadata = {
+        **metadata,
+        "pitching_plan_diagnostics": (
+            diagnostic_payload
+        ),
+    }
+
+    payload["meta"] = metadata
+    payload["metadata"] = metadata
+
+    return payload
+
+
 def build_game_simulation(
     game_pk: int,
     config: Optional[Dict[str, Any]] = None,
@@ -142,10 +251,37 @@ def build_game_simulation(
     import traceback
 
     engine = _load_sandbox_engine()
+    config_snapshot = deepcopy(
+        dict(config or {})
+    )
+
+    engine_config = {
+        key: deepcopy(value)
+        for key, value in config_snapshot.items()
+        if key
+        not in {
+            "pitching_plan_diagnostics_enabled",
+            "pitching_plan_evidence",
+            "pitching_plan_diagnostics_version",
+        }
+    }
 
     try:
-        payload = engine(int(game_pk), config or {})
-        return _normalize_metadata(payload, game_pk=int(game_pk), config=config or {})
+        payload = engine(
+            int(game_pk),
+            engine_config,
+        )
+
+        normalized_payload = _normalize_metadata(
+            payload,
+            game_pk=int(game_pk),
+            config=engine_config,
+        )
+
+        return _attach_pitching_plan_diagnostics(
+            normalized_payload,
+            config=config_snapshot,
+        )
     except Exception as exc:
         return {
             "status": "error",
