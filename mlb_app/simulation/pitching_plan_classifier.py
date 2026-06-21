@@ -377,6 +377,28 @@ def classify_pitching_plan(
                 ),
             )
 
+        if (
+            listed_starter_id
+            == expected_bulk_pitcher_id
+        ):
+            return _unknown_payload(
+                listed_starter_id=(
+                    listed_starter_id
+                ),
+                primary_pitcher_id=(
+                    listed_starter_id
+                ),
+                bulk_pitcher_id=None,
+                workload_cap=workload_cap,
+                source_status=SOURCE_FALLBACK,
+                reasons=[
+                    "opener_bulk_identity_not_distinct"
+                ],
+                source_provenance=(
+                    source_provenance
+                ),
+            )
+
         sequence = _dedupe_sequence(
             [
                 {
@@ -549,6 +571,37 @@ def classify_pitching_plan(
                 ): False,
             },
         }
+
+    if (
+        listed_starter_id is not None
+        and expected_primary_pitcher_id is not None
+        and (
+            listed_starter_id
+            != expected_primary_pitcher_id
+        )
+    ):
+        return _unknown_payload(
+            listed_starter_id=(
+                listed_starter_id
+            ),
+            primary_pitcher_id=(
+                expected_primary_pitcher_id
+            ),
+            bulk_pitcher_id=(
+                expected_bulk_pitcher_id
+            ),
+            workload_cap=workload_cap,
+            source_status=SOURCE_FALLBACK,
+            reasons=[
+                (
+                    "different_primary_requires_"
+                    "explicit_plan"
+                )
+            ],
+            source_provenance=(
+                source_provenance
+            ),
+        )
 
     if (
         listed_starter_id is not None
