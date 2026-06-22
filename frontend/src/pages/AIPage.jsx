@@ -63,11 +63,16 @@ export default function AIPage() {
     ask(chip)
   }
 
+  const dataUsed = response?.data_used || response?.sources_used || []
+  const primaryRecommendations = response?.primary_recommendations || []
+  const watchlist = response?.watchlist || []
+  const warnings = response?.warnings || []
+
   return (
     <div>
       <h1 style={{ fontSize: '28px', marginBottom: '8px' }}>AI Data Assistant</h1>
       <p style={{ color: '#8b949e', marginBottom: '18px', lineHeight: 1.5 }}>
-        Ask the app to explain matchups, model edges, Daily Odds, Stored 365 hitter spots, and data quality using only app-owned data.
+        Ask the app to explain DK + model-projection edges, Daily Odds, Stored 365 hitter spots, and data quality using only app-owned data.
       </p>
 
       <div style={{
@@ -161,18 +166,85 @@ export default function AIPage() {
 
           <div style={metaGridStyle}>
             <MetaCard title="Intent" value={response.intent || 'unknown'} />
-            <MetaCard title="Sources used" value={(response.sources_used || []).join(', ') || 'None'} />
+            <MetaCard title="Data used" value={dataUsed.join(', ') || 'None'} />
             <MetaCard title="Confidence note" value={response.confidence_note || 'None'} />
           </div>
 
+          <SectionList
+            title="Primary recommendations"
+            items={primaryRecommendations}
+            emptyMessage="No primary recommendations are currently supported by the app-owned evidence packet."
+          />
+
+          <SectionList
+            title="Watchlist"
+            items={watchlist}
+            emptyMessage="No additional watchlist angles are currently available."
+          />
+
+          <SectionList
+            title="Warnings"
+            items={warnings}
+            emptyMessage="No warnings were flagged."
+            renderItem={(item) => typeof item === 'string' ? item : JSON.stringify(item)}
+          />
+
           <details style={{ marginTop: '14px' }}>
             <summary style={{ cursor: 'pointer', color: '#58a6ff' }}>Data quality and missing data</summary>
-            <pre style={preStyle}>{JSON.stringify({ data_quality: response.data_quality, missing_data: response.missing_data }, null, 2)}</pre>
+            <pre style={preStyle}>{JSON.stringify({
+              data_quality: response.data_quality,
+              missing_data: response.missing_data,
+              context_preview: response.context_preview,
+              trace_logging: response.trace_logging,
+            }, null, 2)}</pre>
           </details>
         </div>
       )}
     </div>
   )
+}
+
+function SectionList({ title, items, emptyMessage, renderItem }) {
+  return (
+    <div style={{ marginTop: '16px' }}>
+      <div style={{ fontWeight: 700, marginBottom: '8px' }}>{title}</div>
+      {!items?.length ? (
+        <div style={emptyStateStyle}>{emptyMessage}</div>
+      ) : (
+        <div style={listStyle}>
+          {items.map((item, index) => (
+            <div key={`${title}-${index}`} style={listItemStyle}>
+              {renderItem ? renderItem(item) : formatStructuredItem(item)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function formatStructuredItem(item) {
+  if (!item) return 'Unknown item'
+  if (typeof item === 'string') return item
+
+  const pieces = []
+  const label = item.label || item.selection || item.player_name || item.team
+  if (label) pieces.push(label)
+  if (item.market) pieces.push(item.market)
+  if (item.score !== undefined && item.score !== null) pieces.push(`score ${formatValue(item.score)}`)
+  if (item.confidence_tier) pieces.push(item.confidence_tier)
+  if (item.expected_value !== undefined && item.expected_value !== null) pieces.push(`EV ${formatValue(item.expected_value)}`)
+  if (item.price !== undefined && item.price !== null && item.price !== '') pieces.push(`price ${item.price}`)
+
+  const reasons = Array.isArray(item.reasons) ? item.reasons.slice(0, 3).join('; ') : ''
+  return reasons ? `${pieces.join(' | ')} - ${reasons}` : pieces.join(' | ')
+}
+
+function formatValue(value) {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
+  }
+  return String(value)
 }
 
 function MetaCard({ title, value }) {
@@ -207,6 +279,31 @@ const metaGridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
   gap: '10px'
+}
+
+const listStyle = {
+  display: 'grid',
+  gap: '8px'
+}
+
+const listItemStyle = {
+  background: '#0d1117',
+  border: '1px solid #30363d',
+  borderRadius: '8px',
+  padding: '10px',
+  color: '#e6edf3',
+  fontSize: '13px',
+  lineHeight: 1.5,
+  overflowWrap: 'anywhere'
+}
+
+const emptyStateStyle = {
+  background: '#0d1117',
+  border: '1px dashed #30363d',
+  borderRadius: '8px',
+  padding: '10px',
+  color: '#8b949e',
+  fontSize: '13px'
 }
 
 const preStyle = {
