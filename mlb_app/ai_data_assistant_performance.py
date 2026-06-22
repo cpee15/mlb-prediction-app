@@ -6,6 +6,8 @@ from contextvars import ContextVar
 from typing import Any, Dict, List, Optional
 
 from . import ai_data_assistant as core
+from . import ai_data_assistant_pipeline as pipeline
+from .ai_data_assistant_traces import build_trace_record, write_trace_record
 from .daily_odds_models import build_game_models
 from .daily_odds_routes import _build_global_prop_candidates, _build_matchup_index, _load_matchups
 from .model_projections import build_model_projection_payload as uncached_build_model_projection_payload
@@ -320,15 +322,24 @@ def _daily_odds_answer_prefix(daily_odds_context: Dict[str, Any]) -> str:
     return "Daily Odds note\n" + game_line + prop_line + "\n"
 
 
+def _merge_warning_lists(result: Dict[str, Any], extra_warnings: List[str]) -> None:
+    warnings = list(result.get("warnings") or [])
+    for warning in extra_warnings:
+        if warning and warning not in warnings:
+            warnings.append(warning)
+    result["warnings"] = warnings[:20]
+
+
 def _enrich_result_with_canonical_context(result: Dict[str, Any], canonical_context: Dict[str, Any], daily_odds_context: Dict[str, Any]) -> Dict[str, Any]:
     enriched = copy.deepcopy(result)
     enriched["canonical_probability_context"] = canonical_context
     enriched["daily_odds_diagnostics_context"] = daily_odds_context
-    sources = list(enriched.get("sources_used") or [])
+    sources = list(enriched.get("sources_used") or enriched.get("data_used") or [])
     for source in ["canonical_matchup_probability_v2", "matchups.home_win_prob_and_away_win_prob", "daily_odds_models", "canonical_game_context_v1"]:
         if source not in sources:
             sources.append(source)
     enriched["sources_used"] = sources
+    enriched["data_used"] = sources
     enriched.setdefault("data_quality", {})
     if isinstance(enriched["data_quality"], dict):
         enriched["data_quality"]["canonical_probability"] = {
@@ -350,6 +361,12 @@ def _enrich_result_with_canonical_context(result: Dict[str, Any], canonical_cont
     canonical_note = " Canonical v2 is the final side probability; simulations are diagnostic/run-distribution context only. Daily Odds diagnostics include EV, confidence tier, recommendation status, optional hitter-usage gate output, and shared game context."
     if canonical_note.strip() not in confidence_note:
         enriched["confidence_note"] = confidence_note + canonical_note
+    extra_warnings: List[str] = []
+    if canonical_context.get("error"):
+        extra_warnings.append(f"canonical_probability_context: {canonical_context.get('error')}")
+    if daily_odds_context.get("error"):
+        extra_warnings.append(f"daily_odds_diagnostics: {daily_odds_context.get('error')}")
+    _merge_warning_lists(enriched, extra_warnings)
     return enriched
 
 
@@ -363,7 +380,7 @@ def _build_ai_data_assistant_response_uncached(
     use_llm: bool = False,
 ) -> Dict[str, Any]:
     context_start = _now()
-    context = core.build_assistant_context(
+    packet = pipeline.build_assistant_packet(
         session=session,
         message=message,
         date=date,
@@ -375,16 +392,42 @@ def _build_ai_data_assistant_response_uncached(
     if timing is not None:
         timing["context_build_ms"] = _ms(context_start)
 
-    canonical_context = _build_canonical_probability_context(session, context, game_pk=game_pk)
-    daily_odds_context = _build_daily_odds_diagnostics_context(session, context, game_pk=game_pk)
+    canonical_context = _build_canonical_probability_context(session, packet, game_pk=game_pk)
+    daily_odds_context = _build_daily_odds_diagnostics_context(session, packet, game_pk=game_pk)
+
+    deterministic = pipeline.render_structured_response(message, packet)
 
     answer_start = _now()
-    result = core.answer_with_optional_llm(message, context, use_llm=use_llm)
+    result = pipeline.answer_with_optional_llm_structured(message, packet, use_llm=use_llm)
     if timing is not None:
         timing["answer_render_ms"] = _ms(answer_start)
         timing["llm_requested"] = 1 if use_llm else 0
 
     result = _enrich_result_with_canonical_context(result, canonical_context, daily_odds_context)
+
+    trace_status: Dict[str, Any] = {"logged": False, "reason": "unattempted"}
+    try:
+        trace_record = build_trace_record(
+            message=message,
+            intent=result.get("intent") or packet.get("intent") or "unknown",
+            packet_preview=result.get("context_preview") or pipeline.compact_packet_preview(packet),
+            deterministic_answer=deterministic.get("answer") or "",
+            llm_answer=result.get("llm_answer"),
+            structured_response={
+                "intent": result.get("intent"),
+                "answer": result.get("answer"),
+                "primary_recommendations": result.get("primary_recommendations"),
+                "watchlist": result.get("watchlist"),
+                "data_used": result.get("data_used"),
+                "missing_data": result.get("missing_data"),
+                "warnings": result.get("warnings"),
+                "confidence_note": result.get("confidence_note"),
+            },
+        )
+        trace_status = write_trace_record(trace_record)
+    except Exception as exc:
+        trace_status = {"logged": False, "reason": f"trace_logging_failed: {exc}"}
+    result["trace_logging"] = trace_status
     return result
 
 
