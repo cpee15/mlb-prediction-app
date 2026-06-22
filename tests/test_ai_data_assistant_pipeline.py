@@ -154,3 +154,19 @@ def test_game_explanation_without_game_pk_falls_back_to_daily_slate(monkeypatch)
 
     packet = pipeline.build_assistant_packet(DummySession(), message="Explain this matchup", date="2026-06-22")
     assert packet["intent"] == "daily_slate_summary"
+
+
+def test_render_structured_answer_is_conversational():
+    packet = {
+        "intent": "best_model_edges",
+        "date": "2026-06-22",
+        "sources_used": ["model_projections", "daily_odds_models"],
+        "primary_recommendations": [{"label": "Cubs @ Brewers", "selection": "Brewers"}],
+        "watchlist": [{"label": "Pitcher A strikeout lean"}],
+        "missing_data": [],
+        "warnings": [],
+    }
+    answer = pipeline.render_structured_answer(packet)
+    assert "Direct answer" not in answer
+    assert "The cleanest model edge" in answer
+    assert "I’m grounding this in" in answer
