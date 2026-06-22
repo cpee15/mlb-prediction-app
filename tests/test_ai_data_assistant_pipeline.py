@@ -132,3 +132,25 @@ def test_answer_with_optional_llm_structured_without_key(monkeypatch):
     assert response["answer"]
     assert "confidence_note" in response
     assert "LLM summarized" not in response["confidence_note"]
+
+
+def test_game_explanation_without_game_pk_falls_back_to_daily_slate(monkeypatch):
+    monkeypatch.setattr(core, "classify_assistant_intent", lambda message: "game_explanation")
+    monkeypatch.setattr(core, "date_from_message", lambda message, date: "2026-06-22")
+
+    def fake_daily(session, **kwargs):
+        return {
+            "intent": "daily_slate_summary",
+            "date": kwargs["date"],
+            "sources_used": ["matchups", "model_projections"],
+            "games": [],
+            "primary_recommendations": [],
+            "watchlist": [],
+            "missing_data": [],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(pipeline, "build_daily_slate_packet", fake_daily)
+
+    packet = pipeline.build_assistant_packet(DummySession(), message="Explain this matchup", date="2026-06-22")
+    assert packet["intent"] == "daily_slate_summary"
