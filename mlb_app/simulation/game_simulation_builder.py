@@ -244,6 +244,114 @@ def _attach_pitching_plan_diagnostics(
     return payload
 
 
+def _attach_starter_hook_diagnostics(
+    payload: Dict[str, Any],
+    *,
+    config: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Append optional starter-hook diagnostics without changing simulation
+    inputs, engine behavior, starter usage, or canonical probability authority.
+
+    The evaluator import is intentionally lazy so the disabled path neither
+    imports nor calls the evaluator.
+    """
+
+    config_snapshot = deepcopy(
+        dict(config or {})
+    )
+
+    if not config_snapshot.get(
+        "starter_hook_diagnostics_enabled",
+        False,
+    ):
+        return payload
+
+    version = str(
+        config_snapshot.get(
+            "starter_hook_diagnostics_version",
+            "starter-hook-diagnostics-v1",
+        )
+    )
+
+    state = deepcopy(
+        config_snapshot.get(
+            "starter_hook_state"
+        )
+        or {}
+    )
+
+    diagnostic_payload: Dict[str, Any] = {
+        "enabled": True,
+        "status": "error",
+        "version": version,
+        "evaluation": None,
+        "validation": None,
+        "error": None,
+        "behavioral_effect": "none",
+        (
+            "canonical_probability_"
+            "authority_changed"
+        ): False,
+        "production_activation": False,
+    }
+
+    try:
+        from mlb_app.simulation.starter_hook_evaluator import (
+            evaluate_starter_hook,
+            validate_starter_hook_evaluation,
+        )
+
+        evaluation = evaluate_starter_hook(
+            state
+        )
+
+        validation = (
+            validate_starter_hook_evaluation(
+                evaluation
+            )
+        )
+
+        diagnostic_payload[
+            "evaluation"
+        ] = evaluation
+
+        diagnostic_payload[
+            "validation"
+        ] = validation
+
+        diagnostic_payload["status"] = (
+            "evaluated"
+            if validation.get("valid") is True
+            else "validation_failed"
+        )
+    except Exception as exc:
+        diagnostic_payload["status"] = "error"
+
+        diagnostic_payload["error"] = {
+            "type": type(exc).__name__,
+            "message": str(exc),
+        }
+
+    metadata = (
+        payload.get("meta")
+        or payload.get("metadata")
+        or {}
+    )
+
+    metadata = {
+        **metadata,
+        "starter_hook_diagnostics": (
+            diagnostic_payload
+        ),
+    }
+
+    payload["meta"] = metadata
+    payload["metadata"] = metadata
+
+    return payload
+
+
 def build_game_simulation(
     game_pk: int,
     config: Optional[Dict[str, Any]] = None,
@@ -263,6 +371,9 @@ def build_game_simulation(
             "pitching_plan_diagnostics_enabled",
             "pitching_plan_evidence",
             "pitching_plan_diagnostics_version",
+            "starter_hook_diagnostics_enabled",
+            "starter_hook_diagnostics_version",
+            "starter_hook_state",
         }
     }
 
@@ -278,8 +389,15 @@ def build_game_simulation(
             config=engine_config,
         )
 
-        return _attach_pitching_plan_diagnostics(
-            normalized_payload,
+        pitching_plan_payload = (
+            _attach_pitching_plan_diagnostics(
+                normalized_payload,
+                config=config_snapshot,
+            )
+        )
+
+        return _attach_starter_hook_diagnostics(
+            pitching_plan_payload,
             config=config_snapshot,
         )
     except Exception as exc:
