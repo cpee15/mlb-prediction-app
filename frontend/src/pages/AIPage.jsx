@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { API_BASE, getMlbLiveDate } from '../lib/api'
 
-const STORAGE_KEY = 'mlbgpt-ai-data-assistant-chat-v2'
+const STORAGE_KEY = 'mlbgpt-ai-data-assistant-chat-v3'
 const PROMPT_CHIPS = [
   "What’s the strongest DK/model edge today?",
   'Which game has the cleanest signal?',
@@ -10,32 +10,15 @@ const PROMPT_CHIPS = [
   'What props look interesting, even if they’re just watchlist spots?',
 ]
 
-const WELCOME_MESSAGE = {
-  id: 'welcome',
-  role: 'assistant',
-  answer:
-    "I’m your MLB analyst for DK + model-projection reads, Daily Odds context, Stored 365 matchup flags, and data-quality checks. Ask me what stands out, what’s thin, or why the model likes a side, and I’ll keep it grounded in the app’s own data.",
-  response: {
-    confidence_note: 'App-owned data only. I can sound conversational, but I do not invent baseball facts.',
-    data_used: ['matchups', 'model_projections', 'daily_odds_models'],
-    primary_recommendations: [],
-    watchlist: [],
-    warnings: [],
-    missing_data: [],
-  },
-  createdAt: Date.now(),
-}
-
 function loadStoredMessages() {
-  if (typeof window === 'undefined') return [WELCOME_MESSAGE]
+  if (typeof window === 'undefined') return []
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return [WELCOME_MESSAGE]
+    if (!raw) return []
     const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed) || parsed.length === 0) return [WELCOME_MESSAGE]
-    return parsed
+    return Array.isArray(parsed) ? parsed : []
   } catch {
-    return [WELCOME_MESSAGE]
+    return []
   }
 }
 
@@ -81,7 +64,9 @@ export default function AIPage() {
   const [llmConfigured, setLlmConfigured] = useState(null)
   const [useLlm, setUseLlm] = useState(true)
   const [healthLoaded, setHealthLoaded] = useState(false)
+  const [pendingDraftValue, setPendingDraftValue] = useState('')
   const chatEndRef = useRef(null)
+  const composerRef = useRef(null)
 
   useEffect(() => {
     let ignore = false
@@ -122,7 +107,9 @@ export default function AIPage() {
     return useLlm ? 'LLM polish on' : 'LLM polish off'
   }, [healthLoaded, llmConfigured, useLlm])
 
-  async function ask(nextMessage = draft) {
+  const hasConversation = messages.length > 0
+
+  async function ask(nextMessage = draft, options = {}) {
     const trimmed = (nextMessage || '').trim()
     if (!trimmed || loading) return
 
@@ -144,7 +131,8 @@ export default function AIPage() {
 
     setLoading(true)
     setError(null)
-    setDraft('')
+    setPendingDraftValue(trimmed)
+    setDraft(trimmed)
     setMessages(prev => [...prev, userMessage, pendingAssistant])
 
     try {
@@ -178,6 +166,9 @@ export default function AIPage() {
       }
 
       setMessages(prev => prev.map(message => (message.id === pendingId ? assistantMessage : message)))
+      if (pendingDraftValue === trimmed || options.fromPrompt) {
+        setDraft('')
+      }
     } catch (err) {
       const fallbackMessage = {
         id: pendingId,
@@ -197,86 +188,90 @@ export default function AIPage() {
       setMessages(prev => prev.map(message => (message.id === pendingId ? fallbackMessage : message)))
     } finally {
       setLoading(false)
+      setPendingDraftValue('')
+      composerRef.current?.focus()
     }
   }
 
+  function handlePromptClick(chip) {
+    setDraft(chip)
+    requestAnimationFrame(() => {
+      ask(chip, { fromPrompt: true })
+    })
+  }
+
   function clearChat() {
-    setMessages([WELCOME_MESSAGE])
+    setMessages([])
     setError(null)
+    setDraft('')
   }
 
   return (
     <div style={pageStyle}>
-      <div style={heroStyle}>
-        <div>
-          <div style={eyebrowStyle}>MLB GPT Analyst Chat</div>
-          <h1 style={titleStyle}>AI Data Assistant</h1>
-          <p style={subtitleStyle}>
-            Real chat UI, DK/model-projection-first reasoning, and app-owned evidence only.
-          </p>
-        </div>
-        <div style={heroBadgeRowStyle}>
-          <ModeBadge label={llmModeLabel} active={Boolean(llmConfigured && useLlm)} muted={!llmConfigured} />
-          <ModeBadge label={date} active={false} muted={false} />
-        </div>
-      </div>
-
-      <div style={controlsBarStyle}>
-        <label style={controlLabelStyle}>
-          Date
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} style={controlInputStyle} />
-        </label>
-        <label style={controlLabelStyle}>
-          Game PK
-          <input value={gamePk} onChange={e => setGamePk(e.target.value)} placeholder="optional" style={smallInputStyle} />
-        </label>
-        <label style={controlLabelStyle}>
-          Player ID
-          <input value={playerId} onChange={e => setPlayerId(e.target.value)} placeholder="optional" style={smallInputStyle} />
-        </label>
-        <label style={toggleWrapStyle}>
-          <input
-            type="checkbox"
-            checked={Boolean(llmConfigured && useLlm)}
-            disabled={!llmConfigured}
-            onChange={e => setUseLlm(e.target.checked)}
-          />
-          <span>Use LLM polish</span>
-        </label>
-        <button onClick={clearChat} style={secondaryButtonStyle}>Clear chat</button>
-      </div>
-
-      <div style={chatShellStyle}>
-        <div style={chatHeaderStyle}>
+      <div style={shellStyle}>
+        <div style={headerStyle}>
           <div>
-            <div style={chatTitleStyle}>Talk to the MLB analyst</div>
-            <div style={chatSubtitleStyle}>
-              Ask for strongest edges, cleanest signals, watchlist props, or missing-data problems.
+            <div style={eyebrowStyle}>MLBGPT analyst chat</div>
+            <h1 style={titleStyle}>AI Data Assistant</h1>
+            <div style={subtitleStyle}>Ask like you’re talking to an analyst, not filling out a report form.</div>
+          </div>
+          <div style={headerMetaStyle}>
+            <ModeBadge label={llmModeLabel} active={Boolean(llmConfigured && useLlm)} muted={!llmConfigured} />
+            <button onClick={clearChat} style={secondaryButtonStyle}>Clear</button>
+          </div>
+        </div>
+
+        <div style={toolbarStyle}>
+          <label style={controlLabelStyle}>
+            Date
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={controlInputStyle} />
+          </label>
+          <label style={controlLabelStyle}>
+            Game PK
+            <input value={gamePk} onChange={e => setGamePk(e.target.value)} placeholder="optional" style={smallInputStyle} />
+          </label>
+          <label style={controlLabelStyle}>
+            Player ID
+            <input value={playerId} onChange={e => setPlayerId(e.target.value)} placeholder="optional" style={smallInputStyle} />
+          </label>
+          <label style={toggleWrapStyle}>
+            <input
+              type="checkbox"
+              checked={Boolean(llmConfigured && useLlm)}
+              disabled={!llmConfigured}
+              onChange={e => setUseLlm(e.target.checked)}
+            />
+            <span>Use LLM polish</span>
+          </label>
+        </div>
+
+        {!hasConversation && (
+          <div style={emptyStateStyle}>
+            <div style={emptyTitleStyle}>Start with one of these</div>
+            <div style={emptyCopyStyle}>
+              I’ll answer from DK/model projections first, then Daily Odds, Stored 365 matchup flags, and data-quality checks.
+            </div>
+            <div style={promptWrapStyle}>
+              {PROMPT_CHIPS.map(chip => (
+                <button key={chip} onClick={() => handlePromptClick(chip)} disabled={loading} style={promptChipStyle}>
+                  {chip}
+                </button>
+              ))}
             </div>
           </div>
-          <div style={statusTextStyle}>
-            {error ? `Last error: ${error}` : 'Ready'}
-          </div>
-        </div>
-
-        <div style={starterPromptWrapStyle}>
-          {PROMPT_CHIPS.map(chip => (
-            <button key={chip} onClick={() => ask(chip)} disabled={loading} style={starterChipStyle}>
-              {chip}
-            </button>
-          ))}
-        </div>
+        )}
 
         <div style={chatHistoryStyle}>
           {messages.map(message => (
             <ChatMessage key={message.id} message={message} />
           ))}
-          {loading && <TypingBubble />}
+          {loading && <TypingBubble prompt={pendingDraftValue} />}
           <div ref={chatEndRef} />
         </div>
 
         <div style={composerStyle}>
           <textarea
+            ref={composerRef}
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => {
@@ -285,11 +280,11 @@ export default function AIPage() {
                 ask()
               }
             }}
-            placeholder="Ask what stands out, what the model likes, what props are worth a watch, or where the data is thin…"
+            placeholder="Ask what stands out, why the model likes a side, what props are worth watching, or where the data is thin…"
             style={composerInputStyle}
           />
           <div style={composerFooterStyle}>
-            <div style={composerHintStyle}>Enter to send • Shift+Enter for a new line</div>
+            <div style={composerHintStyle}>{error ? `Last error: ${error}` : 'Enter to send • Shift+Enter for a new line'}</div>
             <button onClick={() => ask()} disabled={loading || !draft.trim()} style={sendButtonStyle}>
               {loading ? 'Thinking…' : 'Send'}
             </button>
@@ -309,40 +304,40 @@ function ChatMessage({ message }) {
   const dataUsed = response.data_used || response.sources_used || []
   const missingData = response.missing_data || []
   const llmMode = message.llmMode || response.llm_mode
+  const hasMeta = !isUser && (primaryRecommendations.length || watchlist.length || warnings.length || missingData.length || dataUsed.length || response.confidence_note)
 
   return (
     <div style={{ ...messageRowStyle, justifyContent: isUser ? 'flex-end' : 'flex-start' }}>
       <div style={{ ...bubbleStyle, ...(isUser ? userBubbleStyle : assistantBubbleStyle) }}>
         <div style={bubbleMetaStyle}>
           <span style={bubbleRoleStyle}>{isUser ? 'You' : 'AI Data Assistant'}</span>
-          {!isUser && llmMode && (
-            <span style={bubbleTagStyle}>
-              {llmMode.active ? 'LLM polished' : llmMode.configured ? 'Deterministic reply' : 'LLM unavailable'}
-            </span>
-          )}
+          {!isUser && llmMode?.active && <span style={bubbleTagStyle}>LLM</span>}
         </div>
 
-        <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: isUser ? '#f8fafc' : '#dbe7ff' }}>
+        <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.65, color: isUser ? '#f8fafc' : '#e8eefc' }}>
           {isUser ? message.content : message.answer}
         </div>
 
-        {!isUser && (
+        {hasMeta && !isUser && (
           <div style={assistantSectionsWrapStyle}>
-            <StructuredSection title="Primary recommendations" items={primaryRecommendations} emptyMessage="No actionable recommendations were surfaced for this turn." />
-            <StructuredSection title="Watchlist" items={watchlist} emptyMessage="No extra watchlist angles were surfaced for this turn." />
-            <details style={detailsStyle}>
-              <summary style={detailsSummaryStyle}>Data used, warnings, and confidence</summary>
-              <div style={detailsBodyStyle}>
-                <StructuredInlineList title="Data used" items={dataUsed} emptyMessage="No sources listed." />
-                <StructuredInlineList title="Warnings" items={warnings} emptyMessage="No warnings flagged." />
-                <StructuredInlineList
-                  title="Missing data"
-                  items={missingData.map(item => (typeof item === 'string' ? item : JSON.stringify(item)))}
-                  emptyMessage="No missing-data flags listed."
-                />
-                <div style={confidenceNoteStyle}>{response.confidence_note || 'No confidence note returned.'}</div>
-              </div>
-            </details>
+            {primaryRecommendations.length > 0 && <StructuredSection title="Top angles" items={primaryRecommendations} />}
+            {watchlist.length > 0 && <StructuredSection title="Watchlist" items={watchlist} />}
+            {(warnings.length > 0 || missingData.length > 0 || dataUsed.length > 0 || response.confidence_note) && (
+              <details style={detailsStyle}>
+                <summary style={detailsSummaryStyle}>Why I said that</summary>
+                <div style={detailsBodyStyle}>
+                  {dataUsed.length > 0 && <StructuredInlineList title="Data used" items={dataUsed} />}
+                  {warnings.length > 0 && <StructuredInlineList title="Warnings" items={warnings} />}
+                  {missingData.length > 0 && (
+                    <StructuredInlineList
+                      title="Missing data"
+                      items={missingData.map(item => (typeof item === 'string' ? item : JSON.stringify(item)))}
+                    />
+                  )}
+                  {response.confidence_note && <div style={confidenceNoteStyle}>{response.confidence_note}</div>}
+                </div>
+              </details>
+            )}
           </div>
         )}
       </div>
@@ -350,13 +345,14 @@ function ChatMessage({ message }) {
   )
 }
 
-function TypingBubble() {
+function TypingBubble({ prompt }) {
   return (
     <div style={{ ...messageRowStyle, justifyContent: 'flex-start' }}>
-      <div style={{ ...bubbleStyle, ...assistantBubbleStyle, maxWidth: 180 }}>
+      <div style={{ ...bubbleStyle, ...assistantBubbleStyle, maxWidth: 260 }}>
         <div style={bubbleMetaStyle}>
           <span style={bubbleRoleStyle}>AI Data Assistant</span>
         </div>
+        <div style={typingLabelStyle}>{prompt ? `Thinking about: ${prompt}` : 'Thinking…'}</div>
         <div style={typingWrapStyle}>
           <span style={typingDotStyle}>•</span>
           <span style={typingDotStyle}>•</span>
@@ -367,40 +363,32 @@ function TypingBubble() {
   )
 }
 
-function StructuredSection({ title, items, emptyMessage }) {
+function StructuredSection({ title, items }) {
   return (
     <details style={detailsStyle}>
       <summary style={detailsSummaryStyle}>{title}</summary>
       <div style={detailsBodyStyle}>
-        {!items?.length ? (
-          <div style={emptyCopyStyle}>{emptyMessage}</div>
-        ) : (
-          <div style={structuredGridStyle}>
-            {items.map((item, index) => (
-              <div key={`${title}-${index}`} style={structuredCardStyle}>
-                {formatStructuredItem(item)}
-              </div>
-            ))}
-          </div>
-        )}
+        <div style={structuredGridStyle}>
+          {items.map((item, index) => (
+            <div key={`${title}-${index}`} style={structuredCardStyle}>
+              {formatStructuredItem(item)}
+            </div>
+          ))}
+        </div>
       </div>
     </details>
   )
 }
 
-function StructuredInlineList({ title, items, emptyMessage }) {
+function StructuredInlineList({ title, items }) {
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={inlineTitleStyle}>{title}</div>
-      {!items?.length ? (
-        <div style={emptyCopyStyle}>{emptyMessage}</div>
-      ) : (
-        <div style={inlineListStyle}>
-          {items.map((item, index) => (
-            <span key={`${title}-${index}`} style={inlineChipStyle}>{String(item)}</span>
-          ))}
-        </div>
-      )}
+      <div style={inlineListStyle}>
+        {items.map((item, index) => (
+          <span key={`${title}-${index}`} style={inlineChipStyle}>{String(item)}</span>
+        ))}
+      </div>
     </div>
   )
 }
@@ -410,8 +398,8 @@ function ModeBadge({ label, active, muted }) {
     <div
       style={{
         ...modeBadgeStyle,
-        background: active ? 'rgba(34,197,94,0.16)' : muted ? 'rgba(148,163,184,0.12)' : 'rgba(56,189,248,0.12)',
-        borderColor: active ? 'rgba(34,197,94,0.36)' : muted ? 'rgba(148,163,184,0.24)' : 'rgba(56,189,248,0.32)',
+        background: active ? 'rgba(34,197,94,0.14)' : muted ? 'rgba(148,163,184,0.08)' : 'rgba(56,189,248,0.10)',
+        borderColor: active ? 'rgba(34,197,94,0.28)' : muted ? 'rgba(148,163,184,0.18)' : 'rgba(56,189,248,0.24)',
         color: active ? '#bbf7d0' : muted ? '#94a3b8' : '#bae6fd',
       }}
     >
@@ -450,88 +438,93 @@ function formatValue(value) {
 
 const pageStyle = {
   minHeight: '100vh',
-  background: 'radial-gradient(circle at top, #14213a 0%, #090d18 45%, #060913 100%)',
+  background: 'linear-gradient(180deg, #07101d 0%, #04070f 100%)',
   color: '#eef4ff',
-  padding: '28px 18px 36px',
+  padding: '22px 14px 28px',
 }
 
-const heroStyle = {
-  maxWidth: 1200,
-  margin: '0 auto 18px',
+const shellStyle = {
+  maxWidth: 980,
+  margin: '0 auto',
+  borderRadius: 22,
+  border: '1px solid rgba(148,163,184,0.14)',
+  background: 'rgba(7, 12, 21, 0.96)',
+  boxShadow: '0 24px 90px rgba(0,0,0,0.35)',
+  overflow: 'hidden',
+}
+
+const headerStyle = {
   display: 'flex',
   justifyContent: 'space-between',
-  gap: 18,
+  gap: 16,
   alignItems: 'flex-start',
-  flexWrap: 'wrap',
+  padding: '20px 20px 14px',
+  borderBottom: '1px solid rgba(148,163,184,0.10)',
 }
 
 const eyebrowStyle = {
-  fontSize: 12,
-  letterSpacing: '0.18em',
+  fontSize: 11,
+  letterSpacing: '0.16em',
   textTransform: 'uppercase',
   color: '#7dd3fc',
-  marginBottom: 8,
+  marginBottom: 6,
 }
 
 const titleStyle = {
   margin: 0,
-  fontSize: '34px',
-  lineHeight: 1.05,
+  fontSize: '28px',
+  lineHeight: 1.1,
 }
 
 const subtitleStyle = {
-  margin: '10px 0 0',
-  maxWidth: 760,
-  color: '#a8b6d9',
-  lineHeight: 1.6,
+  marginTop: 8,
+  color: '#9db0d1',
+  fontSize: 14,
+  lineHeight: 1.5,
 }
 
-const heroBadgeRowStyle = {
+const headerMetaStyle = {
   display: 'flex',
   gap: 10,
+  alignItems: 'center',
   flexWrap: 'wrap',
 }
 
 const modeBadgeStyle = {
-  padding: '9px 12px',
+  padding: '8px 11px',
   borderRadius: 999,
   border: '1px solid transparent',
   fontSize: 12,
   fontWeight: 700,
 }
 
-const controlsBarStyle = {
-  maxWidth: 1200,
-  margin: '0 auto 18px',
+const toolbarStyle = {
   display: 'flex',
   gap: 12,
   flexWrap: 'wrap',
   alignItems: 'flex-end',
-  padding: 16,
-  borderRadius: 18,
-  border: '1px solid rgba(148,163,184,0.16)',
-  background: 'rgba(10, 16, 30, 0.78)',
-  boxShadow: '0 20px 60px rgba(0,0,0,0.28)',
+  padding: '14px 20px',
+  borderBottom: '1px solid rgba(148,163,184,0.10)',
 }
 
 const controlLabelStyle = {
   display: 'grid',
   gap: 6,
-  color: '#9fb0d3',
+  color: '#97abcf',
   fontSize: 12,
 }
 
 const controlInputStyle = {
-  background: '#07101f',
+  background: '#0b1424',
   color: '#ecf4ff',
-  border: '1px solid rgba(148,163,184,0.24)',
-  borderRadius: 12,
-  padding: '10px 12px',
+  border: '1px solid rgba(148,163,184,0.20)',
+  borderRadius: 10,
+  padding: '9px 11px',
 }
 
 const smallInputStyle = {
   ...controlInputStyle,
-  width: 120,
+  width: 110,
 }
 
 const toggleWrapStyle = {
@@ -540,65 +533,49 @@ const toggleWrapStyle = {
   gap: 8,
   color: '#d7e3ff',
   fontSize: 13,
-  paddingBottom: 10,
+  paddingBottom: 8,
 }
 
 const secondaryButtonStyle = {
-  border: '1px solid rgba(148,163,184,0.24)',
+  border: '1px solid rgba(148,163,184,0.18)',
   background: 'rgba(15,23,42,0.82)',
   color: '#dbeafe',
-  borderRadius: 12,
-  padding: '10px 14px',
+  borderRadius: 10,
+  padding: '9px 12px',
   cursor: 'pointer',
 }
 
-const chatShellStyle = {
-  maxWidth: 1200,
-  margin: '0 auto',
-  borderRadius: 24,
-  border: '1px solid rgba(148,163,184,0.16)',
-  background: 'linear-gradient(180deg, rgba(9, 14, 25, 0.94), rgba(5, 9, 17, 0.98))',
-  boxShadow: '0 28px 90px rgba(0,0,0,0.34)',
-  overflow: 'hidden',
+const emptyStateStyle = {
+  margin: '18px 20px 6px',
+  borderRadius: 16,
+  border: '1px solid rgba(148,163,184,0.10)',
+  background: 'rgba(255,255,255,0.02)',
+  padding: '16px 16px 14px',
 }
 
-const chatHeaderStyle = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  gap: 16,
-  alignItems: 'center',
-  padding: '20px 22px 14px',
-  borderBottom: '1px solid rgba(148,163,184,0.12)',
-}
-
-const chatTitleStyle = {
-  fontSize: 18,
+const emptyTitleStyle = {
+  fontSize: 16,
   fontWeight: 700,
-  color: '#f5f9ff',
+  marginBottom: 6,
 }
 
-const chatSubtitleStyle = {
-  marginTop: 4,
-  color: '#8fa4ca',
-  fontSize: 13,
+const emptyCopyStyle = {
+  color: '#91a5c8',
+  fontSize: 14,
+  lineHeight: 1.55,
 }
 
-const statusTextStyle = {
-  fontSize: 12,
-  color: '#8fa4ca',
-}
-
-const starterPromptWrapStyle = {
+const promptWrapStyle = {
   display: 'flex',
   gap: 10,
   flexWrap: 'wrap',
-  padding: '14px 22px 0',
+  marginTop: 14,
 }
 
-const starterChipStyle = {
+const promptChipStyle = {
   borderRadius: 999,
-  border: '1px solid rgba(56,189,248,0.22)',
-  background: 'rgba(56,189,248,0.10)',
+  border: '1px solid rgba(56,189,248,0.18)',
+  background: 'rgba(56,189,248,0.08)',
   color: '#dff7ff',
   padding: '9px 12px',
   cursor: 'pointer',
@@ -606,8 +583,8 @@ const starterChipStyle = {
 }
 
 const chatHistoryStyle = {
-  padding: '20px 22px',
-  minHeight: '52vh',
+  padding: '18px 20px',
+  minHeight: '48vh',
   maxHeight: '58vh',
   overflowY: 'auto',
   display: 'grid',
@@ -619,20 +596,19 @@ const messageRowStyle = {
 }
 
 const bubbleStyle = {
-  maxWidth: '78%',
-  borderRadius: 22,
-  padding: '14px 16px',
-  boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
+  maxWidth: '80%',
+  borderRadius: 20,
+  padding: '14px 15px',
 }
 
 const userBubbleStyle = {
   background: 'linear-gradient(135deg, #1d4ed8, #2563eb)',
-  border: '1px solid rgba(147,197,253,0.28)',
+  border: '1px solid rgba(147,197,253,0.24)',
 }
 
 const assistantBubbleStyle = {
-  background: 'linear-gradient(180deg, rgba(12,21,38,0.96), rgba(8,14,28,0.98))',
-  border: '1px solid rgba(148,163,184,0.16)',
+  background: 'rgba(11,18,32,0.98)',
+  border: '1px solid rgba(148,163,184,0.12)',
 }
 
 const bubbleMetaStyle = {
@@ -640,11 +616,10 @@ const bubbleMetaStyle = {
   gap: 8,
   alignItems: 'center',
   marginBottom: 8,
-  flexWrap: 'wrap',
 }
 
 const bubbleRoleStyle = {
-  fontSize: 12,
+  fontSize: 11,
   fontWeight: 700,
   letterSpacing: '0.04em',
   textTransform: 'uppercase',
@@ -652,35 +627,36 @@ const bubbleRoleStyle = {
 }
 
 const bubbleTagStyle = {
-  fontSize: 11,
+  fontSize: 10,
   color: '#dff7ff',
   borderRadius: 999,
-  padding: '4px 8px',
+  padding: '3px 7px',
   background: 'rgba(56,189,248,0.10)',
-  border: '1px solid rgba(56,189,248,0.18)',
+  border: '1px solid rgba(56,189,248,0.14)',
 }
 
 const assistantSectionsWrapStyle = {
-  marginTop: 14,
+  marginTop: 12,
   display: 'grid',
   gap: 10,
 }
 
 const detailsStyle = {
-  borderRadius: 16,
+  borderRadius: 14,
   background: 'rgba(255,255,255,0.02)',
   border: '1px solid rgba(148,163,184,0.10)',
 }
 
 const detailsSummaryStyle = {
   cursor: 'pointer',
-  padding: '10px 12px',
+  padding: '9px 11px',
   color: '#dbeafe',
   fontWeight: 600,
+  fontSize: 13,
 }
 
 const detailsBodyStyle = {
-  padding: '0 12px 12px',
+  padding: '0 11px 11px',
 }
 
 const structuredGridStyle = {
@@ -691,8 +667,8 @@ const structuredGridStyle = {
 const structuredCardStyle = {
   background: 'rgba(8,14,28,0.9)',
   border: '1px solid rgba(148,163,184,0.12)',
-  borderRadius: 14,
-  padding: '10px 12px',
+  borderRadius: 12,
+  padding: '10px 11px',
   color: '#dbeafe',
   whiteSpace: 'pre-wrap',
   lineHeight: 1.5,
@@ -700,7 +676,7 @@ const structuredCardStyle = {
 }
 
 const inlineTitleStyle = {
-  fontSize: 12,
+  fontSize: 11,
   fontWeight: 700,
   color: '#9fb7ff',
   marginBottom: 6,
@@ -711,23 +687,18 @@ const inlineTitleStyle = {
 const inlineListStyle = {
   display: 'flex',
   flexWrap: 'wrap',
-  gap: 8,
+  gap: 7,
 }
 
 const inlineChipStyle = {
   display: 'inline-flex',
   alignItems: 'center',
   borderRadius: 999,
-  padding: '6px 10px',
+  padding: '6px 9px',
   background: 'rgba(148,163,184,0.10)',
-  border: '1px solid rgba(148,163,184,0.16)',
+  border: '1px solid rgba(148,163,184,0.14)',
   color: '#dbeafe',
   fontSize: 12,
-}
-
-const emptyCopyStyle = {
-  color: '#8fa4ca',
-  fontSize: 13,
 }
 
 const confidenceNoteStyle = {
@@ -737,11 +708,17 @@ const confidenceNoteStyle = {
   lineHeight: 1.5,
 }
 
+const typingLabelStyle = {
+  color: '#b8c8e6',
+  fontSize: 13,
+  marginBottom: 8,
+}
+
 const typingWrapStyle = {
   display: 'flex',
   gap: 8,
   color: '#9fb7ff',
-  fontSize: 20,
+  fontSize: 18,
 }
 
 const typingDotStyle = {
@@ -749,20 +726,20 @@ const typingDotStyle = {
 }
 
 const composerStyle = {
-  borderTop: '1px solid rgba(148,163,184,0.12)',
-  padding: '16px 18px 18px',
+  borderTop: '1px solid rgba(148,163,184,0.10)',
+  padding: '14px 16px 16px',
   background: 'rgba(5, 9, 17, 0.98)',
 }
 
 const composerInputStyle = {
   width: '100%',
-  minHeight: 86,
+  minHeight: 84,
   resize: 'vertical',
-  borderRadius: 18,
-  border: '1px solid rgba(148,163,184,0.16)',
+  borderRadius: 16,
+  border: '1px solid rgba(148,163,184,0.14)',
   background: 'rgba(11, 18, 32, 0.98)',
   color: '#eff6ff',
-  padding: '14px 16px',
+  padding: '13px 15px',
   boxSizing: 'border-box',
   fontSize: 15,
   lineHeight: 1.55,
@@ -773,7 +750,7 @@ const composerFooterStyle = {
   justifyContent: 'space-between',
   alignItems: 'center',
   gap: 12,
-  marginTop: 12,
+  marginTop: 10,
   flexWrap: 'wrap',
 }
 
@@ -783,11 +760,11 @@ const composerHintStyle = {
 }
 
 const sendButtonStyle = {
-  borderRadius: 14,
-  border: '1px solid rgba(56,189,248,0.26)',
+  borderRadius: 12,
+  border: '1px solid rgba(56,189,248,0.22)',
   background: 'linear-gradient(135deg, #38bdf8, #60a5fa)',
   color: '#03121c',
-  padding: '11px 16px',
+  padding: '10px 15px',
   fontWeight: 800,
   cursor: 'pointer',
 }
