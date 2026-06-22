@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from .ai_data_assistant import PROMPT_CHIPS, classify_assistant_intent
+from .ai_data_assistant import AI_DATA_ASSISTANT_SYSTEM_PROMPT, PROMPT_CHIPS, classify_assistant_intent
 from .ai_data_assistant_performance import build_ai_data_assistant_response, clear_ai_data_assistant_caches
 from .database import create_tables, get_engine, get_session
 from .my_dashboard_routes import router as my_dashboard_router
@@ -17,13 +18,19 @@ router = APIRouter()
 router.include_router(my_dashboard_router)
 
 
+class ConversationTurn(BaseModel):
+    role: str
+    content: str
+
+
 class AIDataAssistantRequest(BaseModel):
     message: str
     date: Optional[str] = None
     game_pk: Optional[int] = None
     player_id: Optional[int] = None
     team_id: Optional[int] = None
-    use_llm: bool = False
+    use_llm: Optional[bool] = None
+    conversation: Optional[List[ConversationTurn]] = None
 
 
 def session_factory():
@@ -33,10 +40,104 @@ def session_factory():
     return get_session(engine)
 
 
+def _llm_configured() -> bool:
+    return bool(os.getenv("OPENAI_API_KEY"))
+
+
+def _default_use_llm() -> bool:
+    if not _llm_configured():
+        return False
+    raw = os.getenv("AI_DATA_ASSISTANT_DEFAULT_USE_LLM", "true").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _resolve_use_llm(requested: Optional[bool]) -> bool:
+    if requested is None:
+        return _default_use_llm()
+    if not _llm_configured():
+        return False
+    return bool(requested)
+
+
+def _normalize_conversation(conversation: Optional[List[ConversationTurn]]) -> List[Dict[str, str]]:
+    normalized: List[Dict[str, str]] = []
+    for turn in conversation or []:
+        role = str(turn.role or "").strip().lower()
+        content = str(turn.content or "").strip()
+        if role not in {"user", "assistant"} or not content:
+            continue
+        normalized.append({"role": role, "content": content})
+    return normalized[-8:]
+
+
+def _conversation_transcript(conversation: List[Dict[str, str]]) -> str:
+    if not conversation:
+        return "No prior conversation provided."
+    lines = []
+    for turn in conversation[-6:]:
+        label = "User" if turn["role"] == "user" else "Assistant"
+        lines.append(f"{label}: {turn['content']}")
+    return "\n".join(lines)
+
+
+def _apply_conversational_llm_polish(message: str, result: Dict[str, Any], conversation: List[Dict[str, str]]) -> Dict[str, Any]:
+    if not _llm_configured():
+        return result
+    from openai import OpenAI
+
+    client = OpenAI()
+    packet = result.get("context_preview") or {}
+    transcript = _conversation_transcript(conversation)
+    structured_summary = json.dumps(
+        {
+            "intent": result.get("intent"),
+            "primary_recommendations": result.get("primary_recommendations") or [],
+            "watchlist": result.get("watchlist") or [],
+            "warnings": result.get("warnings") or [],
+            "missing_data": result.get("missing_data") or [],
+            "confidence_note": result.get("confidence_note"),
+        },
+        default=str,
+    )
+    style_prompt = (
+        "You are rewriting the final assistant answer for a chat UI. "
+        "Sound like a sharp, natural MLB analyst. Be conversational, direct, and useful. "
+        "Do not sound like a report template. Do not invent facts. Do not change the underlying recommendations, warnings, or evidence. "
+        "You may reference recent chat context to resolve pronouns or continue the conversation naturally, but app-owned evidence remains the only factual source of truth. "
+        "Keep it concise unless the user asked for detail. Use bullets only when they genuinely help. "
+        "Make the answer feel like a real chatbot reply."
+    )
+    response = client.chat.completions.create(
+        model=os.getenv("AI_DATA_ASSISTANT_MODEL", "gpt-4o-mini"),
+        messages=[
+            {"role": "system", "content": AI_DATA_ASSISTANT_SYSTEM_PROMPT + "\n\n" + style_prompt},
+            {
+                "role": "user",
+                "content": (
+                    f"Recent conversation:\n{transcript}\n\n"
+                    f"Current user question:\n{message}\n\n"
+                    f"Structured response contract JSON:\n{structured_summary}\n\n"
+                    f"Evidence packet preview JSON:\n{json.dumps(packet, default=str)}\n\n"
+                    "Rewrite the answer text only."
+                ),
+            },
+        ],
+        temperature=0.35,
+        max_tokens=700,
+    )
+    answer = response.choices[0].message.content if response.choices else None
+    if answer:
+        result["answer"] = answer
+        result["llm_answer"] = answer
+    return result
+
+
 @router.get("/ai-data-assistant", response_class=HTMLResponse)
 def ai_data_assistant_page() -> str:
     chips = "".join(f'<button class="chip" type="button">{chip}</button>' for chip in PROMPT_CHIPS)
     today = dt.date.today().isoformat()
+    use_llm_checked = "checked" if _default_use_llm() else ""
+    llm_note = "LLM polish available" if _llm_configured() else "Deterministic mode only"
     return f"""
 <!doctype html>
 <html lang="en">
@@ -73,7 +174,8 @@ def ai_data_assistant_page() -> str:
           <label>Date <input id="date" type="date" value="{today}" /></label>
           <label>Game PK <input id="gamePk" type="number" placeholder="optional" /></label>
           <label>Player ID <input id="playerId" type="number" placeholder="optional" /></label>
-          <label><input id="useLlm" type="checkbox" /> Use LLM polish</label>
+          <label><input id="useLlm" type="checkbox" {use_llm_checked} /> Use LLM polish</label>
+          <span class="muted">{llm_note}</span>
           <button id="askBtn" type="button">Ask</button>
         </div>
         <textarea id="message" placeholder="Ask about today's slate, model edges, Daily Odds, Stored 365, missing data, or a specific matchup.">Summarize today's slate</textarea>
@@ -92,7 +194,7 @@ def ai_data_assistant_page() -> str:
   </main>
 <script>
 const $ = (id) => document.getElementById(id);
-document.querySelectorAll('.chip').forEach(btn => btn.addEventListener('click', () => {{ $('message').value = btn.textContent; $('useLlm').checked = false; ask(); }}));
+document.querySelectorAll('.chip').forEach(btn => btn.addEventListener('click', () => {{ $('message').value = btn.textContent; ask(); }}));
 $('askBtn').addEventListener('click', ask);
 async function ask() {{
   $('status').textContent = 'Querying app-owned data...';
@@ -108,7 +210,7 @@ async function ask() {{
     const res = await fetch('/ai-data-assistant', {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: JSON.stringify(payload) }});
     const data = await res.json();
     if (!res.ok) throw new Error(JSON.stringify(data.detail || data));
-    $('status').textContent = `Intent: ${{data.intent || 'unknown'}} | Date: ${{data.date || ''}} | Cache: ${{data.cache_status || 'none'}}`;
+    $('status').textContent = `Intent: ${{data.intent || 'unknown'}} | Date: ${{data.date || ''}} | LLM: ${{data.llm_mode?.active ? 'active' : data.llm_mode?.requested ? 'requested' : 'off'}}`;
     $('answer').textContent = data.answer || 'No answer returned.';
     $('sources').textContent = (data.sources_used || []).join(', ') || 'None';
     $('timing').textContent = JSON.stringify(data.timing || {{}}, null, 2);
@@ -131,7 +233,13 @@ def ai_data_assistant_prompts() -> Dict[str, Any]:
 
 @router.get("/ai-data-assistant/health")
 def ai_data_assistant_health() -> Dict[str, Any]:
-    return {"name": "AI Data Assistant", "status": "ok", "llm_configured": bool(os.getenv("OPENAI_API_KEY")), "deterministic_default": True}
+    return {
+        "name": "AI Data Assistant",
+        "status": "ok",
+        "llm_configured": _llm_configured(),
+        "deterministic_default": not _default_use_llm(),
+        "default_use_llm": _default_use_llm(),
+    }
 
 
 @router.post("/ai-data-assistant")
@@ -141,6 +249,8 @@ def ai_data_assistant_query(payload: AIDataAssistantRequest) -> Dict[str, Any]:
     try:
         factory = session_factory()
         with factory() as session:
+            conversation = _normalize_conversation(payload.conversation)
+            resolved_use_llm = _resolve_use_llm(payload.use_llm)
             result = build_ai_data_assistant_response(
                 session=session,
                 message=payload.message,
@@ -148,8 +258,25 @@ def ai_data_assistant_query(payload: AIDataAssistantRequest) -> Dict[str, Any]:
                 game_pk=payload.game_pk,
                 player_id=payload.player_id,
                 team_id=payload.team_id,
-                use_llm=payload.use_llm,
+                use_llm=False,
             )
+            llm_mode = {
+                "requested": bool(payload.use_llm) if payload.use_llm is not None else resolved_use_llm,
+                "configured": _llm_configured(),
+                "active": False,
+                "conversation_turns": len(conversation),
+            }
+            if resolved_use_llm and _llm_configured():
+                result = _apply_conversational_llm_polish(payload.message, result, conversation)
+                llm_mode["active"] = True
+            elif (payload.use_llm or resolved_use_llm) and not _llm_configured():
+                warnings = list(result.get("warnings") or [])
+                warning = "LLM mode was requested but OPENAI_API_KEY is not configured, so deterministic fallback was used."
+                if warning not in warnings:
+                    warnings.append(warning)
+                result["warnings"] = warnings
+                result["confidence_note"] = (result.get("confidence_note") or "") + " Deterministic fallback was used because LLM mode is not configured."
+            result["llm_mode"] = llm_mode
             result["name"] = "AI Data Assistant"
             result["intent"] = result.get("intent") or classify_assistant_intent(payload.message)
             return result
