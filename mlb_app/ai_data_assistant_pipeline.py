@@ -484,62 +484,59 @@ def _stringify_list(values: List[Dict[str, Any]], label_key: str = "label", sele
     return items
 
 
-def _render_primary_recommendations_section(packet: Dict[str, Any]) -> str:
+def _lead_line(packet: Dict[str, Any]) -> str:
+    intent = packet.get("intent")
     recs = packet.get("primary_recommendations") or []
-    if not recs:
-        return "No primary recommendations are supported by the current app-owned evidence packet."
-    return "\n".join(f"- {line}" for line in _stringify_list(recs))
-
-
-def _render_watchlist_section(packet: Dict[str, Any]) -> str:
     watchlist = packet.get("watchlist") or []
-    if not watchlist:
-        return "No additional watchlist angles are currently supported."
-    return "\n".join(f"- {line}" for line in _stringify_list(watchlist))
+    first = recs[0] if recs else None
+    first_watch = watchlist[0] if watchlist else None
+    if intent == "best_model_edges":
+        if first:
+            return f"The cleanest model edge right now is {first.get('label') or first.get('selection')}."
+        return "I don’t have a clean model edge to push right now from the current packet."
+    if intent == "odds_and_props":
+        odds = packet.get("odds_summary") or {}
+        if first:
+            return f"Here’s what jumps out from Daily Odds first: {first.get('label') or first.get('selection')} looks like the strongest priced angle in the current packet."
+        return f"Daily Odds loaded {odds.get('count') or 0} game rows, but I don’t have a priced angle I’d elevate from this packet yet."
+    if intent == "pitcher_analysis":
+        if first:
+            return f"The best pitcher angle on the board is {first.get('selection') or first.get('label')}, but I’d still treat it as a watchlist lean unless you have a live market in front of you."
+        return "I don’t have a strong pitcher lean from the current model packet."
+    if intent == "stored_365_matchups":
+        if first:
+            return f"The best Stored 365 matchup flag is {first.get('label')}. That’s a watchlist signal, not a priced edge by itself."
+        return "Stored 365 didn’t return a matchup I’d elevate right now."
+    if intent == "data_quality":
+        return "The biggest thing here is data quality, so I’m surfacing what looks thin instead of pretending the slate is cleaner than it is."
+    if intent == "game_explanation":
+        if first:
+            return f"Here’s the short version: the current packet leans toward {first.get('selection') or first.get('label')}."
+        return "I can explain the matchup, but the signal is thinner than I’d like from the current packet."
+    if first:
+        return f"Here’s what stands out first: {first.get('label') or first.get('selection')} is the clearest angle in the current slate packet."
+    if first_watch:
+        return f"I don’t have a full recommendation yet, but {first_watch.get('label') or first_watch.get('selection')} is worth keeping on the watchlist."
+    return f"I checked the {packet.get('date')} slate, but I don’t have a strong angle to force from the current packet."
 
 
 def render_structured_answer(packet: Dict[str, Any]) -> str:
-    intent = packet.get("intent")
-    if intent == "best_model_edges":
-        heading = "Direct answer\nModel projections are the primary layer for this query. The strongest current edges are below."
-    elif intent == "odds_and_props":
-        odds = packet.get("odds_summary") or {}
-        heading = (
-            "Direct answer\n"
-            f"Daily Odds returned {odds.get('count') or 0} game rows, {odds.get('odds_event_count') or 0} sportsbook events, "
-            f"and {odds.get('top_prop_candidate_count') or 0} top prop/model candidates."
-        )
-    elif intent == "pitcher_analysis":
-        heading = "Direct answer\nPitcher analysis is being ranked from model-projection context first. These are watchlist leans unless a real market line exists."
-    elif intent == "data_quality":
-        heading = "Direct answer\nThe assistant is surfacing missing or weak app-owned data instead of hiding it."
-    elif intent == "stored_365_matchups":
-        heading = "Direct answer\nStored 365 matchup signals are watchlist angles unless a priced market exists."
-    elif intent == "game_explanation":
-        heading = "Direct answer\nThis game explanation is anchored to the current model-projection packet for the selected game."
-    else:
-        heading = f"Direct answer\nFor {packet.get('date')}, the slate summary is anchored to DK Daily Odds and model projections where available."
-    parts = [
-        heading,
-        "",
-        "Primary recommendations",
-        _render_primary_recommendations_section(packet),
-        "",
-        "Watchlist",
-        _render_watchlist_section(packet),
-        "",
-        "Data used",
-        ", ".join(packet.get("sources_used") or ["app-owned data only"]),
-        "",
-        "Missing or weak data",
-        core.summarize_missing(packet.get("missing_data")),
-    ]
+    lead = _lead_line(packet)
+    watchlist = packet.get("watchlist") or []
     warnings = packet.get("warnings") or []
-    if warnings:
-        parts.extend(["", "Warnings"])
-        for warning in warnings[:6]:
-            parts.append(f"- {warning}")
-    return "\n".join(parts)
+    missing = packet.get("missing_data") or []
+    sources = packet.get("sources_used") or []
+
+    lines = [lead]
+    if watchlist:
+        labels = [item.get("label") or item.get("selection") for item in watchlist[:3] if item.get("label") or item.get("selection")]
+        if labels:
+            lines.append(f"After that, I’d keep an eye on {', '.join(labels)}.")
+    if warnings or missing:
+        lines.append("There are still some data gaps or weak spots behind this answer, so I wouldn’t treat it as cleaner than the packet actually is.")
+    if sources:
+        lines.append(f"I’m grounding this in {', '.join(sources[:4])}." + ("" if len(sources) <= 4 else ""))
+    return "\n\n".join(lines)
 
 
 def _confidence_note(packet: Dict[str, Any]) -> str:
