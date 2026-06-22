@@ -423,7 +423,6 @@ def build_assistant_packet(
     builders = {
         "best_model_edges": build_best_model_edges_packet,
         "odds_and_props": build_odds_and_props_packet,
-        "game_explanation": build_game_explanation_packet,
         "pitcher_analysis": build_pitcher_analysis_packet,
         "data_quality": build_data_quality_packet,
         "stored_365_matchups": build_stored_365_packet,
