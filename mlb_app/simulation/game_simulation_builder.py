@@ -352,6 +352,114 @@ def _attach_starter_hook_diagnostics(
     return payload
 
 
+def _attach_bullpen_sequence_diagnostics(
+    payload: Dict[str, Any],
+    *,
+    config: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Append optional bullpen-sequence diagnostics without changing simulation
+    inputs, engine behavior, pitcher usage, or canonical probability authority.
+
+    The evaluator import is intentionally lazy so the disabled path neither
+    imports nor calls the evaluator.
+    """
+
+    config_snapshot = deepcopy(
+        dict(config or {})
+    )
+
+    if not config_snapshot.get(
+        "bullpen_sequence_diagnostics_enabled",
+        False,
+    ):
+        return payload
+
+    version = str(
+        config_snapshot.get(
+            "bullpen_sequence_diagnostics_version",
+            "bullpen-sequence-diagnostics-v1",
+        )
+    )
+
+    state = deepcopy(
+        config_snapshot.get(
+            "bullpen_sequence_state"
+        )
+        or {}
+    )
+
+    diagnostic_payload: Dict[str, Any] = {
+        "enabled": True,
+        "status": "error",
+        "version": version,
+        "evaluation": None,
+        "validation": None,
+        "error": None,
+        "behavioral_effect": "none",
+        (
+            "canonical_probability_"
+            "authority_changed"
+        ): False,
+        "production_activation": False,
+    }
+
+    try:
+        from mlb_app.simulation.bullpen_sequence_evaluator import (
+            evaluate_bullpen_sequence,
+            validate_bullpen_sequence_evaluation,
+        )
+
+        evaluation = evaluate_bullpen_sequence(
+            state
+        )
+
+        validation = (
+            validate_bullpen_sequence_evaluation(
+                evaluation
+            )
+        )
+
+        diagnostic_payload[
+            "evaluation"
+        ] = evaluation
+
+        diagnostic_payload[
+            "validation"
+        ] = validation
+
+        diagnostic_payload["status"] = (
+            "evaluated"
+            if validation.get("valid") is True
+            else "validation_failed"
+        )
+    except Exception as exc:
+        diagnostic_payload["status"] = "error"
+
+        diagnostic_payload["error"] = {
+            "type": type(exc).__name__,
+            "message": str(exc),
+        }
+
+    metadata = (
+        payload.get("meta")
+        or payload.get("metadata")
+        or {}
+    )
+
+    metadata = {
+        **metadata,
+        "bullpen_sequence_diagnostics": (
+            diagnostic_payload
+        ),
+    }
+
+    payload["meta"] = metadata
+    payload["metadata"] = metadata
+
+    return payload
+
+
 def build_game_simulation(
     game_pk: int,
     config: Optional[Dict[str, Any]] = None,
@@ -374,6 +482,9 @@ def build_game_simulation(
             "starter_hook_diagnostics_enabled",
             "starter_hook_diagnostics_version",
             "starter_hook_state",
+            "bullpen_sequence_diagnostics_enabled",
+            "bullpen_sequence_diagnostics_version",
+            "bullpen_sequence_state",
         }
     }
 
@@ -396,8 +507,15 @@ def build_game_simulation(
             )
         )
 
-        return _attach_starter_hook_diagnostics(
-            pitching_plan_payload,
+        starter_hook_payload = (
+            _attach_starter_hook_diagnostics(
+                pitching_plan_payload,
+                config=config_snapshot,
+            )
+        )
+
+        return _attach_bullpen_sequence_diagnostics(
+            starter_hook_payload,
             config=config_snapshot,
         )
     except Exception as exc:
