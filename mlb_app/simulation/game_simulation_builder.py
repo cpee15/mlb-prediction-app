@@ -460,6 +460,117 @@ def _attach_bullpen_sequence_diagnostics(
     return payload
 
 
+def _attach_stolen_base_pickoff_diagnostics(
+    payload: Dict[str, Any],
+    *,
+    config: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Append optional stolen-base and pickoff diagnostics without changing
+    simulation inputs, base/out state, runner advancement, engine behavior,
+    or canonical probability authority.
+
+    The evaluator import is intentionally lazy so the disabled path neither
+    imports nor calls the evaluator.
+    """
+
+    config_snapshot = deepcopy(
+        dict(config or {})
+    )
+
+    if not config_snapshot.get(
+        "stolen_base_pickoff_diagnostics_enabled",
+        False,
+    ):
+        return payload
+
+    version = str(
+        config_snapshot.get(
+            "stolen_base_pickoff_diagnostics_version",
+            "stolen-base-pickoff-diagnostics-v1",
+        )
+    )
+
+    state = deepcopy(
+        config_snapshot.get(
+            "stolen_base_pickoff_state"
+        )
+        or {}
+    )
+
+    diagnostic_payload: Dict[str, Any] = {
+        "enabled": True,
+        "status": "error",
+        "version": version,
+        "evaluation": None,
+        "validation": None,
+        "error": None,
+        "behavioral_effect": "none",
+        (
+            "canonical_probability_"
+            "authority_changed"
+        ): False,
+        "production_activation": False,
+    }
+
+    try:
+        from mlb_app.simulation.stolen_base_pickoff_evaluator import (
+            evaluate_stolen_base_and_pickoff_state,
+            validate_stolen_base_and_pickoff_evaluation,
+        )
+
+        evaluation = (
+            evaluate_stolen_base_and_pickoff_state(
+                state
+            )
+        )
+
+        validation = (
+            validate_stolen_base_and_pickoff_evaluation(
+                evaluation
+            )
+        )
+
+        diagnostic_payload[
+            "evaluation"
+        ] = evaluation
+
+        diagnostic_payload[
+            "validation"
+        ] = validation
+
+        diagnostic_payload["status"] = (
+            "evaluated"
+            if validation.get("valid") is True
+            else "validation_failed"
+        )
+    except Exception as exc:
+        diagnostic_payload["status"] = "error"
+
+        diagnostic_payload["error"] = {
+            "type": type(exc).__name__,
+            "message": str(exc),
+        }
+
+    metadata = (
+        payload.get("meta")
+        or payload.get("metadata")
+        or {}
+    )
+
+    metadata = {
+        **metadata,
+        "stolen_base_pickoff_diagnostics": (
+            diagnostic_payload
+        ),
+    }
+
+    payload["meta"] = metadata
+    payload["metadata"] = metadata
+
+    return payload
+
+
 def build_game_simulation(
     game_pk: int,
     config: Optional[Dict[str, Any]] = None,
@@ -485,6 +596,9 @@ def build_game_simulation(
             "bullpen_sequence_diagnostics_enabled",
             "bullpen_sequence_diagnostics_version",
             "bullpen_sequence_state",
+            "stolen_base_pickoff_diagnostics_enabled",
+            "stolen_base_pickoff_diagnostics_version",
+            "stolen_base_pickoff_state",
         }
     }
 
@@ -514,8 +628,15 @@ def build_game_simulation(
             )
         )
 
-        return _attach_bullpen_sequence_diagnostics(
-            starter_hook_payload,
+        bullpen_sequence_payload = (
+            _attach_bullpen_sequence_diagnostics(
+                starter_hook_payload,
+                config=config_snapshot,
+            )
+        )
+
+        return _attach_stolen_base_pickoff_diagnostics(
+            bullpen_sequence_payload,
             config=config_snapshot,
         )
     except Exception as exc:
