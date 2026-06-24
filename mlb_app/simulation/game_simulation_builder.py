@@ -571,6 +571,116 @@ def _attach_stolen_base_pickoff_diagnostics(
     return payload
 
 
+def _attach_position_player_substitution_diagnostics(
+    payload: Dict[str, Any],
+    *,
+    config: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Append optional position-player substitution diagnostics without changing
+    simulation inputs, batting order, lineup slots, defensive alignment,
+    designated-hitter state, base/out state, engine behavior, or canonical
+    probability authority.
+
+    The evaluator import is intentionally lazy so the disabled path neither
+    imports nor calls the evaluator.
+    """
+
+    config_snapshot = deepcopy(
+        dict(config or {})
+    )
+
+    if not config_snapshot.get(
+        "position_player_substitution_diagnostics_enabled",
+        False,
+    ):
+        return payload
+
+    version = str(
+        config_snapshot.get(
+            "position_player_substitution_diagnostics_version",
+            "position-player-substitution-diagnostics-v1",
+        )
+    )
+
+    state = deepcopy(
+        config_snapshot.get(
+            "position_player_substitution_state"
+        )
+        or {}
+    )
+
+    diagnostic_payload: Dict[str, Any] = {
+        "enabled": True,
+        "status": "error",
+        "version": version,
+        "evaluation": None,
+        "validation": None,
+        "error": None,
+        "behavioral_effect": "none",
+        "canonical_probability_authority_changed": False,
+        "production_activation": False,
+    }
+
+    try:
+        from mlb_app.simulation.position_player_substitution_evaluator import (
+            evaluate_position_player_substitution,
+            validate_position_player_substitution_evaluation,
+        )
+
+        evaluation = (
+            evaluate_position_player_substitution(
+                state
+            )
+        )
+
+        validation = (
+            validate_position_player_substitution_evaluation(
+                evaluation
+            )
+        )
+
+        diagnostic_payload[
+            "evaluation"
+        ] = evaluation
+
+        diagnostic_payload[
+            "validation"
+        ] = validation
+
+        diagnostic_payload["status"] = (
+            "evaluated"
+            if validation.get("valid") is True
+            else "validation_failed"
+        )
+
+    except Exception as exc:
+        diagnostic_payload["status"] = "error"
+
+        diagnostic_payload["error"] = {
+            "type": type(exc).__name__,
+            "message": str(exc),
+        }
+
+    metadata = (
+        payload.get("meta")
+        or payload.get("metadata")
+        or {}
+    )
+
+    metadata = {
+        **metadata,
+        "position_player_substitution_diagnostics": (
+            diagnostic_payload
+        ),
+    }
+
+    payload["meta"] = metadata
+    payload["metadata"] = metadata
+
+    return payload
+
+
 def build_game_simulation(
     game_pk: int,
     config: Optional[Dict[str, Any]] = None,
@@ -599,6 +709,9 @@ def build_game_simulation(
             "stolen_base_pickoff_diagnostics_enabled",
             "stolen_base_pickoff_diagnostics_version",
             "stolen_base_pickoff_state",
+            "position_player_substitution_diagnostics_enabled",
+            "position_player_substitution_diagnostics_version",
+            "position_player_substitution_state",
         }
     }
 
@@ -635,8 +748,15 @@ def build_game_simulation(
             )
         )
 
-        return _attach_stolen_base_pickoff_diagnostics(
-            bullpen_sequence_payload,
+        stolen_base_pickoff_payload = (
+            _attach_stolen_base_pickoff_diagnostics(
+                bullpen_sequence_payload,
+                config=config_snapshot,
+            )
+        )
+
+        return _attach_position_player_substitution_diagnostics(
+            stolen_base_pickoff_payload,
             config=config_snapshot,
         )
     except Exception as exc:
