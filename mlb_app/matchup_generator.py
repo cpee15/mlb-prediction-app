@@ -15,6 +15,7 @@ from .canonical_matchup_probability import compute_canonical_matchup_probability
 from .db_utils import get_batter_aggregate, get_pitch_arsenal, get_pitcher_aggregate, get_player_split, get_team_split
 from .etl import fetch_schedule
 from .lineup_profile import build_lineup_offense_diagnostics, build_lineup_offense_inputs
+from .performance import estimate_payload_bytes, record_probability_source, record_span, timing_span
 from .pitcher_profile_store import get_pitcher_profile_overview
 from .shared_payload_cache import env_ttl, get_cache, make_cache_key, set_cache
 
@@ -250,15 +251,23 @@ def _add_missing_pitcher_diagnostics(base_matchup: Dict) -> None:
 
 
 def _apply_canonical_probability(session: Session, base_matchup: Dict, season: int) -> None:
-    canonical = compute_canonical_matchup_probability(
-        session=session,
-        home_pitcher_id=base_matchup["home_pitcher_id"],
-        away_pitcher_id=base_matchup["away_pitcher_id"],
-        home_team_id=base_matchup["home_team_id"],
-        away_team_id=base_matchup["away_team_id"],
-        season=season,
-        context=base_matchup,
-    )
+    with timing_span(
+        "compute_canonical_matchup_probability",
+        category="probability_resolution",
+        route="/matchups",
+        game_pk=base_matchup.get("game_pk"),
+        date=base_matchup.get("game_date"),
+        probability_source="canonical_matchup_win_probability_v2",
+    ):
+        canonical = compute_canonical_matchup_probability(
+            session=session,
+            home_pitcher_id=base_matchup["home_pitcher_id"],
+            away_pitcher_id=base_matchup["away_pitcher_id"],
+            home_team_id=base_matchup["home_team_id"],
+            away_team_id=base_matchup["away_team_id"],
+            season=season,
+            context=base_matchup,
+        )
     for key in (
         "model_version",
         "legacy_model_version",
@@ -275,6 +284,7 @@ def _apply_canonical_probability(session: Session, base_matchup: Dict, season: i
         "missing_inputs",
     ):
         base_matchup[key] = canonical.get(key)
+    record_probability_source(canonical.get("model_version") or "canonical_matchup_win_probability_v2")
 
 
 def _generate_matchups_for_date_uncached(session: Session, date_str: str) -> List[Dict]:
@@ -283,7 +293,8 @@ def _generate_matchups_for_date_uncached(session: Session, date_str: str) -> Lis
     except ValueError:
         raise ValueError("date_str must be in YYYY-MM-DD format")
 
-    schedule = fetch_schedule(date_str)
+    with timing_span("matchups.fetch_schedule", category="schedule", route="/matchups", date=date_str):
+        schedule = fetch_schedule(date_str)
     season = date_obj.year
     matchups = []
 
@@ -343,8 +354,9 @@ def _generate_matchups_for_date_uncached(session: Session, date_str: str) -> Lis
             continue
 
         try:
-            base_matchup["home_pitcher_features"] = _format_pitcher_features(session, home_pitcher_id)
-            base_matchup["away_pitcher_features"] = _format_pitcher_features(session, away_pitcher_id)
+            with timing_span("matchups.pitcher_features", category="db", route="/matchups", game_pk=game.get("_game_pk"), date=date_str):
+                base_matchup["home_pitcher_features"] = _format_pitcher_features(session, home_pitcher_id)
+                base_matchup["away_pitcher_features"] = _format_pitcher_features(session, away_pitcher_id)
         except Exception:
             log.exception(
                 "Pitcher feature formatting failed for game_pk=%s date=%s home_pitcher_id=%s away_pitcher_id=%s",
@@ -352,8 +364,9 @@ def _generate_matchups_for_date_uncached(session: Session, date_str: str) -> Lis
             )
 
         try:
-            base_matchup["home_pitch_arsenal"] = _format_pitch_arsenal(session, home_pitcher_id, season)
-            base_matchup["away_pitch_arsenal"] = _format_pitch_arsenal(session, away_pitcher_id, season)
+            with timing_span("matchups.pitch_arsenal", category="db", route="/matchups", game_pk=game.get("_game_pk"), date=date_str):
+                base_matchup["home_pitch_arsenal"] = _format_pitch_arsenal(session, home_pitcher_id, season)
+                base_matchup["away_pitch_arsenal"] = _format_pitch_arsenal(session, away_pitcher_id, season)
         except Exception:
             log.exception(
                 "Pitch arsenal formatting failed for game_pk=%s date=%s home_pitcher_id=%s away_pitcher_id=%s season=%s",
@@ -369,48 +382,52 @@ def _generate_matchups_for_date_uncached(session: Session, date_str: str) -> Lis
             base_matchup["away_offense_inputs"] = away_team_fallback
 
             try:
-                home_lineup_diagnostics = build_lineup_offense_diagnostics(
-                    session=session,
-                    game_pk=game.get("_game_pk"),
-                    side="home",
-                    team_id=home_team,
-                    season=season,
-                    split=home_split,
-                    team_fallback=home_team_fallback,
-                )
-                home_lineup_inputs = build_lineup_offense_inputs(
-                    session=session,
-                    game_pk=game.get("_game_pk"),
-                    side="home",
-                    team_id=home_team,
-                    season=season,
-                    split=home_split,
-                    team_fallback=home_team_fallback,
-                )
+                with timing_span("build_lineup_offense_diagnostics", category="formula", route="/matchups", game_pk=game.get("_game_pk"), date=date_str, extra={"side": "home"}):
+                    home_lineup_diagnostics = build_lineup_offense_diagnostics(
+                        session=session,
+                        game_pk=game.get("_game_pk"),
+                        side="home",
+                        team_id=home_team,
+                        season=season,
+                        split=home_split,
+                        team_fallback=home_team_fallback,
+                    )
+                with timing_span("build_lineup_offense_inputs", category="formula", route="/matchups", game_pk=game.get("_game_pk"), date=date_str, extra={"side": "home"}):
+                    home_lineup_inputs = build_lineup_offense_inputs(
+                        session=session,
+                        game_pk=game.get("_game_pk"),
+                        side="home",
+                        team_id=home_team,
+                        season=season,
+                        split=home_split,
+                        team_fallback=home_team_fallback,
+                    )
                 base_matchup["home_offense_inputs"] = home_lineup_inputs or _with_lineup_fallback_diagnostics(base_matchup["home_offense_inputs"], home_lineup_diagnostics)
             except Exception as exc:
                 base_matchup["home_offense_inputs"] = _with_lineup_exception_diagnostics(base_matchup["home_offense_inputs"], exc)
                 log.exception("Confirmed home lineup offense input failed; using fallback for game_pk=%s date=%s home_team_id=%s", game.get("_game_pk"), date_str, home_team)
 
             try:
-                away_lineup_diagnostics = build_lineup_offense_diagnostics(
-                    session=session,
-                    game_pk=game.get("_game_pk"),
-                    side="away",
-                    team_id=away_team,
-                    season=season,
-                    split=away_split,
-                    team_fallback=away_team_fallback,
-                )
-                away_lineup_inputs = build_lineup_offense_inputs(
-                    session=session,
-                    game_pk=game.get("_game_pk"),
-                    side="away",
-                    team_id=away_team,
-                    season=season,
-                    split=away_split,
-                    team_fallback=away_team_fallback,
-                )
+                with timing_span("build_lineup_offense_diagnostics", category="formula", route="/matchups", game_pk=game.get("_game_pk"), date=date_str, extra={"side": "away"}):
+                    away_lineup_diagnostics = build_lineup_offense_diagnostics(
+                        session=session,
+                        game_pk=game.get("_game_pk"),
+                        side="away",
+                        team_id=away_team,
+                        season=season,
+                        split=away_split,
+                        team_fallback=away_team_fallback,
+                    )
+                with timing_span("build_lineup_offense_inputs", category="formula", route="/matchups", game_pk=game.get("_game_pk"), date=date_str, extra={"side": "away"}):
+                    away_lineup_inputs = build_lineup_offense_inputs(
+                        session=session,
+                        game_pk=game.get("_game_pk"),
+                        side="away",
+                        team_id=away_team,
+                        season=season,
+                        split=away_split,
+                        team_fallback=away_team_fallback,
+                    )
                 base_matchup["away_offense_inputs"] = away_lineup_inputs or _with_lineup_fallback_diagnostics(base_matchup["away_offense_inputs"], away_lineup_diagnostics)
             except Exception as exc:
                 base_matchup["away_offense_inputs"] = _with_lineup_exception_diagnostics(base_matchup["away_offense_inputs"], exc)
@@ -444,7 +461,8 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
     """
     cache_key = make_cache_key("matchups", "date", date_str)
     ttl_seconds = env_ttl("MATCHUPS_CACHE_TTL_SECONDS")
-    cached = get_cache(cache_key, ttl_seconds)
+    with timing_span("generate_matchups_for_date.cache_lookup", category="cache", route="/matchups", date=date_str):
+        cached = get_cache(cache_key, ttl_seconds)
     if cached is not None:
         if isinstance(cached, list):
             for game in cached:
@@ -452,15 +470,36 @@ def generate_matchups_for_date(session: Session, date_str: str) -> List[Dict]:
                     game.setdefault("cache_hit", True)
                     game.setdefault("cache_key", cache_key)
                     game.setdefault("ttl_seconds", ttl_seconds)
+        record_span(
+            "generate_matchups_for_date",
+            category="route",
+            route="/matchups",
+            date=date_str,
+            cache_status="HIT",
+            probability_source="canonical_matchup_win_probability_v2",
+            payload_bytes=estimate_payload_bytes(cached),
+        )
+        record_probability_source("canonical_matchup_win_probability_v2")
         return cached
 
-    matchups = _generate_matchups_for_date_uncached(session, date_str)
+    with timing_span("_generate_matchups_for_date_uncached", category="route", route="/matchups", date=date_str, cache_status="MISS"):
+        matchups = _generate_matchups_for_date_uncached(session, date_str)
     if isinstance(matchups, list):
         for game in matchups:
             if isinstance(game, dict):
                 game.setdefault("cache_hit", False)
                 game.setdefault("cache_key", cache_key)
                 game.setdefault("ttl_seconds", ttl_seconds)
+    record_span(
+        "generate_matchups_for_date",
+        category="route",
+        route="/matchups",
+        date=date_str,
+        cache_status="MISS",
+        probability_source="canonical_matchup_win_probability_v2",
+        payload_bytes=estimate_payload_bytes(matchups),
+    )
+    record_probability_source("canonical_matchup_win_probability_v2")
     return set_cache(cache_key, matchups)
 
 
