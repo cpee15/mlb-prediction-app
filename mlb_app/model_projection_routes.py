@@ -7,8 +7,8 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException
 
 from .database import create_tables, get_engine, get_session
+from .model_projection_performance_cache import build_model_projection_payload
 from .model_projection_probability import build_model_projection_probability
-from .model_projections import build_model_projection_payload
 from .model_tracker_routes import router as model_tracker_router
 from .performance import estimate_payload_bytes, record_probability_source, record_span, timing_span
 from .schedule_calendar import build_calendar_window_payload, warm_schedule_calendar_window
