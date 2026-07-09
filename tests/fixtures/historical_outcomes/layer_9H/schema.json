@@ -1,0 +1,73 @@
+{
+  "$id": "layer_9H_historical_outcome_fixture_corpus_schema_v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "corpus_version": "layer_9H_historical_outcome_fixture_corpus_v1",
+  "properties": {
+    "corpus_plan_version": {
+      "description": "Planned type: string"
+    },
+    "description": {
+      "description": "Planned type: string"
+    },
+    "expect_adapter_output": {
+      "description": "Planned type: boolean"
+    },
+    "expect_outcome_record": {
+      "description": "Planned type: boolean"
+    },
+    "expected_adapter_digest": {
+      "description": "Planned type: nullable_sha256"
+    },
+    "expected_eligible": {
+      "description": "Planned type: nullable_boolean"
+    },
+    "expected_exclusion_codes": {
+      "description": "Planned type: sorted_unique_string_array"
+    },
+    "expected_outcome_digest": {
+      "description": "Planned type: nullable_sha256"
+    },
+    "expected_outcome_missing": {
+      "description": "Planned type: nullable_boolean"
+    },
+    "expected_outcome_value": {
+      "description": "Planned type: nullable_number_or_boolean"
+    },
+    "fixture_category": {
+      "description": "Planned type: enum"
+    },
+    "fixture_id": {
+      "description": "Planned type: string"
+    },
+    "provider_payload": {
+      "description": "Planned type: object"
+    },
+    "source_fixture_version": {
+      "description": "Planned type: string"
+    },
+    "target_id": {
+      "description": "Planned type: enum"
+    }
+  },
+  "required": [
+    "fixture_id",
+    "fixture_category",
+    "description",
+    "target_id",
+    "provider_payload",
+    "expect_adapter_output",
+    "expect_outcome_record",
+    "expected_outcome_value",
+    "expected_outcome_missing",
+    "expected_eligible",
+    "expected_exclusion_codes",
+    "expected_adapter_digest",
+    "expected_outcome_digest",
+    "source_fixture_version",
+    "corpus_plan_version"
+  ],
+  "source_fixture_version": "layer_9H_synthetic_provider_fixture_v1",
+  "title": "Layer 9H Historical Outcome Fixture Corpus",
+  "type": "object"
+}
