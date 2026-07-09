@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, NavLink, useParams } from 'react-router-d
 import './styles/bet105-mobile.css'
 import HomePage from './pages/HomePage'
 import LandingV2Page from './pages/LandingV2Page'
-import MatchupDetailPage from './pages/MatchupDetailPage'
+import MatchupDetailPage from './pages/MatchupDetailShellFirstPage'
 import PitcherPage from './pages/PitcherPage'
 import RollingPitcherPage from './pages/RollingPitcherPage'
 import TeamPage from './pages/TeamPage'
