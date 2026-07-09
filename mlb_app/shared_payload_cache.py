@@ -7,7 +7,7 @@ import os
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from .performance import record_cache_status
+from .performance import estimate_payload_bytes, record_cache_status, record_span, timing_span
 
 CacheRecord = Tuple[float, Any]
 _CACHE: Dict[str, CacheRecord] = {}
@@ -52,22 +52,78 @@ def make_cache_key(*parts: Any) -> str:
 
 
 def get_cache(key: str, ttl_seconds: int) -> Optional[Any]:
-    record = _CACHE.get(key)
-    if not record:
-        record_cache_status("MISS")
-        return None
-    created_at, value = record
-    if ttl_seconds <= 0 or _now() - created_at > ttl_seconds:
-        _CACHE.pop(key, None)
-        record_cache_status("MISS")
-        return None
-    record_cache_status("HIT")
-    return copy.deepcopy(value)
+    with timing_span(
+        "shared_payload_cache.get_cache",
+        category="cache",
+        cache_status=None,
+        extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds},
+    ):
+        record = _CACHE.get(key)
+        if not record:
+            record_cache_status("MISS")
+            record_span(
+                "shared_payload_cache.lookup",
+                category="cache",
+                cache_status="MISS",
+                extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds},
+            )
+            return None
+        created_at, value = record
+        if ttl_seconds <= 0 or _now() - created_at > ttl_seconds:
+            _CACHE.pop(key, None)
+            record_cache_status("MISS")
+            record_span(
+                "shared_payload_cache.lookup",
+                category="cache",
+                cache_status="EXPIRED",
+                payload_bytes=estimate_payload_bytes(value),
+                extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds},
+            )
+            return None
+        record_cache_status("HIT")
+        payload_bytes = estimate_payload_bytes(value)
+        with timing_span(
+            "shared_payload_cache.deepcopy.get",
+            category="cache",
+            cache_status="HIT",
+            extra={"cache_key_prefix": str(key).split(":", 1)[0]},
+        ):
+            copied = copy.deepcopy(value)
+        record_span(
+            "shared_payload_cache.lookup",
+            category="cache",
+            cache_status="HIT",
+            payload_bytes=payload_bytes,
+            extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds},
+        )
+        return copied
 
 
 def set_cache(key: str, value: Any) -> Any:
-    _CACHE[key] = (_now(), copy.deepcopy(value))
-    return copy.deepcopy(value)
+    payload_bytes = estimate_payload_bytes(value)
+    with timing_span(
+        "shared_payload_cache.deepcopy.set_store",
+        category="cache",
+        payload_bytes=payload_bytes,
+        extra={"cache_key_prefix": str(key).split(":", 1)[0]},
+    ):
+        stored = copy.deepcopy(value)
+    _CACHE[key] = (_now(), stored)
+    with timing_span(
+        "shared_payload_cache.deepcopy.set_return",
+        category="cache",
+        payload_bytes=payload_bytes,
+        extra={"cache_key_prefix": str(key).split(":", 1)[0]},
+    ):
+        returned = copy.deepcopy(value)
+    record_span(
+        "shared_payload_cache.set_cache",
+        category="cache",
+        cache_status="STORE",
+        payload_bytes=payload_bytes,
+        extra={"cache_key_prefix": str(key).split(":", 1)[0]},
+    )
+    return returned
 
 
 def get_or_set(key: str, ttl_seconds: int, builder: Callable[[], Any]) -> Any:
@@ -79,7 +135,13 @@ def get_or_set(key: str, ttl_seconds: int, builder: Callable[[], Any]) -> Any:
             cached.setdefault("ttl_seconds", ttl_seconds)
         return cached
     started_at = _now()
-    value = builder()
+    with timing_span(
+        "shared_payload_cache.builder",
+        category="cache",
+        cache_status="MISS",
+        extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds},
+    ):
+        value = builder()
     built_ms = int(round((_now() - started_at) * 1000))
     stored = set_cache(key, value)
     if isinstance(stored, dict):
