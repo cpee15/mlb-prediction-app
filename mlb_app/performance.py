@@ -136,6 +136,7 @@ def timing_span(
     date: Optional[Any] = None,
     cache_status: Optional[str] = None,
     probability_source: Optional[str] = None,
+    payload_bytes: Optional[int] = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> Iterator[None]:
     """Context manager for recording formula/build/cache/simulation timings."""
@@ -152,6 +153,7 @@ def timing_span(
             duration_ms=(time.perf_counter() - started) * 1000,
             cache_status=cache_status,
             probability_source=probability_source,
+            payload_bytes=payload_bytes,
             extra=extra,
         )
 
@@ -166,7 +168,7 @@ def _group_counts(rows: Iterable[Dict[str, Any]], field: str, default: str = "NO
 def _span_summary(spans: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for span in spans:
-        grouped[str(span.get("name") or "unknown")].append(span)
+        grouped[str(span.get("name") or "unknown")).append(span)
 
     summary: Dict[str, Dict[str, Any]] = {}
     for name, rows in grouped.items():
