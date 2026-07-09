@@ -12,7 +12,15 @@ from .model_projections import build_model_projection_payload
 from .model_tracker_routes import router as model_tracker_router
 from .performance import estimate_payload_bytes, record_probability_source, record_span, timing_span
 from .schedule_calendar import build_calendar_window_payload, warm_schedule_calendar_window
-from .shared_payload_cache import env_ttl, get_or_set, make_cache_key, set_cache
+from .shared_artifacts import (
+    attach_artifact_metadata,
+    artifact_metadata,
+    cache_artifact,
+    model_projection_date_key,
+    model_projection_probability_key,
+    payload_input_hash,
+)
+from .shared_payload_cache import env_ttl, get_or_set
 from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 
 router = APIRouter()
@@ -27,7 +35,20 @@ def _session_factory():
 
 
 def _projection_cache_key(target_date: str) -> str:
-    return make_cache_key("model_projection", "full", "probability_contract_v1", target_date)
+    return model_projection_date_key(target_date)
+
+
+def _attach_projection_artifact_metadata(payload: Dict[str, Any], target_date: str) -> Dict[str, Any]:
+    metadata = artifact_metadata(
+        artifact_type="model_projection_date",
+        cache_key=_projection_cache_key(target_date),
+        source_route="/models/projections",
+        source_builder="model_projection_routes._build_uncached_projection_payload",
+        model_version="model_projection_probability_v1",
+        probability_source="model_projections",
+    )
+    attach_artifact_metadata(payload, metadata)
+    return payload
 
 
 def _apply_projection_probability_contract(payload: Dict[str, Any], target_date: str) -> Dict[str, Any]:
@@ -48,6 +69,31 @@ def _apply_projection_probability_contract(payload: Dict[str, Any], target_date:
             matchup=game,
             generated_at=payload.get("generated_at"),
         )
+        probability_hash = payload_input_hash({
+            "game_pk": game.get("game_pk"),
+            "date": game.get("game_date") or target_date,
+            "source_path": probability.get("source_path"),
+            "home_win_probability": probability.get("home_win_probability"),
+            "away_win_probability": probability.get("away_win_probability"),
+        })
+        probability_cache_key = model_projection_probability_key(
+            date=game.get("game_date") or target_date,
+            game_pk=game.get("game_pk"),
+            model_version=probability.get("model_version"),
+            input_hash=probability_hash,
+        )
+        attach_artifact_metadata(
+            probability,
+            artifact_metadata(
+                artifact_type="model_projection_probability",
+                cache_key=probability_cache_key,
+                source_route="/models/projections",
+                source_builder="model_projection_probability.build_model_projection_probability",
+                model_version=probability.get("model_version"),
+                input_hash=probability_hash,
+                probability_source=probability.get("source"),
+            ),
+        )
         game["model_projection_probability"] = probability
         game["probability"] = probability
         game["home_win_probability"] = probability.get("home_win_probability")
@@ -57,6 +103,7 @@ def _apply_projection_probability_contract(payload: Dict[str, Any], target_date:
         game["probability_source"] = probability.get("source")
         game["probability_source_path"] = probability.get("source_path")
         game["probability_is_fallback"] = probability.get("is_fallback")
+        game["probability_cache_key"] = probability_cache_key
 
         workspace = game.get("workspace")
         if isinstance(workspace, dict):
@@ -66,6 +113,7 @@ def _apply_projection_probability_contract(payload: Dict[str, Any], target_date:
                 diagnostics["displayed_probability_source"] = probability.get("source")
                 diagnostics["displayed_probability_source_path"] = probability.get("source_path")
                 diagnostics["displayed_probability_is_fallback"] = probability.get("is_fallback")
+                diagnostics["displayed_probability_cache_key"] = probability_cache_key
 
         main = game.get("main_matchup_probabilities")
         if isinstance(main, dict):
@@ -98,6 +146,7 @@ def _build_uncached_projection_payload(target_date: str) -> Dict[str, Any]:
         ):
             payload = build_model_projection_payload(session, target_date)
     payload = _apply_projection_probability_contract(payload, target_date)
+    payload = _attach_projection_artifact_metadata(payload, target_date)
     record_probability_source("model_projections")
     record_span(
         "model_projection.payload_bytes",
@@ -113,13 +162,22 @@ def _build_uncached_projection_payload(target_date: str) -> Dict[str, Any]:
 def warm_model_projection_payload(target_date: str) -> Dict[str, Any]:
     """Build and store the projection payload explicitly for cron/warm jobs."""
     payload = _build_uncached_projection_payload(target_date)
-    stored = set_cache(_projection_cache_key(target_date), payload)
+    stored = cache_artifact(
+        cache_key=_projection_cache_key(target_date),
+        payload=payload,
+        artifact_type="model_projection_date",
+        source_route="/models/projections",
+        source_builder="model_projection_routes.warm_model_projection_payload",
+        model_version="model_projection_probability_v1",
+        probability_source="model_projections",
+    )
     return {
         "warmed": True,
         "date": target_date,
         "games_cached": len(stored.get("games") or []) if isinstance(stored, dict) else None,
         "cache_key": _projection_cache_key(target_date),
         "probability_contract": "model_projection_probability_v1",
+        "artifact": stored.get("artifact") if isinstance(stored, dict) else None,
     }
 
 
