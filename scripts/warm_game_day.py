@@ -37,25 +37,32 @@ def warm(base_url: str, timeout: int = 60) -> Dict[str, Any]:
     base = base_url.rstrip("/")
     actions: List[Dict[str, Any]] = []
 
-    # Calendar should be lightweight and must not force heavy matchup generation.
+    # 1. Warm the lightweight schedule/calendar layer first.
+    # This should be the fastest user-visible path and must not force full matchup generation.
     actions.append({
-        "name": "calendar_window",
+        "name": "calendar_schedule_snapshot",
+        "method": "POST",
+        "url": f"{base}/matchups/calendar/snapshot",
+    })
+    actions.append({
+        "name": "calendar_schedule_read",
         "method": "GET",
-        "url": f"{base}/matchups/calendar",
+        "url": f"{base}/matchups/calendar/schedule",
     })
 
-    # Explicitly warm heavyweight matchups and projections outside the user path.
+    # 2. Explicitly warm heavyweight matchups and projections outside the user path.
+    # User-facing pages should reuse these artifacts instead of cold-building on click.
     for label in ("today", "tomorrow", "yesterday"):
         date_value = dates[label]
-        actions.append({
-            "name": f"matchups_snapshot_{label}",
-            "method": "POST",
-            "url": f"{base}/matchups/snapshot/{date_value}",
-        })
         actions.append({
             "name": f"model_projection_snapshot_{label}",
             "method": "POST",
             "url": f"{base}/models/projections/snapshot/{date_value}",
+        })
+        actions.append({
+            "name": f"matchups_snapshot_{label}",
+            "method": "POST",
+            "url": f"{base}/matchups/snapshot/{date_value}",
         })
 
     results = []
