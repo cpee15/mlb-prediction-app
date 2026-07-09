@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import datetime
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, Optional
 
 from .etl import fetch_schedule
 from .performance import estimate_payload_bytes, record_span, timing_span
-from .shared_payload_cache import env_ttl, get_cache, make_cache_key, set_cache
+from .shared_artifacts import (
+    ARTIFACT_SCHEMA_VERSION,
+    attach_artifact_metadata,
+    artifact_metadata,
+    cache_artifact,
+    get_or_build_artifact,
+    schedule_calendar_key,
+)
+from .shared_payload_cache import env_ttl
 
 ScheduleFetcher = Callable[[str], Iterable[Dict[str, Any]]]
 
@@ -73,6 +81,14 @@ def build_schedule_calendar_snapshot(
     with timing_span("calendar.fetch_schedule", category="schedule", route="/matchups/calendar", date=date_str):
         schedule = list(fetcher(date_str) or [])
     games = [compact_schedule_game(game) for game in schedule]
+    cache_key = schedule_calendar_key(date_str)
+    metadata = artifact_metadata(
+        artifact_type="schedule_calendar",
+        cache_key=cache_key,
+        source_route="/matchups/calendar/schedule",
+        source_builder="schedule_calendar.build_schedule_calendar_snapshot",
+        probability_source="not_loaded_on_calendar_initial_snapshot",
+    )
     payload = {
         "date": date_str,
         "count": len(games),
@@ -81,8 +97,9 @@ def build_schedule_calendar_snapshot(
         "source": "schedule_calendar_snapshot",
         "heavy_matchup_generation": False,
         "probability_source": "not_loaded_on_calendar_initial_snapshot",
-        "generated_at": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "generated_at": metadata["generated_at"],
     }
+    attach_artifact_metadata(payload, metadata)
     record_span(
         "calendar.snapshot.payload_bytes",
         category="serialization",
@@ -100,18 +117,19 @@ def get_or_build_schedule_calendar_snapshot(
     ttl_seconds: Optional[int] = None,
 ) -> Dict[str, Any]:
     ttl = env_ttl("MATCHUPS_CALENDAR_CACHE_TTL_SECONDS") if ttl_seconds is None else ttl_seconds
-    cache_key = make_cache_key("schedule_calendar", "date", date_str)
-    cached = get_cache(cache_key, ttl)
-    if isinstance(cached, dict):
-        cached.setdefault("cache_hit", True)
-        cached.setdefault("cache_key", cache_key)
-        cached.setdefault("ttl_seconds", ttl)
-        return cached
-    payload = build_schedule_calendar_snapshot(date_str, fetcher=fetcher)
-    payload.setdefault("cache_hit", False)
-    payload.setdefault("cache_key", cache_key)
-    payload.setdefault("ttl_seconds", ttl)
-    return set_cache(cache_key, payload)
+    cache_key = schedule_calendar_key(date_str)
+    payload = get_or_build_artifact(
+        cache_key=cache_key,
+        ttl_seconds=ttl,
+        artifact_type="schedule_calendar",
+        source_route="/matchups/calendar/schedule",
+        source_builder="schedule_calendar.build_schedule_calendar_snapshot",
+        probability_source="not_loaded_on_calendar_initial_snapshot",
+        builder=lambda: build_schedule_calendar_snapshot(date_str, fetcher=fetcher),
+    )
+    if isinstance(payload, dict):
+        payload.setdefault("ttl_seconds", ttl)
+    return payload
 
 
 def build_calendar_window_payload(
@@ -136,12 +154,24 @@ def warm_schedule_calendar_window(
     *,
     fetcher: ScheduleFetcher = fetch_schedule,
 ) -> Dict[str, Any]:
-    payload = build_calendar_window_payload(dates, fetcher=fetcher, ttl_seconds=0)
+    resolved_dates = dates or build_date_window()
+    payload: Dict[str, Any] = {}
+    for key, date_value in resolved_dates.items():
+        snapshot = build_schedule_calendar_snapshot(date_value, fetcher=fetcher)
+        payload[key] = cache_artifact(
+            cache_key=schedule_calendar_key(date_value),
+            payload=snapshot,
+            artifact_type="schedule_calendar",
+            source_route="/matchups/calendar/schedule",
+            source_builder="schedule_calendar.build_schedule_calendar_snapshot",
+            probability_source="not_loaded_on_calendar_initial_snapshot",
+        )
     return {
         "warmed": True,
         "dates": {key: value.get("date") for key, value in payload.items()},
         "counts": {key: value.get("count") for key, value in payload.items()},
         "snapshot_version": "schedule_calendar_v1",
+        "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
     }
 
 
