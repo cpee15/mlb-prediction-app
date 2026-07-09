@@ -86,7 +86,7 @@ def get_cache(key: str, ttl_seconds: int) -> Optional[Any]:
             "shared_payload_cache.deepcopy.get",
             category="cache",
             cache_status="HIT",
-            extra={"cache_key_prefix": str(key).split(":", 1)[0]},
+            extra={"cache_key_prefix": str(key).split(":", 1)[0], "payload_bytes": payload_bytes},
         ):
             copied = copy.deepcopy(value)
         record_span(
@@ -104,16 +104,14 @@ def set_cache(key: str, value: Any) -> Any:
     with timing_span(
         "shared_payload_cache.deepcopy.set_store",
         category="cache",
-        payload_bytes=payload_bytes,
-        extra={"cache_key_prefix": str(key).split(":", 1)[0]},
+        extra={"cache_key_prefix": str(key).split(":", 1)[0], "payload_bytes": payload_bytes},
     ):
         stored = copy.deepcopy(value)
     _CACHE[key] = (_now(), stored)
     with timing_span(
         "shared_payload_cache.deepcopy.set_return",
         category="cache",
-        payload_bytes=payload_bytes,
-        extra={"cache_key_prefix": str(key).split(":", 1)[0]},
+        extra={"cache_key_prefix": str(key).split(":", 1)[0], "payload_bytes": payload_bytes},
     ):
         returned = copy.deepcopy(value)
     record_span(
