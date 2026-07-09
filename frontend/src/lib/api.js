@@ -133,12 +133,22 @@ function urlString(input) {
   }
 }
 
+function isDashboardSessionRoute(url) {
+  try {
+    const parsed = new URL(url, API_BASE)
+    return parsed.pathname.startsWith('/my-dashboard')
+  } catch {
+    return String(url || '').startsWith('/my-dashboard')
+  }
+}
+
 function isCacheableApiGet(input, init = {}) {
   const method = String(init?.method || input?.method || 'GET').toUpperCase()
   if (method !== 'GET') return false
   if (init?.cache === 'no-store' || init?.cache === 'reload') return false
   const url = urlString(input)
   if (!url) return false
+  if (isDashboardSessionRoute(url)) return false
   return url.startsWith(API_BASE) || url.startsWith('/')
 }
 
