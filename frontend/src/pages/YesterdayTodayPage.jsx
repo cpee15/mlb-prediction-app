@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { API_BASE } from '../lib/api'
 
 const API = API_BASE
+const CALENDAR_SCHEDULE_URL = `${API}/matchups/calendar/schedule`
 
 const card = { background: '#161b22', border: '1px solid #30363d', borderRadius: '10px', padding: '16px', marginBottom: '16px' }
 
@@ -10,16 +11,21 @@ export default function YesterdayTodayPage() {
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
 
+  async function loadCalendar() {
+    const res = await fetch(CALENDAR_SCHEDULE_URL)
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+    return res.json()
+  }
+
   useEffect(() => {
-    fetch(`${API}/matchups/calendar`)
-      .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
+    loadCalendar()
       .then(setData)
       .catch(e => setError(String(e)))
   }, [])
 
-  async function snapshot(date) {
-    await fetch(`${API}/matchups/snapshot/${date}`, { method: 'POST' })
-    const refreshed = await fetch(`${API}/matchups/calendar`).then(r => r.json())
+  async function snapshot() {
+    await fetch(`${API}/matchups/calendar/snapshot`, { method: 'POST' })
+    const refreshed = await loadCalendar()
     setData(refreshed)
   }
 
@@ -33,7 +39,7 @@ export default function YesterdayTodayPage() {
         <div key={k} style={card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
             <strong style={{ textTransform: 'capitalize' }}>{k}: {data[k].date}</strong>
-            <button onClick={() => snapshot(data[k].date)}>Save latest copy</button>
+            <button onClick={snapshot}>Save latest copy</button>
           </div>
           <div style={{ fontSize: '13px', color: '#8b949e', marginBottom: '8px' }}>{data[k].count} games</div>
           {data[k].games.slice(0, 8).map((g) => (
