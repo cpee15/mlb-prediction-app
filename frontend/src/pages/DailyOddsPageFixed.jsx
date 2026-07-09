@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { API_BASE } from '../lib/api'
 
 const API = API_BASE
+const CALENDAR_SCHEDULE_URL = `${API}/matchups/calendar/schedule`
 
 const s = {
   page: { display: 'grid', gap: 18 },
@@ -58,6 +59,9 @@ const line = parts => parts.filter(good).join(' | ')
 const rows = (items, fallback) => items.filter(good).length ? items.filter(good) : [fallback]
 const time = iso => { try { return good(iso) ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) + ' ET' : null } catch { return null } }
 const american = v => n(v) === null ? '' : n(v) > 0 ? `+${n(v)}` : `${n(v)}`
+const jsonFetch = url => fetch(url).then(r => r.ok ? r.json() : Promise.reject(new Error(`${url} ${r.status}`)))
+const dateBucket = date => { const t = new Date(`${TODAY()}T12:00:00Z`); const d = new Date(`${date}T12:00:00Z`); const diff = Math.round((d - t) / 86400000); return diff === -1 ? 'yesterday' : diff === 0 ? 'today' : diff === 1 ? 'tomorrow' : null }
+const scheduleMatchups = (calendar, date) => { const b = dateBucket(date); const source = b ? calendar?.[b] : null; return arr(source?.games).map(g => ({ game_pk: g.game_pk, game_time: g.game_time || g.game_date, venue: g.venue, status: g.status, away_team_name: g.away_team_name, home_team_name: g.home_team_name, away_pitcher_name: g.away_pitcher?.name, home_pitcher_name: g.home_pitcher?.name, frontend_fallback_source: '/matchups/calendar/schedule' })) }
 
 function objects(root) {
   const out = [], seen = new WeakSet()
@@ -128,12 +132,36 @@ export default function DailyOddsPage() {
   const [data, setData] = useState({ matchups: [], events: [], models: [], projections: [], topProps: [] })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  function load() {
+
+  async function load() {
     setLoading(true); setError(null)
-    Promise.all([fetch(`${API}/matchups?date=${date}`).then(r => r.ok ? r.json() : Promise.reject(new Error(`matchups ${r.status}`))), fetch(`${API}/odds/draftkings/events?date=${date}`).then(r => r.ok ? r.json() : Promise.reject(new Error(`odds ${r.status}`))), fetch(`${API}/daily-odds/models?date=${date}`).then(r => r.ok ? r.json() : Promise.reject(new Error(`daily models ${r.status}`))), fetch(`${API}/models/projections?date=${date}`).then(r => r.ok ? r.json() : Promise.reject(new Error(`model projections ${r.status}`)))])
-      .then(([mp, op, dp, pp]) => { setData({ matchups: arr(mp?.games || mp?.matchups || mp), events: arr(op?.events || op?.games || op), models: arr(dp?.games || dp?.models || dp?.game_models || dp), projections: arr(pp?.games || pp?.models || pp?.game_models || pp), topProps: arr(dp?.top_prop_model_candidates || dp?.top_props || dp?.prop_candidates || pp?.top_prop_model_candidates) }); setLoading(false) })
-      .catch(e => { setError(String(e?.message || e)); setLoading(false) })
+    const [mp, op, dp, pp, cp] = await Promise.allSettled([
+      jsonFetch(`${API}/matchups?date=${date}`),
+      jsonFetch(`${API}/odds/draftkings/events?date=${date}`),
+      jsonFetch(`${API}/daily-odds/models?date=${date}`),
+      jsonFetch(`${API}/models/projections?date=${date}`),
+      jsonFetch(CALENDAR_SCHEDULE_URL),
+    ])
+    const matchupsPayload = mp.status === 'fulfilled' ? mp.value : null
+    const calendarPayload = cp.status === 'fulfilled' ? cp.value : null
+    const matchups = arr(matchupsPayload?.games || matchupsPayload?.matchups || matchupsPayload)
+    const fallbackMatchups = matchups.length ? [] : scheduleMatchups(calendarPayload, date)
+    const eventsPayload = op.status === 'fulfilled' ? op.value : null
+    const dailyPayload = dp.status === 'fulfilled' ? dp.value : null
+    const projectionPayload = pp.status === 'fulfilled' ? pp.value : null
+    const failures = [mp, op, dp, pp].filter(result => result.status === 'rejected').map(result => result.reason?.message || String(result.reason))
+
+    setData({
+      matchups: matchups.length ? matchups : fallbackMatchups,
+      events: arr(eventsPayload?.events || eventsPayload?.games || eventsPayload),
+      models: arr(dailyPayload?.games || dailyPayload?.models || dailyPayload?.game_models || dailyPayload),
+      projections: arr(projectionPayload?.games || projectionPayload?.models || projectionPayload?.game_models || projectionPayload),
+      topProps: arr(dailyPayload?.top_prop_model_candidates || dailyPayload?.top_props || dailyPayload?.prop_candidates || projectionPayload?.top_prop_model_candidates),
+    })
+    setError(failures.length && !matchups.length && !fallbackMatchups.length ? failures.join(' | ') : null)
+    setLoading(false)
   }
+
   useEffect(() => { load() }, [date])
   const merged = useMemo(() => { const mm = new Map(data.matchups.map(x => [matchupKey(x), x])); const em = new Map(data.events.map(x => [eventKey(x), x])); const dm = new Map(data.models.map(x => [modelKey(x), x])); const pm = new Map(data.projections.map(x => [modelKey(x), x])); return [...new Set([...mm.keys(), ...em.keys(), ...dm.keys(), ...pm.keys()].filter(good))].map(k => ({ key: k, matchup: mm.get(k), event: em.get(k), model: dm.get(k), projection: pm.get(k), gamePk: mm.get(k)?.game_pk || dm.get(k)?.game_pk || pm.get(k)?.game_pk })).filter(r => r.matchup || r.event || r.model || r.projection) }, [data])
   const lockKey = merged.map(r => ({ key: r.key, c: [r.projection?.models?.moneyline, r.projection?.models?.spread, r.projection?.models?.total, r.model?.models?.moneyline, r.model?.models?.spread, r.model?.models?.total].filter(Boolean).sort((a,b)=>Math.abs(n(b.edge)||0)-Math.abs(n(a.edge)||0))[0] })).filter(x => x.c).sort((a,b)=>(Math.abs(n(b.c.edge)||0)+n(b.c.confidence)||0)-(Math.abs(n(a.c.edge)||0)+n(a.c.confidence)||0))[0]?.key
