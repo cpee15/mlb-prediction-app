@@ -168,7 +168,7 @@ def _group_counts(rows: Iterable[Dict[str, Any]], field: str, default: str = "NO
 def _span_summary(spans: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for span in spans:
-        grouped[str(span.get("name") or "unknown")).append(span)
+        grouped[str(span.get("name") or "unknown")].append(span)
 
     summary: Dict[str, Dict[str, Any]] = {}
     for name, rows in grouped.items():
