@@ -90,6 +90,7 @@ def _build_confirmed_lineup_index_uncached(session: Session, target_date: str) -
                 "enabled": True,
                 "source": "matchups_boxscore_lineups",
                 "lineup_status": "unavailable",
+                "confirmed_lineup_date": target_date,
                 "confirmed_batter_count": 0,
                 "games_checked": 0,
                 "games_with_lineups": 0,
@@ -144,6 +145,7 @@ def _build_confirmed_lineup_index_uncached(session: Session, target_date: str) -
             "enabled": True,
             "source": "matchups_boxscore_lineups",
             "lineup_status": lineup_status,
+            "confirmed_lineup_date": target_date,
             "confirmed_batter_count": len(confirmed_ids) or len(confirmed_names),
             "games_checked": games_checked,
             "games_with_lineups": games_with_lineups,
@@ -183,8 +185,13 @@ def _item_confirmed_in_lineup(item: Dict[str, Any], confirmed_ids: Set[str], con
 
 
 def _rerank_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Re-rank every available item after lineup filtering.
+
+    The dashboard UI can paginate or collapse rows, but the backend should not
+    arbitrarily truncate the player universe to ten names.
+    """
     reranked = []
-    for idx, item in enumerate(items[:10], start=1):
+    for idx, item in enumerate(items, start=1):
         updated = dict(item)
         updated["rank"] = idx
         reranked.append(updated)
@@ -222,6 +229,7 @@ def _apply_active_lineup_filter(response: Dict[str, Any], lineup_index: Dict[str
             verified = dict(item)
             verified["lineup_verified"] = True
             verified["lineup_source"] = metadata.get("source")
+            verified["confirmed_lineup_date"] = metadata.get("confirmed_lineup_date")
             kept.append(verified)
         else:
             removed += 1

@@ -29,11 +29,22 @@ class MyDashboardBatchSolverRequest(BaseModel):
     active_lineups: bool = False
 
 
+class MyDashboardHydrateRequest(BaseModel):
+    date: Optional[str] = None
+    components: Optional[List[str]] = None
+    active_lineups: bool = True
+    force: bool = False
+
+
 def session_factory():
     database_url = os.getenv("DATABASE_URL", "sqlite:///mlb.db")
     engine = get_engine(database_url)
     create_tables(engine)
     return get_session(engine)
+
+
+def _yesterday_iso() -> str:
+    return (dt.date.today() - dt.timedelta(days=1)).isoformat()
 
 
 @router.get("/my-dashboard/health")
@@ -44,6 +55,10 @@ def my_dashboard_health() -> Dict[str, Any]:
         "auth_required": False,
         "persistence": "frontend_localStorage_v1",
         "supported_components": sorted(SUPPORTED_COMPONENTS),
+        "hydration": {
+            "cron_target": "/my-dashboard/solver/hydrate-yesterday",
+            "default_lineup_source": "yesterday_confirmed_1_9",
+        },
     }
 
 
@@ -75,6 +90,32 @@ def my_dashboard_active_lineup_solver_post(payload: MyDashboardSolverRequest) ->
     return _run_active_lineup_solver(date=payload.date, component=payload.component, filters=payload.filters)
 
 
+@router.post("/my-dashboard/solver/hydrate-yesterday")
+def my_dashboard_hydrate_yesterday_post(payload: Optional[MyDashboardHydrateRequest] = None) -> Dict[str, Any]:
+    request = payload or MyDashboardHydrateRequest()
+    target_date = request.date or _yesterday_iso()
+    return _run_hydration(
+        date=target_date,
+        components=request.components,
+        active_lineups=request.active_lineups,
+        force=request.force,
+    )
+
+
+@router.get("/my-dashboard/solver/hydrate-yesterday")
+def my_dashboard_hydrate_yesterday_get(
+    date: Optional[str] = Query(default=None),
+    active_lineups: bool = Query(default=True),
+    force: bool = Query(default=False),
+) -> Dict[str, Any]:
+    return _run_hydration(
+        date=date or _yesterday_iso(),
+        components=None,
+        active_lineups=active_lineups,
+        force=force,
+    )
+
+
 def _normalize_request(date: Optional[str], component: str, filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     target_date = (date or dt.date.today().isoformat())[:10]
     try:
@@ -86,6 +127,15 @@ def _normalize_request(date: Optional[str], component: str, filters: Optional[Di
         "component": (component or "").strip().lower(),
         "filters": normalize_filter_payload(filters),
     }
+
+
+def _normalize_component_list(components: Optional[List[str]]) -> List[str]:
+    requested_components = [str(c or "").strip().lower() for c in (components or sorted(SUPPORTED_COMPONENTS))]
+    requested_components = [c for c in requested_components if c]
+    invalid = [c for c in requested_components if c not in SUPPORTED_COMPONENTS]
+    if invalid:
+        raise HTTPException(status_code=400, detail={"message": "Unsupported dashboard component(s)", "components": invalid, "supported_components": sorted(SUPPORTED_COMPONENTS)})
+    return requested_components
 
 
 def _run_solver(date: Optional[str], component: str, filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -155,11 +205,7 @@ def _run_batch_solver(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid date: {date}") from exc
 
-    requested_components = [str(c or "").strip().lower() for c in (components or sorted(SUPPORTED_COMPONENTS))]
-    requested_components = [c for c in requested_components if c]
-    invalid = [c for c in requested_components if c not in SUPPORTED_COMPONENTS]
-    if invalid:
-        raise HTTPException(status_code=400, detail={"message": "Unsupported dashboard component(s)", "components": invalid, "supported_components": sorted(SUPPORTED_COMPONENTS)})
+    requested_components = _normalize_component_list(components)
 
     normalized_filters_by_component = {
         component: normalize_filter_payload((filters_by_component or {}).get(component))
@@ -176,34 +222,100 @@ def _run_batch_solver(
 
     try:
         def build() -> Dict[str, Any]:
-            results: Dict[str, Any] = {}
-            factory = session_factory()
-            with factory() as session:
-                for component in requested_components:
-                    filters = normalized_filters_by_component.get(component) or {}
-                    if active_lineups:
-                        results[component] = build_active_lineup_solver_payload(
-                            session=session,
-                            date=target_date,
-                            component=component,
-                            filters=filters,
-                        )
-                    else:
-                        results[component] = build_dashboard_solver_payload(
-                            session=session,
-                            date=target_date,
-                            component=component,
-                            filters=filters,
-                        )
-            return {
-                "date": target_date,
-                "components": requested_components,
-                "active_lineups": active_lineups,
-                "results": results,
-            }
+            return _build_batch_payload(
+                target_date=target_date,
+                requested_components=requested_components,
+                normalized_filters_by_component=normalized_filters_by_component,
+                active_lineups=active_lineups,
+                hydration_mode=False,
+            )
 
         return get_or_set(cache_key, env_ttl("DASHBOARD_SOLVER_CACHE_TTL_SECONDS"), build)
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail={"message": "My Dashboard batch solver failed", "error": str(exc)}) from exc
+
+
+def _run_hydration(
+    date: str,
+    components: Optional[List[str]],
+    active_lineups: bool = True,
+    force: bool = False,
+) -> Dict[str, Any]:
+    install_dashboard_context_cache()
+    target_date = (date or _yesterday_iso())[:10]
+    try:
+        dt.date.fromisoformat(target_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date: {date}") from exc
+
+    requested_components = _normalize_component_list(components)
+    normalized_filters_by_component = {component: {} for component in requested_components}
+    cache_key = make_cache_key(
+        "dashboard_solver",
+        "morning_hydration_active_lineups" if active_lineups else "morning_hydration",
+        target_date,
+        ",".join(requested_components),
+    )
+
+    def build() -> Dict[str, Any]:
+        hydrated = _build_batch_payload(
+            target_date=target_date,
+            requested_components=requested_components,
+            normalized_filters_by_component=normalized_filters_by_component,
+            active_lineups=active_lineups,
+            hydration_mode=True,
+        )
+        hydrated.update({
+            "hydration_status": "hydrated",
+            "hydration_target": "yesterday_confirmed_1_9" if active_lineups else "standard_dashboard_solver",
+            "hydrated_at": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "force_requested": force,
+        })
+        return hydrated
+
+    try:
+        if force:
+            return build()
+        return get_or_set(cache_key, env_ttl("DASHBOARD_SOLVER_CACHE_TTL_SECONDS"), build)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"message": "My Dashboard hydration failed", "error": str(exc)}) from exc
+
+
+def _build_batch_payload(
+    target_date: str,
+    requested_components: List[str],
+    normalized_filters_by_component: Dict[str, Dict[str, Any]],
+    active_lineups: bool,
+    hydration_mode: bool,
+) -> Dict[str, Any]:
+    results: Dict[str, Any] = {}
+    factory = session_factory()
+    with factory() as session:
+        for component in requested_components:
+            filters = normalized_filters_by_component.get(component) or {}
+            if active_lineups:
+                results[component] = build_active_lineup_solver_payload(
+                    session=session,
+                    date=target_date,
+                    component=component,
+                    filters=filters,
+                )
+            else:
+                results[component] = build_dashboard_solver_payload(
+                    session=session,
+                    date=target_date,
+                    component=component,
+                    filters=filters,
+                )
+    return {
+        "date": target_date,
+        "components": requested_components,
+        "active_lineups": active_lineups,
+        "hydration_mode": hydration_mode,
+        "lineup_source_policy": "confirmed_1_9_lineups" if active_lineups else "not_lineup_filtered",
+        "results": results,
+    }
