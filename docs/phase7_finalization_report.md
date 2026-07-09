@@ -13,7 +13,7 @@ Current PR scope:
 - Calendar refresh now warms `POST /matchups/calendar/snapshot` and reloads the lightweight schedule snapshot.
 - Daily Matchups still attempts full `/matchups?date=<date>` first, but falls back to `GET /matchups/calendar/schedule` so the frontend can keep rendering schedule cards if the heavy route is temporarily unavailable.
 - Daily Odds now uses settled route loading instead of one all-or-nothing `Promise.all`, and it uses the lightweight calendar schedule as a matchup fallback.
-- `scripts/phase7_benchmark.py` captures cold/warm route timings, payload sizes, cache headers, probability-source headers, and debug hotspot payloads.
+- `scripts/phase7_benchmark.py` captures cold/warm route timings, payload sizes, cache headers, probability-source headers, Daily Odds route stack timings, and debug hotspot payloads.
 
 ## Merged / active sprint phases
 
@@ -83,6 +83,7 @@ The script records:
 - `X-Payload-Bytes`
 - `X-Cache`
 - `X-Probability-Source`
+- Daily Odds stack route timings for `/odds/draftkings/events` and `/daily-odds/models`
 - `/debug/performance`
 - `/debug/performance/hotspots`
 - Model Projection probability-source counts
@@ -96,11 +97,13 @@ Paste or commit `docs/phase7_benchmark_output.json` after deployment.
 | `/matchups/calendar/schedule` | Pending | Pending | Pending | Pending | not loaded on initial calendar | Calendar should not trigger heavy matchup build |
 | `/matchups?date=<date>` | Pending | Pending | Pending | Pending | Pending | Daily Matchups full model route |
 | HomePage fallback from `/matchups/calendar/schedule` | Pending | Pending | Pending | Pending | schedule fallback | Renders cards with Pending probabilities when full route fails |
+| `/odds/draftkings/events?date=<date>` | Pending | Pending | Pending | Pending | N/A | Daily Odds market layer |
+| `/daily-odds/models?date=<date>` | Pending | Pending | Pending | Pending | Pending | Daily Odds model layer |
 | `/matchup/{game_pk}` | Pending | Pending | Pending | Pending | Pending | Matchup Detail |
 | `/models/projections?date=<date>` | Pending | Pending | Pending | Pending | model_projections where available | Model Projections |
 | Daily Matchups frontend waterfall | Pending | Pending | Pending | Pending | Pending | Browser/network capture required if not covered by backend script |
 | Model Projections frontend waterfall | Pending | Pending | Pending | Pending | Pending | Browser/network capture required if not covered by backend script |
-| Daily Odds frontend/API waterfall | Pending | Pending | Pending | Pending | Pending | Browser/network capture required if not covered by backend script |
+| Daily Odds frontend/API waterfall | Pending | Pending | Pending | Pending | Pending | Covered by frontend route stack and backend route script where possible |
 
 ## EPIC completion checklist
 
@@ -110,6 +113,7 @@ Paste or commit `docs/phase7_benchmark_output.json` after deployment.
 - [x] Daily Matchups frontend fallback uses installed lightweight calendar route when full matchups route is unavailable.
 - [x] Daily Odds route loading is resilient and uses installed lightweight calendar route as matchup fallback.
 - [x] Benchmark runner added.
+- [x] Benchmark runner includes Daily Odds route stack.
 - [ ] Phase 6 merged/deployed if not already merged.
 - [ ] Phase 7 deployed.
 - [ ] Production or preview benchmark output committed/attached.
