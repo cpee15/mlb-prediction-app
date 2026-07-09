@@ -5,7 +5,9 @@ const JSON_CACHE = new Map()
 const IN_FLIGHT_JSON = new Map()
 const STORAGE_PREFIX = 'mlb-json-cache:v2:'
 const CACHE_CHANNEL_NAME = 'mlb-json-cache-updates'
+const RAW_FETCH_TTL_SECONDS = 30 * 60
 let CACHE_CHANNEL = null
+let FETCH_CACHE_INSTALLED = false
 
 function nowMs() {
   return Date.now()
@@ -121,8 +123,71 @@ function publishCacheEvent(type, key) {
   }
 }
 
+function urlString(input) {
+  try {
+    if (typeof input === 'string') return input
+    if (input?.url) return input.url
+    return String(input || '')
+  } catch {
+    return ''
+  }
+}
+
+function isCacheableApiGet(input, init = {}) {
+  const method = String(init?.method || input?.method || 'GET').toUpperCase()
+  if (method !== 'GET') return false
+  if (init?.cache === 'no-store' || init?.cache === 'reload') return false
+  const url = urlString(input)
+  if (!url) return false
+  return url.startsWith(API_BASE) || url.startsWith('/')
+}
+
+function jsonResponseFromCache(value) {
+  return new Response(JSON.stringify(cloneJson(value)), {
+    status: 200,
+    statusText: 'OK',
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'x-mlbgpt-browser-cache': 'HIT',
+    },
+  })
+}
+
+function installFetchCache() {
+  if (typeof window === 'undefined' || FETCH_CACHE_INSTALLED) return
+  if (typeof window.fetch !== 'function' || typeof window.Response !== 'function') return
+  const originalFetch = window.fetch.bind(window)
+  window.fetch = async (input, init = {}) => {
+    const url = urlString(input)
+    if (!isCacheableApiGet(input, init)) {
+      return originalFetch(input, init)
+    }
+
+    const cached = readCachedJson(url, RAW_FETCH_TTL_SECONDS)
+    if (cached != null) {
+      return jsonResponseFromCache(cached)
+    }
+
+    const response = await originalFetch(input, init)
+    const contentType = response.headers.get('content-type') || ''
+    if (!response.ok || !contentType.includes('application/json')) {
+      return response
+    }
+
+    try {
+      const clone = response.clone()
+      const json = await clone.json()
+      writeCachedJson(url, json)
+    } catch {
+    }
+    return response
+  }
+  FETCH_CACHE_INSTALLED = true
+}
+
 if (typeof window !== 'undefined') {
   cacheChannel()
+  installFetchCache()
   window.addEventListener?.('storage', event => {
     if (!event.key || !event.key.startsWith(STORAGE_PREFIX)) return
     const key = event.key.slice(STORAGE_PREFIX.length)
