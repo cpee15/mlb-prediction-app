@@ -11,7 +11,8 @@ from .model_projection_probability import build_model_projection_probability
 from .model_projections import build_model_projection_payload
 from .model_tracker_routes import router as model_tracker_router
 from .performance import estimate_payload_bytes, record_probability_source, record_span, timing_span
-from .shared_payload_cache import env_ttl, get_or_set, make_cache_key
+from .schedule_calendar import build_calendar_window_payload, warm_schedule_calendar_window
+from .shared_payload_cache import env_ttl, get_or_set, make_cache_key, set_cache
 from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 
 router = APIRouter()
@@ -23,6 +24,10 @@ def _session_factory():
     engine = get_engine(database_url)
     create_tables(engine)
     return get_session(engine)
+
+
+def _projection_cache_key(target_date: str) -> str:
+    return make_cache_key("model_projection", "full", "probability_contract_v1", target_date)
 
 
 def _apply_projection_probability_contract(payload: Dict[str, Any], target_date: str) -> Dict[str, Any]:
@@ -105,10 +110,23 @@ def _build_uncached_projection_payload(target_date: str) -> Dict[str, Any]:
     return payload
 
 
+def warm_model_projection_payload(target_date: str) -> Dict[str, Any]:
+    """Build and store the projection payload explicitly for cron/warm jobs."""
+    payload = _build_uncached_projection_payload(target_date)
+    stored = set_cache(_projection_cache_key(target_date), payload)
+    return {
+        "warmed": True,
+        "date": target_date,
+        "games_cached": len(stored.get("games") or []) if isinstance(stored, dict) else None,
+        "cache_key": _projection_cache_key(target_date),
+        "probability_contract": "model_projection_probability_v1",
+    }
+
+
 @router.get("/models/projections")
 def model_projections(date: Optional[str] = None) -> Dict[str, Any]:
     target_date = date or datetime.date.today().isoformat()
-    cache_key = make_cache_key("model_projection", "full", "probability_contract_v1", target_date)
+    cache_key = _projection_cache_key(target_date)
     try:
         with timing_span(
             "route.models.projections.resolve",
@@ -136,3 +154,33 @@ def model_projections(date: Optional[str] = None) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail={"message": "Failed to build model projections", "error": str(exc)}) from exc
+
+
+@router.get("/matchups/calendar/schedule")
+def lightweight_matchup_calendar() -> Dict[str, Any]:
+    """Lightweight schedule-only calendar payload for fast initial calendar load."""
+    try:
+        return build_calendar_window_payload()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"message": "Failed to build lightweight calendar", "error": str(exc)}) from exc
+
+
+@router.post("/matchups/calendar/snapshot")
+def snapshot_lightweight_matchup_calendar() -> Dict[str, Any]:
+    """Warm schedule-only calendar snapshots without full matchup/model generation."""
+    try:
+        return warm_schedule_calendar_window()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"message": "Failed to warm lightweight calendar", "error": str(exc)}) from exc
+
+
+@router.post("/models/projections/snapshot/{date_str}")
+def snapshot_model_projections(date_str: str) -> Dict[str, Any]:
+    try:
+        datetime.datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="date_str must be YYYY-MM-DD") from exc
+    try:
+        return warm_model_projection_payload(date_str)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"message": "Failed to warm model projections", "error": str(exc)}) from exc
