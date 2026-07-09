@@ -11,6 +11,7 @@ from .model_projection_probability import build_model_projection_probability
 from .model_projections import build_model_projection_payload
 from .model_tracker_routes import router as model_tracker_router
 from .performance import estimate_payload_bytes, record_probability_source, record_span, timing_span
+from .schedule_calendar import build_calendar_window_payload, warm_schedule_calendar_window
 from .shared_payload_cache import env_ttl, get_or_set, make_cache_key, set_cache
 from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 
@@ -153,6 +154,24 @@ def model_projections(date: Optional[str] = None) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail={"message": "Failed to build model projections", "error": str(exc)}) from exc
+
+
+@router.get("/matchups/calendar/schedule")
+def lightweight_matchup_calendar() -> Dict[str, Any]:
+    """Lightweight schedule-only calendar payload for fast initial calendar load."""
+    try:
+        return build_calendar_window_payload()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"message": "Failed to build lightweight calendar", "error": str(exc)}) from exc
+
+
+@router.post("/matchups/calendar/snapshot")
+def snapshot_lightweight_matchup_calendar() -> Dict[str, Any]:
+    """Warm schedule-only calendar snapshots without full matchup/model generation."""
+    try:
+        return warm_schedule_calendar_window()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"message": "Failed to warm lightweight calendar", "error": str(exc)}) from exc
 
 
 @router.post("/models/projections/snapshot/{date_str}")
