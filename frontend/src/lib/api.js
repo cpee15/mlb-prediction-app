@@ -3,7 +3,9 @@ const PROD_API_BASE = 'https://mlb-prediction-app-production-732c.up.railway.app
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || PROD_API_BASE
 const JSON_CACHE = new Map()
 const IN_FLIGHT_JSON = new Map()
-const STORAGE_PREFIX = 'mlb-json-cache:v1:'
+const STORAGE_PREFIX = 'mlb-json-cache:v2:'
+const CACHE_CHANNEL_NAME = 'mlb-json-cache-updates'
+let CACHE_CHANNEL = null
 
 function nowMs() {
   return Date.now()
@@ -22,37 +24,121 @@ function storageKey(key) {
   return `${STORAGE_PREFIX}${String(key || '')}`
 }
 
-function readStorageRecord(key) {
-  if (typeof window === 'undefined' || !window.sessionStorage) return null
+function durableStorage() {
+  if (typeof window === 'undefined') return null
   try {
-    const raw = window.sessionStorage.getItem(storageKey(key))
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return null
-    if (typeof parsed.createdAt !== 'number') return null
-    return parsed
+    return window.localStorage || null
   } catch {
     return null
   }
 }
 
-function writeStorageRecord(key, value) {
-  if (typeof window === 'undefined' || !window.sessionStorage) return
+function sessionFallbackStorage() {
+  if (typeof window === 'undefined') return null
   try {
-    window.sessionStorage.setItem(storageKey(key), JSON.stringify({
-      createdAt: nowMs(),
-      value: cloneJson(value),
-    }))
+    return window.sessionStorage || null
   } catch {
+    return null
+  }
+}
+
+function readStorageRecord(key) {
+  const stores = [durableStorage(), sessionFallbackStorage()].filter(Boolean)
+  for (const store of stores) {
+    try {
+      const raw = store.getItem(storageKey(key))
+      if (!raw) continue
+      const parsed = JSON.parse(raw)
+      if (!parsed || typeof parsed !== 'object') continue
+      if (typeof parsed.createdAt !== 'number') continue
+      return parsed
+    } catch {
+    }
+  }
+  return null
+}
+
+function writeStorageRecord(key, value) {
+  const record = JSON.stringify({
+    createdAt: nowMs(),
+    value: cloneJson(value),
+  })
+  const stores = [durableStorage(), sessionFallbackStorage()].filter(Boolean)
+  for (const store of stores) {
+    try {
+      store.setItem(storageKey(key), record)
+      return
+    } catch {
+    }
   }
 }
 
 function deleteStorageRecord(key) {
-  if (typeof window === 'undefined' || !window.sessionStorage) return
+  const stores = [durableStorage(), sessionFallbackStorage()].filter(Boolean)
+  for (const store of stores) {
+    try {
+      store.removeItem(storageKey(key))
+    } catch {
+    }
+  }
+}
+
+function cacheChannel() {
+  if (typeof window === 'undefined' || typeof window.BroadcastChannel === 'undefined') return null
+  if (CACHE_CHANNEL) return CACHE_CHANNEL
   try {
-    window.sessionStorage.removeItem(storageKey(key))
+    CACHE_CHANNEL = new window.BroadcastChannel(CACHE_CHANNEL_NAME)
+    CACHE_CHANNEL.onmessage = event => {
+      const msg = event?.data || {}
+      if (!msg.key) return
+      if (msg.type === 'delete') {
+        JSON_CACHE.delete(String(msg.key))
+        IN_FLIGHT_JSON.delete(String(msg.key))
+        return
+      }
+      if (msg.type === 'write') {
+        const record = readStorageRecord(String(msg.key))
+        if (record) {
+          JSON_CACHE.set(String(msg.key), {
+            createdAt: record.createdAt,
+            value: cloneJson(record.value),
+          })
+        }
+      }
+    }
+    return CACHE_CHANNEL
+  } catch {
+    return null
+  }
+}
+
+function publishCacheEvent(type, key) {
+  const channel = cacheChannel()
+  if (!channel) return
+  try {
+    channel.postMessage({ type, key: String(key || '') })
   } catch {
   }
+}
+
+if (typeof window !== 'undefined') {
+  cacheChannel()
+  window.addEventListener?.('storage', event => {
+    if (!event.key || !event.key.startsWith(STORAGE_PREFIX)) return
+    const key = event.key.slice(STORAGE_PREFIX.length)
+    if (!event.newValue) {
+      JSON_CACHE.delete(key)
+      IN_FLIGHT_JSON.delete(key)
+      return
+    }
+    const record = readStorageRecord(key)
+    if (record) {
+      JSON_CACHE.set(key, {
+        createdAt: record.createdAt,
+        value: cloneJson(record.value),
+      })
+    }
+  })
 }
 
 export function readCachedJson(url, ttlSeconds = 60) {
@@ -89,6 +175,7 @@ export function writeCachedJson(url, value) {
   }
   JSON_CACHE.set(key, record)
   writeStorageRecord(key, record.value)
+  publishCacheEvent('write', key)
   return cloneJson(value)
 }
 
@@ -97,6 +184,7 @@ export function clearCachedJson(url) {
   JSON_CACHE.delete(key)
   IN_FLIGHT_JSON.delete(key)
   deleteStorageRecord(key)
+  publishCacheEvent('delete', key)
 }
 
 async function fetchJsonUncached(url, signal) {
