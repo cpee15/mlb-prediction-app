@@ -6,6 +6,7 @@ const API = API_BASE
 const MATCHUPS_TTL_SECONDS = 120
 const ODDS_EVENTS_TTL_SECONDS = 90
 const PROPS_TTL_SECONDS = 90
+const CALENDAR_SCHEDULE_URL = `${API}/matchups/calendar/schedule`
 
 function useIsMobile(breakpoint = 768) {
   const getMatches = () => (typeof window !== 'undefined' ? window.innerWidth <= breakpoint : false)
@@ -110,6 +111,49 @@ function keyFromEvent(e) {
   const away = e?.away_team?.name || e?.away_team || ''
   const home = e?.home_team?.name || e?.home_team || ''
   return matchupKey(away, home)
+}
+
+function dateBucket(date) {
+  const today = getMlbLiveDate()
+  const todayDate = new Date(`${today}T12:00:00Z`)
+  const targetDate = new Date(`${date}T12:00:00Z`)
+  const diffDays = Math.round((targetDate - todayDate) / 86400000)
+  if (diffDays === -1) return 'yesterday'
+  if (diffDays === 0) return 'today'
+  if (diffDays === 1) return 'tomorrow'
+  return null
+}
+
+function scheduleRowToMatchup(g, date) {
+  return {
+    game_pk: g.game_pk,
+    game_date: date,
+    game_time: g.game_time || g.game_date,
+    venue: g.venue,
+    status: g.status,
+    home_team_id: g.home_team_id,
+    away_team_id: g.away_team_id,
+    home_team_name: g.home_team_name,
+    away_team_name: g.away_team_name,
+    home_pitcher_id: g.home_pitcher?.id,
+    away_pitcher_id: g.away_pitcher?.id,
+    home_pitcher_name: g.home_pitcher?.name,
+    away_pitcher_name: g.away_pitcher?.name,
+    home_team_record: 'Record pending',
+    away_team_record: 'Record pending',
+    home_win_prob: null,
+    away_win_prob: null,
+    probability_source: 'schedule_calendar_fallback_not_model_probability',
+    frontend_fallback_source: '/matchups/calendar/schedule',
+  }
+}
+
+async function loadScheduleFallback(date) {
+  const calendar = await fetchJson(CALENDAR_SCHEDULE_URL, { ttlSeconds: MATCHUPS_TTL_SECONDS })
+  const bucket = dateBucket(date)
+  const source = bucket ? calendar?.[bucket] : null
+  if (!source || !Array.isArray(source.games)) return []
+  return source.games.map(game => scheduleRowToMatchup(game, source.date || date))
 }
 
 function eventMarkets(event) {
@@ -235,23 +279,23 @@ function ProbBar({ homeProb, awayProb }) {
         <div style={{ width: `${hp}%`, background: 'linear-gradient(90deg, #41d695, #8ee8bd)', transition: 'width 0.4s' }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11, color: 'var(--text-muted)', marginTop: 5, flexWrap: 'wrap' }}>
-        <span>{awayProb != null ? `${ap}% away` : 'Away pending'}</span>
-        <span>{homeProb != null ? `${hp}% home` : 'Home pending'}</span>
+        <span>{awayProb != null ? `${Math.round(awayProb * 100)}% Away` : 'Away pending'}</span>
+        <span>{homeProb != null ? `${Math.round(homeProb * 100)}% Home` : 'Home pending'}</span>
       </div>
     </div>
   )
 }
 
 function statusClass(status) {
-  if (!status) return ''
-  if (status === 'Final') return ''
-  if (String(status).toLowerCase().includes('progress') || String(status).toLowerCase().includes('live')) return 'success'
-  return 'warning'
+  const s = String(status || '').toLowerCase()
+  if (s.includes('final')) return 'success'
+  if (s.includes('progress') || s.includes('live')) return 'warning'
+  return ''
 }
 
 function openMatchupDetail(gamePk) {
-  if (!gamePk || typeof window === 'undefined') return
-  window.location.assign(`/matchup/${gamePk}`)
+  if (!gamePk) return
+  window.location.href = `/matchup/${gamePk}`
 }
 
 export default function HomePage() {
@@ -290,10 +334,20 @@ export default function HomePage() {
         setMatchups(Array.isArray(data) ? data : [])
         setLoading(false)
       })
-      .catch(e => {
+      .catch(async e => {
         if (cancelled) return
-        setError(String(e))
-        setLoading(false)
+        try {
+          const fallback = await loadScheduleFallback(date)
+          if (cancelled) return
+          setMatchups(fallback)
+          setError(fallback.length ? null : String(e))
+        } catch (fallbackErr) {
+          if (cancelled) return
+          setError(String(e))
+          setMatchups([])
+        } finally {
+          if (!cancelled) setLoading(false)
+        }
       })
     return () => { cancelled = true }
   }, [date])

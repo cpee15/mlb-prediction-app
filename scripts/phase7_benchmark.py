@@ -122,6 +122,12 @@ def run(base_url: str, date: Optional[str] = None, timeout: int = 60) -> Dict[st
         "date": target_date,
         "routes": [],
         "probability_verification": {},
+        "frontend_route_stack": {
+            "home_page": ["/matchups?date=<date>", "/matchups/calendar/schedule fallback", "/odds/draftkings/events?date=<date>"],
+            "calendar_page": ["/matchups/calendar/schedule", "/matchups/calendar/snapshot"],
+            "daily_odds_page": ["/matchups?date=<date>", "/matchups/calendar/schedule fallback", "/odds/draftkings/events?date=<date>", "/daily-odds/models?date=<date>", "/models/projections?date=<date>"],
+            "model_projections_page": ["/models/projections?date=<date>"],
+        },
         "debug": {},
     }
 
@@ -142,6 +148,8 @@ def run(base_url: str, date: Optional[str] = None, timeout: int = 60) -> Dict[st
     })
 
     results["routes"].append(_measure_twice("daily_matchups", "GET", f"{base}/matchups?date={target_date}", timeout))
+    results["routes"].append(_measure_twice("draftkings_events", "GET", f"{base}/odds/draftkings/events?date={target_date}", timeout))
+    results["routes"].append(_measure_twice("daily_odds_models", "GET", f"{base}/daily-odds/models?date={target_date}", timeout))
 
     game_pk = _first_game_pk(calendar_payload)
     if game_pk:
