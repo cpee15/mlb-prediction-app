@@ -6,6 +6,7 @@ const IN_FLIGHT_JSON = new Map()
 const STORAGE_PREFIX = 'mlb-json-cache:v2:'
 const CACHE_CHANNEL_NAME = 'mlb-json-cache-updates'
 const RAW_FETCH_TTL_SECONDS = 30 * 60
+const HEAVY_MATCHUPS_IN_FLIGHT = new Map()
 let CACHE_CHANNEL = null
 let FETCH_CACHE_INSTALLED = false
 
@@ -153,6 +154,69 @@ function jsonResponseFromCache(value) {
   })
 }
 
+function dateBucket(date) {
+  const today = getMlbLiveDate()
+  const todayDate = new Date(`${today}T12:00:00Z`)
+  const targetDate = new Date(`${date}T12:00:00Z`)
+  const diffDays = Math.round((targetDate - todayDate) / 86400000)
+  if (diffDays === -1) return 'yesterday'
+  if (diffDays === 0) return 'today'
+  if (diffDays === 1) return 'tomorrow'
+  return null
+}
+
+function scheduleRowToMatchup(g, date) {
+  return {
+    game_pk: g.game_pk,
+    game_date: date,
+    game_time: g.game_time || g.game_date,
+    venue: g.venue,
+    status: g.status,
+    home_team_id: g.home_team_id,
+    away_team_id: g.away_team_id,
+    home_team_name: g.home_team_name,
+    away_team_name: g.away_team_name,
+    home_pitcher_id: g.home_pitcher?.id,
+    away_pitcher_id: g.away_pitcher?.id,
+    home_pitcher_name: g.home_pitcher?.name,
+    away_pitcher_name: g.away_pitcher?.name,
+    home_team_record: 'Record pending',
+    away_team_record: 'Record pending',
+    home_win_prob: null,
+    away_win_prob: null,
+    probability_source: 'schedule_calendar_first_paint',
+    frontend_fallback_source: '/matchups/calendar/schedule',
+  }
+}
+
+function matchupsDateFromUrl(url) {
+  try {
+    const parsed = new URL(url, API_BASE)
+    if (parsed.pathname !== '/matchups') return null
+    return parsed.searchParams.get('date') || getMlbLiveDate()
+  } catch {
+    return null
+  }
+}
+
+async function buildScheduleFirstMatchups(date) {
+  const scheduleUrl = `${API_BASE}/matchups/calendar/schedule`
+  const calendar = readCachedJson(scheduleUrl, 120) || await fetchJsonUncached(scheduleUrl)
+  const bucket = dateBucket(date)
+  const source = bucket ? calendar?.[bucket] : null
+  if (!source || !Array.isArray(source.games)) return []
+  return source.games.map(game => scheduleRowToMatchup(game, source.date || date))
+}
+
+function hydrateHeavyMatchupsInBackground(url) {
+  const key = String(url || '')
+  if (!key || HEAVY_MATCHUPS_IN_FLIGHT.has(key)) return
+  const promise = fetchJsonUncached(key)
+    .catch(() => null)
+    .finally(() => HEAVY_MATCHUPS_IN_FLIGHT.delete(key))
+  HEAVY_MATCHUPS_IN_FLIGHT.set(key, promise)
+}
+
 function installFetchCache() {
   if (typeof window === 'undefined' || FETCH_CACHE_INSTALLED) return
   if (typeof window.fetch !== 'function' || typeof window.Response !== 'function') return
@@ -277,6 +341,20 @@ export async function fetchJson(url, { ttlSeconds = 60, forceRefresh = false, si
     if (cached != null) return cached
   } else {
     clearCachedJson(url)
+  }
+
+  const matchupsDate = !forceRefresh ? matchupsDateFromUrl(key) : null
+  if (matchupsDate) {
+    try {
+      const scheduleMatchups = await buildScheduleFirstMatchups(matchupsDate)
+      if (scheduleMatchups.length > 0) {
+        writeCachedJson(key, scheduleMatchups)
+        hydrateHeavyMatchupsInBackground(key)
+        return cloneJson(scheduleMatchups)
+      }
+    } catch {
+      // Fall through to the heavy route if the lightweight schedule is unavailable.
+    }
   }
 
   const canDedupe = !forceRefresh && !signal
