@@ -16,7 +16,7 @@ import LiveGamePageRestored from './pages/LiveGamePageRestored'
 import DailyOddsPage from './pages/DailyOddsPage'
 import Bet105SportsbookPage from './pages/Bet105SportsbookPage'
 import ModelProjectionsPage from './pages/ModelProjectionsPage'
-import NewsPage from './pages/NewsPage'
+import NewsPageClean from './pages/NewsPageClean'
 import MyDashboardReportBuilderPage from './pages/MyDashboardReportBuilderPage'
 import ModelTrackerPage from './pages/ModelTrackerPage'
 
@@ -76,7 +76,7 @@ export default function App() {
             <Route path="/landing-v2" element={<LandingV2Page />} />
             <Route path="/daily-odds" element={<DailyOddsPage />} />
             <Route path="/sportsbook/bet105" element={<Bet105SportsbookPage />} />
-            <Route path="/news" element={<NewsPage />} />
+            <Route path="/news" element={<NewsPageClean />} />
             <Route path="/models/projections" element={<ModelProjectionsPage />} />
             <Route path="/model-tracker" element={<ModelTrackerPage />} />
             <Route path="/my-dashboard" element={<MyDashboardReportBuilderPage />} />
