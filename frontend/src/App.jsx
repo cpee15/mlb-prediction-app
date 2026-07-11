@@ -16,8 +16,8 @@ import LiveGamePageRestored from './pages/LiveGamePageRestored'
 import DailyOddsPage from './pages/DailyOddsPage'
 import Bet105SportsbookPage from './pages/Bet105SportsbookPage'
 import ModelProjectionsPage from './pages/ModelProjectionsPage'
-import NewsPage from './pages/NewsPage'
-import MyDashboardWorkbenchPage from './pages/MyDashboardWorkbenchPage'
+import NewsPageClean from './pages/NewsPageClean'
+import MyDashboardReportBuilderPage from './pages/MyDashboardReportBuilderPage'
 import ModelTrackerPage from './pages/ModelTrackerPage'
 
 // Set VITE_ENABLE_BATTER_PAGE=true in Railway env vars to re-enable the Batter routes.
@@ -76,10 +76,10 @@ export default function App() {
             <Route path="/landing-v2" element={<LandingV2Page />} />
             <Route path="/daily-odds" element={<DailyOddsPage />} />
             <Route path="/sportsbook/bet105" element={<Bet105SportsbookPage />} />
-            <Route path="/news" element={<NewsPage />} />
+            <Route path="/news" element={<NewsPageClean />} />
             <Route path="/models/projections" element={<ModelProjectionsPage />} />
             <Route path="/model-tracker" element={<ModelTrackerPage />} />
-            <Route path="/my-dashboard" element={<MyDashboardWorkbenchPage />} />
+            <Route path="/my-dashboard" element={<MyDashboardReportBuilderPage />} />
             <Route path="/matchup/:game_pk" element={<MatchupRoute />} />
             <Route path="/matchup/:game_pk/competitive" element={<CompetitiveAnalysisPage />} />
             <Route path="/standings" element={<StandingsPage />} />
