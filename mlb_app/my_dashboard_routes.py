@@ -11,6 +11,13 @@ from . import my_dashboard_solver as dashboard_solver
 from .active_lineup_solver import build_active_lineup_solver_payload
 from .database import create_tables, get_engine, get_session
 from .my_dashboard_context_cache import install_dashboard_context_cache
+from .my_dashboard_observability import (
+    begin_hydration,
+    complete_hydration,
+    cron_configuration,
+    fail_hydration,
+    latest_hydration_status,
+)
 from .my_dashboard_report_query import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
@@ -77,10 +84,24 @@ def my_dashboard_health() -> Dict[str, Any]:
             "final_top_ten_cap": False,
             "fields": ["totalSize", "done", "records", "page_info", "object_info"],
         },
-        "hydration": {
-            "cron_target": "/my-dashboard/solver/hydrate-yesterday",
-            "default_lineup_source": "yesterday_confirmed_1_9",
+        "lineup_policy": {
+            "today_confirmed_preferred": True,
+            "partial_lineups_are_explicit": True,
+            "unavailable_lineups_return_zero_verified_hitters": True,
+            "yesterday_hydration_is_cache_warming_not_today_fallback": True,
         },
+        "hydration": {
+            **cron_configuration(),
+            "latest": latest_hydration_status(),
+        },
+    }
+
+
+@router.get("/my-dashboard/hydration/status")
+def my_dashboard_hydration_status() -> Dict[str, Any]:
+    return {
+        "configuration": cron_configuration(),
+        "latest": latest_hydration_status(),
     }
 
 
@@ -361,6 +382,7 @@ def _run_hydration(
         target_date,
         ",".join(requested_components),
     )
+    run = begin_hydration(target_date, requested_components, active_lineups, force)
 
     def build() -> Dict[str, Any]:
         hydrated = _build_batch_payload(
@@ -373,18 +395,20 @@ def _run_hydration(
         hydrated.update({
             "hydration_status": "hydrated",
             "hydration_target": "yesterday_confirmed_1_9" if active_lineups else "standard_dashboard_solver",
-            "hydrated_at": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "hydrated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "force_requested": force,
         })
         return hydrated
 
     try:
-        if force:
-            return build()
-        return get_or_set(cache_key, env_ttl("DASHBOARD_SOLVER_CACHE_TTL_SECONDS"), build)
+        cache_mode = "forced_refresh" if force else "cache_allowed"
+        hydrated = build() if force else get_or_set(cache_key, env_ttl("DASHBOARD_SOLVER_CACHE_TTL_SECONDS"), build)
+        execution = complete_hydration(run, hydrated, cache_mode=cache_mode)
+        return {**hydrated, "execution": execution}
     except HTTPException:
         raise
     except Exception as exc:
+        fail_hydration(run, exc)
         raise HTTPException(status_code=500, detail={"message": "My Dashboard hydration failed", "error": str(exc)}) from exc
 
 
