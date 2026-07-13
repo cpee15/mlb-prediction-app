@@ -26,6 +26,8 @@ DEFAULT_TTLS = {
     "PITCHER_ARSENAL_CACHE_TTL_SECONDS": 21600,
 }
 
+LIVE_LINEUP_CACHE_MAX_SECONDS = 30
+
 
 def _now() -> float:
     return time.monotonic()
@@ -51,7 +53,22 @@ def make_cache_key(*parts: Any) -> str:
     return ":".join(str(part) for part in parts if part is not None)
 
 
+def _effective_ttl(key: str, ttl_seconds: int) -> int:
+    """Use baseball-time cache semantics while confirmed lineups are forming.
+
+    Active-lineup solver payloads must promote automatically from projected to
+    partial to confirmed as MLB boxscore lineups arrive. A five-minute generic
+    dashboard TTL is too stale during that window, so those payloads are polled
+    at most every 30 seconds. Once rebuilt, the lineup revision travels with the
+    response and the downstream report shell receives the new model state.
+    """
+    if "active_lineups_full_result" in str(key):
+        return min(max(0, ttl_seconds), LIVE_LINEUP_CACHE_MAX_SECONDS)
+    return ttl_seconds
+
+
 def get_cache(key: str, ttl_seconds: int) -> Optional[Any]:
+    ttl_seconds = _effective_ttl(key, ttl_seconds)
     with timing_span(
         "shared_payload_cache.get_cache",
         category="cache",
@@ -61,91 +78,51 @@ def get_cache(key: str, ttl_seconds: int) -> Optional[Any]:
         record = _CACHE.get(key)
         if not record:
             record_cache_status("MISS")
-            record_span(
-                "shared_payload_cache.lookup",
-                category="cache",
-                cache_status="MISS",
-                extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds},
-            )
+            record_span("shared_payload_cache.lookup", category="cache", cache_status="MISS", extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds})
             return None
         created_at, value = record
         if ttl_seconds <= 0 or _now() - created_at > ttl_seconds:
             _CACHE.pop(key, None)
             record_cache_status("MISS")
-            record_span(
-                "shared_payload_cache.lookup",
-                category="cache",
-                cache_status="EXPIRED",
-                payload_bytes=estimate_payload_bytes(value),
-                extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds},
-            )
+            record_span("shared_payload_cache.lookup", category="cache", cache_status="EXPIRED", payload_bytes=estimate_payload_bytes(value), extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds})
             return None
         record_cache_status("HIT")
         payload_bytes = estimate_payload_bytes(value)
-        with timing_span(
-            "shared_payload_cache.deepcopy.get",
-            category="cache",
-            cache_status="HIT",
-            extra={"cache_key_prefix": str(key).split(":", 1)[0], "payload_bytes": payload_bytes},
-        ):
+        with timing_span("shared_payload_cache.deepcopy.get", category="cache", cache_status="HIT", extra={"cache_key_prefix": str(key).split(":", 1)[0], "payload_bytes": payload_bytes}):
             copied = copy.deepcopy(value)
-        record_span(
-            "shared_payload_cache.lookup",
-            category="cache",
-            cache_status="HIT",
-            payload_bytes=payload_bytes,
-            extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds},
-        )
+        record_span("shared_payload_cache.lookup", category="cache", cache_status="HIT", payload_bytes=payload_bytes, extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds})
         return copied
 
 
 def set_cache(key: str, value: Any) -> Any:
     payload_bytes = estimate_payload_bytes(value)
-    with timing_span(
-        "shared_payload_cache.deepcopy.set_store",
-        category="cache",
-        extra={"cache_key_prefix": str(key).split(":", 1)[0], "payload_bytes": payload_bytes},
-    ):
+    with timing_span("shared_payload_cache.deepcopy.set_store", category="cache", extra={"cache_key_prefix": str(key).split(":", 1)[0], "payload_bytes": payload_bytes}):
         stored = copy.deepcopy(value)
     _CACHE[key] = (_now(), stored)
-    with timing_span(
-        "shared_payload_cache.deepcopy.set_return",
-        category="cache",
-        extra={"cache_key_prefix": str(key).split(":", 1)[0], "payload_bytes": payload_bytes},
-    ):
+    with timing_span("shared_payload_cache.deepcopy.set_return", category="cache", extra={"cache_key_prefix": str(key).split(":", 1)[0], "payload_bytes": payload_bytes}):
         returned = copy.deepcopy(value)
-    record_span(
-        "shared_payload_cache.set_cache",
-        category="cache",
-        cache_status="STORE",
-        payload_bytes=payload_bytes,
-        extra={"cache_key_prefix": str(key).split(":", 1)[0]},
-    )
+    record_span("shared_payload_cache.set_cache", category="cache", cache_status="STORE", payload_bytes=payload_bytes, extra={"cache_key_prefix": str(key).split(":", 1)[0]})
     return returned
 
 
 def get_or_set(key: str, ttl_seconds: int, builder: Callable[[], Any]) -> Any:
-    cached = get_cache(key, ttl_seconds)
+    effective_ttl = _effective_ttl(key, ttl_seconds)
+    cached = get_cache(key, effective_ttl)
     if cached is not None:
         if isinstance(cached, dict):
             cached["cache_hit"] = True
             cached.setdefault("cache_key", key)
-            cached.setdefault("ttl_seconds", ttl_seconds)
+            cached.setdefault("ttl_seconds", effective_ttl)
         return cached
     started_at = _now()
-    with timing_span(
-        "shared_payload_cache.builder",
-        category="cache",
-        cache_status="MISS",
-        extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds},
-    ):
+    with timing_span("shared_payload_cache.builder", category="cache", cache_status="MISS", extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": effective_ttl}):
         value = builder()
     built_ms = int(round((_now() - started_at) * 1000))
     stored = set_cache(key, value)
     if isinstance(stored, dict):
         stored.setdefault("cache_hit", False)
         stored.setdefault("cache_key", key)
-        stored.setdefault("ttl_seconds", ttl_seconds)
+        stored.setdefault("ttl_seconds", effective_ttl)
         stored.setdefault("built_ms", built_ms)
     return stored
 
