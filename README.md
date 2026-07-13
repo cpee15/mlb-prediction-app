@@ -1,161 +1,321 @@
 # MLB Prediction App
 
-A production full-stack MLB matchup and prediction engine. Data is ingested from the **MLB Stats API** and **Baseball Savant / Statcast**, stored in PostgreSQL, and served through a **FastAPI** backend to a **React 18** frontend hosted at [mlbgpt.com](https://mlbgpt.com).
+A production full-stack MLB data, matchup, projection, and sportsbook analysis platform hosted at [mlbgpt.com](https://mlbgpt.com).
+
+The application ingests official MLB schedule and roster data, Statcast/Baseball Savant data, sportsbook feeds, and locally persisted model features. A FastAPI backend serves normalized contracts to a React frontend deployed as a separate Railway service.
 
 ---
 
-## Matchup Analyzer — Current Production Reference
+## Production Architecture
 
-The matchup analyzer is now live in production and should be treated as the current known-good behavior for daily game analysis. This section exists to preserve, in plain English, what the analyzer is doing right now so future changes can always be measured against a written baseline. The goal is simple: if the analyzer ever drifts, breaks, or starts returning incomplete matchup cards, this description should make it obvious what changed.
+This repository deploys as **two independent Railway services**.
 
-At a high level, the analyzer pulls the daily MLB schedule, resolves each game into a structured matchup object, validates that both teams and both expected starting pitchers can be tied back to internal data, and then returns those matchups through the production API for the frontend to render. It is not intended to guess, partially fill, or fabricate missing core matchup data. A matchup should only move forward when the required game-level identity fields are present and usable.
+| Service | Runtime | Role | Typical domain |
+|---|---|---|---|
+| `mlb-prediction-app` | Docker, Python 3.11, Uvicorn | FastAPI backend, data services, model routes, refresh endpoints | Railway service domain |
+| Frontend | Railpack, Node, Vite | React single-page application | `mlbgpt.com` |
 
-The analyzer begins with the official game schedule for the requested date. From that schedule it identifies every scheduled game and extracts the base metadata that defines a matchup: game ID, date, away team, home team, team IDs, probable or assigned starting pitchers, and game status. That core layer is the foundation for everything else in the system. If the analyzer cannot reliably resolve those values, it should fail that matchup cleanly rather than emit a misleading or half-built result.
+The frontend calls the backend through `VITE_API_BASE_URL`, which must be set in the **frontend Railway service at build time**. Relative API URLs are not a valid production fallback because the frontend service does not own the FastAPI routes.
 
-Once the schedule layer is resolved, the analyzer maps the teams and pitchers into the internal data model used by the rest of the app. This includes linking the matchup to database-backed historical statistics, rolling performance views, player split data, and any supporting aggregation used by the scoring and analysis pipeline. Pitcher identity resolution is especially important here. The analyzer must correctly associate the live game pitcher with the stored player record so downstream pages, matchup detail views, and scoring logic all stay aligned.
+The backend uses `DATABASE_URL` for SQLAlchemy persistence. PostgreSQL is the production database. SQLite fallback exists for local development and tests and must not be relied on in production.
 
-After identity resolution succeeds, the analyzer assembles a finalized matchup object that the API can return consistently. That object should be stable enough to support the homepage matchup cards, game detail pages, competitive lineup views, and downstream scoring functions without requiring the frontend to invent missing values. In other words, the backend is responsible for giving the frontend a clean, trustworthy matchup payload.
+### CORS requirements
 
-In production, this means the matchup analyzer is expected to do the following every day: retrieve the correct game slate, identify both clubs in every game, resolve both starting pitchers when available, connect those entities to the internal statistical system, assemble complete matchup records, and expose those records through the live API in a structure the frontend can render directly. When no games are scheduled, the analyzer should return a valid empty result, not a broken response. When a specific matchup cannot be built correctly, it should be excluded or flagged cleanly rather than degrade the full slate.
+The backend must allow:
 
-This is the reference behavior that should be preserved. Future refactors can improve speed, coverage, and depth, but they should not change the core expectation that the analyzer returns validated, production-safe matchup objects built from real scheduled games, correctly resolved teams and pitchers, and internally consistent data links across the rest of the application.
+- `https://mlbgpt.com`
+- `https://www.mlbgpt.com`
+- Railway service domains through the configured `allow_origin_regex`
 
----
-
-## Architecture — Two Separate Railway Services
-
-This project deploys as **two independent Railway services**. Understanding this is mandatory before contributing.
-
-| Service | Builder | Role | Domain |
-|---------|---------|------|--------|
-| `mlb-prediction-app` | Dockerfile | FastAPI backend + API | `*.up.railway.app` |
-| Frontend | Railpack (Node) | React SPA | `mlbgpt.com` |
-
-The frontend calls the backend via `VITE_API_BASE_URL` (set in Railway env vars at build time). If `VITE_API_BASE_URL` is unset, API calls fall back to relative URLs — which **breaks** because the frontend service has no API routes.
-
-### CORS Policy
-
-The backend (`mlb_app/app.py`) allows:
-- `https://mlbgpt.com` and `https://www.mlbgpt.com`
-- `https://*.up.railway.app` via `allow_origin_regex`
-
-**Never restrict CORS to only the custom domain.** The Railway service URL must always be allowed.
+Do not restrict CORS to only the custom frontend domain; direct Railway service access is required for deployment checks and internal service communication.
 
 ---
 
-## Stack
+## Golden Matchup Analyzer Path
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python 3.11, FastAPI, Uvicorn |
-| ORM / DB | SQLAlchemy 2.x, PostgreSQL (SQLite fallback for local) |
-| Data | pybaseball (Statcast), MLB Stats API (`statsapi.mlb.com`) |
-| Frontend | React 18, Vite, React Router 6 |
-| Deployment | Docker (backend), Railpack/Node (frontend), Railway, GitHub Actions |
+The daily matchup analyzer is the current production reference path and should be preserved unless direct evidence proves it is broken.
+
+The expected execution path is:
+
+1. Load the official MLB schedule for the requested `YYYY-MM-DD` date.
+2. Resolve `game_pk`, teams, team IDs, game status, and probable or assigned starters.
+3. Map teams and pitchers into persisted historical, rolling, split, arsenal, and Statcast data.
+4. Build validated matchup records with stable backend-owned fields.
+5. Return a valid empty slate when no games are scheduled.
+6. Exclude or explicitly flag incomplete matchups rather than inventing teams, pitchers, odds, or statistics.
+
+Primary implementation:
+
+- `mlb_app/matchup_generator.py`
+- `generate_matchups_for_date(...)`
+- `GET /matchups?date=YYYY-MM-DD`
+- `GET /matchup/{game_pk}`
+- `GET /matchup/{game_pk}/competitive`
+- `frontend/src/pages/HomePage.jsx`
+- `frontend/src/pages/MatchupDetailPage.jsx`
+- `frontend/src/pages/CompetitiveAnalysisPage.jsx`
+
+`frontend/src/pages/MatchupDetailPage.jsx` is the current chart-rich production matchup-detail component. Do not replace it with an alternate shell or simplified page without regression evidence and explicit chart/render verification.
 
 ---
 
-## Repository Structure
+## Current Product Surfaces
 
+| Surface | Frontend route | Frontend component | Backend area |
+|---|---|---|---|
+| Daily Matchups | `/` | `HomePage.jsx` | `mlb_app/app.py`, `matchup_generator.py` |
+| Matchup Detail | `/matchup/:game_pk` | `MatchupDetailPage.jsx` | `GET /matchup/{game_pk}` |
+| Competitive Analysis | `/matchup/:game_pk/competitive` | `CompetitiveAnalysisPage.jsx` | competitive matchup route |
+| Daily Odds | `/daily-odds` | `DailyOddsPage.jsx` | `mlb_app/daily_odds_routes.py` |
+| Bet105 Sportsbook | `/sportsbook/bet105` | `Bet105SportsbookPage.jsx` | `mlb_app/sportsbook_routes.py` and KIBL provider modules |
+| Model Projections | `/models/projections` | `ModelProjectionsPage.jsx` | `mlb_app/model_projection_routes.py` |
+| My Dashboard | `/my-dashboard` | `MyDashboardReportBuilderPage.jsx` | `mlb_app/my_dashboard_routes.py`, `my_dashboard_solver.py` |
+| AI Data Assistant | `/ai-data-assistant` | `AIPage.jsx` | `mlb_app/ai_data_assistant_routes.py` |
+| Model Tracker | `/model-tracker` | `ModelTrackerPage.jsx` | `mlb_app/model_tracker_routes.py` |
+| News | `/news` | `NewsPageClean.jsx` | `mlb_app/news_routes.py` |
+| Live Games | `/live`, `/live/:game_pk` | live scoreboard/game pages | live routes in `mlb_app/app.py` |
+| Pitchers | `/pitcher`, `/pitcher/:id` | `PitcherPage.jsx` | pitcher routes and profile stores |
+| Batters | `/batter`, `/batter/:id` | feature-gated Batter pages | `mlb_app/batter_routes.py` |
+| Teams | `/team`, `/team/:id` | `TeamPage.jsx` | team routes in `mlb_app/app.py` |
+| Standings | `/standings` | `StandingsPage.jsx` | standings route |
+| Calendar | `/calendar` | `YesterdayTodayPage.jsx` | matchup/calendar routes |
+
+The Batter frontend remains controlled by `VITE_ENABLE_BATTER_PAGE`. Keep it disabled until the production leaderboard and rolling-data contracts are verified.
+
+---
+
+## Backend Structure
+
+The backend application is created in `mlb_app/app.py`. Older core routes remain there, while newer product surfaces use feature routers.
+
+```text
+mlb_app/
+├── app.py                         # FastAPI app bootstrap and core route families
+├── database.py                    # SQLAlchemy models, engine/session helpers
+├── db_utils.py                    # Database query helpers
+├── matchup_generator.py           # Daily matchup assembly
+├── matchup_analysis.py            # Matchup analysis composition
+├── scoring.py                     # Matchup scoring and probability helpers
+├── daily_odds_routes.py           # Daily Odds aggregate contract
+├── daily_odds_models.py           # Game and prop model builders
+├── model_projection_routes.py     # Model Projections API
+├── my_dashboard_routes.py         # Dashboard/report API routes
+├── my_dashboard_solver.py         # Dashboard component ranking and report inputs
+├── ai_data_assistant_routes.py    # AI Data Assistant routes
+├── sportsbook_routes.py           # Sportsbook and Bet105 routes
+├── model_tracker_routes.py        # Historical model result tracking
+├── batter_routes.py               # Batter endpoints
+├── batter_data_contract.py        # Official stats vs local Statcast contract
+├── news_routes.py                 # News API
+├── shared_payload_cache.py        # Shared artifact cache utilities
+├── pitcher_profile_store.py       # Pitcher overview/arsenal/recent-game serializers
+├── starting_pitcher_arsenal_refresh.py
+└── simulation/                    # Game and inning simulation code
 ```
-mlb-prediction-app/
-├── mlb_app/                    # Core Python package
-│   ├── app.py                  # FastAPI application — all API routes
-│   ├── database.py             # SQLAlchemy ORM models
-│   ├── db_utils.py             # Database query helpers
-│   ├── etl.py                  # ETL pipeline (Statcast, arsenal, splits → DB)
-│   ├── matchup_generator.py    # Assembles game-level feature vectors from DB
-│   ├── scoring.py              # Matchup scoring engine / win probability
-│   ├── aggregation.py          # Rolling-window and seasonal stat aggregation
-│   ├── data_ingestion.py       # MLB Stats API wrappers (schedule, standings, splits)
-│   ├── statcast_utils.py       # Statcast retrieval and aggregation (pybaseball)
-│   ├── pitcher_analysis.py     # Pitcher metric retrieval helpers
-│   ├── batter_analysis.py      # Batter metric retrieval helpers
-│   ├── player_splits.py        # Player splits vs L/R pitching
-│   ├── analysis_pipeline.py    # Matchup analysis orchestration
-│   └── hitter_profile.py       # Hitter profile scaffold (in progress)
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx             # Root component + routing
-│   │   ├── pages/
-│   │   │   ├── HomePage.jsx                # Daily matchups
-│   │   │   ├── MatchupDetailPage.jsx       # Single-game drill-down
-│   │   │   ├── CompetitiveAnalysisPage.jsx # Lineup-vs-pitcher matrix
-│   │   │   ├── PitcherPage.jsx             # Pitcher profile + arsenal
-│   │   │   ├── RollingPitcherPage.jsx      # Pitcher rolling stats (L15G–L150G)
-│   │   │   ├── BatterPage.jsx              # Batter profile + platoon splits
-│   │   │   ├── RollingBatterPage.jsx       # Batter rolling stats (L10–L1000 ABs)
-│   │   │   ├── TeamPage.jsx                # Team vsL/vsR splits + standings
-│   │   │   ├── StandingsPage.jsx           # AL/NL standings
-│   │   │   ├── YesterdayTodayPage.jsx      # Calendar view (yesterday/today/tomorrow)
-│   │   │   └── AIPage.jsx                  # Lightweight MLB Q&A assistant
-│   │   └── utils/
-│   │       └── formatters.js   # Shared number/percent/date formatters
-│   ├── index.html
-│   └── package.json
-├── main.py                     # Uvicorn entry point for Railway
-├── seed_db.py                  # Bootstrap: loads last N days of Statcast into DB
-├── generate_matchups.py        # CLI: prints matchups JSON for a given date
-├── Dockerfile                  # Multi-stage build (Python 3.11 + Node 20)
-├── railway.json                # Railway deploy config (healthcheck, restart policy)
-├── CLAUDE.md                   # Architecture notes for AI-assisted development
-└── requirements.txt            # Python dependencies
+
+### FastAPI entry point
+
+Local and Railway-compatible startup:
+
+```bash
+uvicorn mlb_app.app:app --host 0.0.0.0 --port 8000
 ```
+
+`main.py` is retained as the repository-level production entry point where required by deployment configuration.
 
 ---
 
-## API Endpoints
+## Frontend Structure
 
-All endpoints are served by `mlb_app/app.py`.
+The frontend is React 18, Vite, and React Router 6.
 
-### Health
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Health check |
+```text
+frontend/
+├── src/
+│   ├── App.jsx                    # Route map and navigation
+│   ├── lib/api.js                 # Shared API client and browser-cache behavior
+│   ├── pages/
+│   │   ├── HomePage.jsx
+│   │   ├── MatchupDetailPage.jsx
+│   │   ├── CompetitiveAnalysisPage.jsx
+│   │   ├── DailyOddsPage.jsx
+│   │   ├── Bet105SportsbookPage.jsx
+│   │   ├── ModelProjectionsPage.jsx
+│   │   ├── MyDashboardReportBuilderPage.jsx
+│   │   ├── AIPage.jsx
+│   │   ├── ModelTrackerPage.jsx
+│   │   └── NewsPageClean.jsx
+│   └── utils/
+└── package.json
+```
 
-### Matchups / Schedule
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/matchups` | List games for a date (`?date=YYYY-MM-DD`) |
-| `GET` | `/matchups/calendar` | Yesterday / today / tomorrow snapshot |
-| `POST` | `/matchups/snapshot/{date_str}` | Cache matchups for a specific date |
-| `GET` | `/matchup/{game_pk}` | Full game detail (pitchers, lineups, splits, game log) |
-| `GET` | `/matchup/{game_pk}/competitive` | Lineup-level competitive matchup matrix |
+Do not add route-specific interception logic to the generic `fetchJson(...)` helper. Surface-specific request sequencing belongs in the page or dedicated API service so unrelated endpoints keep predictable semantics.
 
-### Pitchers
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/pitcher/{id}` | Aggregate stats + pitch arsenal |
-| `GET` | `/pitcher/{id}/rolling` | Rolling stats (L15G–L150G) |
-| `GET` | `/pitcher/{id}/game-log` | Recent game-by-game appearances |
+Authenticated or session-specific My Dashboard responses must not use a global shared browser cache unless the cache key includes the complete user/session scope.
 
-### Batters
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/batter/{id}` | Aggregate stats + platoon splits |
-| `GET` | `/batter/{id}/rolling` | Rolling stats (L10, L25, L50, L100, L200, L400, L1000 ABs) |
-| `GET` | `/batter/{id}/splits` | Multi-season vsL/vsR splits |
-| `GET` | `/batter/{id}/at-bats` | Chronological Statcast-level at-bat log |
+---
 
-### Teams / Standings / Rosters
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/standings` | AL/NL standings |
-| `GET` | `/team/{team_id}` | Team splits (vsL/vsR) + standings |
-| `GET` | `/team/{team_id}/roster` | Full active roster |
-| `GET` | `/lineup/{team_id}` | Day-of lineup (`?date=YYYY-MM-DD`) |
+## Data Sources
 
-### Players
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/players/search` | Search by name (`?name=...`) |
-| `GET` | `/players/all` | All active MLB players (`?season=YYYY`) |
+| Source | Use |
+|---|---|
+| MLB Stats API | schedule, game IDs, teams, probable pitchers, lineups, rosters, standings, official player statistics |
+| Baseball Savant / Statcast | pitch and batted-ball events, arsenals, velocity, movement, xwOBA, hard-hit and barrel metrics |
+| `pybaseball` | bulk Statcast retrieval and supported Savant datasets |
+| PostgreSQL | persisted Statcast events, aggregates, profiles, solver inputs, model and tracking data |
+| DraftKings provider integration | Daily Odds events, markets, selections, prices |
+| KIBL Bet105 feed | Bet105 events, markets, selections, prices, sportsbook display |
+| Internal simulation/model modules | matchup probabilities, expected runs, diagnostic simulations, ranked dashboard/model outputs |
 
-### AI / Prediction
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/ai/ask` | Lightweight MLB data Q&A assistant |
-| `POST` | `/predict` | Score a specific pitcher vs batter matchup |
+Never fabricate provider data. A missing sportsbook payload must remain distinguishable from a valid priced market.
+
+---
+
+## Data Contract Rules
+
+### Matchups
+
+The backend owns the matchup contract. Frontend code should not invent missing team names, starters, IDs, scores, or probabilities.
+
+Core matchup identity fields should include, when available:
+
+- `game_pk`
+- requested game date
+- away/home team names and IDs
+- away/home pitcher names and IDs
+- game status
+- model probabilities and their source
+- data-quality or missing-input metadata
+
+### Daily Odds
+
+Daily Odds combines matchup data, sportsbook events, model builders, My Dashboard summaries, and Model Projection summaries.
+
+Model-only fallback rows may be returned when sportsbook events or prices are unavailable. Those rows must retain:
+
+- `event_id: null`
+- `line: null`
+- `price: null`
+- `market_implied_probability: null`
+- `odds_missing: true` or equivalent missing-input metadata
+- a visible `source` identifying the internal model-only path
+
+The frontend must label these as **model-only** or **watchlist** signals. They must not be rendered as priced sportsbook bets, expected-value plays, or verified edges.
+
+### Probability fields
+
+Several probability concepts can coexist:
+
+- canonical final model probability
+- base simulation diagnostic probability
+- bullpen-adjusted simulation diagnostic probability
+- sportsbook implied probability
+
+Do not label all of them generically as “Win Probability.” Preserve explicit source labels in API responses and UI components.
+
+### My Dashboard
+
+Current solver components include:
+
+- `hitters`
+- `pitchers`
+- `teams`
+- `totals`
+- `overall_players`
+
+Dashboard/report rows may include:
+
+- rank and entity identity
+- team, opponent, and `game_pk`
+- score and confidence
+- category and reasoning
+- metric dictionary
+- source and missing-data metadata
+- batter-vs-arsenal pitch angles
+- confirmed-lineup metadata
+
+The report builder supports newer `report_view` saved items while retaining compatibility with earlier `workbench_view` items. Treat this as a compatibility contract until a deliberate migration is completed.
+
+---
+
+## Date Handling
+
+Every public date parameter uses `YYYY-MM-DD`.
+
+Explicit user-supplied dates must be preserved exactly. Implicit concepts such as “today,” “yesterday,” default slate date, and cron hydration date must use one documented MLB business timezone rather than raw server or UTC calendar dates.
+
+Railway containers may run in UTC. Do not use an unqualified `datetime.date.today()` for production MLB date selection without confirming the intended business timezone.
+
+This rule applies to:
+
+- homepage/default matchup date
+- calendar windows
+- Daily Odds defaults
+- Model Projection defaults
+- My Dashboard hydration
+- refresh and warm scripts
+- model result grading dates
+
+Generated timestamps may remain UTC when clearly suffixed with `Z` and distinguished from the MLB slate date.
+
+---
+
+## Cache and Refresh Behavior
+
+The repository contains several cache layers:
+
+- process-local live response cache
+- matchup snapshot cache
+- shared payload/artifact cache
+- frontend/browser cache
+- local-storage dashboard/report state
+
+Cache keys must include every value that changes response meaning, including:
+
+- route and contract version
+- target MLB date
+- filters and component type
+- provider
+- authentication/session scope
+
+Process-local caches are not authoritative across Railway workers, restarts, or deployments. Database refresh success does not automatically invalidate browser or in-memory payloads.
+
+Known refresh and warming responsibilities include:
+
+- matchup snapshots
+- model projection warming
+- starting-pitcher arsenal refresh
+- My Dashboard solver hydration, including the `hydrate-yesterday` workflow
+- provider-specific odds refreshes
+
+A refresh job is not considered healthy because it receives HTTP 200 alone. Operational logs should include target date, data source, row/artifact count, duration, cache key, and completion status.
+
+Cron jobs must call the deployed backend service domain. Do not call `127.0.0.1` unless the cron process actually starts the API server in the same container.
+
+---
+
+## Environment Variables
+
+### Required production variables
+
+| Variable | Service | Purpose |
+|---|---|---|
+| `DATABASE_URL` | Backend and refresh jobs | Production PostgreSQL connection |
+| `VITE_API_BASE_URL` | Frontend build | FastAPI service base URL |
+
+### Important feature/provider variables
+
+The exact provider modules are authoritative, but production deployments may also require variables for:
+
+- KIBL Cognito/Bet105 authentication
+- odds-provider credentials or feed configuration
+- cache TTL values
+- news/Twitter provider selection
+- frontend feature flags such as `VITE_ENABLE_BATTER_PAGE`
+
+Never commit secrets, tokens, passwords, cookies, or production connection strings.
+
+A production backend should fail clearly when `DATABASE_URL` is missing or points to SQLite. Local development and tests may continue to use SQLite.
 
 ---
 
@@ -164,95 +324,108 @@ All endpoints are served by `mlb_app/app.py`.
 ### Backend
 
 ```bash
-# 1. Create and activate a virtual environment
 python -m venv .venv
 source .venv/bin/activate
-
-# 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Set environment variables
-#    DATABASE_URL  — PostgreSQL connection string (omit to use SQLite fallback)
-#    VITE_API_BASE_URL — only needed when building the frontend
 export DATABASE_URL=postgresql://user:pass@localhost:5432/mlb
-
-# 4. Seed the database with recent Statcast data
-python seed_db.py
-
-# 5. Start the API server
 uvicorn mlb_app.app:app --reload --port 8000
 ```
 
-The API will be available at `http://localhost:8000`. Interactive docs at `http://localhost:8000/docs`.
+For local-only work, omitting `DATABASE_URL` may use the repository SQLite fallback.
 
 ### Frontend
 
 ```bash
 cd frontend
-
-# Install Node dependencies
 npm install
-
-# Set the API base URL to point at your local backend
 echo "VITE_API_BASE_URL=http://localhost:8000" > .env.local
-
-# Start the dev server
 npm run dev
 ```
 
-The frontend dev server runs at `http://localhost:5173`.
+The default Vite development URL is `http://localhost:5173`.
 
 ---
 
-## Deployment
+## Validation Before Merge
 
-Pushing to `main` triggers two automatic deploys:
+Run the checks relevant to the changed area. At minimum, backend changes should prove the package imports and frontend changes should prove the SPA builds.
 
-1. **Backend** — GitHub Actions runs `railway up --detach --service mlb-prediction-app`, which builds and deploys the Dockerfile.
-2. **Frontend** — Railway's Railpack detects Node and deploys the React SPA automatically.
+```bash
+python -m compileall mlb_app
+python -c "from mlb_app.app import app"
+pytest
 
-The `VITE_API_BASE_URL` environment variable **must** be set in the Railway frontend service's env vars before deploying, or the frontend will break.
+cd frontend
+npm install
+npm run build
+```
+
+For production-path work, verify exact response contracts for an explicit MLB date rather than only checking for HTTP 200.
+
+Recommended smoke matrix:
+
+1. `GET /health`
+2. matchups for a known game date
+3. one chart-rich matchup detail
+4. Model Projections for the same date
+5. Daily Odds with and without sportsbook events
+6. My Dashboard solver/report generation
+7. AI Data Assistant request
+8. Bet105 event/market normalization
+9. refresh job output and freshness metadata
 
 ---
 
-## Contributing
+## Contribution Rules
 
-Before opening a PR, read this entire README and `CLAUDE.md`.
+- Preserve the golden matchup analyzer and chart-rich Matchup Detail path.
+- Do not assume a route exists; verify its decorator and router registration.
+- Do not add a new endpoint when an existing route or contract can be extended safely.
+- Keep business logic out of `mlb_app/app.py` when adding new feature code.
+- Avoid broad rewrites of working production paths.
+- Do not touch files known to be truncated or incompletely retrieved.
+- Do not hide provider, database, or model failures behind plausible empty data.
+- Keep missing/null fields semantically distinct from zero.
+- Add tests for new modules, response contracts, cache behavior, and date rollover.
+- Use separate PRs for schema migration, formula changes, deployment changes, and UI redesigns.
 
 ### Branch naming
 
-Use descriptive prefixes:
-
-```
+```text
 feature/<short-description>
 fix/<short-description>
 refactor/<short-description>
+agent/<short-description>
 ```
-
-### Code conventions
-
-- **Python**: Follow the existing module structure. New backend modules go in `mlb_app/`. Keep logic out of `app.py` — routes should call helpers, not contain business logic inline.
-- **Comments**: Only add a comment when the *why* is non-obvious. Do not write docstrings that restate what the function name already says. Do not write multi-paragraph docstrings for placeholder or scaffold code.
-- **Parameters**: Do not define function parameters that are not used. If a function is a scaffold, either omit the parameter until it is needed or use it.
-- **No dead code**: Do not merge modules or functions that are entirely placeholder (returning `None` for every field). At minimum, implement enough logic to be testable.
-- **Tests**: Every new module must include a corresponding test file in `tests/`. There is currently no test suite — new contributions are expected to establish one.
-- **Trailing newline**: All Python files must end with a newline character.
 
 ### PR checklist
 
-- [ ] New Python files end with a trailing newline
-- [ ] No unused function parameters
-- [ ] No overly verbose docstrings on scaffold/placeholder code
-- [ ] A test file exists for every new module (`tests/test_<module>.py`)
-- [ ] If touching `mlb_app/app.py` CORS config, review `CLAUDE.md` first
-- [ ] If touching the frontend build or `VITE_API_BASE_URL`, verify the two-service deploy still works
+- [ ] Scope is narrow and production behavior is preserved
+- [ ] Backend imports successfully
+- [ ] Relevant tests pass
+- [ ] Frontend builds when frontend code changed
+- [ ] Explicit MLB date tested
+- [ ] Null, empty, error, and degraded-provider states tested
+- [ ] `DATABASE_URL` and `VITE_API_BASE_URL` assumptions verified
+- [ ] Cache keys and invalidation reviewed
+- [ ] Probability/model source labels remain explicit
+- [ ] No secrets or production tokens committed
 
 ---
 
-## Data Sources
+## Deployment Notes
 
-| Source | Used For |
-|--------|---------|
-| [MLB Stats API](https://statsapi.mlb.com) | Schedule, standings, rosters, lineups, player splits |
-| [Baseball Savant / Statcast](https://baseballsavant.mlb.com) | Pitch velocity, spin rate, exit velocity, barrel rate, pitch arsenal CSVs |
-| [pybaseball](https://github.com/jldbc/pybaseball) | Python wrapper for Statcast bulk downloads |
+Pushing or merging to `main` may trigger independent backend and frontend deployments. A successful backend deploy does not prove the frontend rebuilt with the correct API base URL, and a successful frontend deploy does not prove the database, odds provider, cron jobs, or warmed artifacts are healthy.
+
+Production acceptance should verify:
+
+- backend health endpoint
+- frontend-to-backend connectivity
+- PostgreSQL connection
+- current MLB slate date
+- matchup completeness
+- provider status
+- cache freshness
+- refresh-job completion
+- one representative render for every major product surface
