@@ -20,6 +20,7 @@ from .my_dashboard_report_query import (
     field_metadata,
     normalize_query,
 )
+from .my_dashboard_sql_weights import normalize_weights, weight_explanations, weighted_score_expression
 
 
 CONFIDENCE_ORDER = {"low": 1, "medium": 2, "high": 3}
@@ -179,12 +180,12 @@ def _apply_filters(query: Any, component: str, filters: Dict[str, Any]) -> Tuple
             query = query.filter(expression >= rules["min"])
         if rules.get("max") is not None:
             query = query.filter(expression <= rules["max"])
-    if filters.get("weights"):
-        warnings.append("Weight-aware SQL ranking is intentionally deferred; shared dataset rows remain unmodified")
     return query, warnings
 
 
-def _sort_expression(component: str, sort_by: str):
+def _sort_expression(component: str, sort_by: str, weighted_expression=None):
+    if weighted_expression is not None and sort_by in {"rank", "score", "adjusted_score"}:
+        return weighted_expression
     if sort_by == "rank":
         return MyDashboardRecord.score
     if sort_by.startswith("metrics."):
@@ -200,8 +201,16 @@ def _sort_expression(component: str, sort_by: str):
     return expression
 
 
-def _record_to_dict(row: MyDashboardRecord, rank: int) -> Dict[str, Any]:
+def _record_to_dict(
+    row: MyDashboardRecord,
+    rank: int,
+    *,
+    adjusted_score: Optional[float] = None,
+    explanations: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     record = dict(row.record_json or {})
+    effective_score = round(float(adjusted_score), 3) if adjusted_score is not None else row.score
+    base_score = row.base_score if row.base_score is not None else row.score
     record.update({
         "rank": rank,
         "entity_id": row.entity_id,
@@ -214,9 +223,9 @@ def _record_to_dict(row: MyDashboardRecord, rank: int) -> Dict[str, Any]:
         "category": row.category,
         "pitch_type": row.pitch_type,
         "pitch_name": row.pitch_name,
-        "score": row.score,
-        "base_score": row.base_score,
-        "adjusted_score": row.adjusted_score,
+        "score": effective_score,
+        "base_score": base_score,
+        "adjusted_score": effective_score if adjusted_score is not None else row.adjusted_score,
         "confidence": row.confidence,
         "primary_reason": row.primary_reason,
         "source": row.source,
@@ -230,6 +239,8 @@ def _record_to_dict(row: MyDashboardRecord, rank: int) -> Dict[str, Any]:
         "lineup_revision": row.lineup_revision,
         "model_state": row.model_state,
     })
+    if adjusted_score is not None:
+        record["weight_explanation"] = list(explanations or [])
     return record
 
 
@@ -252,6 +263,11 @@ def query_dashboard_dataset(
         raise ValueError(f"Unsupported dashboard component: {component}")
     query_contract = normalize_query(page_size, page_number, sort_by, sort_direction)
     normalized_filters = normalize_dataset_filters(filters)
+    weights, weight_warnings = normalize_weights(normalized_component, normalized_filters.get("weights"))
+    if weights:
+        normalized_filters["weights"] = weights
+    else:
+        normalized_filters.pop("weights", None)
     mode = DATASET_MODE_ACTIVE_LINEUPS if active_lineups else DATASET_MODE_STANDARD
     base_query = session.query(MyDashboardRecord).filter(
         and_(
@@ -262,17 +278,27 @@ def query_dashboard_dataset(
         )
     )
     filtered_query, warnings = _apply_filters(base_query, normalized_component, normalized_filters)
+    warnings.extend(weight_warnings)
     total_size = filtered_query.order_by(None).count()
-    sort_expression = _sort_expression(normalized_component, query_contract["sort_by"])
+    weighted_expression = weighted_score_expression(weights) if weights else None
+    sort_expression = _sort_expression(normalized_component, query_contract["sort_by"], weighted_expression)
     primary_order = sort_expression.asc().nullslast() if query_contract["sort_direction"] == "asc" else sort_expression.desc().nullslast()
-    rows = (
-        filtered_query
-        .order_by(primary_order, MyDashboardRecord.entity_key.asc(), MyDashboardRecord.id.asc())
-        .offset(query_contract["offset"])
-        .limit(query_contract["page_size"])
-        .all()
-    )
-    records = [_record_to_dict(row, query_contract["offset"] + index) for index, row in enumerate(rows, start=1)]
+    ordered_query = filtered_query.order_by(primary_order, MyDashboardRecord.entity_key.asc(), MyDashboardRecord.id.asc())
+    if weighted_expression is not None:
+        raw_rows = (
+            ordered_query.add_columns(weighted_expression.label("query_adjusted_score"))
+            .offset(query_contract["offset"])
+            .limit(query_contract["page_size"])
+            .all()
+        )
+        explanations = weight_explanations(weights)
+        records = [
+            _record_to_dict(row, query_contract["offset"] + index, adjusted_score=adjusted, explanations=explanations)
+            for index, (row, adjusted) in enumerate(raw_rows, start=1)
+        ]
+    else:
+        rows = ordered_query.offset(query_contract["offset"]).limit(query_contract["page_size"]).all()
+        records = [_record_to_dict(row, query_contract["offset"] + index) for index, row in enumerate(rows, start=1)]
     page_count = math.ceil(total_size / query_contract["page_size"]) if total_size else 0
     end = query_contract["offset"] + len(records)
     has_next = end < total_size
@@ -294,6 +320,12 @@ def query_dashboard_dataset(
         "query": query_contract,
         "filters_applied": normalized_filters,
         "filter_warnings": warnings,
+        "weight_ranking": {
+            "enabled": bool(weights),
+            "weights": weights,
+            "formula": "base_score + normalized_metric * (weight - 1.0) * 0.25",
+            "persisted": False,
+        },
         "page_info": {
             "page_number": query_contract["page_number"],
             "page_size": query_contract["page_size"],
