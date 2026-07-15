@@ -390,6 +390,10 @@ def get_engine(database_url: str):
 
 
 def create_tables(engine) -> None:
+    # Register dashboard object tables before metadata creation. Kept local to
+    # avoid a database -> model -> database import cycle at module import time.
+    from . import dashboard_object_models  # noqa: F401
+
     Base.metadata.create_all(engine)
     _ensure_statcast_event_columns(engine)
 
