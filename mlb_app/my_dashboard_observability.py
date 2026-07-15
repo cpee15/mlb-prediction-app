@@ -8,6 +8,8 @@ import time
 import uuid
 from typing import Any, Dict, Optional
 
+from .my_dashboard_hydration_persistence import persist_hydration_payload
+
 _LOCK = threading.Lock()
 _LATEST: Optional[Dict[str, Any]] = None
 
@@ -83,6 +85,9 @@ def _publish(status: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def complete_hydration(run: Dict[str, Any], payload: Dict[str, Any], cache_mode: str) -> Dict[str, Any]:
+    dataset_hydration = persist_hydration_payload(run, payload)
+    payload["dataset_hydration"] = dataset_hydration
+
     completed = dict(run)
     completed.update(summarize_hydration_payload(payload))
     completed.update({
@@ -90,6 +95,7 @@ def complete_hydration(run: Dict[str, Any], payload: Dict[str, Any], cache_mode:
         "completed_at": utc_now_iso(),
         "duration_ms": round((time.monotonic() - run["_started_monotonic"]) * 1000),
         "cache_mode": cache_mode,
+        "dataset_hydration": dataset_hydration,
         "error": None,
     })
     return _publish(completed)
