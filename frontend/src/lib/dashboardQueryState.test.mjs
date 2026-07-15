@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { normalizeQueryState, queryPayload, resultRange, serverFields } from './dashboardQueryState.mjs'
+import { normalizeQueryState, queryPayload, resultRange, savedQueryState, serverFields } from './dashboardQueryState.mjs'
 
 test('normalizes invalid query state', () => {
   assert.deepEqual(normalizeQueryState({ page_number: 0, page_size: 999, sort_direction: 'sideways' }), {
@@ -32,5 +32,24 @@ test('builds the complete solver query payload', () => {
     sort_by: 'entity_name',
     sort_direction: 'asc',
     include_metadata: true,
+  })
+})
+
+test('restores query state from old and new saved report shapes', () => {
+  assert.deepEqual(savedQueryState({
+    definition: { page_size: 100, sort: { by: 'metrics.xwOBA', direction: 'asc' } },
+    sortJson: { by: 'score', direction: 'desc' },
+    board: { page_info: { page_number: 2, page_size: 50 } },
+  }), {
+    page_number: 2,
+    page_size: 100,
+    sort_by: 'metrics.xwOBA',
+    sort_direction: 'asc',
+  })
+  assert.deepEqual(savedQueryState({ sortJson: { sort_by: 'entity_name', sort_direction: 'asc' } }), {
+    page_number: 1,
+    page_size: 50,
+    sort_by: 'entity_name',
+    sort_direction: 'asc',
   })
 })

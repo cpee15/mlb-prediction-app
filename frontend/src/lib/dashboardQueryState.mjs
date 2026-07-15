@@ -17,6 +17,16 @@ export function normalizeQueryState(value = {}) {
   }
 }
 
+export function savedQueryState({ definition = {}, sortJson = {}, board = {} } = {}) {
+  const definitionSort = definition.sort || {}
+  return normalizeQueryState({
+    page_number: board?.page_info?.page_number || 1,
+    page_size: definition.page_size || board?.page_info?.page_size || DEFAULT_PAGE_SIZE,
+    sort_by: definitionSort.by || definitionSort.sort_by || sortJson.by || sortJson.sort_by || 'score',
+    sort_direction: definitionSort.direction || definitionSort.sort_direction || sortJson.direction || sortJson.sort_direction || 'desc',
+  })
+}
+
 export function resultRange(pageInfo = {}, totalSize = 0) {
   const total = Number(totalSize) || 0
   const page = Math.max(1, Number(pageInfo.page_number) || 1)
