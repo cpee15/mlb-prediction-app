@@ -11,6 +11,7 @@ from . import my_dashboard_solver as dashboard_solver
 from .active_lineup_solver import build_active_lineup_solver_payload
 from .database import create_tables, get_engine, get_session
 from .my_dashboard_context_cache import install_dashboard_context_cache
+from .my_dashboard_dataset_runtime import mlb_business_date, run_dataset_query, should_use_dataset_query
 from .my_dashboard_observability import (
     begin_hydration,
     complete_hydration,
@@ -65,7 +66,7 @@ def session_factory():
 
 
 def _yesterday_iso() -> str:
-    return (dt.date.today() - dt.timedelta(days=1)).isoformat()
+    return (mlb_business_date() - dt.timedelta(days=1)).isoformat()
 
 
 @router.get("/my-dashboard/health")
@@ -83,6 +84,7 @@ def my_dashboard_health() -> Dict[str, Any]:
             "full_candidate_universe": True,
             "final_top_ten_cap": False,
             "fields": ["totalSize", "done", "records", "page_info", "object_info"],
+            "filtered_current_date_source": "my_dashboard_records",
         },
         "lineup_policy": {
             "today_confirmed_preferred": True,
@@ -192,7 +194,7 @@ def my_dashboard_hydrate_yesterday_get(
 
 
 def _normalize_request(date: Optional[str], component: str, filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    target_date = (date or dt.date.today().isoformat())[:10]
+    target_date = (date or mlb_business_date().isoformat())[:10]
     try:
         dt.date.fromisoformat(target_date)
     except ValueError as exc:
@@ -243,6 +245,50 @@ def _query_response(
     )
 
 
+def _legacy_solver_response(
+    *,
+    target_date: str,
+    component: str,
+    filters: Dict[str, Any],
+    page_size: int,
+    page_number: int,
+    sort_by: str,
+    sort_direction: str,
+    include_metadata: bool,
+    active_lineups: bool,
+) -> Dict[str, Any]:
+    filters_hash = stable_hash(filters)
+    cache_key = make_cache_key(
+        "dashboard_solver",
+        "active_lineups_full_result" if active_lineups else "component_full_result",
+        target_date,
+        component,
+        filters_hash,
+    )
+
+    def build() -> Dict[str, Any]:
+        factory = session_factory()
+        with factory() as session:
+            if active_lineups:
+                return build_active_lineup_solver_payload(
+                    session=session,
+                    date=target_date,
+                    component=component,
+                    filters=filters,
+                )
+            return dashboard_solver.build_dashboard_solver_payload(
+                session=session,
+                date=target_date,
+                component=component,
+                filters=filters,
+            )
+
+    full_payload = get_or_set(cache_key, env_ttl("DASHBOARD_SOLVER_CACHE_TTL_SECONDS"), build)
+    response = _query_response(full_payload, component, page_size, page_number, sort_by, sort_direction, include_metadata)
+    response.setdefault("execution_path", "legacy_in_memory_solver")
+    return response
+
+
 def _run_solver(
     date: Optional[str],
     component: str,
@@ -258,22 +304,40 @@ def _run_solver(
     target_date = normalized["target_date"]
     normalized_component = normalized["component"]
     normalized_filters = normalized["filters"]
-    filters_hash = stable_hash(normalized_filters)
-    cache_key = make_cache_key("dashboard_solver", "component_full_result", target_date, normalized_component, filters_hash)
 
     try:
-        def build() -> Dict[str, Any]:
+        if should_use_dataset_query(date=target_date, filters=normalized_filters):
             factory = session_factory()
             with factory() as session:
-                return dashboard_solver.build_dashboard_solver_payload(
+                return run_dataset_query(
                     session=session,
                     date=target_date,
                     component=normalized_component,
                     filters=normalized_filters,
+                    page_size=page_size,
+                    page_number=page_number,
+                    sort_by=sort_by,
+                    sort_direction=sort_direction,
+                    include_metadata=include_metadata,
+                    payload_builder=lambda: dashboard_solver.build_dashboard_solver_payload(
+                        session=session,
+                        date=target_date,
+                        component=normalized_component,
+                        filters={},
+                    ),
+                    active_lineups=False,
                 )
-
-        full_payload = get_or_set(cache_key, env_ttl("DASHBOARD_SOLVER_CACHE_TTL_SECONDS"), build)
-        return _query_response(full_payload, normalized_component, page_size, page_number, sort_by, sort_direction, include_metadata)
+        return _legacy_solver_response(
+            target_date=target_date,
+            component=normalized_component,
+            filters=normalized_filters,
+            page_size=page_size,
+            page_number=page_number,
+            sort_by=sort_by,
+            sort_direction=sort_direction,
+            include_metadata=include_metadata,
+            active_lineups=False,
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -295,22 +359,40 @@ def _run_active_lineup_solver(
     target_date = normalized["target_date"]
     normalized_component = normalized["component"]
     normalized_filters = normalized["filters"]
-    filters_hash = stable_hash(normalized_filters)
-    cache_key = make_cache_key("dashboard_solver", "active_lineups_full_result", target_date, normalized_component, filters_hash)
 
     try:
-        def build() -> Dict[str, Any]:
+        if should_use_dataset_query(date=target_date, filters=normalized_filters):
             factory = session_factory()
             with factory() as session:
-                return build_active_lineup_solver_payload(
+                return run_dataset_query(
                     session=session,
                     date=target_date,
                     component=normalized_component,
                     filters=normalized_filters,
+                    page_size=page_size,
+                    page_number=page_number,
+                    sort_by=sort_by,
+                    sort_direction=sort_direction,
+                    include_metadata=include_metadata,
+                    payload_builder=lambda: build_active_lineup_solver_payload(
+                        session=session,
+                        date=target_date,
+                        component=normalized_component,
+                        filters={},
+                    ),
+                    active_lineups=True,
                 )
-
-        full_payload = get_or_set(cache_key, env_ttl("DASHBOARD_SOLVER_CACHE_TTL_SECONDS"), build)
-        return _query_response(full_payload, normalized_component, page_size, page_number, sort_by, sort_direction, include_metadata)
+        return _legacy_solver_response(
+            target_date=target_date,
+            component=normalized_component,
+            filters=normalized_filters,
+            page_size=page_size,
+            page_number=page_number,
+            sort_by=sort_by,
+            sort_direction=sort_direction,
+            include_metadata=include_metadata,
+            active_lineups=True,
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -324,7 +406,7 @@ def _run_batch_solver(
     active_lineups: bool = False,
 ) -> Dict[str, Any]:
     install_dashboard_context_cache()
-    target_date = (date or dt.date.today().isoformat())[:10]
+    target_date = (date or mlb_business_date().isoformat())[:10]
     try:
         dt.date.fromisoformat(target_date)
     except ValueError as exc:
