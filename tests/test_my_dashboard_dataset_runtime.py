@@ -9,14 +9,16 @@ def test_substantive_filter_detection():
     assert runtime.has_substantive_filters({"team": "CHC"}) is True
     assert runtime.has_substantive_filters({"metrics": {"EV": {"min": 90}}}) is True
     assert runtime.has_substantive_filters({"metrics": {"EV": {"min": "", "max": ""}}}) is False
-    assert runtime.has_substantive_filters({"weights": {"EV": 1.5}}) is False
+    assert runtime.has_substantive_filters({"weights": {"EV": 1.5}}) is True
+    assert runtime.has_substantive_filters({"weights": {"EV": 1.0}}) is False
     assert runtime.has_substantive_filters({}) is False
 
 
-def test_weight_overrides_stay_on_legacy_path(monkeypatch):
+def test_weight_overrides_use_dataset_path(monkeypatch):
     monkeypatch.setattr(runtime, "mlb_business_date", lambda now=None: dt.date(2026, 7, 15))
     assert runtime.should_use_dataset_query(date="2026-07-15", filters={"team": "CHC"}) is True
-    assert runtime.should_use_dataset_query(date="2026-07-15", filters={"team": "CHC", "weights": {"EV": 1.5}}) is False
+    assert runtime.should_use_dataset_query(date="2026-07-15", filters={"team": "CHC", "weights": {"EV": 1.5}}) is True
+    assert runtime.should_use_dataset_query(date="2026-07-15", filters={"weights": {"EV": 1.5}}) is True
     assert runtime.should_use_dataset_query(date="2026-07-14", filters={"team": "CHC"}) is False
     assert runtime.should_use_dataset_query(date="2026-07-15", filters={}) is False
 
@@ -30,7 +32,6 @@ def test_mlb_business_date_uses_eastern_boundary():
 
 def test_runtime_hydrates_unfiltered_then_queries(monkeypatch):
     events = []
-
     monkeypatch.setattr(runtime, "dashboard_dataset_status", lambda **kwargs: {"ready": False, "stale": False})
 
     def fake_hydrate(**kwargs):
@@ -48,7 +49,7 @@ def test_runtime_hydrates_unfiltered_then_queries(monkeypatch):
         session=object(),
         date="2026-07-15",
         component="hitters",
-        filters={"team": "CHC"},
+        filters={"team": "CHC", "weights": {"EV": 1.5}},
         page_size=50,
         page_number=1,
         sort_by="score",
@@ -60,7 +61,7 @@ def test_runtime_hydrates_unfiltered_then_queries(monkeypatch):
 
     assert events[0][0] == "hydrate"
     assert events[0][1]["items"] == [{"entity_id": "1"}, {"entity_id": "2"}]
-    assert events[1] == ("query", {"team": "CHC"})
+    assert events[1] == ("query", {"team": "CHC", "weights": {"EV": 1.5}})
     assert result["execution_path"] == "my_dashboard_dataset_sql_query"
     assert result["dataset_hydrated_for_request"] is True
 
