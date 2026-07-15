@@ -44,6 +44,7 @@ After deployment, verify:
 7. A failed refresh serves the prior valid current dataset only when one exists and emits an explicit warning.
 8. Existing saved reports reopen with their prior columns, filters, sort, and snapshot rows.
 
-## Known operational requirement
+## Known operational requirements
 
-GitHub Actions have not consistently appeared for these connector-created PR heads. Backend tests, frontend Node tests, and the frontend production build must be executed by the repository CI or deployment pipeline before production verification is marked complete.
+- GitHub Actions have not consistently appeared for these connector-created PR heads. Backend tests, frontend Node tests, and the frontend production build must be executed by the repository CI or deployment pipeline before production verification is marked complete.
+- `/my-dashboard/health` still reports the legacy `frontend_localStorage_v1` persistence label even though filtered Workbench reports now use `my_dashboard_records`. This is inaccurate operational metadata, not a data-path fallback. Correct it in a narrowly scoped metadata-only change after the acceptance tests pass.
