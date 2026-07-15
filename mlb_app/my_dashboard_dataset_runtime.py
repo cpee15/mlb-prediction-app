@@ -24,6 +24,7 @@ SUBSTANTIVE_FILTER_KEYS = {
     "max_score",
     "min_confidence",
     "metrics",
+    "weights",
 }
 
 
@@ -47,6 +48,12 @@ def has_substantive_filters(filters: Optional[Dict[str, Any]]) -> bool:
             ):
                 return True
             continue
+        if key == "weights":
+            if isinstance(value, dict) and any(
+                weight not in (None, "", 1, 1.0, "1", "1.0") for weight in value.values()
+            ):
+                return True
+            continue
         if value not in (None, "", {}, []):
             return True
     return False
@@ -64,11 +71,7 @@ def should_use_dataset_query(*, date: str, filters: Optional[Dict[str, Any]]) ->
         requested_date = dt.date.fromisoformat(str(date)[:10])
     except ValueError:
         return False
-    return (
-        requested_date == mlb_business_date()
-        and has_substantive_filters(filters)
-        and not has_weight_overrides(filters)
-    )
+    return requested_date == mlb_business_date() and has_substantive_filters(filters)
 
 
 def _dataset_ttl_seconds(active_lineups: bool) -> int:

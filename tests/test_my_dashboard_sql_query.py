@@ -79,12 +79,12 @@ def rows():
     ]
 
 
-def hydrate(session):
+def hydrate(session, payload_rows=None):
     return hydrate_dashboard_dataset(
         session=session,
         date=DATE,
         component="hitters",
-        payload_builder=lambda: {"items": rows(), "model_state": "projected"},
+        payload_builder=lambda: {"items": payload_rows or rows(), "model_state": "projected"},
         now=dt.datetime(2026, 7, 15, 12, 0, 0),
     )
 
@@ -145,6 +145,67 @@ def test_confidence_and_score_filters_work_together():
             filters={"min_confidence": "medium", "min_score": 0.8},
         )
         assert [row["entity_id"] for row in result["items"]] == ["1", "2"]
+
+
+def test_sql_weight_formula_runs_before_sort_and_pagination():
+    Session = session_factory()
+    weighted_rows = [
+        {
+            "entity_id": "slow",
+            "entity_name": "Slow EV",
+            "entity_type": "hitter",
+            "player_type": "hitter",
+            "score": 0.80,
+            "base_score": 0.80,
+            "confidence": "high",
+            "metrics": {"EV": 76.0},
+        },
+        {
+            "entity_id": "fast",
+            "entity_name": "Fast EV",
+            "entity_type": "hitter",
+            "player_type": "hitter",
+            "score": 0.70,
+            "base_score": 0.70,
+            "confidence": "high",
+            "metrics": {"EV": 100.0},
+        },
+    ]
+    with Session() as session:
+        hydrate(session, weighted_rows)
+        result = query_dashboard_dataset(
+            session=session,
+            date=DATE,
+            component="hitters",
+            filters={"weights": {"EV": 2.0}},
+            page_size=1,
+            page_number=1,
+            sort_by="score",
+            sort_direction="desc",
+        )
+        assert result["totalSize"] == 2
+        assert result["items"][0]["entity_id"] == "fast"
+        assert result["items"][0]["base_score"] == pytest.approx(0.70)
+        assert result["items"][0]["adjusted_score"] == pytest.approx(0.95)
+        assert result["items"][0]["score"] == pytest.approx(0.95)
+        assert result["items"][0]["weight_explanation"] == ["EV emphasized at 2.0"]
+        assert result["weight_ranking"]["enabled"] is True
+        assert result["weight_ranking"]["persisted"] is False
+
+
+def test_unsupported_weight_metric_warns_without_changing_score():
+    Session = session_factory()
+    with Session() as session:
+        hydrate(session)
+        result = query_dashboard_dataset(
+            session=session,
+            date=DATE,
+            component="hitters",
+            filters={"team": "CHC", "weights": {"Not A Metric": 2.0}},
+        )
+        assert result["items"][0]["score"] == pytest.approx(0.91)
+        assert "Unsupported weight metric: Not A Metric" in result["filter_warnings"]
+        assert result["weight_ranking"]["enabled"] is False
 
 
 def test_invalid_sort_field_is_rejected():
