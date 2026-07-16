@@ -25,8 +25,6 @@ export function initialFieldsByObject(objects, persisted = {}) {
     Object.entries(persisted.selectedFieldsByObject).forEach(([key, fields]) => {
       if (Array.isArray(fields) && fields.length) defaults[key] = fields
     })
-  } else if (Array.isArray(persisted.selectedFields) && persisted.selectedFields.length) {
-    defaults[persisted.activeObject || 'hitters'] = persisted.selectedFields
   }
   return defaults
 }
