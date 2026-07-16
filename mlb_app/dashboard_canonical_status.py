@@ -111,7 +111,7 @@ def canonical_dashboard_status(
         DashboardProjectionRun.status == "success"
     ).order_by(DashboardProjectionRun.completed_at.desc(), DashboardProjectionRun.id.desc()).first()
     latest_failure = session.query(DashboardProjectionRun).filter(
-        DashboardProjectionRun.status == "failed"
+        DashboardProjectionRun.status.in_(("failed", "partial"))
     ).order_by(DashboardProjectionRun.completed_at.desc(), DashboardProjectionRun.id.desc()).first()
 
     lineup_players = session.query(DashboardPlayer).filter(DashboardPlayer.lineup_appearance_count > 0).count()
@@ -127,8 +127,12 @@ def canonical_dashboard_status(
         issues.append("active_population_empty")
     if current_count == 0:
         issues.append("current_projection_empty")
-    if current_count != active_count:
+    if current_count != active_count or current_hitters != active_hitters or current_pitchers != active_pitchers:
         issues.append("current_projection_population_mismatch")
+    if snapshot_count == 0:
+        issues.append("historical_snapshots_empty")
+    if latest_success is None:
+        issues.append("successful_refresh_evidence_missing")
     if stale:
         issues.append("current_projection_stale")
     readiness = "ready" if not issues else "not_ready" if any(item.endswith("_empty") or item.endswith("_mismatch") for item in issues) else "degraded"
