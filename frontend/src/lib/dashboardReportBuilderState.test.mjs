@@ -44,7 +44,7 @@ test('primary objects own independent default column selections', () => {
     activeObject: 'hitters',
     selectedFields: ['rank', 'full_name'],
   })
-  assert.deepEqual(fields.hitters, ['rank', 'full_name'])
+  assert.deepEqual(fields.hitters, ['rank', 'full_name', 'team_name', 'model_score', 'confidence'])
   assert.deepEqual(fields.pitchers, ['rank', 'full_name', 'team_name', 'model_score', 'confidence'])
   fields.hitters.push('xwoba')
   assert.equal(fields.pitchers.includes('xwoba'), false)
