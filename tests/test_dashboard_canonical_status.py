@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from mlb_app.dashboard_canonical_status import canonical_dashboard_status
-from mlb_app.dashboard_object_models import DashboardPlayer, DashboardPlayerCurrent, DashboardProjectionRun
+from mlb_app.dashboard_object_models import DashboardPlayer, DashboardPlayerCurrent, DashboardPlayerSnapshot, DashboardProjectionRun
 from mlb_app.database import Base, BatterPitchTypeMatchup
 
 
@@ -36,12 +36,22 @@ def current(player_id, player_type, **values):
     )
 
 
+def snapshot(player_id):
+    return DashboardPlayerSnapshot(
+        mlb_player_id=player_id, snapshot_date=DATE,
+        analytical_context="current_player_metrics", snapshot_version=f"row-{player_id}",
+        metrics_json={}, source_versions_json={}, provenance_json={},
+        generated_at=NOW, refreshed_at=NOW, is_approved=True,
+    )
+
+
 def test_status_exposes_counts_coverage_related_rows_and_run_evidence():
     session = make_session()
     session.add_all([
         player(1, "hitter"), player(2, "pitcher"),
         current(1, "hitter", xwoba=0.4, exit_velocity=92.0),
         current(2, "pitcher", xwoba=0.3, strikeout_rate=0.28),
+        snapshot(1), snapshot(2),
         BatterPitchTypeMatchup(batter_id=1, batter_name="Player 1", opposing_pitcher_id=9, pitch_type="FF", target_date=DATE, pitches_seen=50),
         DashboardProjectionRun(run_type="canonical_refresh", target_date=DATE, status="success", started_at=NOW, completed_at=NOW, canonical_count=2, active_count=2, current_count=2, snapshot_count=2, result_json={}),
         DashboardProjectionRun(run_type="canonical_refresh", target_date=DATE, status="failed", started_at=NOW, completed_at=NOW, canonical_count=2, active_count=2, current_count=2, snapshot_count=2, error_type="RuntimeError", error_message="source failed", result_json={}),
