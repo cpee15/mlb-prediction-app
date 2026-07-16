@@ -47,6 +47,30 @@ class DashboardPlayer(Base):
     )
 
 
+class DashboardProjectionRun(Base):
+    __tablename__ = "dashboard_projection_runs"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    run_type: str = Column(String(32), nullable=False)
+    target_date: date = Column(Date, nullable=False)
+    status: str = Column(String(24), nullable=False)
+    started_at: datetime = Column(DateTime, nullable=False)
+    completed_at: Optional[datetime] = Column(DateTime, nullable=True)
+    canonical_count: int = Column(Integer, nullable=False, default=0)
+    active_count: int = Column(Integer, nullable=False, default=0)
+    current_count: int = Column(Integer, nullable=False, default=0)
+    snapshot_count: int = Column(Integer, nullable=False, default=0)
+    projection_version: Optional[str] = Column(String(64), nullable=True)
+    error_type: Optional[str] = Column(String(120), nullable=True)
+    error_message: Optional[str] = Column(Text, nullable=True)
+    result_json = Column(JSON, nullable=False, default=dict)
+
+    __table_args__ = (
+        Index("ix_dashboard_projection_runs_status_completed", "status", "completed_at"),
+        Index("ix_dashboard_projection_runs_target_type", "target_date", "run_type"),
+    )
+
+
 class DashboardPlayerSnapshot(Base):
     __tablename__ = "dashboard_player_snapshots"
 

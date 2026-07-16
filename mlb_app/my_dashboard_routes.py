@@ -9,7 +9,9 @@ from pydantic import BaseModel
 
 from . import my_dashboard_solver as dashboard_solver
 from .active_lineup_solver import build_active_lineup_solver_payload
+from .dashboard_canonical_status import canonical_dashboard_status
 from .dashboard_player_report_query import query_player_report
+from .dashboard_related_report_query import query_related_report
 from .dashboard_report_types import list_report_types
 from .database import create_tables, get_engine, get_session
 from .my_dashboard_context_cache import install_dashboard_context_cache
@@ -127,11 +129,26 @@ def my_dashboard_report_types() -> Dict[str, Any]:
     return {"report_types": report_types, "totalSize": len(report_types)}
 
 
+@router.get("/my-dashboard/canonical/status")
+def my_dashboard_canonical_status() -> Dict[str, Any]:
+    factory = session_factory()
+    with factory() as session:
+        return canonical_dashboard_status(session)
+
+
 @router.post("/my-dashboard/reports/query")
 def my_dashboard_player_report_query(payload: DashboardPlayerReportRequest) -> Dict[str, Any]:
     try:
         factory = session_factory()
         with factory() as session:
+            if payload.report_type in {"players_lineup_history", "hitters_arsenal_splits"}:
+                return query_related_report(
+                    session, payload.report_type, filters=payload.filters, weights=payload.weights,
+                    page_size=payload.page_size, page_number=payload.page_number,
+                    sort_by=None if payload.sort_by == "model_score" else payload.sort_by,
+                    sort_direction=payload.sort_direction,
+                    selected_fields=payload.selected_fields, include_metadata=payload.include_metadata,
+                )
             return query_player_report(
                 session, payload.report_type, filters=payload.filters, weights=payload.weights,
                 page_size=payload.page_size, page_number=payload.page_number,
