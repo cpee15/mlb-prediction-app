@@ -10,8 +10,8 @@ REPORT_TYPES: Dict[str, Dict[str, Any]] = {
     "all_active_hitters": {"label": "All Active Hitters", "ui_object": "hitters", "base_object": "dashboard_player_current", "population": {"is_active": True, "player_type": "hitter"}, "relationships": [], "queryable": True},
     "all_active_pitchers": {"label": "All Active Pitchers", "ui_object": "pitchers", "base_object": "dashboard_player_current", "population": {"is_active": True, "player_type": "pitcher"}, "relationships": [], "queryable": True},
     "hitters_current_matchup": {"label": "Hitters with Current Matchup Metrics", "ui_object": "hitters", "base_object": "dashboard_players", "population": {"is_active": True, "player_type": "hitter"}, "relationships": ["current_matchup_snapshot"]},
-    "hitters_arsenal_splits": {"label": "Hitters with Arsenal Splits", "ui_object": "hitters", "base_object": "dashboard_players", "population": {"is_active": True, "player_type": "hitter"}, "relationships": ["batter_pitch_type_matchups"]},
-    "players_lineup_history": {"label": "Players with Lineup History", "ui_object": "overall_players", "base_object": "dashboard_players", "population": {}, "relationships": ["lineup_appearances"]},
+    "hitters_arsenal_splits": {"label": "Hitters with Arsenal Splits", "ui_object": "hitters", "base_object": "batter_pitch_type_matchups", "population": {"is_active": True, "player_type": "hitter"}, "relationships": ["dashboard_players"], "queryable": True},
+    "players_lineup_history": {"label": "Players with Lineup History", "ui_object": "overall_players", "base_object": "dashboard_players", "population": {"lineup_appearance_count": {"gt": 0}}, "relationships": ["lineup_appearances"], "queryable": True},
     "teams_daily_analysis": {"label": "Teams with Daily Analysis", "ui_object": "teams", "base_object": "teams", "population": {}, "relationships": ["daily_analytical_snapshot"]},
     "games_totals_analysis": {"label": "Games with Totals Analysis", "ui_object": "totals", "base_object": "games", "population": {}, "relationships": ["totals_projection", "run_environment_snapshot"]},
 }
@@ -76,10 +76,55 @@ CURRENT_PLAYER_FIELDS: List[Dict[str, Any]] = [
 ]
 
 
+LINEUP_HISTORY_FIELDS: List[Dict[str, Any]] = [
+    _field("mlb_player_id", "MLB Player ID", "id", "Identity", nillable=False, description="Canonical MLBAM player identifier.", freshness="canonical"),
+    _field("full_name", "Player Name", "string", "Identity", nillable=False, operators=["eq", "neq", "contains", "in"], description="Resolved canonical player name.", freshness="canonical"),
+    _field("player_type", "Player Type", "string", "Identity", nillable=False, description="Canonical hitter or pitcher classification.", freshness="canonical"),
+    _field("current_team_id", "Team ID", "id", "Team", description="Current MLB team identifier.", freshness="canonical"),
+    _field("current_team_name", "Team", "string", "Team", operators=["eq", "neq", "contains", "in"], description="Current MLB team name.", freshness="canonical"),
+    _field("most_recent_lineup_date", "Most Recent Lineup Date", "date", "Lineup History", description="Most recent verified confirmed-lineup date.", freshness="canonical"),
+    _field("lineup_appearance_count", "Lineup Appearances", "integer", "Lineup History", description="Count of distinct verified lineup dates retained for this player.", freshness="canonical"),
+    _field("most_recent_game_date", "Most Recent Tracked Game", "date", "Activity", description="Most recent tracked Statcast game date.", freshness="canonical"),
+    _field("tracked_game_count", "Tracked Games", "integer", "Activity", description="Distinct tracked games retained for this player.", freshness="canonical"),
+    _field("active_status_reason", "Active Status Reason", "string", "Activity", description="Verified eligibility path keeping the player active.", freshness="canonical"),
+    _field("is_active", "Active", "boolean", "Activity", description="Whether the canonical player is currently reportable.", freshness="canonical"),
+]
+for field in LINEUP_HISTORY_FIELDS:
+    field["source_object"] = "dashboard_players"
+
+ARSENAL_SPLIT_FIELDS: List[Dict[str, Any]] = [
+    _field("id", "Split Row ID", "id", "Identity", nillable=False, description="Persistent arsenal split row identifier."),
+    _field("batter_id", "Batter MLB ID", "id", "Identity", nillable=False, description="Canonical batter MLBAM identifier."),
+    _field("batter_name", "Batter", "string", "Identity", operators=["eq", "neq", "contains", "in"], description="Stored batter name for this split."),
+    _field("batter_team_id", "Team ID", "id", "Team", description="Stored batter team identifier."),
+    _field("opposing_pitcher_id", "Opposing Pitcher MLB ID", "id", "Matchup", nillable=False, description="Opposing pitcher MLBAM identifier."),
+    _field("pitch_type", "Pitch Type", "string", "Matchup", nillable=False, operators=["eq", "neq", "in"], description="Statcast pitch type code."),
+    _field("game_pk", "Game PK", "id", "Matchup", description="Associated MLB game identifier."),
+    _field("target_date", "Target Date", "date", "Freshness", description="Report target date for the split."),
+    _field("date_end", "Sample End Date", "date", "Freshness", description="Last date included in the analytical sample."),
+    _field("pitches_seen", "Pitches Seen", "integer", "Sample", description="Deduplicated pitch exposure."),
+    _field("pa_ended", "Plate Appearances Ended", "integer", "Sample", description="Plate appearances ending on this pitch type."),
+    _field("xwoba", "xwOBA", "double", "Quality", description="Expected weighted on-base average against the pitch type."),
+    _field("xba", "xBA", "double", "Quality", description="Expected batting average against the pitch type."),
+    _field("avg_exit_velocity", "Exit Velocity", "double", "Contact", description="Average exit velocity against the pitch type."),
+    _field("avg_launch_angle", "Launch Angle", "double", "Contact", description="Average launch angle against the pitch type."),
+    _field("hard_hit_pct", "Hard-Hit Rate", "double", "Contact", description="Hard-hit rate against the pitch type."),
+    _field("whiff_pct", "Whiff Rate", "double", "Discipline", description="Whiff rate against the pitch type."),
+    _field("k_pct", "Strikeout Rate", "double", "Discipline", description="Strikeout rate against the pitch type."),
+    _field("source", "Source", "string", "Audit", description="Materialization source."),
+    _field("refreshed_at", "Refreshed At", "datetime", "Freshness", filterable=False, description="Last refresh timestamp."),
+]
+for field in ARSENAL_SPLIT_FIELDS:
+    field["source_object"] = "batter_pitch_type_matchups"
+
 FIELD_CATALOG: Dict[str, List[Dict[str, Any]]] = {}
 for key, config in REPORT_TYPES.items():
     if config["base_object"] == "dashboard_player_current":
         FIELD_CATALOG[key] = deepcopy(CURRENT_PLAYER_FIELDS)
+    elif key == "players_lineup_history":
+        FIELD_CATALOG[key] = deepcopy(LINEUP_HISTORY_FIELDS)
+    elif key == "hitters_arsenal_splits":
+        FIELD_CATALOG[key] = deepcopy(ARSENAL_SPLIT_FIELDS)
     elif config["base_object"] == "dashboard_players":
         FIELD_CATALOG[key] = deepcopy(CURRENT_PLAYER_FIELDS[:6])
         for field in FIELD_CATALOG[key]:
