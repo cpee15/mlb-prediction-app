@@ -12,6 +12,8 @@ slightly different function names while we migrate it into mlb_app/simulation.
 
 from __future__ import annotations
 
+import os
+
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
@@ -681,6 +683,190 @@ def _attach_position_player_substitution_diagnostics(
     return payload
 
 
+CANONICAL_SHADOW_ENABLED_ENV = (
+    "CANONICAL_SIMULATION_SHADOW_ENABLED"
+)
+
+CANONICAL_SHADOW_CONFIG_KEYS = frozenset(
+    {
+        "canonical_shadow_enabled",
+        "canonical_shadow_payload",
+    }
+)
+
+
+def _parse_boolean_flag(
+    value,
+    *,
+    default: bool = False,
+) -> bool:
+    """Parse explicit config or environment boolean values."""
+
+    if value is None:
+        return default
+
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, (int, float)):
+        return bool(value)
+
+    normalized = str(value).strip().lower()
+
+    if normalized in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    }:
+        return True
+
+    if normalized in {
+        "0",
+        "false",
+        "no",
+        "n",
+        "off",
+        "",
+    }:
+        return False
+
+    return default
+
+
+def _canonical_shadow_requested(
+    config: Optional[Dict[str, Any]],
+) -> bool:
+    """
+    Return whether the integration boundary was explicitly requested.
+
+    An absent config key and absent environment variable preserve the
+    historical payload exactly and do not add disabled diagnostics.
+    """
+
+    config_snapshot = dict(config or {})
+
+    if "canonical_shadow_enabled" in config_snapshot:
+        return True
+
+    return CANONICAL_SHADOW_ENABLED_ENV in os.environ
+
+
+def _canonical_shadow_enabled(
+    config: Optional[Dict[str, Any]],
+) -> bool:
+    """
+    Resolve shadow enablement using explicit config, environment, then
+    the disabled default.
+    """
+
+    config_snapshot = dict(config or {})
+
+    if "canonical_shadow_enabled" in config_snapshot:
+        return _parse_boolean_flag(
+            config_snapshot.get(
+                "canonical_shadow_enabled"
+            ),
+            default=False,
+        )
+
+    return _parse_boolean_flag(
+        os.getenv(CANONICAL_SHADOW_ENABLED_ENV),
+        default=False,
+    )
+
+
+def _canonical_shadow_payload(
+    config: Optional[Dict[str, Any]],
+):
+    """Return the prebuilt canonical payload without copying it."""
+
+    return dict(config or {}).get(
+        "canonical_shadow_payload"
+    )
+
+
+def _attach_canonical_shadow_diagnostics(
+    payload: Dict[str, Any],
+    *,
+    config: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Attach fail-open canonical shadow diagnostics when explicitly
+    requested.
+
+    This helper never invokes canonical simulation and never changes the
+    legacy simulation's authoritative values.
+    """
+
+    if not _canonical_shadow_requested(config):
+        return payload
+
+    enabled = False
+    canonical_payload = None
+    canonical_available = False
+
+    try:
+        enabled = _canonical_shadow_enabled(config)
+        canonical_payload = _canonical_shadow_payload(
+            config
+        )
+        canonical_available = (
+            canonical_payload is not None
+        )
+
+        from mlb_app.simulation.shadow import (
+            attach_canonical_shadow,
+        )
+
+        return attach_canonical_shadow(
+            legacy_result=payload,
+            enabled=enabled,
+            canonical_payload=canonical_payload,
+        )
+    except Exception as exc:
+        # Never call shadow config/payload helpers again here. One of those
+        # helpers may be the source of the failure.
+        output = deepcopy(payload)
+
+        diagnostics = output.setdefault(
+            "diagnostics",
+            {},
+        )
+
+        if not isinstance(diagnostics, dict):
+            diagnostics = {
+                "legacy_diagnostics": deepcopy(
+                    diagnostics
+                )
+            }
+            output["diagnostics"] = diagnostics
+
+        diagnostics["canonical_shadow"] = {
+            "status": "error",
+            "enabled": enabled,
+            "canonical_available": canonical_available,
+            "authoritative_source": "legacy",
+            "comparisons": [],
+            "ranges": [],
+            "coverage": None,
+            "legacy_simulation_count": None,
+            "canonical_simulation_count": None,
+            "pitcher_attribution_complete_rate": None,
+            "replay_validation_pass_rate": None,
+            "earned_run_status": None,
+            "warnings": [
+                "canonical_shadow_integration_failed"
+            ],
+            "error_type": exc.__class__.__name__,
+            "error_message": str(exc),
+            "schema_version": "canonical_shadow_v1",
+        }
+
+        return output
+
+
 def build_game_simulation(
     game_pk: int,
     config: Optional[Dict[str, Any]] = None,
@@ -712,6 +898,8 @@ def build_game_simulation(
             "position_player_substitution_diagnostics_enabled",
             "position_player_substitution_diagnostics_version",
             "position_player_substitution_state",
+            "canonical_shadow_enabled",
+            "canonical_shadow_payload",
         }
     }
 
@@ -755,8 +943,15 @@ def build_game_simulation(
             )
         )
 
-        return _attach_position_player_substitution_diagnostics(
-            stolen_base_pickoff_payload,
+        position_player_substitution_payload = (
+            _attach_position_player_substitution_diagnostics(
+                stolen_base_pickoff_payload,
+                config=config_snapshot,
+            )
+        )
+
+        return _attach_canonical_shadow_diagnostics(
+            position_player_substitution_payload,
             config=config_snapshot,
         )
     except Exception as exc:
