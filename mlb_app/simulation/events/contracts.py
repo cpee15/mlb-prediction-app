@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Iterable, Optional, Tuple
 
+from .attribution import PlayAttribution
+
 
 class Base(IntEnum):
     """Canonical base identifiers used by runner movements."""
@@ -136,6 +138,7 @@ class PlayEvent:
     runner_movements: Tuple[RunnerMovement, ...] = field(default_factory=tuple)
     outs_recorded: Tuple[OutRecord, ...] = field(default_factory=tuple)
     runs_scored: Tuple[str, ...] = field(default_factory=tuple)
+    attribution: PlayAttribution = field(default_factory=PlayAttribution)
 
     def __post_init__(self) -> None:
         if self.sequence < 0:
