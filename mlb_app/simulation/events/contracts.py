@@ -139,6 +139,7 @@ class PlayEvent:
     outs_recorded: Tuple[OutRecord, ...] = field(default_factory=tuple)
     runs_scored: Tuple[str, ...] = field(default_factory=tuple)
     attribution: PlayAttribution = field(default_factory=PlayAttribution)
+    pitcher_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.sequence < 0:
@@ -147,6 +148,10 @@ class PlayEvent:
             raise ValueError("event_type is required")
         if not self.batter_id:
             raise ValueError("batter_id is required")
+        if self.pitcher_id == "":
+            raise ValueError(
+                "pitcher_id cannot be an empty string"
+            )
 
         if self.state_after.plate_appearance_number != (
             self.state_before.plate_appearance_number + 1
