@@ -37,6 +37,19 @@ from .legal_transitions import (
     enumerate_legal_runner_destinations,
     validate_runner_movements,
 )
+
+from .event_validation import validate_resolved_play_components
+from .multi_out_resolver import MultiOutPlayResolver
+from .play_resolution import build_play_event
+from .attribution import (
+    ErrorType,
+    PlayAttribution,
+    SacrificeType,
+)
+from .scoring_rules import (
+    counted_scorers,
+    third_out_is_force_or_batter_runner_out,
+)
 from .replay import replay_events
 from .resolver import DeterministicPlayResolver
 
@@ -64,6 +77,14 @@ __all__ = [
     "RunnerMovement",
     "SprayDirection",
     "enumerate_legal_runner_destinations",
+    "ErrorType",
+    "MultiOutPlayResolver",
+    "PlayAttribution",
+    "SacrificeType",
+    "build_play_event",
+    "counted_scorers",
+    "third_out_is_force_or_batter_runner_out",
+    "validate_resolved_play_components",
     "replay_events",
     "validate_baseline_advancement_rates",
     "validate_baseline_batted_ball_distributions",
