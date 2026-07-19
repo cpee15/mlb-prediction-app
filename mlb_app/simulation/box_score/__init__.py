@@ -31,3 +31,5 @@ __all__ = [
     "score_pitcher",
     "validate_box_score_reconstruction",
 ]
+
+from .merge import merge_reduced_box_scores
