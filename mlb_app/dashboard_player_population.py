@@ -27,6 +27,7 @@ ACTIVE_REASONS = (
     "recent_confirmed_lineup",
     "recent_tracked_game",
     "active_roster_with_analytics",
+    "verified_active_roster",
 )
 
 
@@ -133,8 +134,9 @@ def evaluate_active_player(candidate: Dict[str, Any], *, as_of: dt.date, window_
         return True, ACTIVE_REASONS[1]
     if game_date and cutoff <= game_date <= as_of:
         return True, ACTIVE_REASONS[2]
-    if candidate.get("on_active_roster") and candidate.get("has_usable_analytics"):
-        return True, ACTIVE_REASONS[3]
+    if candidate.get("on_active_roster"):
+        reason_index = 3 if candidate.get("has_usable_analytics") else 4
+        return True, ACTIVE_REASONS[reason_index]
     return False, "no_recent_verified_activity"
 
 
