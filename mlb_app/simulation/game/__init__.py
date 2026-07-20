@@ -45,6 +45,11 @@ from .outcome_resolution import (
     EMPTY_BASE_HIT_DESTINATIONS,
     resolve_canonical_sampled_plate_appearance,
 )
+from .pa_resolver_factory import (
+    CANONICAL_PA_RESOLVER_FACTORY_VERSION,
+    CanonicalPlateAppearanceResolverFactory,
+    build_canonical_pa_resolver_factory,
+)
 from .probability import (
     CANONICAL_PA_OUTCOME_ORDER,
     CANONICAL_PA_PROBABILITY_VERSION,
@@ -97,6 +102,7 @@ __all__ = [
     "CANONICAL_OUT_SUBTYPES",
     "CANONICAL_PA_OUTCOME_ORDER",
     "CANONICAL_PA_PROBABILITY_VERSION",
+    "CANONICAL_PA_RESOLVER_FACTORY_VERSION",
     "CANONICAL_PA_SAMPLING_VERSION",
     "DEFAULT_CANONICAL_MODEL_VERSION",
     "DEFAULT_CANONICAL_SIMULATION_COUNT",
@@ -114,6 +120,7 @@ __all__ = [
     "CanonicalOutcomeProbability",
     "CanonicalPlateAppearanceOutcome",
     "CanonicalPlateAppearanceProbabilities",
+    "CanonicalPlateAppearanceResolverFactory",
     "CanonicalPlateAppearanceProbabilityProvider",
     "CanonicalPlateAppearanceQuery",
     "CanonicalSampledPlateAppearance",
@@ -125,6 +132,7 @@ __all__ = [
     "simulate_canonical_game",
     "sample_canonical_plate_appearance",
     "aggregate_game_outcomes",
+    "build_canonical_pa_resolver_factory",
     "build_canonical_trial_factory_input",
     "build_canonical_trial_resolver_context",
     "derive_canonical_base_seed",
