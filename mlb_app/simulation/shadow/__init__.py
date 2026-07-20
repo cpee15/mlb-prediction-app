@@ -9,6 +9,7 @@ from .contracts import (
     ShadowCoverage,
 )
 from .integration import attach_canonical_shadow
+from .trial_adapter import canonical_trial_batch_to_shadow_payload
 from .serialization import (
     shadow_diagnostics_to_dict,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "RangeComparison",
     "ShadowCoverage",
     "attach_canonical_shadow",
+    "canonical_trial_batch_to_shadow_payload",
     "compare_shadow_payloads",
     "shadow_diagnostics_to_dict",
 ]
