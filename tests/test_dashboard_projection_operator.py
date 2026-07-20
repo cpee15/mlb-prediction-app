@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from mlb_app.dashboard_object_models import DashboardPlayerCurrent, DashboardProjectionRun
 from mlb_app.dashboard_projection_operator import ensure_canonical_projection, run_canonical_projection_refresh
-from mlb_app.database import Base
+from mlb_app.database import Base, BatterAggregate
 
 
 class Response:
@@ -130,3 +130,52 @@ def test_auto_bootstrap_can_be_disabled_and_redacts_refresh_failure(monkeypatch)
         "error_type": "RuntimeError",
     }
     assert "sensitive" not in str(result)
+
+
+
+def test_confirmed_lineup_failure_does_not_block_roster_aggregate_baseline():
+    session = make_session()
+    target_date = dt.date(2026, 7, 20)
+    session.add(BatterAggregate(
+        batter_id=201,
+        window="season",
+        end_date=target_date,
+        avg_exit_velocity=91.0,
+        avg_launch_angle=14.0,
+        hard_hit_pct=0.44,
+        barrel_pct=0.11,
+        k_pct=0.19,
+        bb_pct=0.09,
+        batting_avg=0.275,
+    ))
+    session.commit()
+
+    def roster_request_get(url, **kwargs):
+        if url.endswith("/teams"):
+            return Response({"teams": [
+                {"id": index, "name": f"Team {index}"}
+                for index in range(1, 31)
+            ]})
+        if url.endswith("/teams/1/roster"):
+            return Response({"roster": [{
+                "person": {"id": 201, "fullName": "Roster Hitter"},
+                "position": {"abbreviation": "OF", "type": "Outfielder"},
+            }]})
+        return Response({"roster": []})
+
+    result = run_canonical_projection_refresh(
+        session,
+        target_date=target_date,
+        request_get=roster_request_get,
+        matchup_builder=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("matchup source unavailable")
+        ),
+    )
+
+    assert result["status"] == "success"
+    assert result["lineup_player_count"] == 0
+    assert result["lineup_error_count"] == 1
+    assert result["population"]["active_hitter_count"] == 1
+    current = session.query(DashboardPlayerCurrent).one()
+    assert current.full_name == "Roster Hitter"
+    assert current.exit_velocity == 91.0
