@@ -11,7 +11,12 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 import requests
 
 from .dashboard_object_models import DashboardPlayer, DashboardPlayerCurrent, DashboardPlayerSnapshot, DashboardProjectionRun
-from .dashboard_player_population import fetch_active_roster, fetch_confirmed_lineup_players, populate_dashboard_players
+from .dashboard_player_population import (
+    CANONICAL_POPULATION_POLICY_VERSION,
+    fetch_active_roster,
+    fetch_confirmed_lineup_players,
+    populate_dashboard_players,
+)
 from .dashboard_player_projection import backfill_player_projection, refresh_player_projection
 from .lineup_data import MLB_STATS_BASE
 
@@ -208,27 +213,50 @@ def run_canonical_projection_refresh(
 
 
 
+def _current_projection_state(
+    session: Any,
+    required_player_type: Optional[str],
+) -> Dict[str, Any]:
+    query = session.query(DashboardPlayerCurrent).filter(
+        DashboardPlayerCurrent.is_active.is_(True)
+    )
+    if required_player_type:
+        query = query.filter(DashboardPlayerCurrent.player_type == required_player_type)
+    rows = query.all()
+    policy_current = bool(rows) and all(
+        (row.provenance_json or {}).get("population_policy_version")
+        == CANONICAL_POPULATION_POLICY_VERSION
+        for row in rows
+    )
+    return {
+        "current_count": len(rows),
+        "policy_current": policy_current,
+        "required_player_type": required_player_type,
+    }
+
+
 def ensure_canonical_projection(
     session: Any,
     *,
     target_date: dt.date,
     refresh: Callable[..., Dict[str, Any]] = run_canonical_projection_refresh,
+    required_player_type: Optional[str] = None,
     now: Optional[dt.datetime] = None,
 ) -> Dict[str, Any]:
     """Populate an empty canonical projection once, then leave report requests read-only."""
 
-    current_count = session.query(DashboardPlayerCurrent).count()
-    if current_count:
-        return {"status": "already_available", "current_count": current_count}
+    state = _current_projection_state(session, required_player_type)
+    if state["current_count"] and state["policy_current"]:
+        return {"status": "already_available", **state}
     if not canonical_auto_bootstrap_enabled():
         return {"status": "disabled", "current_count": 0}
 
     checked_at = now or dt.datetime.utcnow()
     with _AUTO_BOOTSTRAP_LOCK:
         session.expire_all()
-        current_count = session.query(DashboardPlayerCurrent).count()
-        if current_count:
-            return {"status": "already_available", "current_count": current_count}
+        state = _current_projection_state(session, required_player_type)
+        if state["current_count"] and state["policy_current"]:
+            return {"status": "already_available", **state}
 
         try:
             running_timeout_minutes = max(
@@ -275,14 +303,14 @@ def ensure_canonical_projection(
             # established empty-result contract.
             return {
                 "status": "failed",
-                "current_count": session.query(DashboardPlayerCurrent).count(),
+                "current_count": _current_projection_state(session, required_player_type)["current_count"],
                 "error_type": exc.__class__.__name__,
             }
 
-        current_count = session.query(DashboardPlayerCurrent).count()
+        state = _current_projection_state(session, required_player_type)
         return {
-            "status": "populated" if current_count else "empty",
-            "current_count": current_count,
+            "status": "populated" if state["current_count"] and state["policy_current"] else "empty",
+            **state,
             "run_id": result.get("run_id"),
             "projection_version": result.get("projection_version"),
         }
