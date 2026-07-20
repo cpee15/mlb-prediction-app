@@ -37,7 +37,8 @@ def test_canonical_report_query_bootstraps_for_requested_mlb_date(monkeypatch):
     result = routes.my_dashboard_player_report_query(payload)
 
     assert calls["target_date"] == dt.date(2026, 7, 20)
-    assert calls["report_type"] == "all_active_hitters"\n    assert calls["required_player_type"] == "hitter"
+    assert calls["report_type"] == "all_active_hitters"
+    assert calls["required_player_type"] == "hitter"
     assert result["totalSize"] == 300
     assert result["population_bootstrap"] == {
         "status": "populated",
