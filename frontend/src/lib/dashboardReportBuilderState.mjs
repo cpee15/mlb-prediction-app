@@ -48,6 +48,7 @@ export function buildReportRequest({ objectKey, activeLineupsOnly, date, cleaned
       reportType,
       payload: {
         report_type: reportType,
+        as_of_date: date,
         filters: criteria,
         weights,
         page_size: query.page_size,
