@@ -691,6 +691,7 @@ CANONICAL_SHADOW_CONFIG_KEYS = frozenset(
     {
         "canonical_shadow_enabled",
         "canonical_shadow_payload",
+        "canonical_shadow_trial_batch",
     }
 )
 
@@ -777,14 +778,41 @@ def _canonical_shadow_enabled(
     )
 
 
+def _canonical_shadow_factory_config(
+    config: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Return canonical-factory inputs without shadow control artifacts.
+
+    The injected factory receives ordinary simulation inputs such as the
+    requested simulation count or seed, but never receives a prebuilt
+    canonical payload or trial batch.
+    """
+
+    return {
+        key: deepcopy(value)
+        for key, value in dict(config or {}).items()
+        if key not in CANONICAL_SHADOW_CONFIG_KEYS
+    }
+
+
 def _canonical_shadow_payload(
     config: Optional[Dict[str, Any]],
+    *,
+    game_pk: Optional[int] = None,
+    trial_batch_factory=None,
 ):
     """
-    Resolve a prebuilt payload or adapt a canonical trial batch.
+    Resolve or explicitly construct a canonical shadow payload.
 
-    An explicit canonical_shadow_payload takes precedence for backward
-    compatibility. This helper does not run canonical simulation.
+    Precedence is:
+
+    1. explicit canonical_shadow_payload;
+    2. explicit canonical_shadow_trial_batch;
+    3. injected trial_batch_factory.
+
+    The factory hook is dependency injection only. No default production
+    canonical factory is imported or selected here.
     """
 
     config_snapshot = dict(config or {})
@@ -801,7 +829,27 @@ def _canonical_shadow_payload(
     )
 
     if trial_batch is None:
-        return None
+        if trial_batch_factory is None:
+            return None
+
+        if not callable(trial_batch_factory):
+            raise TypeError(
+                "canonical shadow trial-batch factory "
+                "must be callable"
+            )
+
+        if game_pk is None:
+            raise ValueError(
+                "game_pk is required for canonical "
+                "shadow factory execution"
+            )
+
+        trial_batch = trial_batch_factory(
+            game_pk=int(game_pk),
+            config=_canonical_shadow_factory_config(
+                config
+            ),
+        )
 
     from mlb_app.simulation.shadow import (
         canonical_trial_batch_to_shadow_payload,
@@ -816,6 +864,8 @@ def _attach_canonical_shadow_diagnostics(
     payload: Dict[str, Any],
     *,
     config: Optional[Dict[str, Any]],
+    game_pk: Optional[int] = None,
+    trial_batch_factory=None,
 ) -> Dict[str, Any]:
     """
     Attach fail-open canonical shadow diagnostics when explicitly
@@ -834,9 +884,16 @@ def _attach_canonical_shadow_diagnostics(
 
     try:
         enabled = _canonical_shadow_enabled(config)
-        canonical_payload = _canonical_shadow_payload(
-            config
-        )
+
+        if enabled:
+            canonical_payload = _canonical_shadow_payload(
+                config,
+                game_pk=game_pk,
+                trial_batch_factory=(
+                    trial_batch_factory
+                ),
+            )
+
         canonical_available = (
             canonical_payload is not None
         )
@@ -895,6 +952,8 @@ def _attach_canonical_shadow_diagnostics(
 def build_game_simulation(
     game_pk: int,
     config: Optional[Dict[str, Any]] = None,
+    *,
+    canonical_shadow_trial_batch_factory=None,
 ) -> Dict[str, Any]:
     import traceback
 
@@ -979,6 +1038,10 @@ def build_game_simulation(
         return _attach_canonical_shadow_diagnostics(
             position_player_substitution_payload,
             config=config_snapshot,
+            game_pk=int(game_pk),
+            trial_batch_factory=(
+                canonical_shadow_trial_batch_factory
+            ),
         )
     except Exception as exc:
         return {

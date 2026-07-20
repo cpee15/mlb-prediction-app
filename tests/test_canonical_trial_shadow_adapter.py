@@ -254,3 +254,228 @@ def test_builder_accepts_trial_batch_without_changing_legacy(
         ["authoritative_source"]
         == "legacy"
     )
+
+
+def test_builder_runs_injected_trial_factory(monkeypatch):
+    observed = {
+        "factory_calls": 0,
+    }
+
+    def engine(game_pk, config):
+        observed["engine_game_pk"] = game_pk
+        observed["engine_config"] = config
+        return legacy_result()
+
+    def factory(*, game_pk, config):
+        observed["factory_calls"] += 1
+        observed["factory_game_pk"] = game_pk
+        observed["factory_config"] = config
+        return trial_batch()
+
+    monkeypatch.setattr(
+        builder,
+        "_load_sandbox_engine",
+        lambda: engine,
+    )
+
+    result = builder.build_game_simulation(
+        456,
+        {
+            "simulation_count": 1,
+            "seed": 12345,
+            "canonical_shadow_enabled": True,
+        },
+        canonical_shadow_trial_batch_factory=factory,
+    )
+
+    assert observed["factory_calls"] == 1
+    assert observed["factory_game_pk"] == 456
+    assert observed["factory_config"] == {
+        "simulation_count": 1,
+        "seed": 12345,
+    }
+    assert observed["engine_config"] == {
+        "simulation_count": 1,
+        "seed": 12345,
+    }
+    assert result["away_expected_runs"] == 3.0
+    assert result["home_expected_runs"] == 4.0
+    assert (
+        result["diagnostics"]
+        ["canonical_shadow"]["status"]
+        == "complete"
+    )
+    assert (
+        result["diagnostics"]
+        ["canonical_shadow"]
+        ["authoritative_source"]
+        == "legacy"
+    )
+
+
+def test_disabled_shadow_does_not_run_injected_factory(
+    monkeypatch,
+):
+    observed = {
+        "factory_calls": 0,
+    }
+
+    def engine(game_pk, config):
+        return legacy_result()
+
+    def factory(*, game_pk, config):
+        observed["factory_calls"] += 1
+        return trial_batch()
+
+    monkeypatch.setattr(
+        builder,
+        "_load_sandbox_engine",
+        lambda: engine,
+    )
+
+    result = builder.build_game_simulation(
+        456,
+        {
+            "canonical_shadow_enabled": False,
+        },
+        canonical_shadow_trial_batch_factory=factory,
+    )
+
+    assert observed["factory_calls"] == 0
+    assert (
+        result["diagnostics"]
+        ["canonical_shadow"]["status"]
+        == "disabled"
+    )
+    assert result["away_expected_runs"] == 3.0
+
+
+def test_explicit_payload_precedes_injected_factory(
+    monkeypatch,
+):
+    observed = {
+        "factory_calls": 0,
+    }
+
+    def engine(game_pk, config):
+        return legacy_result()
+
+    def factory(*, game_pk, config):
+        observed["factory_calls"] += 1
+        raise AssertionError(
+            "factory must not run when payload is explicit"
+        )
+
+    monkeypatch.setattr(
+        builder,
+        "_load_sandbox_engine",
+        lambda: engine,
+    )
+
+    explicit_payload = (
+        canonical_trial_batch_to_shadow_payload(
+            trial_batch()
+        )
+    )
+
+    result = builder.build_game_simulation(
+        456,
+        {
+            "canonical_shadow_enabled": True,
+            "canonical_shadow_payload": explicit_payload,
+        },
+        canonical_shadow_trial_batch_factory=factory,
+    )
+
+    assert observed["factory_calls"] == 0
+    assert (
+        result["diagnostics"]
+        ["canonical_shadow"]["status"]
+        == "complete"
+    )
+
+
+def test_explicit_trial_batch_precedes_injected_factory(
+    monkeypatch,
+):
+    observed = {
+        "factory_calls": 0,
+    }
+
+    def engine(game_pk, config):
+        observed["engine_config"] = config
+        return legacy_result()
+
+    def factory(*, game_pk, config):
+        observed["factory_calls"] += 1
+        raise AssertionError(
+            "factory must not run when batch is explicit"
+        )
+
+    monkeypatch.setattr(
+        builder,
+        "_load_sandbox_engine",
+        lambda: engine,
+    )
+
+    result = builder.build_game_simulation(
+        456,
+        {
+            "simulation_count": 1,
+            "canonical_shadow_enabled": True,
+            "canonical_shadow_trial_batch": (
+                trial_batch()
+            ),
+        },
+        canonical_shadow_trial_batch_factory=factory,
+    )
+
+    assert observed["factory_calls"] == 0
+    assert observed["engine_config"] == {
+        "simulation_count": 1,
+    }
+    assert (
+        result["diagnostics"]
+        ["canonical_shadow"]["status"]
+        == "complete"
+    )
+
+
+def test_injected_factory_failure_is_fail_open(
+    monkeypatch,
+):
+    def engine(game_pk, config):
+        return legacy_result()
+
+    def factory(*, game_pk, config):
+        raise RuntimeError(
+            "canonical factory test failure"
+        )
+
+    monkeypatch.setattr(
+        builder,
+        "_load_sandbox_engine",
+        lambda: engine,
+    )
+
+    result = builder.build_game_simulation(
+        456,
+        {
+            "canonical_shadow_enabled": True,
+        },
+        canonical_shadow_trial_batch_factory=factory,
+    )
+
+    shadow = result["diagnostics"][
+        "canonical_shadow"
+    ]
+
+    assert shadow["status"] == "error"
+    assert shadow["authoritative_source"] == "legacy"
+    assert shadow["error_type"] == "RuntimeError"
+    assert (
+        "canonical factory test failure"
+        in shadow["error_message"]
+    )
+    assert result["away_expected_runs"] == 3.0
+    assert result["home_expected_runs"] == 4.0
