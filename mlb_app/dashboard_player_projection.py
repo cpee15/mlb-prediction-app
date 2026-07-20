@@ -8,6 +8,7 @@ import json
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from .dashboard_object_models import DashboardPlayer, DashboardPlayerCurrent, DashboardPlayerSnapshot
+from .dashboard_player_population import CANONICAL_POPULATION_POLICY_VERSION
 from .database import BatterAggregate, PitcherAggregate
 from .my_dashboard_dataset import MyDashboardRecord
 
@@ -247,7 +248,12 @@ def build_player_snapshot_rows(
 
         row["metrics"] = metrics
         row["source_versions"] = source_versions
-        row["provenance"] = {\n            "sources": sources,\n            "population_source": "dashboard_players",\n            "population_policy_version": (player.source_provenance_json or {}).get("population_policy_version"),\n            "metrics_overlay_only": True,\n        }
+        row["provenance"] = {
+            "sources": sources,
+            "population_source": "dashboard_players",
+            "population_policy_version": CANONICAL_POPULATION_POLICY_VERSION,
+            "metrics_overlay_only": True,
+        }
         output.append(row)
     return output
 
