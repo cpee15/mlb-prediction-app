@@ -796,6 +796,38 @@ def _canonical_shadow_factory_config(
     }
 
 
+def _invoke_canonical_trial_batch_factory(
+    factory,
+    *,
+    factory_input,
+):
+    """
+    Invoke the versioned factory-input contract when supported.
+
+    Existing factories accepting ``game_pk`` and ``config`` remain
+    supported during migration.
+    """
+
+    import inspect
+
+    try:
+        parameters = inspect.signature(
+            factory
+        ).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+
+    if "factory_input" in parameters:
+        return factory(
+            factory_input=factory_input
+        )
+
+    return factory(
+        game_pk=factory_input.game_pk,
+        config=factory_input.config_dict(),
+    )
+
+
 def _canonical_shadow_payload(
     config: Optional[Dict[str, Any]],
     *,
@@ -844,11 +876,28 @@ def _canonical_shadow_payload(
                 "shadow factory execution"
             )
 
-        trial_batch = trial_batch_factory(
-            game_pk=int(game_pk),
-            config=_canonical_shadow_factory_config(
+        factory_config = (
+            _canonical_shadow_factory_config(
                 config
-            ),
+            )
+        )
+
+        from mlb_app.simulation.game import (
+            build_canonical_trial_factory_input,
+        )
+
+        factory_input = (
+            build_canonical_trial_factory_input(
+                game_pk=int(game_pk),
+                config=factory_config,
+            )
+        )
+
+        trial_batch = (
+            _invoke_canonical_trial_batch_factory(
+                trial_batch_factory,
+                factory_input=factory_input,
+            )
         )
 
     from mlb_app.simulation.shadow import (

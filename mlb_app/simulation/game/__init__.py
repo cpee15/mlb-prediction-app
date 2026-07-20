@@ -13,6 +13,16 @@ from .contracts import (
     GameCompletionReason,
     HalfInningRecord,
 )
+from .factory_input import (
+    CANONICAL_TRIAL_FACTORY_INPUT_VERSION,
+    CANONICAL_TRIAL_SEED_VERSION,
+    DEFAULT_CANONICAL_MODEL_VERSION,
+    DEFAULT_CANONICAL_SIMULATION_COUNT,
+    CanonicalTrialFactoryInput,
+    build_canonical_trial_factory_input,
+    derive_canonical_base_seed,
+    derive_canonical_trial_seed,
+)
 from .orchestrator import (
     PlateAppearanceResolver,
     simulate_canonical_game,
@@ -41,6 +51,11 @@ __all__ = [
     "CanonicalTrialBatch",
     "CanonicalTrialDiagnostics",
     "CanonicalTrialFactory",
+    "CANONICAL_TRIAL_FACTORY_INPUT_VERSION",
+    "CANONICAL_TRIAL_SEED_VERSION",
+    "DEFAULT_CANONICAL_MODEL_VERSION",
+    "DEFAULT_CANONICAL_SIMULATION_COUNT",
+    "CanonicalTrialFactoryInput",
     "DistributionPoint",
     "ProbabilityMetric",
     "CanonicalGameValidation",
@@ -50,6 +65,9 @@ __all__ = [
     "PlateAppearanceResolver",
     "simulate_canonical_game",
     "aggregate_game_outcomes",
+    "build_canonical_trial_factory_input",
+    "derive_canonical_base_seed",
+    "derive_canonical_trial_seed",
     "run_canonical_trials",
     "reduce_canonical_game_box_score",
     "validate_game_box_score_reconciliation",
