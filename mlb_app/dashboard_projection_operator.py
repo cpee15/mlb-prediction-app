@@ -243,7 +243,7 @@ def ensure_canonical_projection(
     required_player_type: Optional[str] = None,
     now: Optional[dt.datetime] = None,
 ) -> Dict[str, Any]:
-    """Populate an empty canonical projection once, then leave report requests read-only."""
+    """Refresh missing or stale canonical rows for the requested player type."""
 
     state = _current_projection_state(session, required_player_type)
     if state["current_count"] and state["policy_current"]:
@@ -256,7 +256,7 @@ def ensure_canonical_projection(
         session.expire_all()
         state = _current_projection_state(session, required_player_type)
         if state["current_count"] and state["policy_current"]:
-            return {"status": "already_available", **state}
+            return {"status": "already_available", "current_count": state["current_count"]}
 
         try:
             running_timeout_minutes = max(
