@@ -479,3 +479,91 @@ def test_injected_factory_failure_is_fail_open(
     )
     assert result["away_expected_runs"] == 3.0
     assert result["home_expected_runs"] == 4.0
+
+
+def test_builder_supports_versioned_factory_input(
+    monkeypatch,
+):
+    observed = {}
+
+    def engine(game_pk, config):
+        return legacy_result()
+
+    def factory(*, factory_input):
+        observed["factory_input"] = factory_input
+        return trial_batch()
+
+    monkeypatch.setattr(
+        builder,
+        "_load_sandbox_engine",
+        lambda: engine,
+    )
+
+    result = builder.build_game_simulation(
+        789,
+        {
+            "simulation_count": 1,
+            "seed": 2468,
+            "canonical_shadow_enabled": True,
+        },
+        canonical_shadow_trial_batch_factory=factory,
+    )
+
+    factory_input = observed["factory_input"]
+
+    assert factory_input.game_pk == 789
+    assert factory_input.simulation_count == 1
+    assert factory_input.base_seed == 2468
+    assert factory_input.seed_source == "explicit"
+    assert factory_input.config_dict() == {
+        "simulation_count": 1,
+        "seed": 2468,
+    }
+    assert (
+        result["diagnostics"]
+        ["canonical_shadow"]["status"]
+        == "complete"
+    )
+
+
+def test_legacy_factory_signature_remains_supported(
+    monkeypatch,
+):
+    observed = {}
+
+    def engine(game_pk, config):
+        return legacy_result()
+
+    def factory(*, game_pk, config):
+        observed["game_pk"] = game_pk
+        observed["config"] = config
+        return trial_batch()
+
+    monkeypatch.setattr(
+        builder,
+        "_load_sandbox_engine",
+        lambda: engine,
+    )
+
+    result = builder.build_game_simulation(
+        789,
+        {
+            "simulation_count": 1,
+            "seed": 2468,
+            "canonical_shadow_enabled": True,
+        },
+        canonical_shadow_trial_batch_factory=factory,
+    )
+
+    assert observed == {
+        "game_pk": 789,
+        "config": {
+            "simulation_count": 1,
+            "seed": 2468,
+        },
+    }
+    assert (
+        result["diagnostics"]
+        ["canonical_shadow"]["status"]
+        == "complete"
+    )
