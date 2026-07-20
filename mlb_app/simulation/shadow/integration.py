@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
+from mlb_app.simulation.game.probability_diagnostics import (
+    CanonicalProbabilityResolutionDiagnostics,
+)
 
 from .comparator import compare_shadow_payloads
 from .contracts import CanonicalShadowDiagnostics
 from .serialization import shadow_diagnostics_to_dict
+from .probability_serialization import (
+    probability_resolution_diagnostics_to_dict,
+)
 
 
 def attach_canonical_shadow(
@@ -15,6 +22,9 @@ def attach_canonical_shadow(
     legacy_result: Dict[str, Any],
     enabled: bool = False,
     canonical_payload=None,
+    probability_resolution_diagnostics: Optional[
+        CanonicalProbabilityResolutionDiagnostics
+    ] = None,
 ) -> Dict[str, Any]:
     """Attach shadow diagnostics without mutating legacy data."""
 
@@ -76,8 +86,32 @@ def attach_canonical_shadow(
                 error_message=str(exc),
             )
 
-    diagnostics["canonical_shadow"] = (
-        shadow_diagnostics_to_dict(shadow)
+    shadow_payload = shadow_diagnostics_to_dict(
+        shadow
     )
+
+    if probability_resolution_diagnostics is not None:
+        try:
+            shadow_payload[
+                "probability_resolution"
+            ] = probability_resolution_diagnostics_to_dict(
+                probability_resolution_diagnostics
+            )
+        except Exception as exc:
+            shadow_payload[
+                "probability_resolution"
+            ] = {
+                "schema_version": (
+                    "canonical_probability_"
+                    "diagnostics_shadow_v1"
+                ),
+                "status": "error",
+                "error_type": (
+                    exc.__class__.__name__
+                ),
+                "error_message": str(exc),
+            }
+
+    diagnostics["canonical_shadow"] = shadow_payload
 
     return output
