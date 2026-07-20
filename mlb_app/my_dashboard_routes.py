@@ -156,6 +156,11 @@ def my_dashboard_player_report_query(payload: DashboardPlayerReportRequest) -> D
                 bootstrap = ensure_canonical_projection(
                     session,
                     target_date=payload.as_of_date or mlb_business_date(),
+                    required_player_type=(
+                        "hitter"
+                        if payload.report_type == "all_active_hitters"
+                        else "pitcher"
+                    ),
                 )
             result = query_player_report(
                 session, payload.report_type, filters=payload.filters, weights=payload.weights,
