@@ -247,7 +247,7 @@ def build_player_snapshot_rows(
 
         row["metrics"] = metrics
         row["source_versions"] = source_versions
-        row["provenance"] = {"sources": sources, "population_source": "dashboard_players", "metrics_overlay_only": True}
+        row["provenance"] = {\n            "sources": sources,\n            "population_source": "dashboard_players",\n            "population_policy_version": (player.source_provenance_json or {}).get("population_policy_version"),\n            "metrics_overlay_only": True,\n        }
         output.append(row)
     return output
 
