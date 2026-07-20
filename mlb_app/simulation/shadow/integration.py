@@ -8,12 +8,19 @@ from typing import Any, Dict, Optional
 from mlb_app.simulation.game.probability_diagnostics import (
     CanonicalProbabilityResolutionDiagnostics,
 )
+from .input_assembly import (
+    CanonicalShadowExecutionInputs,
+)
 
 from .comparator import compare_shadow_payloads
 from .contracts import CanonicalShadowDiagnostics
 from .serialization import shadow_diagnostics_to_dict
 from .probability_serialization import (
     probability_resolution_diagnostics_to_dict,
+)
+from .input_serialization import (
+    CANONICAL_SHADOW_INPUT_PROVENANCE_VERSION,
+    canonical_shadow_input_provenance_to_dict,
 )
 
 
@@ -24,6 +31,9 @@ def attach_canonical_shadow(
     canonical_payload=None,
     probability_resolution_diagnostics: Optional[
         CanonicalProbabilityResolutionDiagnostics
+    ] = None,
+    canonical_shadow_execution_inputs: Optional[
+        CanonicalShadowExecutionInputs
     ] = None,
 ) -> Dict[str, Any]:
     """Attach shadow diagnostics without mutating legacy data."""
@@ -110,6 +120,28 @@ def attach_canonical_shadow(
                     exc.__class__.__name__
                 ),
                 "error_message": str(exc),
+            }
+
+    if canonical_shadow_execution_inputs is not None:
+        try:
+            shadow_payload[
+                "input_provenance"
+            ] = canonical_shadow_input_provenance_to_dict(
+                canonical_shadow_execution_inputs
+            )
+        except Exception as exc:
+            shadow_payload[
+                "input_provenance"
+            ] = {
+                "schema_version": (
+                    CANONICAL_SHADOW_INPUT_PROVENANCE_VERSION
+                ),
+                "status": "error",
+                "error_type": (
+                    exc.__class__.__name__
+                ),
+                "error_message": str(exc),
+                "authoritative_source": "legacy",
             }
 
     diagnostics["canonical_shadow"] = shadow_payload
