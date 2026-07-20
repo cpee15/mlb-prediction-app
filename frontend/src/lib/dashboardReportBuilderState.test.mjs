@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   buildReportRequest,
+  canonicalBootstrapMessage,
   defaultFieldsForObject,
   initialFieldsByObject,
   normalizeCanonicalPage,
@@ -57,4 +58,34 @@ test('canonical pagination is adapted to the Report Workspace contract', () => {
   assert.equal(result.page_info.record_count, 50)
   assert.equal(result.page_info.has_next, true)
   assert.equal(result.page_info.has_previous, false)
+})
+
+
+test('canonical bootstrap diagnostics expose only safe status details', () => {
+  assert.deepEqual(
+    canonicalBootstrapMessage({
+      population_bootstrap: {
+        status: 'failed',
+        error_type: 'RuntimeError',
+        run_id: 42,
+      },
+    }),
+    {
+      tone: 'error',
+      title: 'Canonical population failed',
+      detail: 'The guarded refresh failed with RuntimeError. Run #42.',
+    },
+  )
+  assert.equal(
+    canonicalBootstrapMessage({
+      population_bootstrap: { status: 'in_progress', run_id: 43 },
+    }).title,
+    'Canonical population is refreshing',
+  )
+  assert.equal(
+    canonicalBootstrapMessage({
+      population_bootstrap: { status: 'empty', run_id: 44 },
+    }).title,
+    'Canonical population remained empty',
+  )
 })
