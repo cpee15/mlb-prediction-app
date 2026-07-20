@@ -43,7 +43,7 @@ def test_active_policy_has_four_explicit_eligibility_paths():
     assert evaluate_active_player({"most_recent_lineup_date": AS_OF - dt.timedelta(days=29)}, as_of=AS_OF, window_days=30) == (True, "recent_confirmed_lineup")
     assert evaluate_active_player({"most_recent_game_date": AS_OF}, as_of=AS_OF, window_days=30) == (True, "recent_tracked_game")
     assert evaluate_active_player({"on_active_roster": True, "has_usable_analytics": True}, as_of=AS_OF, window_days=30) == (True, "active_roster_with_analytics")
-    assert evaluate_active_player({"on_active_roster": True, "has_usable_analytics": False}, as_of=AS_OF, window_days=30)[0] is False
+    assert evaluate_active_player({"on_active_roster": True, "has_usable_analytics": False}, as_of=AS_OF, window_days=30) == (True, "verified_active_roster")
 
 
 def test_verified_roster_adapter_preserves_mlb_identity_position_and_team():
@@ -102,6 +102,24 @@ def test_population_deduplicates_by_id_and_combines_roster_lineup_and_analytics(
     assert player.is_active is True
     assert player.active_status_reason == "today_confirmed_or_projected_lineup"
     assert player.source_provenance_json["sources"] == ["mlb_boxscore_confirmed_lineup", "mlb_stats_active_roster"]
+
+
+def test_verified_roster_populates_baseline_without_local_analytics():
+    session = make_session()
+    roster = normalize_source_player(
+        {"person": {"id": 456, "fullName": "Roster Baseline"}, "position": {"abbreviation": "SP", "type": "Pitcher"}},
+        source="mlb_stats_active_roster",
+        team_id=112,
+        team_name="Cubs",
+    )
+    roster["on_active_roster"] = True
+
+    result = populate_dashboard_players(session, as_of=AS_OF, roster_rows=[roster])
+
+    player = session.get(DashboardPlayer, 456)
+    assert result["active_pitcher_count"] == 1
+    assert player.is_active is True
+    assert player.active_status_reason == "verified_active_roster"
 
 
 def test_population_reports_unresolved_and_does_not_persist_it():
