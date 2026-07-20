@@ -780,10 +780,35 @@ def _canonical_shadow_enabled(
 def _canonical_shadow_payload(
     config: Optional[Dict[str, Any]],
 ):
-    """Return the prebuilt canonical payload without copying it."""
+    """
+    Resolve a prebuilt payload or adapt a canonical trial batch.
 
-    return dict(config or {}).get(
+    An explicit canonical_shadow_payload takes precedence for backward
+    compatibility. This helper does not run canonical simulation.
+    """
+
+    config_snapshot = dict(config or {})
+
+    explicit_payload = config_snapshot.get(
         "canonical_shadow_payload"
+    )
+
+    if explicit_payload is not None:
+        return explicit_payload
+
+    trial_batch = config_snapshot.get(
+        "canonical_shadow_trial_batch"
+    )
+
+    if trial_batch is None:
+        return None
+
+    from mlb_app.simulation.shadow import (
+        canonical_trial_batch_to_shadow_payload,
+    )
+
+    return canonical_trial_batch_to_shadow_payload(
+        trial_batch
     )
 
 
@@ -900,6 +925,7 @@ def build_game_simulation(
             "position_player_substitution_state",
             "canonical_shadow_enabled",
             "canonical_shadow_payload",
+            "canonical_shadow_trial_batch",
         }
     }
 
