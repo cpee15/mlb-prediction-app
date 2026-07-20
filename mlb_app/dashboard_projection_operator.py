@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import concurrent.futures
 import os
 import threading
 from typing import Any, Callable, Dict, List, Optional, Sequence
@@ -46,6 +47,50 @@ def fetch_active_mlb_teams(
     if len(teams) < 30:
         raise RuntimeError(f"Verified MLB team source returned only {len(teams)} active teams")
     return teams
+
+
+def fetch_verified_active_rosters(
+    teams: Sequence[Dict[str, Any]],
+    season: int,
+    *,
+    request_get: Callable[..., Any] = requests.get,
+    max_workers: int = 10,
+) -> List[Dict[str, Any]]:
+    """Fetch every verified team roster concurrently while preserving all-team validation."""
+
+    roster_by_team: Dict[int, List[Dict[str, Any]]] = {}
+    errors: List[str] = []
+
+    def fetch(team: Dict[str, Any]) -> List[Dict[str, Any]]:
+        return fetch_active_roster(
+            team["team_id"],
+            season,
+            team_name=team["team_name"],
+            request_get=request_get,
+        )
+
+    worker_count = max(1, min(int(max_workers), len(teams)))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {executor.submit(fetch, team): team for team in teams}
+        for future in concurrent.futures.as_completed(futures):
+            team = futures[future]
+            try:
+                roster_by_team[team["team_id"]] = future.result()
+            except Exception as exc:
+                errors.append(exc.__class__.__name__)
+
+    if errors:
+        error_types = ",".join(sorted(set(errors)))
+        raise RuntimeError(
+            f"Verified MLB active-roster source failed for {len(errors)} of {len(teams)} teams "
+            f"(error types: {error_types})"
+        )
+
+    return [
+        player
+        for team in teams
+        for player in roster_by_team.get(team["team_id"], [])
+    ]
 
 
 def _counts(session: Any) -> Dict[str, int]:
@@ -110,14 +155,11 @@ def run_canonical_projection_refresh(
     run = _begin_run(session, "canonical_refresh", target_date, started_at)
     try:
         teams = fetch_active_mlb_teams(target_date.year, request_get=request_get)
-        roster_rows: List[Dict[str, Any]] = []
-        for team in teams:
-            roster_rows.extend(fetch_active_roster(
-                team["team_id"],
-                target_date.year,
-                team_name=team["team_name"],
-                request_get=request_get,
-            ))
+        roster_rows = fetch_verified_active_rosters(
+            teams,
+            target_date.year,
+            request_get=request_get,
+        )
         try:
             lineup = fetch_confirmed_lineup_players(
                 session,
@@ -188,19 +230,42 @@ def ensure_canonical_projection(
         if current_count:
             return {"status": "already_available", "current_count": current_count}
 
-        recent_cutoff = checked_at - dt.timedelta(minutes=15)
-        running = (
+        try:
+            running_timeout_minutes = max(
+                1,
+                int(os.getenv("DASHBOARD_CANONICAL_RUNNING_TIMEOUT_MINUTES", "5")),
+            )
+        except (TypeError, ValueError):
+            running_timeout_minutes = 5
+        recent_cutoff = checked_at - dt.timedelta(minutes=running_timeout_minutes)
+        running_rows = (
             session.query(DashboardProjectionRun)
             .filter(
                 DashboardProjectionRun.run_type == "canonical_refresh",
                 DashboardProjectionRun.status == "running",
-                DashboardProjectionRun.started_at >= recent_cutoff,
             )
             .order_by(DashboardProjectionRun.started_at.desc(), DashboardProjectionRun.id.desc())
-            .first()
+            .all()
         )
-        if running is not None:
-            return {"status": "in_progress", "current_count": 0, "run_id": running.id}
+        recent_running = next(
+            (run for run in running_rows if run.started_at >= recent_cutoff),
+            None,
+        )
+        if recent_running is not None:
+            return {
+                "status": "in_progress",
+                "current_count": 0,
+                "run_id": recent_running.id,
+            }
+        for abandoned in running_rows:
+            abandoned.status = "failed"
+            abandoned.completed_at = checked_at
+            abandoned.error_type = "AbandonedProjectionRun"
+            abandoned.error_message = (
+                "Canonical refresh exceeded the running timeout and was retired."
+            )
+        if running_rows:
+            session.commit()
 
         try:
             result = refresh(session, target_date=target_date)
