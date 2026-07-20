@@ -33,6 +33,10 @@ from .orchestrator import (
     PlateAppearanceResolver,
     simulate_canonical_game,
 )
+from .outcome_resolution import (
+    EMPTY_BASE_HIT_DESTINATIONS,
+    resolve_canonical_sampled_plate_appearance,
+)
 from .probability import (
     CANONICAL_PA_OUTCOME_ORDER,
     CANONICAL_PA_PROBABILITY_VERSION,
@@ -85,6 +89,7 @@ __all__ = [
     "CANONICAL_PA_SAMPLING_VERSION",
     "DEFAULT_CANONICAL_MODEL_VERSION",
     "DEFAULT_CANONICAL_SIMULATION_COUNT",
+    "EMPTY_BASE_HIT_DESTINATIONS",
     "CanonicalTrialFactoryInput",
     "CanonicalTrialExecutionPlan",
     "CanonicalTrialResolverContext",
@@ -115,6 +120,7 @@ __all__ = [
     "derive_canonical_pa_sampling_seed",
     "run_canonical_trials",
     "run_canonical_trial_execution_plan",
+    "resolve_canonical_sampled_plate_appearance",
     "reduce_canonical_game_box_score",
     "validate_game_box_score_reconciliation",
     "validate_canonical_game",
