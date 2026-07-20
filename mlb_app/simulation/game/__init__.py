@@ -63,6 +63,14 @@ from .probability import (
     derive_canonical_pa_sampling_seed,
     sample_canonical_plate_appearance,
 )
+from .probability_artifact import (
+    CANONICAL_PROBABILITY_ARTIFACT_ADAPTER_VERSION,
+    CANONICAL_PROBABILITY_ARTIFACT_VERSION,
+    CanonicalProbabilityArtifact,
+    CanonicalProbabilityArtifactAdapter,
+    CanonicalProbabilityArtifactRecord,
+    build_canonical_probability_artifact_provider,
+)
 from .trial_factory import (
     CanonicalTrialExecutionPlan,
     CanonicalTrialResolverContext,
@@ -104,6 +112,8 @@ __all__ = [
     "CANONICAL_PA_PROBABILITY_VERSION",
     "CANONICAL_PA_RESOLVER_FACTORY_VERSION",
     "CANONICAL_PA_SAMPLING_VERSION",
+    "CANONICAL_PROBABILITY_ARTIFACT_ADAPTER_VERSION",
+    "CANONICAL_PROBABILITY_ARTIFACT_VERSION",
     "DEFAULT_CANONICAL_MODEL_VERSION",
     "DEFAULT_CANONICAL_SIMULATION_COUNT",
     "EMPTY_BASE_HIT_DESTINATIONS",
@@ -125,6 +135,9 @@ __all__ = [
     "CanonicalPlateAppearanceQuery",
     "CanonicalSampledPlateAppearance",
     "CanonicalPitchingPlan",
+    "CanonicalProbabilityArtifact",
+    "CanonicalProbabilityArtifactAdapter",
+    "CanonicalProbabilityArtifactRecord",
     "CanonicalProbabilityProviderIdentity",
     "GameCompletionReason",
     "HalfInningRecord",
@@ -133,6 +146,7 @@ __all__ = [
     "sample_canonical_plate_appearance",
     "aggregate_game_outcomes",
     "build_canonical_pa_resolver_factory",
+    "build_canonical_probability_artifact_provider",
     "build_canonical_trial_factory_input",
     "build_canonical_trial_resolver_context",
     "derive_canonical_base_seed",
