@@ -66,6 +66,29 @@ export function buildReportRequest({ objectKey, activeLineupsOnly, date, cleaned
   }
 }
 
+
+export function canonicalBootstrapMessage(result) {
+  const bootstrap = result?.population_bootstrap
+  if (!bootstrap || !bootstrap.status) {
+    return { tone: 'empty', title: 'No qualifying rows', detail: 'No records matched this server query.' }
+  }
+  const run = bootstrap.run_id ? ` Run #${bootstrap.run_id}.` : ''
+  if (bootstrap.status === 'in_progress') {
+    return { tone: 'loading', title: 'Canonical population is refreshing', detail: `The verified roster refresh is still running.${run} Retry shortly.` }
+  }
+  if (bootstrap.status === 'failed') {
+    const errorType = bootstrap.error_type || 'UnknownError'
+    return { tone: 'error', title: 'Canonical population failed', detail: `The guarded refresh failed with ${errorType}.${run}` }
+  }
+  if (bootstrap.status === 'disabled') {
+    return { tone: 'error', title: 'Canonical population is disabled', detail: 'Automatic canonical population is disabled by server configuration.' }
+  }
+  if (bootstrap.status === 'empty') {
+    return { tone: 'error', title: 'Canonical population remained empty', detail: `The guarded refresh completed without reportable current rows.${run}` }
+  }
+  return { tone: 'empty', title: 'No qualifying rows', detail: 'No records matched this server query.' }
+}
+
 export function normalizeCanonicalPage(json, query) {
   const total = Number(json?.totalSize || 0)
   const records = Array.isArray(json?.records) ? json.records : []
