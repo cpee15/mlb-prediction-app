@@ -14,6 +14,9 @@ from mlb_app.simulation.events import (
     build_play_event,
 )
 
+from .batted_ball_resolution import (
+    resolve_canonical_batted_ball_outcome,
+)
 from .probability import (
     CanonicalPlateAppearanceOutcome,
     CanonicalSampledPlateAppearance,
@@ -81,11 +84,23 @@ def resolve_canonical_sampled_plate_appearance(
 
     if outcome in {
         CanonicalPlateAppearanceOutcome.OUT,
-        CanonicalPlateAppearanceOutcome.STRIKEOUT,
+        CanonicalPlateAppearanceOutcome.SINGLE,
+        CanonicalPlateAppearanceOutcome.DOUBLE,
     }:
+        return resolve_canonical_batted_ball_outcome(
+            sampled
+        ).event
+
+    if (
+        outcome
+        is CanonicalPlateAppearanceOutcome.STRIKEOUT
+    ):
         return _resolve_batter_out(sampled)
 
-    if outcome in EMPTY_BASE_HIT_DESTINATIONS:
+    if (
+        outcome
+        is CanonicalPlateAppearanceOutcome.TRIPLE
+    ):
         return _resolve_empty_base_hit(sampled)
 
     raise ValueError(

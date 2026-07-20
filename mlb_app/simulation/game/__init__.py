@@ -6,6 +6,14 @@ from .box_score import (
     reduce_canonical_game_box_score,
     validate_game_box_score_reconciliation,
 )
+from .batted_ball_resolution import (
+    CANONICAL_BATTED_BALL_RESOLUTION_VERSION,
+    CANONICAL_OUT_SUBTYPES,
+    SUPPORTED_BATTED_BALL_ADVANCEMENT_OUTCOMES,
+    CanonicalBattedBallResolution,
+    derive_canonical_batted_ball_seed,
+    resolve_canonical_batted_ball_outcome,
+)
 from .contracts import (
     CanonicalGameConfig,
     CanonicalGameResult,
@@ -73,6 +81,7 @@ from .validation import (
 )
 
 __all__ = [
+    "CanonicalBattedBallResolution",
     "CanonicalGameBoxScore",
     "GameBoxScoreReconciliation",
     "CanonicalGameConfig",
@@ -84,6 +93,8 @@ __all__ = [
     "CANONICAL_TRIAL_FACTORY_INPUT_VERSION",
     "CANONICAL_TRIAL_SEED_VERSION",
     "CANONICAL_MATCHUP_INPUT_VERSION",
+    "CANONICAL_BATTED_BALL_RESOLUTION_VERSION",
+    "CANONICAL_OUT_SUBTYPES",
     "CANONICAL_PA_OUTCOME_ORDER",
     "CANONICAL_PA_PROBABILITY_VERSION",
     "CANONICAL_PA_SAMPLING_VERSION",
@@ -96,6 +107,7 @@ __all__ = [
     "CanonicalTrialResolverFactory",
     "DistributionPoint",
     "ProbabilityMetric",
+    "SUPPORTED_BATTED_BALL_ADVANCEMENT_OUTCOMES",
     "CanonicalGameValidation",
     "CanonicalLineup",
     "CanonicalMatchupInput",
@@ -117,9 +129,11 @@ __all__ = [
     "build_canonical_trial_resolver_context",
     "derive_canonical_base_seed",
     "derive_canonical_trial_seed",
+    "derive_canonical_batted_ball_seed",
     "derive_canonical_pa_sampling_seed",
     "run_canonical_trials",
     "run_canonical_trial_execution_plan",
+    "resolve_canonical_batted_ball_outcome",
     "resolve_canonical_sampled_plate_appearance",
     "reduce_canonical_game_box_score",
     "validate_game_box_score_reconciliation",

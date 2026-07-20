@@ -138,11 +138,6 @@ def test_forced_awards_reuse_deterministic_resolution(
     "outcome,event_type,reason",
     [
         (
-            CanonicalPlateAppearanceOutcome.OUT,
-            "out",
-            "batted_ball_out",
-        ),
-        (
             CanonicalPlateAppearanceOutcome.STRIKEOUT,
             "k",
             "strikeout",
@@ -225,8 +220,6 @@ def test_empty_base_hits_place_batter_at_fixed_base(
 @pytest.mark.parametrize(
     "outcome",
     [
-        CanonicalPlateAppearanceOutcome.SINGLE,
-        CanonicalPlateAppearanceOutcome.DOUBLE,
         CanonicalPlateAppearanceOutcome.TRIPLE,
     ],
 )

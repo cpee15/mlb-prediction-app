@@ -1,0 +1,264 @@
+from dataclasses import replace
+
+import pytest
+
+from mlb_app.simulation.events import (
+    BattedBallContext,
+    GameState,
+)
+from mlb_app.simulation.game import (
+    CANONICAL_OUT_SUBTYPES,
+    CanonicalLineup,
+    CanonicalMatchupInput,
+    CanonicalPitchingPlan,
+    CanonicalPlateAppearanceOutcome,
+    CanonicalPlateAppearanceQuery,
+    CanonicalProbabilityProviderIdentity,
+    CanonicalSampledPlateAppearance,
+    derive_canonical_batted_ball_seed,
+    resolve_canonical_batted_ball_outcome,
+    resolve_canonical_sampled_plate_appearance,
+)
+
+
+def lineup(side):
+    return CanonicalLineup(
+        team_side=side,
+        player_ids=tuple(
+            f"{side}_batter_{index}"
+            for index in range(9)
+        ),
+    )
+
+
+def pitching_plan(side):
+    return CanonicalPitchingPlan(
+        team_side=side,
+        starter_id=f"{side}_starter",
+        bullpen_pitcher_ids=(
+            f"{side}_reliever",
+        ),
+    )
+
+
+def matchup():
+    return CanonicalMatchupInput(
+        game_pk=123,
+        away_lineup=lineup("away"),
+        home_lineup=lineup("home"),
+        away_pitching_plan=(
+            pitching_plan("away")
+        ),
+        home_pitching_plan=(
+            pitching_plan("home")
+        ),
+        probability_provider=(
+            CanonicalProbabilityProviderIdentity(
+                provider_name="advancement-test",
+                provider_version="v1",
+            )
+        ),
+    )
+
+
+def sampled(
+    outcome,
+    *,
+    state=None,
+    sequence=0,
+):
+    state = state or GameState(
+        inning=1,
+        half="top",
+    )
+
+    return CanonicalSampledPlateAppearance(
+        query=CanonicalPlateAppearanceQuery(
+            matchup_input=matchup(),
+            state=state,
+            batter_id="away_batter_0",
+            pitcher_id="home_starter",
+            sequence=sequence,
+            trial_index=2,
+            trial_seed=12345,
+        ),
+        outcome=outcome,
+        draw=0.25,
+        sampling_seed=67890,
+    )
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        CanonicalPlateAppearanceOutcome.SINGLE,
+        CanonicalPlateAppearanceOutcome.DOUBLE,
+    ],
+)
+def test_occupied_base_hits_resolve_with_advancement(
+    outcome,
+):
+    state = GameState(
+        inning=4,
+        half="top",
+        bases=(
+            "away_batter_1",
+            "away_batter_2",
+            "away_batter_3",
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            outcome,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert isinstance(
+        resolution.context,
+        BattedBallContext,
+    )
+    assert event.event_type == outcome.value
+    assert event.pitcher_id == "home_starter"
+    assert event.state_after.plate_appearance_number == 1
+    assert event.state_after.batting_order_index == 1
+    assert (
+        event.runner_movements
+        == resolution.advancement.movements
+    )
+
+
+def test_batted_ball_out_uses_explicit_advancement():
+    state = GameState(
+        inning=5,
+        half="top",
+        outs=0,
+        bases=(
+            "away_batter_1",
+            "away_batter_2",
+            "away_batter_3",
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert resolution.outcome_subtype in (
+        CANONICAL_OUT_SUBTYPES
+    )
+    assert event.state_after.outs == 1
+    assert event.outs_recorded[0].runner_id == (
+        "away_batter_0"
+    )
+    assert event.outs_recorded[0].reason == (
+        resolution.outcome_subtype
+    )
+    assert event.runner_movements[-1].is_out
+
+
+def test_identical_sample_reproduces_full_resolution():
+    value = sampled(
+        CanonicalPlateAppearanceOutcome.SINGLE,
+        state=GameState(
+            inning=3,
+            half="top",
+            bases=(
+                "away_batter_1",
+                "away_batter_2",
+                None,
+            ),
+        ),
+    )
+
+    first = resolve_canonical_batted_ball_outcome(
+        value
+    )
+    second = resolve_canonical_batted_ball_outcome(
+        value
+    )
+
+    assert first == second
+
+
+def test_context_and_advancement_use_separate_seeds():
+    value = sampled(
+        CanonicalPlateAppearanceOutcome.DOUBLE
+    )
+
+    context_seed = derive_canonical_batted_ball_seed(
+        sampled=value,
+        purpose="context",
+    )
+    advancement_seed = (
+        derive_canonical_batted_ball_seed(
+            sampled=value,
+            purpose="advancement",
+        )
+    )
+
+    assert context_seed != advancement_seed
+
+
+def test_sequence_changes_batted_ball_seed():
+    first = sampled(
+        CanonicalPlateAppearanceOutcome.SINGLE,
+        sequence=1,
+    )
+    second = replace(
+        first,
+        query=replace(
+            first.query,
+            sequence=2,
+        ),
+    )
+
+    assert derive_canonical_batted_ball_seed(
+        sampled=first,
+        purpose="context",
+    ) != derive_canonical_batted_ball_seed(
+        sampled=second,
+        purpose="context",
+    )
+
+
+def test_public_sampled_resolver_routes_occupied_single():
+    state = GameState(
+        inning=2,
+        half="top",
+        bases=(
+            "away_batter_1",
+            None,
+            None,
+        ),
+    )
+
+    event = resolve_canonical_sampled_plate_appearance(
+        sampled(
+            CanonicalPlateAppearanceOutcome.SINGLE,
+            state=state,
+        )
+    )
+
+    assert event.event_type == "single"
+    assert event.state_after.first == "away_batter_0"
+
+
+def test_strikeout_does_not_use_batted_ball_resolution():
+    with pytest.raises(
+        ValueError,
+        match="not supported",
+    ):
+        resolve_canonical_batted_ball_outcome(
+            sampled(
+                CanonicalPlateAppearanceOutcome.STRIKEOUT
+            )
+        )
