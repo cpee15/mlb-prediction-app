@@ -7,6 +7,7 @@ import {
   defaultFieldsForObject,
   initialFieldsByObject,
   normalizeCanonicalPage,
+  reportFieldsForMode,
 } from './dashboardReportBuilderState.mjs'
 
 const query = { page_number: 1, page_size: 50, sort_by: 'score', sort_direction: 'desc' }
@@ -37,6 +38,19 @@ test('weights rerank canonical players without becoming filter criteria', () => 
 test('legacy and confirmed-lineup objects preserve their existing routes', () => {
   assert.equal(buildReportRequest({ objectKey: 'teams', activeLineupsOnly: false, date: '2026-07-16', cleanedFilters: {}, query }).path, '/my-dashboard/solver')
   assert.equal(buildReportRequest({ objectKey: 'hitters', activeLineupsOnly: true, date: '2026-07-16', cleanedFilters: {}, query }).path, '/my-dashboard/solver/active-lineups')
+})
+
+test('active lineup reports use fields compatible with the legacy dataset', () => {
+  assert.deepEqual(reportFieldsForMode({
+    objectKey: 'hitters',
+    activeLineupsOnly: true,
+    selectedFields: ['rank', 'full_name', 'team_name', 'model_score', 'confidence'],
+  }), ['rank', 'entity_name', 'team', 'opponent', 'score', 'confidence'])
+  assert.deepEqual(reportFieldsForMode({
+    objectKey: 'hitters',
+    activeLineupsOnly: false,
+    selectedFields: ['rank', 'full_name'],
+  }), ['rank', 'full_name'])
 })
 
 test('primary objects own independent default column selections', () => {

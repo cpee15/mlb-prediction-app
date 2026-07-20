@@ -7,6 +7,10 @@ export const CANONICAL_REPORT_TYPES = {
 
 const LEGACY_DEFAULT_FIELDS = ['rank', 'entity_name', 'team', 'opponent', 'score', 'confidence']
 
+function usesLegacyLineupDataset(objectKey, activeLineupsOnly) {
+  return Boolean(activeLineupsOnly && ['hitters', 'overall_players'].includes(objectKey))
+}
+
 export const DEFAULT_FIELDS_BY_OBJECT = {
   hitters: ['rank', 'full_name', 'team_name', 'model_score', 'confidence'],
   pitchers: ['rank', 'full_name', 'team_name', 'model_score', 'confidence'],
@@ -29,6 +33,13 @@ export function initialFieldsByObject(objects, persisted = {}) {
   return defaults
 }
 
+export function reportFieldsForMode({ objectKey, activeLineupsOnly, selectedFields }) {
+  if (usesLegacyLineupDataset(objectKey, activeLineupsOnly)) return [...LEGACY_DEFAULT_FIELDS]
+  return Array.isArray(selectedFields) && selectedFields.length
+    ? [...selectedFields]
+    : defaultFieldsForObject(objectKey)
+}
+
 export function canonicalSortField(field) {
   return ({
     entity_name: 'full_name',
@@ -39,7 +50,7 @@ export function canonicalSortField(field) {
 }
 
 export function buildReportRequest({ objectKey, activeLineupsOnly, date, cleanedFilters, query }) {
-  const useLineups = Boolean(activeLineupsOnly && ['hitters', 'overall_players'].includes(objectKey))
+  const useLineups = usesLegacyLineupDataset(objectKey, activeLineupsOnly)
   const reportType = useLineups ? null : CANONICAL_REPORT_TYPES[objectKey]
   const { weights = {}, ...criteria } = cleanedFilters || {}
   if (reportType) {

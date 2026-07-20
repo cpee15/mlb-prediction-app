@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from mlb_app.dashboard_object_models import DashboardPlayerCurrent, DashboardProjectionRun
+from mlb_app.dashboard_player_population import CANONICAL_POPULATION_POLICY_VERSION
 from mlb_app.dashboard_projection_operator import (
     ensure_canonical_projection,
     fetch_verified_active_rosters,
@@ -92,7 +93,7 @@ def test_empty_projection_auto_bootstraps_once_and_reuses_current_rows(monkeypat
             metrics_json={},
             projection_version="bootstrap-v1",
             source_freshness_json={"snapshot_date": target_date.isoformat()},
-            provenance_json={},
+            provenance_json={"population_policy_version": CANONICAL_POPULATION_POLICY_VERSION},
             promoted_at=now,
             updated_at=now,
         ))
@@ -100,8 +101,8 @@ def test_empty_projection_auto_bootstraps_once_and_reuses_current_rows(monkeypat
         return {"run_id": 7, "projection_version": "bootstrap-v1"}
 
     target_date = dt.date(2026, 7, 20)
-    first = ensure_canonical_projection(session, target_date=target_date, refresh=refresh)
-    second = ensure_canonical_projection(session, target_date=target_date, refresh=refresh)
+    first = ensure_canonical_projection(session, target_date=target_date, refresh=refresh, required_player_type="hitter")
+    second = ensure_canonical_projection(session, target_date=target_date, refresh=refresh, required_player_type="hitter")
 
     assert first == {
         "status": "populated",
@@ -111,6 +112,63 @@ def test_empty_projection_auto_bootstraps_once_and_reuses_current_rows(monkeypat
     }
     assert second == {"status": "already_available", "current_count": 1}
     assert calls == [target_date]
+
+
+def test_legacy_hitter_projection_refreshes_even_when_pitchers_already_exist(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_CANONICAL_AUTO_BOOTSTRAP", "true")
+    session = make_session()
+    now = dt.datetime(2026, 7, 20, 12, 0, 0)
+    session.add_all([
+        DashboardPlayerCurrent(
+            mlb_player_id=101,
+            snapshot_id=1,
+            player_type="hitter",
+            full_name="Legacy Hitter",
+            is_active=True,
+            metrics_json={},
+            projection_version="legacy-v1",
+            source_freshness_json={},
+            provenance_json={},
+            promoted_at=now,
+            updated_at=now,
+        ),
+        DashboardPlayerCurrent(
+            mlb_player_id=201,
+            snapshot_id=2,
+            player_type="pitcher",
+            full_name="Existing Pitcher",
+            is_active=True,
+            metrics_json={},
+            projection_version="legacy-v1",
+            source_freshness_json={},
+            provenance_json={},
+            promoted_at=now,
+            updated_at=now,
+        ),
+    ])
+    session.commit()
+    calls = []
+
+    def refresh(current_session, *, target_date):
+        calls.append(target_date)
+        for row in current_session.query(DashboardPlayerCurrent).all():
+            row.provenance_json = {
+                "population_policy_version": CANONICAL_POPULATION_POLICY_VERSION,
+            }
+        current_session.commit()
+        return {"run_id": 8, "projection_version": "verified-roster-v2"}
+
+    target_date = now.date()
+    result = ensure_canonical_projection(
+        session,
+        target_date=target_date,
+        refresh=refresh,
+        required_player_type="hitter",
+    )
+
+    assert calls == [target_date]
+    assert result["status"] == "populated"
+    assert result["current_count"] == 1
 
 
 def test_auto_bootstrap_can_be_disabled_and_redacts_refresh_failure(monkeypatch):
@@ -246,7 +304,9 @@ def test_abandoned_running_refresh_is_retired_before_bootstrap(monkeypatch):
             metrics_json={},
             projection_version="recovered-v1",
             source_freshness_json={"snapshot_date": target_date.isoformat()},
-            provenance_json={},
+            provenance_json={
+                "population_policy_version": CANONICAL_POPULATION_POLICY_VERSION,
+            },
             promoted_at=checked_at,
             updated_at=checked_at,
         ))

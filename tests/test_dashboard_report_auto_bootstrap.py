@@ -15,8 +15,9 @@ def test_canonical_report_query_bootstraps_for_requested_mlb_date(monkeypatch):
     calls = {}
     monkeypatch.setattr(routes, "session_factory", lambda: lambda: SessionContext())
 
-    def ensure(_session, *, target_date):
+    def ensure(_session, *, target_date, required_player_type):
         calls["target_date"] = target_date
+        calls["required_player_type"] = required_player_type
         return {"status": "populated", "current_count": 300}
 
     def query(_session, report_type, **kwargs):
@@ -37,6 +38,7 @@ def test_canonical_report_query_bootstraps_for_requested_mlb_date(monkeypatch):
 
     assert calls["target_date"] == dt.date(2026, 7, 20)
     assert calls["report_type"] == "all_active_hitters"
+    assert calls["required_player_type"] == "hitter"
     assert result["totalSize"] == 300
     assert result["population_bootstrap"] == {
         "status": "populated",
