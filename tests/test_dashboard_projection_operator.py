@@ -5,7 +5,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from mlb_app.dashboard_object_models import DashboardPlayerCurrent, DashboardProjectionRun
-from mlb_app.dashboard_projection_operator import ensure_canonical_projection, run_canonical_projection_refresh
+from mlb_app.dashboard_projection_operator import (
+    ensure_canonical_projection,
+    fetch_verified_active_rosters,
+    run_canonical_projection_refresh,
+)
 from mlb_app.database import Base, BatterAggregate
 
 
@@ -179,3 +183,118 @@ def test_confirmed_lineup_failure_does_not_block_roster_aggregate_baseline():
     current = session.query(DashboardPlayerCurrent).one()
     assert current.full_name == "Roster Hitter"
     assert current.exit_velocity == 91.0
+
+
+
+def test_verified_rosters_are_collected_for_all_teams_and_fail_as_a_set():
+    teams = [{"team_id": index, "team_name": f"Team {index}"} for index in range(1, 31)]
+    calls = []
+
+    def successful_get(url, **kwargs):
+        calls.append(url)
+        return Response({"roster": []})
+
+    assert fetch_verified_active_rosters(
+        teams,
+        2026,
+        request_get=successful_get,
+        max_workers=8,
+    ) == []
+    assert len(calls) == 30
+
+    def one_failure(url, **kwargs):
+        if "/teams/15/roster" in url:
+            raise TimeoutError("upstream timeout")
+        return Response({"roster": []})
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"failed for 1 of 30 teams .*TimeoutError",
+    ):
+        fetch_verified_active_rosters(
+            teams,
+            2026,
+            request_get=one_failure,
+            max_workers=8,
+        )
+
+
+def test_abandoned_running_refresh_is_retired_before_bootstrap(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_CANONICAL_RUNNING_TIMEOUT_MINUTES", "5")
+    session = make_session()
+    checked_at = dt.datetime(2026, 7, 20, 14, 0, 0)
+    abandoned = DashboardProjectionRun(
+        run_type="canonical_refresh",
+        target_date=checked_at.date(),
+        status="running",
+        started_at=checked_at - dt.timedelta(minutes=6),
+        canonical_count=0,
+        active_count=0,
+        current_count=0,
+        snapshot_count=0,
+    )
+    session.add(abandoned)
+    session.commit()
+
+    def refresh(current_session, *, target_date):
+        current_session.add(DashboardPlayerCurrent(
+            mlb_player_id=301,
+            snapshot_id=1,
+            player_type="pitcher",
+            full_name="Recovered Pitcher",
+            is_active=True,
+            metrics_json={},
+            projection_version="recovered-v1",
+            source_freshness_json={"snapshot_date": target_date.isoformat()},
+            provenance_json={},
+            promoted_at=checked_at,
+            updated_at=checked_at,
+        ))
+        current_session.commit()
+        return {"run_id": 9, "projection_version": "recovered-v1"}
+
+    result = ensure_canonical_projection(
+        session,
+        target_date=checked_at.date(),
+        refresh=refresh,
+        now=checked_at,
+    )
+
+    session.refresh(abandoned)
+    assert abandoned.status == "failed"
+    assert abandoned.error_type == "AbandonedProjectionRun"
+    assert result["status"] == "populated"
+    assert result["current_count"] == 1
+
+
+def test_recent_running_refresh_still_prevents_overlap(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_CANONICAL_RUNNING_TIMEOUT_MINUTES", "5")
+    session = make_session()
+    checked_at = dt.datetime(2026, 7, 20, 14, 0, 0)
+    running = DashboardProjectionRun(
+        run_type="canonical_refresh",
+        target_date=checked_at.date(),
+        status="running",
+        started_at=checked_at - dt.timedelta(minutes=1),
+        canonical_count=0,
+        active_count=0,
+        current_count=0,
+        snapshot_count=0,
+    )
+    session.add(running)
+    session.commit()
+
+    result = ensure_canonical_projection(
+        session,
+        target_date=checked_at.date(),
+        refresh=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("overlapping refresh")
+        ),
+        now=checked_at,
+    )
+
+    assert result == {
+        "status": "in_progress",
+        "current_count": 0,
+        "run_id": running.id,
+    }
