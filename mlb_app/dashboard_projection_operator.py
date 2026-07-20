@@ -233,10 +233,10 @@ def ensure_canonical_projection(
         try:
             running_timeout_minutes = max(
                 1,
-                int(os.getenv("DASHBOARD_CANONICAL_RUNNING_TIMEOUT_MINUTES", "5")),
+                int(os.getenv("DASHBOARD_CANONICAL_RUNNING_TIMEOUT_MINUTES", "1")),
             )
         except (TypeError, ValueError):
-            running_timeout_minutes = 5
+            running_timeout_minutes = 1
         recent_cutoff = checked_at - dt.timedelta(minutes=running_timeout_minutes)
         running_rows = (
             session.query(DashboardProjectionRun)
