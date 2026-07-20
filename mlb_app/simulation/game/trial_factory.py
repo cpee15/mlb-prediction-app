@@ -18,6 +18,9 @@ from .contracts import (
 from .factory_input import (
     CanonicalTrialFactoryInput,
 )
+from .matchup_input import (
+    CanonicalMatchupInput,
+)
 from .orchestrator import (
     PlateAppearanceResolver,
     simulate_canonical_game,
@@ -40,6 +43,9 @@ class CanonicalTrialResolverContext:
     factory_input: CanonicalTrialFactoryInput
     trial_index: int
     trial_seed: int
+    matchup_input: Optional[
+        CanonicalMatchupInput
+    ] = None
 
     def __post_init__(self) -> None:
         if not isinstance(
@@ -77,6 +83,25 @@ class CanonicalTrialResolverContext:
                 "factory-input seed"
             )
 
+        if self.matchup_input is not None:
+            if not isinstance(
+                self.matchup_input,
+                CanonicalMatchupInput,
+            ):
+                raise TypeError(
+                    "matchup_input must be a "
+                    "CanonicalMatchupInput"
+                )
+
+            if (
+                self.matchup_input.game_pk
+                != self.factory_input.game_pk
+            ):
+                raise ValueError(
+                    "matchup game_pk must match "
+                    "factory input"
+                )
+
 
 CanonicalTrialResolverFactory = Callable[
     [CanonicalTrialResolverContext],
@@ -106,6 +131,9 @@ class CanonicalTrialExecutionPlan:
     ] = None
     pitcher_dfs_rules: Optional[
         PitcherDfsScoringRules
+    ] = None
+    matchup_input: Optional[
+        CanonicalMatchupInput
     ] = None
 
     def __post_init__(self) -> None:
@@ -158,11 +186,49 @@ class CanonicalTrialExecutionPlan:
                 "resolver_factory must be callable"
             )
 
+        if self.matchup_input is not None:
+            if not isinstance(
+                self.matchup_input,
+                CanonicalMatchupInput,
+            ):
+                raise TypeError(
+                    "matchup_input must be a "
+                    "CanonicalMatchupInput"
+                )
+
+            if (
+                self.matchup_input.game_pk
+                != self.factory_input.game_pk
+            ):
+                raise ValueError(
+                    "matchup game_pk must match "
+                    "factory input"
+                )
+
+            if (
+                self.matchup_input.away_lineup
+                != self.away_lineup
+            ):
+                raise ValueError(
+                    "matchup away lineup must match plan"
+                )
+
+            if (
+                self.matchup_input.home_lineup
+                != self.home_lineup
+            ):
+                raise ValueError(
+                    "matchup home lineup must match plan"
+                )
+
 
 def build_canonical_trial_resolver_context(
     *,
     factory_input: CanonicalTrialFactoryInput,
     trial_index: int,
+    matchup_input: Optional[
+        CanonicalMatchupInput
+    ] = None,
 ) -> CanonicalTrialResolverContext:
     """Build the deterministic resolver context for one trial."""
 
@@ -172,6 +238,7 @@ def build_canonical_trial_resolver_context(
         trial_seed=factory_input.seed_for_trial(
             trial_index
         ),
+        matchup_input=matchup_input,
     )
 
 
@@ -201,6 +268,7 @@ def run_canonical_trial_execution_plan(
             build_canonical_trial_resolver_context(
                 factory_input=plan.factory_input,
                 trial_index=trial_index,
+                matchup_input=plan.matchup_input,
             )
         )
 

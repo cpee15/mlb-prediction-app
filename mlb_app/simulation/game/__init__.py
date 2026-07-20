@@ -23,6 +23,12 @@ from .factory_input import (
     derive_canonical_base_seed,
     derive_canonical_trial_seed,
 )
+from .matchup_input import (
+    CANONICAL_MATCHUP_INPUT_VERSION,
+    CanonicalMatchupInput,
+    CanonicalPitchingPlan,
+    CanonicalProbabilityProviderIdentity,
+)
 from .orchestrator import (
     PlateAppearanceResolver,
     simulate_canonical_game,
@@ -60,6 +66,7 @@ __all__ = [
     "CanonicalTrialFactory",
     "CANONICAL_TRIAL_FACTORY_INPUT_VERSION",
     "CANONICAL_TRIAL_SEED_VERSION",
+    "CANONICAL_MATCHUP_INPUT_VERSION",
     "DEFAULT_CANONICAL_MODEL_VERSION",
     "DEFAULT_CANONICAL_SIMULATION_COUNT",
     "CanonicalTrialFactoryInput",
@@ -70,6 +77,9 @@ __all__ = [
     "ProbabilityMetric",
     "CanonicalGameValidation",
     "CanonicalLineup",
+    "CanonicalMatchupInput",
+    "CanonicalPitchingPlan",
+    "CanonicalProbabilityProviderIdentity",
     "GameCompletionReason",
     "HalfInningRecord",
     "PlateAppearanceResolver",
