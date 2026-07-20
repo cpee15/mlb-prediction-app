@@ -385,6 +385,29 @@ def _ensure_statcast_event_columns(engine) -> None:
         print(f"[database] Non-fatal statcast_events schema guard skipped: {exc}")
 
 
+def _ensure_dashboard_snapshot_lineup_status_width(engine) -> None:
+    """Widen the deployed PostgreSQL column for canonical activity reasons."""
+
+    inspector = inspect(engine)
+    table_name = "dashboard_player_snapshots"
+    if table_name not in inspector.get_table_names():
+        return
+    lineup_status = next(
+        (column for column in inspector.get_columns(table_name) if column["name"] == "lineup_status"),
+        None,
+    )
+    if lineup_status is None:
+        return
+    current_length = getattr(lineup_status["type"], "length", None)
+    if current_length is None or current_length >= 80 or engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as conn:
+        conn.execute(text(
+            "ALTER TABLE dashboard_player_snapshots "
+            "ALTER COLUMN lineup_status TYPE VARCHAR(80)"
+        ))
+
+
 def get_engine(database_url: str):
     return create_engine(database_url, echo=False, future=True)
 
@@ -395,6 +418,7 @@ def create_tables(engine) -> None:
     from . import dashboard_object_models  # noqa: F401
 
     Base.metadata.create_all(engine)
+    _ensure_dashboard_snapshot_lineup_status_width(engine)
     _ensure_statcast_event_columns(engine)
 
 

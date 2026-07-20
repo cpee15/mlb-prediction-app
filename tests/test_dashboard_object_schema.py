@@ -18,6 +18,11 @@ def test_object_tables_and_query_indexes_are_sqlite_compatible():
     assert "ix_dashboard_current_active_type" in {row["name"] for row in inspector.get_indexes("dashboard_player_current")}
 
 
+def test_snapshot_lineup_status_accepts_all_canonical_activity_reasons():
+    longest_reason = "today_confirmed_or_projected_lineup"
+    assert DashboardPlayerSnapshot.__table__.c.lineup_status.type.length >= len(longest_reason)
+
+
 def test_canonical_player_id_is_unique():
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(engine)
