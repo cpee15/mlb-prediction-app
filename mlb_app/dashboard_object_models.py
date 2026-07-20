@@ -83,7 +83,7 @@ class DashboardPlayerSnapshot(Base):
     team_name: Optional[str] = Column(String(120), nullable=True)
     opponent_team_id: Optional[int] = Column(Integer, nullable=True)
     game_pk: Optional[int] = Column(Integer, nullable=True)
-    lineup_status: Optional[str] = Column(String(32), nullable=True)
+    lineup_status: Optional[str] = Column(String(80), nullable=True)
     lineup_position: Optional[int] = Column(Integer, nullable=True)
     model_score: Optional[float] = Column(Float, nullable=True)
     confidence: Optional[str] = Column(String(32), nullable=True)
