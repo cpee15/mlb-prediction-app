@@ -27,6 +27,13 @@ from .orchestrator import (
     PlateAppearanceResolver,
     simulate_canonical_game,
 )
+from .trial_factory import (
+    CanonicalTrialExecutionPlan,
+    CanonicalTrialResolverContext,
+    CanonicalTrialResolverFactory,
+    build_canonical_trial_resolver_context,
+    run_canonical_trial_execution_plan,
+)
 from .trials import (
     CanonicalGameOutcomeProjection,
     CanonicalTrialBatch,
@@ -56,6 +63,9 @@ __all__ = [
     "DEFAULT_CANONICAL_MODEL_VERSION",
     "DEFAULT_CANONICAL_SIMULATION_COUNT",
     "CanonicalTrialFactoryInput",
+    "CanonicalTrialExecutionPlan",
+    "CanonicalTrialResolverContext",
+    "CanonicalTrialResolverFactory",
     "DistributionPoint",
     "ProbabilityMetric",
     "CanonicalGameValidation",
@@ -66,9 +76,11 @@ __all__ = [
     "simulate_canonical_game",
     "aggregate_game_outcomes",
     "build_canonical_trial_factory_input",
+    "build_canonical_trial_resolver_context",
     "derive_canonical_base_seed",
     "derive_canonical_trial_seed",
     "run_canonical_trials",
+    "run_canonical_trial_execution_plan",
     "reduce_canonical_game_box_score",
     "validate_game_box_score_reconciliation",
     "validate_canonical_game",
