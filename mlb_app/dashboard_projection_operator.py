@@ -118,12 +118,26 @@ def run_canonical_projection_refresh(
                 team_name=team["team_name"],
                 request_get=request_get,
             ))
-        lineup = fetch_confirmed_lineup_players(
-            session,
-            target_date,
-            matchup_builder=matchup_builder,
-            lineup_fetcher=lineup_fetcher,
-        )
+        try:
+            lineup = fetch_confirmed_lineup_players(
+                session,
+                target_date,
+                matchup_builder=matchup_builder,
+                lineup_fetcher=lineup_fetcher,
+            )
+        except Exception as exc:
+            # Confirmed lineups enrich the canonical population but never
+            # define it. Verified rosters, tracked appearances, and usable
+            # aggregates remain sufficient for a complete baseline refresh.
+            lineup = {
+                "players": [],
+                "unresolved_identities": [],
+                "errors": [{
+                    "reason": "confirmed_lineup_source_failed",
+                    "error_type": exc.__class__.__name__,
+                }],
+                "source": "mlb_boxscore_confirmed_lineup",
+            }
         population = populate_dashboard_players(
             session,
             as_of=target_date,
