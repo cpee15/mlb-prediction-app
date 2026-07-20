@@ -11,6 +11,7 @@ from . import my_dashboard_solver as dashboard_solver
 from .active_lineup_solver import build_active_lineup_solver_payload
 from .dashboard_canonical_status import canonical_dashboard_status
 from .dashboard_player_report_query import query_player_report
+from .dashboard_projection_operator import ensure_canonical_projection
 from .dashboard_related_report_query import query_related_report
 from .dashboard_report_types import list_report_types
 from .database import create_tables, get_engine, get_session
@@ -64,6 +65,7 @@ class MyDashboardHydrateRequest(BaseModel):
 
 class DashboardPlayerReportRequest(BaseModel):
     report_type: str
+    as_of_date: Optional[dt.date] = None
     filters: Optional[Any] = None
     weights: Optional[Dict[str, float]] = None
     page_size: int = DEFAULT_PAGE_SIZE
@@ -149,12 +151,21 @@ def my_dashboard_player_report_query(payload: DashboardPlayerReportRequest) -> D
                     sort_direction=payload.sort_direction,
                     selected_fields=payload.selected_fields, include_metadata=payload.include_metadata,
                 )
-            return query_player_report(
+            bootstrap = None
+            if payload.report_type in {"all_active_hitters", "all_active_pitchers"}:
+                bootstrap = ensure_canonical_projection(
+                    session,
+                    target_date=payload.as_of_date or mlb_business_date(),
+                )
+            result = query_player_report(
                 session, payload.report_type, filters=payload.filters, weights=payload.weights,
                 page_size=payload.page_size, page_number=payload.page_number,
                 sort_by=payload.sort_by, sort_direction=payload.sort_direction,
                 selected_fields=payload.selected_fields, include_metadata=payload.include_metadata,
             )
+            if bootstrap is not None:
+                result["population_bootstrap"] = bootstrap
+            return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
