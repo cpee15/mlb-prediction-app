@@ -22,6 +22,7 @@ from .lineup_data import MLB_STATS_BASE
 
 DEFAULT_ACTIVE_PLAYER_WINDOW_DAYS = 30
 ACTIVE_PLAYER_WINDOW_ENV = "DASHBOARD_ACTIVE_PLAYER_WINDOW_DAYS"
+CANONICAL_POPULATION_POLICY_VERSION = "verified_active_roster_v2"
 ACTIVE_REASONS = (
     "today_confirmed_or_projected_lineup",
     "recent_confirmed_lineup",
@@ -345,7 +346,7 @@ def populate_dashboard_players(
             "most_recent_game_date": candidate.get("most_recent_game_date"),
             "lineup_appearance_count": max(candidate.get("lineup_appearance_count", 0), current.lineup_appearance_count if current else 0),
             "tracked_game_count": max(candidate.get("tracked_game_count", 0), current.tracked_game_count if current else 0),
-            "source_provenance_json": {"sources": sorted(candidate["sources"]), "evaluated_as_of": as_of.isoformat(), "active_player_window_days": window},
+            "source_provenance_json": {"sources": sorted(candidate["sources"]), "evaluated_as_of": as_of.isoformat(), "active_player_window_days": window, "population_policy_version": CANONICAL_POPULATION_POLICY_VERSION},
             "identity_resolution_status": "resolved",
             "updated_at": dt.datetime.utcnow(),
         }
