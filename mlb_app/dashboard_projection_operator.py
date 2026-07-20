@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
+import threading
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 import requests
@@ -11,6 +13,16 @@ from .dashboard_object_models import DashboardPlayer, DashboardPlayerCurrent, Da
 from .dashboard_player_population import fetch_active_roster, fetch_confirmed_lineup_players, populate_dashboard_players
 from .dashboard_player_projection import backfill_player_projection, refresh_player_projection
 from .lineup_data import MLB_STATS_BASE
+
+
+_AUTO_BOOTSTRAP_LOCK = threading.Lock()
+_FALSE_VALUES = {"0", "false", "no", "off"}
+
+
+def canonical_auto_bootstrap_enabled() -> bool:
+    """Allow empty canonical reports to perform one guarded initial population."""
+
+    return os.getenv("DASHBOARD_CANONICAL_AUTO_BOOTSTRAP", "true").strip().lower() not in _FALSE_VALUES
 
 
 def fetch_active_mlb_teams(
@@ -137,6 +149,64 @@ def run_canonical_projection_refresh(
         session.rollback()
         _complete_run(session, run.id, status="failed", completed_at=dt.datetime.utcnow(), error=exc)
         raise
+
+
+
+def ensure_canonical_projection(
+    session: Any,
+    *,
+    target_date: dt.date,
+    refresh: Callable[..., Dict[str, Any]] = run_canonical_projection_refresh,
+    now: Optional[dt.datetime] = None,
+) -> Dict[str, Any]:
+    """Populate an empty canonical projection once, then leave report requests read-only."""
+
+    current_count = session.query(DashboardPlayerCurrent).count()
+    if current_count:
+        return {"status": "already_available", "current_count": current_count}
+    if not canonical_auto_bootstrap_enabled():
+        return {"status": "disabled", "current_count": 0}
+
+    checked_at = now or dt.datetime.utcnow()
+    with _AUTO_BOOTSTRAP_LOCK:
+        session.expire_all()
+        current_count = session.query(DashboardPlayerCurrent).count()
+        if current_count:
+            return {"status": "already_available", "current_count": current_count}
+
+        recent_cutoff = checked_at - dt.timedelta(minutes=15)
+        running = (
+            session.query(DashboardProjectionRun)
+            .filter(
+                DashboardProjectionRun.run_type == "canonical_refresh",
+                DashboardProjectionRun.status == "running",
+                DashboardProjectionRun.started_at >= recent_cutoff,
+            )
+            .order_by(DashboardProjectionRun.started_at.desc(), DashboardProjectionRun.id.desc())
+            .first()
+        )
+        if running is not None:
+            return {"status": "in_progress", "current_count": 0, "run_id": running.id}
+
+        try:
+            result = refresh(session, target_date=target_date)
+        except Exception as exc:
+            # The operator records the full sanitized run evidence. The public
+            # query response only receives a safe error type and keeps its
+            # established empty-result contract.
+            return {
+                "status": "failed",
+                "current_count": session.query(DashboardPlayerCurrent).count(),
+                "error_type": exc.__class__.__name__,
+            }
+
+        current_count = session.query(DashboardPlayerCurrent).count()
+        return {
+            "status": "populated" if current_count else "empty",
+            "current_count": current_count,
+            "run_id": result.get("run_id"),
+            "projection_version": result.get("projection_version"),
+        }
 
 
 def run_projection_backfill(

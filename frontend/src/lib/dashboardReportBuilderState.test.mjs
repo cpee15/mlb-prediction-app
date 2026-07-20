@@ -17,6 +17,7 @@ test('unfiltered hitters query the complete canonical active-player report', () 
   assert.deepEqual(request.payload.filters, {})
   assert.deepEqual(request.payload.weights, {})
   assert.equal(request.payload.sort_by, 'adjusted_score')
+  assert.equal(request.payload.as_of_date, '2026-07-16')
   assert.equal('date' in request.payload, false)
 })
 
