@@ -247,7 +247,7 @@ def ensure_canonical_projection(
 
     state = _current_projection_state(session, required_player_type)
     if state["current_count"] and state["policy_current"]:
-        return {"status": "already_available", **state}
+        return {"status": "already_available", "current_count": state["current_count"]}
     if not canonical_auto_bootstrap_enabled():
         return {"status": "disabled", "current_count": 0}
 
@@ -310,7 +310,7 @@ def ensure_canonical_projection(
         state = _current_projection_state(session, required_player_type)
         return {
             "status": "populated" if state["current_count"] and state["policy_current"] else "empty",
-            **state,
+            "current_count": state["current_count"],
             "run_id": result.get("run_id"),
             "projection_version": result.get("projection_version"),
         }
