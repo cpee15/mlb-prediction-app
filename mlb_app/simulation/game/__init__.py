@@ -71,6 +71,15 @@ from .probability_artifact import (
     CanonicalProbabilityArtifactRecord,
     build_canonical_probability_artifact_provider,
 )
+from .probability_diagnostics import (
+    CANONICAL_PROBABILITY_DIAGNOSTICS_VERSION,
+    CanonicalProbabilityDiagnosticsProvider,
+    CanonicalProbabilityResolutionDiagnostics,
+    CanonicalProbabilityResolutionDiagnosticsCollector,
+    CanonicalProbabilityResolutionObservation,
+    CanonicalProbabilityTierUsage,
+    build_canonical_probability_diagnostics_provider,
+)
 from .probability_fallback import (
     CANONICAL_PROBABILITY_FALLBACK_VERSION,
     DEFAULT_CANONICAL_PROBABILITY_FALLBACK_TIERS,
@@ -125,6 +134,7 @@ __all__ = [
     "CANONICAL_PA_SAMPLING_VERSION",
     "CANONICAL_PROBABILITY_ARTIFACT_ADAPTER_VERSION",
     "CANONICAL_PROBABILITY_ARTIFACT_VERSION",
+    "CANONICAL_PROBABILITY_DIAGNOSTICS_VERSION",
     "CANONICAL_PROBABILITY_FALLBACK_VERSION",
     "DEFAULT_CANONICAL_PROBABILITY_FALLBACK_TIERS",
     "DEFAULT_CANONICAL_MODEL_VERSION",
@@ -151,6 +161,11 @@ __all__ = [
     "CanonicalProbabilityArtifact",
     "CanonicalProbabilityArtifactAdapter",
     "CanonicalProbabilityArtifactRecord",
+    "CanonicalProbabilityDiagnosticsProvider",
+    "CanonicalProbabilityResolutionDiagnostics",
+    "CanonicalProbabilityResolutionDiagnosticsCollector",
+    "CanonicalProbabilityResolutionObservation",
+    "CanonicalProbabilityTierUsage",
     "CanonicalProbabilityFallbackAdapter",
     "CanonicalProbabilityFallbackCatalog",
     "CanonicalProbabilityFallbackPolicy",
@@ -166,6 +181,7 @@ __all__ = [
     "aggregate_game_outcomes",
     "build_canonical_pa_resolver_factory",
     "build_canonical_probability_artifact_provider",
+    "build_canonical_probability_diagnostics_provider",
     "build_canonical_probability_fallback_provider",
     "build_canonical_trial_factory_input",
     "build_canonical_trial_resolver_context",
