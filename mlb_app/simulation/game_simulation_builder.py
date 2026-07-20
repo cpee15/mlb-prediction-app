@@ -691,6 +691,7 @@ CANONICAL_SHADOW_CONFIG_KEYS = frozenset(
     {
         "canonical_shadow_enabled",
         "canonical_shadow_payload",
+        "canonical_shadow_execution_bundle",
         "canonical_shadow_trial_batch",
     }
 )
@@ -843,8 +844,8 @@ def _canonical_shadow_payload(
     2. explicit canonical_shadow_trial_batch;
     3. injected trial_batch_factory.
 
-    The factory hook is dependency injection only. No default production
-    canonical factory is imported or selected here.
+    This function remains the backward-compatible payload-resolution
+    boundary used by existing callers and fail-open tests.
     """
 
     config_snapshot = dict(config or {})
@@ -900,6 +901,21 @@ def _canonical_shadow_payload(
             )
         )
 
+        from mlb_app.simulation.shadow import (
+            CanonicalShadowExecutionBundle,
+            canonical_shadow_execution_bundle_to_material,
+        )
+
+        if isinstance(
+            trial_batch,
+            CanonicalShadowExecutionBundle,
+        ):
+            return (
+                canonical_shadow_execution_bundle_to_material(
+                    trial_batch
+                ).canonical_payload
+            )
+
     from mlb_app.simulation.shadow import (
         canonical_trial_batch_to_shadow_payload,
     )
@@ -908,6 +924,151 @@ def _canonical_shadow_payload(
         trial_batch
     )
 
+
+def _canonical_shadow_material(
+    config: Optional[Dict[str, Any]],
+    *,
+    game_pk: Optional[int] = None,
+    trial_batch_factory=None,
+):
+    """
+    Resolve canonical payload and optional probability diagnostics.
+
+    Precedence is:
+
+    1. explicit canonical_shadow_payload;
+    2. explicit canonical_shadow_execution_bundle;
+    3. explicit canonical_shadow_trial_batch;
+    4. injected trial_batch_factory.
+
+    Existing payload-only resolution continues through
+    ``_canonical_shadow_payload`` so its compatibility and fail-open
+    boundary remain observable.
+    """
+
+    config_snapshot = dict(config or {})
+
+    explicit_payload = config_snapshot.get(
+        "canonical_shadow_payload"
+    )
+
+    if explicit_payload is not None:
+        return (
+            _canonical_shadow_payload(
+                config,
+                game_pk=game_pk,
+                trial_batch_factory=trial_batch_factory,
+            ),
+            None,
+        )
+
+    execution_bundle = config_snapshot.get(
+        "canonical_shadow_execution_bundle"
+    )
+
+    if execution_bundle is not None:
+        from mlb_app.simulation.shadow import (
+            canonical_shadow_execution_bundle_to_material,
+        )
+
+        material = (
+            canonical_shadow_execution_bundle_to_material(
+                execution_bundle
+            )
+        )
+
+        return (
+            material.canonical_payload,
+            material.probability_resolution_diagnostics,
+        )
+
+    explicit_trial_batch = config_snapshot.get(
+        "canonical_shadow_trial_batch"
+    )
+
+    if explicit_trial_batch is not None:
+        return (
+            _canonical_shadow_payload(
+                config,
+                game_pk=game_pk,
+                trial_batch_factory=trial_batch_factory,
+            ),
+            None,
+        )
+
+    if trial_batch_factory is None:
+        return (
+            _canonical_shadow_payload(
+                config,
+                game_pk=game_pk,
+                trial_batch_factory=trial_batch_factory,
+            ),
+            None,
+        )
+
+    if not callable(trial_batch_factory):
+        raise TypeError(
+            "canonical shadow trial-batch factory "
+            "must be callable"
+        )
+
+    if game_pk is None:
+        raise ValueError(
+            "game_pk is required for canonical "
+            "shadow factory execution"
+        )
+
+    factory_config = (
+        _canonical_shadow_factory_config(
+            config
+        )
+    )
+
+    from mlb_app.simulation.game import (
+        build_canonical_trial_factory_input,
+    )
+
+    factory_input = (
+        build_canonical_trial_factory_input(
+            game_pk=int(game_pk),
+            config=factory_config,
+        )
+    )
+
+    factory_result = (
+        _invoke_canonical_trial_batch_factory(
+            trial_batch_factory,
+            factory_input=factory_input,
+        )
+    )
+
+    from mlb_app.simulation.shadow import (
+        CanonicalShadowExecutionBundle,
+        canonical_shadow_execution_bundle_to_material,
+        canonical_trial_batch_to_shadow_payload,
+    )
+
+    if isinstance(
+        factory_result,
+        CanonicalShadowExecutionBundle,
+    ):
+        material = (
+            canonical_shadow_execution_bundle_to_material(
+                factory_result
+            )
+        )
+
+        return (
+            material.canonical_payload,
+            material.probability_resolution_diagnostics,
+        )
+
+    return (
+        canonical_trial_batch_to_shadow_payload(
+            factory_result
+        ),
+        None,
+    )
 
 def _attach_canonical_shadow_diagnostics(
     payload: Dict[str, Any],
@@ -929,13 +1090,17 @@ def _attach_canonical_shadow_diagnostics(
 
     enabled = False
     canonical_payload = None
+    probability_resolution_diagnostics = None
     canonical_available = False
 
     try:
         enabled = _canonical_shadow_enabled(config)
 
         if enabled:
-            canonical_payload = _canonical_shadow_payload(
+            (
+                canonical_payload,
+                probability_resolution_diagnostics,
+            ) = _canonical_shadow_material(
                 config,
                 game_pk=game_pk,
                 trial_batch_factory=(
@@ -955,6 +1120,9 @@ def _attach_canonical_shadow_diagnostics(
             legacy_result=payload,
             enabled=enabled,
             canonical_payload=canonical_payload,
+            probability_resolution_diagnostics=(
+                probability_resolution_diagnostics
+            ),
         )
     except Exception as exc:
         # Never call shadow config/payload helpers again here. One of those
@@ -1033,6 +1201,7 @@ def build_game_simulation(
             "position_player_substitution_state",
             "canonical_shadow_enabled",
             "canonical_shadow_payload",
+            "canonical_shadow_execution_bundle",
             "canonical_shadow_trial_batch",
         }
     }
