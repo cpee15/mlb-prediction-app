@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from mlb_app.simulation.game.probability_diagnostics import (
     CanonicalProbabilityResolutionDiagnostics,
@@ -15,6 +15,11 @@ from mlb_app.simulation.game.trials import (
 from .trial_adapter import (
     canonical_trial_batch_to_shadow_payload,
 )
+
+if TYPE_CHECKING:
+    from .input_assembly import (
+        CanonicalShadowExecutionInputs,
+    )
 
 
 CANONICAL_SHADOW_EXECUTION_BUNDLE_VERSION = (
@@ -35,6 +40,9 @@ class CanonicalShadowExecutionBundle:
     probability_resolution_diagnostics: (
         CanonicalProbabilityResolutionDiagnostics
     )
+    canonical_shadow_execution_inputs: Optional[
+        "CanonicalShadowExecutionInputs"
+    ] = None
     bundle_version: str = (
         CANONICAL_SHADOW_EXECUTION_BUNDLE_VERSION
     )
@@ -57,6 +65,24 @@ class CanonicalShadowExecutionBundle:
                 "CanonicalProbabilityResolutionDiagnostics"
             )
 
+        if (
+            self.canonical_shadow_execution_inputs
+            is not None
+        ):
+            from .input_assembly import (
+                CanonicalShadowExecutionInputs,
+            )
+
+            if not isinstance(
+                self.canonical_shadow_execution_inputs,
+                CanonicalShadowExecutionInputs,
+            ):
+                raise TypeError(
+                    "canonical_shadow_execution_inputs "
+                    "must be CanonicalShadowExecutionInputs "
+                    "or None"
+                )
+
         if self.bundle_version != (
             CANONICAL_SHADOW_EXECUTION_BUNDLE_VERSION
         ):
@@ -74,6 +100,9 @@ class CanonicalShadowExecutionMaterial:
     probability_resolution_diagnostics: (
         CanonicalProbabilityResolutionDiagnostics
     )
+    canonical_shadow_execution_inputs: Optional[
+        "CanonicalShadowExecutionInputs"
+    ] = None
 
     def __post_init__(self) -> None:
         if not isinstance(
@@ -92,6 +121,24 @@ class CanonicalShadowExecutionMaterial:
                 "probability_resolution_diagnostics must be a "
                 "CanonicalProbabilityResolutionDiagnostics"
             )
+
+        if (
+            self.canonical_shadow_execution_inputs
+            is not None
+        ):
+            from .input_assembly import (
+                CanonicalShadowExecutionInputs,
+            )
+
+            if not isinstance(
+                self.canonical_shadow_execution_inputs,
+                CanonicalShadowExecutionInputs,
+            ):
+                raise TypeError(
+                    "canonical_shadow_execution_inputs "
+                    "must be CanonicalShadowExecutionInputs "
+                    "or None"
+                )
 
 
 def canonical_shadow_execution_bundle_to_material(
@@ -115,5 +162,8 @@ def canonical_shadow_execution_bundle_to_material(
         ),
         probability_resolution_diagnostics=(
             bundle.probability_resolution_diagnostics
+        ),
+        canonical_shadow_execution_inputs=(
+            bundle.canonical_shadow_execution_inputs
         ),
     )

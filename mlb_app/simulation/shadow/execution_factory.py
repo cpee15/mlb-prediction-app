@@ -214,10 +214,27 @@ class CanonicalShadowExecutionBundleFactory:
             )
         )
 
+        from .input_assembly import (
+            CanonicalShadowExecutionInputs,
+        )
+
+        execution_inputs = CanonicalShadowExecutionInputs(
+            matchup_input=self.matchup_input,
+            exact_artifact=self.exact_artifact,
+            fallback_catalog=self.fallback_catalog,
+            fallback_policy=self.fallback_policy,
+            game_config=self.game_config,
+            batter_dfs_rules=self.batter_dfs_rules,
+            pitcher_dfs_rules=self.pitcher_dfs_rules,
+        )
+
         return CanonicalShadowExecutionBundle(
             trial_batch=trial_batch,
             probability_resolution_diagnostics=(
                 collector.snapshot()
+            ),
+            canonical_shadow_execution_inputs=(
+                execution_inputs
             ),
         )
 

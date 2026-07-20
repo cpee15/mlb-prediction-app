@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 
+from dataclasses import dataclass
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
@@ -925,6 +926,24 @@ def _canonical_shadow_payload(
     )
 
 
+@dataclass(frozen=True)
+class _CanonicalShadowResolvedMaterial:
+    """
+    Resolved canonical shadow material.
+
+    Iteration intentionally yields only payload and probability diagnostics
+    so existing two-value unpacking remains backward compatible.
+    """
+
+    canonical_payload: Any
+    probability_resolution_diagnostics: Any = None
+    canonical_shadow_execution_inputs: Any = None
+
+    def __iter__(self):
+        yield self.canonical_payload
+        yield self.probability_resolution_diagnostics
+
+
 def _canonical_shadow_material(
     config: Optional[Dict[str, Any]],
     *,
@@ -932,7 +951,7 @@ def _canonical_shadow_material(
     trial_batch_factory=None,
 ):
     """
-    Resolve canonical payload and optional probability diagnostics.
+    Resolve canonical payload, diagnostics, and optional input provenance.
 
     Precedence is:
 
@@ -953,13 +972,16 @@ def _canonical_shadow_material(
     )
 
     if explicit_payload is not None:
-        return (
-            _canonical_shadow_payload(
-                config,
-                game_pk=game_pk,
-                trial_batch_factory=trial_batch_factory,
+        return _CanonicalShadowResolvedMaterial(
+            canonical_payload=(
+                _canonical_shadow_payload(
+                    config,
+                    game_pk=game_pk,
+                    trial_batch_factory=(
+                        trial_batch_factory
+                    ),
+                )
             ),
-            None,
         )
 
     execution_bundle = config_snapshot.get(
@@ -977,9 +999,16 @@ def _canonical_shadow_material(
             )
         )
 
-        return (
-            material.canonical_payload,
-            material.probability_resolution_diagnostics,
+        return _CanonicalShadowResolvedMaterial(
+            canonical_payload=(
+                material.canonical_payload
+            ),
+            probability_resolution_diagnostics=(
+                material.probability_resolution_diagnostics
+            ),
+            canonical_shadow_execution_inputs=(
+                material.canonical_shadow_execution_inputs
+            ),
         )
 
     explicit_trial_batch = config_snapshot.get(
@@ -987,23 +1016,29 @@ def _canonical_shadow_material(
     )
 
     if explicit_trial_batch is not None:
-        return (
-            _canonical_shadow_payload(
-                config,
-                game_pk=game_pk,
-                trial_batch_factory=trial_batch_factory,
+        return _CanonicalShadowResolvedMaterial(
+            canonical_payload=(
+                _canonical_shadow_payload(
+                    config,
+                    game_pk=game_pk,
+                    trial_batch_factory=(
+                        trial_batch_factory
+                    ),
+                )
             ),
-            None,
         )
 
     if trial_batch_factory is None:
-        return (
-            _canonical_shadow_payload(
-                config,
-                game_pk=game_pk,
-                trial_batch_factory=trial_batch_factory,
+        return _CanonicalShadowResolvedMaterial(
+            canonical_payload=(
+                _canonical_shadow_payload(
+                    config,
+                    game_pk=game_pk,
+                    trial_batch_factory=(
+                        trial_batch_factory
+                    ),
+                )
             ),
-            None,
         )
 
     if not callable(trial_batch_factory):
@@ -1058,16 +1093,24 @@ def _canonical_shadow_material(
             )
         )
 
-        return (
-            material.canonical_payload,
-            material.probability_resolution_diagnostics,
+        return _CanonicalShadowResolvedMaterial(
+            canonical_payload=(
+                material.canonical_payload
+            ),
+            probability_resolution_diagnostics=(
+                material.probability_resolution_diagnostics
+            ),
+            canonical_shadow_execution_inputs=(
+                material.canonical_shadow_execution_inputs
+            ),
         )
 
-    return (
-        canonical_trial_batch_to_shadow_payload(
-            factory_result
+    return _CanonicalShadowResolvedMaterial(
+        canonical_payload=(
+            canonical_trial_batch_to_shadow_payload(
+                factory_result
+            )
         ),
-        None,
     )
 
 def _attach_canonical_shadow_diagnostics(
@@ -1091,21 +1134,31 @@ def _attach_canonical_shadow_diagnostics(
     enabled = False
     canonical_payload = None
     probability_resolution_diagnostics = None
+    canonical_shadow_execution_inputs = None
     canonical_available = False
 
     try:
         enabled = _canonical_shadow_enabled(config)
 
         if enabled:
+            resolved_material = (
+                _canonical_shadow_material(
+                    config,
+                    game_pk=game_pk,
+                    trial_batch_factory=(
+                        trial_batch_factory
+                    ),
+                )
+            )
+
             (
                 canonical_payload,
                 probability_resolution_diagnostics,
-            ) = _canonical_shadow_material(
-                config,
-                game_pk=game_pk,
-                trial_batch_factory=(
-                    trial_batch_factory
-                ),
+            ) = resolved_material
+
+            canonical_shadow_execution_inputs = (
+                resolved_material
+                .canonical_shadow_execution_inputs
             )
 
         canonical_available = (
@@ -1122,6 +1175,9 @@ def _attach_canonical_shadow_diagnostics(
             canonical_payload=canonical_payload,
             probability_resolution_diagnostics=(
                 probability_resolution_diagnostics
+            ),
+            canonical_shadow_execution_inputs=(
+                canonical_shadow_execution_inputs
             ),
         )
     except Exception as exc:
