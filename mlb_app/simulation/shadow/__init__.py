@@ -13,9 +13,14 @@ from .trial_adapter import canonical_trial_batch_to_shadow_payload
 from .serialization import (
     shadow_diagnostics_to_dict,
 )
+from .probability_serialization import (
+    CANONICAL_PROBABILITY_DIAGNOSTICS_SHADOW_VERSION,
+    probability_resolution_diagnostics_to_dict,
+)
 
 __all__ = [
     "SHADOW_SCHEMA_VERSION",
+    "CANONICAL_PROBABILITY_DIAGNOSTICS_SHADOW_VERSION",
     "CanonicalShadowDiagnostics",
     "MetricComparison",
     "RangeComparison",
@@ -23,5 +28,6 @@ __all__ = [
     "attach_canonical_shadow",
     "canonical_trial_batch_to_shadow_payload",
     "compare_shadow_payloads",
+    "probability_resolution_diagnostics_to_dict",
     "shadow_diagnostics_to_dict",
 ]
