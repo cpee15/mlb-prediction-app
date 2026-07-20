@@ -304,7 +304,9 @@ def test_abandoned_running_refresh_is_retired_before_bootstrap(monkeypatch):
             metrics_json={},
             projection_version="recovered-v1",
             source_freshness_json={"snapshot_date": target_date.isoformat()},
-            provenance_json={},
+            provenance_json={
+                "population_policy_version": CANONICAL_POPULATION_POLICY_VERSION,
+            },
             promoted_at=checked_at,
             updated_at=checked_at,
         ))
