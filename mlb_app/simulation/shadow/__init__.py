@@ -19,6 +19,11 @@ from .execution_factory import (
     CanonicalShadowExecutionBundleFactory,
     build_canonical_shadow_execution_bundle_factory,
 )
+from .input_assembly import (
+    CANONICAL_SHADOW_INPUT_ASSEMBLY_VERSION,
+    CanonicalShadowExecutionInputs,
+    assemble_canonical_shadow_execution_inputs,
+)
 from .integration import attach_canonical_shadow
 from .trial_adapter import canonical_trial_batch_to_shadow_payload
 from .serialization import (
@@ -33,15 +38,18 @@ __all__ = [
     "SHADOW_SCHEMA_VERSION",
     "CANONICAL_SHADOW_EXECUTION_BUNDLE_VERSION",
     "CANONICAL_SHADOW_EXECUTION_BUNDLE_FACTORY_VERSION",
+    "CANONICAL_SHADOW_INPUT_ASSEMBLY_VERSION",
     "CANONICAL_PROBABILITY_DIAGNOSTICS_SHADOW_VERSION",
     "CanonicalShadowDiagnostics",
     "CanonicalShadowExecutionBundle",
     "CanonicalShadowExecutionBundleFactory",
+    "CanonicalShadowExecutionInputs",
     "CanonicalShadowExecutionMaterial",
     "MetricComparison",
     "RangeComparison",
     "ShadowCoverage",
     "attach_canonical_shadow",
+    "assemble_canonical_shadow_execution_inputs",
     "canonical_shadow_execution_bundle_to_material",
     "build_canonical_shadow_execution_bundle_factory",
     "canonical_trial_batch_to_shadow_payload",
