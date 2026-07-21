@@ -17,6 +17,9 @@ from .team_offense_prior import build_team_offense_prior
 from .simulation.pa_outcome_model import build_pa_outcome_probabilities
 from .simulation.game_simulator import simulate_game_with_bullpen
 from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
+from mlb_app.simulation.shadow import (
+    build_canonical_shadow_bootstrap_readiness,
+)
 
 
 def _build_game_state_realism_diagnostics() -> dict:
@@ -618,6 +621,25 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
             home["models"].extend(simulation_cards.get("home", []))
             workspace = simulation_cards.get("workspace") or {}
 
+            game_pk = (
+                matchup.get("game_pk")
+                or matchup.get("gamePk")
+            )
+
+            canonical_shadow_bootstrap_readiness = (
+                build_canonical_shadow_bootstrap_readiness(
+                    game_pk=game_pk,
+                    matchup=matchup,
+                    away_context=away,
+                    home_context=home,
+                    workspace=workspace,
+                )
+            )
+
+            workspace[
+                "canonicalShadowBootstrapReadiness"
+            ] = canonical_shadow_bootstrap_readiness
+
             try:
                 shared_simulation = build_shared_game_simulation(
                     game_pk=matchup.get("game_pk") or matchup.get("gamePk"),
@@ -632,6 +654,31 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 )
             except Exception as shared_exc:
                 shared_simulation = {"status": "error", "error": str(shared_exc), "meta": {"game_pk": matchup.get("game_pk") or matchup.get("gamePk"), "source_route": "/models/projections"}}
+
+            if isinstance(shared_simulation, dict):
+                shared_diagnostics = (
+                    shared_simulation.setdefault(
+                        "diagnostics",
+                        {},
+                    )
+                )
+
+                if not isinstance(
+                    shared_diagnostics,
+                    dict,
+                ):
+                    shared_diagnostics = {
+                        "legacy_diagnostics": (
+                            shared_diagnostics
+                        )
+                    }
+                    shared_simulation[
+                        "diagnostics"
+                    ] = shared_diagnostics
+
+                shared_diagnostics[
+                    "canonical_shadow_bootstrap_readiness"
+                ] = canonical_shadow_bootstrap_readiness
 
             shared_outputs = shared_simulation.get("derived_outputs", {}) if isinstance(shared_simulation, dict) else {}
             shared_game_sim = shared_outputs.get("game_simulation", {}) or {}
@@ -652,6 +699,9 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
             games.append({
                 "game_pk": matchup.get("game_pk"),
                 "game_state_realism": _build_game_state_realism_diagnostics(),
+                "canonical_shadow_bootstrap_readiness": (
+                    canonical_shadow_bootstrap_readiness
+                ),
                 "sharedSimulation": shared_simulation,
                 "game_date": matchup.get("game_date") or target_date,
                 "game_time": matchup.get("game_time"),

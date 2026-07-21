@@ -1,6 +1,10 @@
 """Canonical production-shadow comparison integration."""
 
 from .comparator import compare_shadow_payloads
+from .bootstrap_readiness import (
+    CANONICAL_SHADOW_BOOTSTRAP_READINESS_VERSION,
+    build_canonical_shadow_bootstrap_readiness,
+)
 from .contracts import (
     SHADOW_SCHEMA_VERSION,
     CanonicalShadowDiagnostics,
@@ -40,6 +44,7 @@ from .probability_serialization import (
 
 __all__ = [
     "SHADOW_SCHEMA_VERSION",
+    "CANONICAL_SHADOW_BOOTSTRAP_READINESS_VERSION",
     "CANONICAL_SHADOW_EXECUTION_BUNDLE_VERSION",
     "CANONICAL_SHADOW_EXECUTION_BUNDLE_FACTORY_VERSION",
     "CANONICAL_SHADOW_INPUT_ASSEMBLY_VERSION",
@@ -55,6 +60,7 @@ __all__ = [
     "ShadowCoverage",
     "attach_canonical_shadow",
     "assemble_canonical_shadow_execution_inputs",
+    "build_canonical_shadow_bootstrap_readiness",
     "canonical_shadow_execution_bundle_to_material",
     "canonical_shadow_input_provenance_to_dict",
     "build_canonical_shadow_execution_bundle_factory",
