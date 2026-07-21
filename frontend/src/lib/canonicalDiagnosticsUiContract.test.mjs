@@ -66,3 +66,29 @@ test('realism diagnostics live inside diagnostics tab', async () => {
     /Game-State Realism/,
   )
 })
+
+test('not-run state hides empty canonical panels', async () => {
+  const source = await pageSource()
+
+  assert.match(
+    source,
+    /Not run for this payload/,
+  )
+  assert.match(
+    source,
+    /view\.hasCanonicalShadow/,
+  )
+  assert.match(
+    source,
+    /status\.availabilityReason/,
+  )
+})
+
+test('raw canonical payload requires canonical shadow data', async () => {
+  const source = await pageSource()
+
+  assert.match(
+    source,
+    /view\.hasCanonicalShadow \? \(\s*<details/,
+  )
+})

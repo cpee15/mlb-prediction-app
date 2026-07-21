@@ -133,10 +133,14 @@ test('returns a stable empty view model', () => {
     CANONICAL_DIAGNOSTICS_VIEW_MODEL_VERSION,
   )
   assert.equal(view.hasCanonicalShadow, false)
-  assert.equal(view.status.state, 'unavailable')
+  assert.equal(view.status.state, 'not_run')
   assert.equal(
     view.status.authoritativeSource,
     'legacy',
+  )
+  assert.match(
+    view.status.availabilityReason,
+    /not attached/,
   )
   assert.deepEqual(view.warnings, [])
 })

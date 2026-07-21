@@ -793,10 +793,15 @@ function statusPresentation(state) {
 
   if (
     normalized === 'disabled' ||
-    normalized === 'unavailable'
+    normalized === 'unavailable' ||
+    normalized === 'not_run'
   ) {
     return {
-      label: label(state || 'Unavailable'),
+      label: (
+        normalized === 'not_run'
+          ? 'Not run'
+          : label(state || 'Unavailable')
+      ),
       foreground: '#8b949e',
       background: '#21262d',
       symbol: '○',
@@ -940,53 +945,102 @@ function DiagnosticsTab({ game }) {
         <DiagnosticStatusBadge state={status.state} />
       </div>
 
-      <div style={s.splitGrid}>
-        <GenericPanel
-          title="Canonical Simulation"
-          subtitle={
-            status.modelVersion ||
-            'Canonical shadow simulation'
-          }
-          tag="Shadow"
-          tagTone="diagnostic"
+      {!view.hasCanonicalShadow ? (
+        <div
+          style={{
+            ...s.metricCard,
+            marginBottom: '16px',
+            borderColor: '#30363d',
+          }}
         >
-          <StatRow
-            k="Status"
-            v={status.label || status.state}
-            format="text"
-          />
-          <StatRow
-            k="Canonical Output"
-            v={
-              status.canonicalAvailable
-                ? 'Available'
-                : 'Unavailable'
-            }
-            format="text"
-          />
-          <StatRow
-            k="Authoritative Source"
-            v={status.authoritativeSource}
-            format="text"
-          />
-          <StatRow
-            k="Legacy Simulations"
-            v={status.legacySimulationCount}
-            format="num"
-          />
-          <StatRow
-            k="Canonical Simulations"
-            v={status.canonicalSimulationCount}
-            format="num"
-          />
-          <StatRow
-            k="Schema"
-            v={status.schemaVersion}
-            format="text"
-          />
-        </GenericPanel>
+          <div style={s.metricLabel}>
+            Canonical Simulation
+            <Tag tone="diagnostic">Shadow</Tag>
+          </div>
 
-        <GenericPanel title="Probability Coverage">
+          <h3
+            style={{
+              margin: '0 0 8px',
+              color: '#e6edf3',
+            }}
+          >
+            Not run for this payload
+          </h3>
+
+          <div
+            style={{
+              color: '#8b949e',
+              fontSize: '13px',
+              lineHeight: 1.6,
+            }}
+          >
+            {status.availabilityReason}
+            {' '}
+            The displayed projections remain sourced from the
+            legacy shared simulation.
+          </div>
+
+          <div style={{ marginTop: '12px' }}>
+            <StatRow
+              k="Authoritative Source"
+              v={status.authoritativeSource}
+              format="text"
+            />
+            <StatRow
+              k="Legacy Model"
+              v={status.modelVersion}
+              format="text"
+            />
+          </div>
+        </div>
+      ) : (
+        <div style={s.splitGrid}>
+          <GenericPanel
+            title="Canonical Simulation"
+            subtitle={
+              status.modelVersion ||
+              'Canonical shadow simulation'
+            }
+            tag="Shadow"
+            tagTone="diagnostic"
+          >
+            <StatRow
+              k="Status"
+              v={status.label || status.state}
+              format="text"
+            />
+            <StatRow
+              k="Canonical Output"
+              v={
+                status.canonicalAvailable
+                  ? 'Available'
+                  : 'Unavailable'
+              }
+              format="text"
+            />
+            <StatRow
+              k="Authoritative Source"
+              v={status.authoritativeSource}
+              format="text"
+            />
+            <StatRow
+              k="Legacy Simulations"
+              v={status.legacySimulationCount}
+              format="num"
+            />
+            <StatRow
+              k="Canonical Simulations"
+              v={status.canonicalSimulationCount}
+              format="num"
+            />
+            <StatRow
+              k="Schema"
+              v={status.schemaVersion}
+              format="text"
+            />
+          </GenericPanel>
+
+          <GenericPanel title="Probability Coverage">
           <StatRow
             k="Total Resolutions"
             v={coverage.totalResolutions}
@@ -1029,8 +1083,9 @@ function DiagnosticsTab({ game }) {
               ))}
             </div>
           ) : null}
-        </GenericPanel>
-      </div>
+          </GenericPanel>
+        </div>
+      )}
 
       <h3 style={s.sectionTitle}>
         Game-State Realism
@@ -1045,8 +1100,9 @@ function DiagnosticsTab({ game }) {
         ))}
       </div>
 
-      <div style={s.splitGrid}>
-        <GenericPanel title="Simulation Integrity">
+      {view.hasCanonicalShadow ? (
+        <div style={s.splitGrid}>
+          <GenericPanel title="Simulation Integrity">
           {integrity.metrics.map(metric => (
             <StatRow
               key={metric.key}
@@ -1122,8 +1178,9 @@ function DiagnosticsTab({ game }) {
               format="text"
             />
           ) : null}
-        </GenericPanel>
-      </div>
+          </GenericPanel>
+        </div>
+      ) : null}
 
       {view.warnings.length ? (
         <>
@@ -1137,19 +1194,21 @@ function DiagnosticsTab({ game }) {
         </>
       ) : null}
 
-      <details style={s.details}>
-        <summary style={s.summary}>
-          Advanced: raw canonical payload
-        </summary>
+      {view.hasCanonicalShadow ? (
+        <details style={s.details}>
+          <summary style={s.summary}>
+            Advanced: raw canonical payload
+          </summary>
 
-        <pre style={s.rawPayload}>
-          {JSON.stringify(
-            view.raw.canonicalShadow,
-            null,
-            2,
-          )}
-        </pre>
-      </details>
+          <pre style={s.rawPayload}>
+            {JSON.stringify(
+              view.raw.canonicalShadow,
+              null,
+              2,
+            )}
+          </pre>
+        </details>
+      ) : null}
     </div>
   )
 }
