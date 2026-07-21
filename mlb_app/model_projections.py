@@ -21,6 +21,7 @@ from mlb_app.simulation.shadow import (
     build_canonical_shadow_bootstrap_readiness,
     discover_canonical_shadow_bullpens,
     discover_canonical_shadow_lineups,
+    discover_canonical_shadow_probability_provider,
 )
 
 
@@ -658,13 +659,27 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 .readiness_matchup_fields()
             )
 
+            canonical_shadow_probability_provider_discovery = (
+                discover_canonical_shadow_probability_provider(
+                    workspace=workspace,
+                )
+            )
+
+            canonical_readiness_workspace = dict(
+                workspace
+            )
+            canonical_readiness_workspace.update(
+                canonical_shadow_probability_provider_discovery
+                .readiness_workspace_fields()
+            )
+
             canonical_shadow_bootstrap_readiness = (
                 build_canonical_shadow_bootstrap_readiness(
                     game_pk=game_pk,
                     matchup=canonical_readiness_matchup,
                     away_context=away,
                     home_context=home,
-                    workspace=workspace,
+                    workspace=canonical_readiness_workspace,
                 )
             )
 
@@ -679,6 +694,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 "canonicalShadowBullpenDiscovery"
             ] = (
                 canonical_shadow_bullpen_discovery
+                .to_diagnostics()
+            )
+
+            workspace[
+                "canonicalShadowProbabilityProviderDiscovery"
+            ] = (
+                canonical_shadow_probability_provider_discovery
                 .to_diagnostics()
             )
 
@@ -737,6 +759,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 )
 
                 shared_diagnostics[
+                    "canonical_shadow_probability_provider_discovery"
+                ] = (
+                    canonical_shadow_probability_provider_discovery
+                    .to_diagnostics()
+                )
+
+                shared_diagnostics[
                     "canonical_shadow_bootstrap_readiness"
                 ] = canonical_shadow_bootstrap_readiness
 
@@ -765,6 +794,10 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 ),
                 "canonical_shadow_bullpen_discovery": (
                     canonical_shadow_bullpen_discovery
+                    .to_diagnostics()
+                ),
+                "canonical_shadow_probability_provider_discovery": (
+                    canonical_shadow_probability_provider_discovery
                     .to_diagnostics()
                 ),
                 "canonical_shadow_bootstrap_readiness": (
