@@ -23,6 +23,7 @@ from mlb_app.simulation.shadow import (
     discover_canonical_shadow_exact_artifact,
     discover_canonical_shadow_fallback_catalog,
     discover_canonical_shadow_lineups,
+    attach_canonical_shadow,
     discover_canonical_shadow_probability_provider,
     run_canonical_production_shadow,
 )
@@ -652,6 +653,50 @@ def _canonical_probability_payload(matchup: Dict[str, Any], projection_sim: Opti
     }
 
 
+def _attach_production_shadow_comparison(
+    *,
+    legacy_result: Dict[str, Any],
+    production_execution: Any,
+) -> Dict[str, Any]:
+    """
+    Attach executed canonical material to the existing shadow comparator.
+
+    Blocked or unavailable production executions leave the legacy payload
+    unchanged. Successful comparisons remain diagnostic-only and preserve
+    legacy authority.
+    """
+
+    if not isinstance(legacy_result, dict):
+        raise TypeError(
+            "legacy_result must be a dictionary"
+        )
+
+    material = getattr(
+        production_execution,
+        "material",
+        None,
+    )
+
+    if material is None:
+        return legacy_result
+
+    return attach_canonical_shadow(
+        legacy_result=legacy_result,
+        enabled=True,
+        canonical_payload=(
+            material.canonical_payload
+        ),
+        probability_resolution_diagnostics=(
+            material
+            .probability_resolution_diagnostics
+        ),
+        canonical_shadow_execution_inputs=(
+            material
+            .canonical_shadow_execution_inputs
+        ),
+    )
+
+
 def build_model_projection_payload(session: Session, target_date: str) -> Dict[str, Any]:
     try:
         date_obj = datetime.datetime.strptime(target_date, "%Y-%m-%d").date()
@@ -843,6 +888,15 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 )
             except Exception as shared_exc:
                 shared_simulation = {"status": "error", "error": str(shared_exc), "meta": {"game_pk": matchup.get("game_pk") or matchup.get("gamePk"), "source_route": "/models/projections"}}
+
+            shared_simulation = (
+                _attach_production_shadow_comparison(
+                    legacy_result=shared_simulation,
+                    production_execution=(
+                        canonical_production_shadow_execution
+                    ),
+                )
+            )
 
             if isinstance(shared_simulation, dict):
                 shared_diagnostics = (
