@@ -92,3 +92,24 @@ test('raw canonical payload requires canonical shadow data', async () => {
     /view\.hasCanonicalShadow \? \(\s*<details/,
   )
 })
+
+test('not-run state renders bootstrap readiness blockers', async () => {
+  const source = await pageSource()
+
+  assert.match(
+    source,
+    /Activation readiness/,
+  )
+  assert.match(
+    source,
+    /bootstrap\.items\.map/,
+  )
+  assert.match(
+    source,
+    /bootstrap\.readyCount/,
+  )
+  assert.match(
+    source,
+    /Diagnostic only\. Readiness does not permit/,
+  )
+})

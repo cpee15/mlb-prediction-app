@@ -22,6 +22,67 @@ function sharedSimulation() {
       steals_model: 'deferred_not_active',
     },
     diagnostics: {
+      canonical_shadow_bootstrap_readiness: {
+        schema_version:
+          'canonical_shadow_bootstrap_readiness_v1',
+        status: 'blocked',
+        ready: false,
+        game_pk: 123,
+        requirements: {
+          game_identity: {
+            ready: true,
+            source: 'game_pk',
+          },
+          away_lineup: {
+            ready: false,
+            player_count: 0,
+            required_player_count: 9,
+          },
+          home_lineup: {
+            ready: false,
+            player_count: 0,
+            required_player_count: 9,
+          },
+          away_starter: {
+            ready: true,
+            source: 'away_pitcher_id',
+          },
+          home_starter: {
+            ready: true,
+            source: 'home_pitcher_id',
+          },
+          away_bullpen: {
+            ready: false,
+            pitcher_count: 0,
+          },
+          home_bullpen: {
+            ready: false,
+            pitcher_count: 0,
+          },
+          probability_provider: {
+            ready: false,
+          },
+          exact_probability_artifact: {
+            ready: false,
+          },
+          fallback_probability_catalog: {
+            ready: false,
+          },
+        },
+        missing_requirements: [
+          'away_lineup',
+          'home_lineup',
+          'away_bullpen',
+          'home_bullpen',
+          'probability_provider',
+          'exact_probability_artifact',
+          'fallback_probability_catalog',
+        ],
+        activation_permitted: false,
+        activation_status: 'diagnostic_only',
+        probability_records_exposed: false,
+        authoritative_source: 'legacy',
+      },
       canonical_shadow: {
         status: 'complete',
         enabled: true,
@@ -143,6 +204,77 @@ test('returns a stable empty view model', () => {
     /not attached/,
   )
   assert.deepEqual(view.warnings, [])
+})
+
+test('normalizes bootstrap readiness blockers', () => {
+  const payload = sharedSimulation()
+  delete payload.diagnostics.canonical_shadow
+
+  const view = buildCanonicalDiagnosticsViewModel(
+    payload,
+  )
+
+  assert.equal(
+    view.bootstrapReadiness.available,
+    true,
+  )
+  assert.equal(
+    view.bootstrapReadiness.status,
+    'blocked',
+  )
+  assert.equal(
+    view.bootstrapReadiness.readyCount,
+    3,
+  )
+  assert.equal(
+    view.bootstrapReadiness.blockedCount,
+    7,
+  )
+  assert.equal(
+    view.bootstrapReadiness.totalCount,
+    10,
+  )
+  assert.equal(
+    view.bootstrapReadiness
+      .activationPermitted,
+    false,
+  )
+  assert.match(
+    view.status.availabilityReason,
+    /7 missing production requirements/,
+  )
+})
+
+test('preserves ordered bootstrap requirements', () => {
+  const payload = sharedSimulation()
+  delete payload.diagnostics.canonical_shadow
+
+  const view = buildCanonicalDiagnosticsViewModel(
+    payload,
+  )
+
+  assert.deepEqual(
+    view.bootstrapReadiness.items.map(
+      item => item.key
+    ),
+    [
+      'game_identity',
+      'away_lineup',
+      'home_lineup',
+      'away_starter',
+      'home_starter',
+      'away_bullpen',
+      'home_bullpen',
+      'probability_provider',
+      'exact_probability_artifact',
+      'fallback_probability_catalog',
+    ],
+  )
+
+  assert.equal(
+    view.bootstrapReadiness.items[1].detail,
+    '0 of 9 players',
+  )
 })
 
 test('normalizes canonical status', () => {
