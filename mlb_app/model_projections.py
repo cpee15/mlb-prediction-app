@@ -24,6 +24,7 @@ from mlb_app.simulation.shadow import (
     discover_canonical_shadow_fallback_catalog,
     discover_canonical_shadow_lineups,
     discover_canonical_shadow_probability_provider,
+    run_canonical_production_shadow,
 )
 
 
@@ -715,6 +716,31 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 )
             )
 
+            canonical_production_shadow_execution = (
+                run_canonical_production_shadow(
+                    game_pk=game_pk,
+                    lineups=(
+                        canonical_shadow_lineup_discovery
+                    ),
+                    bullpens=(
+                        canonical_shadow_bullpen_discovery
+                    ),
+                    provider_discovery=(
+                        canonical_shadow_probability_provider_discovery
+                    ),
+                    exact_artifact_discovery=(
+                        canonical_shadow_exact_artifact_discovery
+                    ),
+                    fallback_catalog_discovery=(
+                        canonical_shadow_fallback_catalog_discovery
+                    ),
+                    bootstrap_ready=bool(
+                        canonical_shadow_bootstrap_readiness
+                        .get("ready")
+                    ),
+                )
+            )
+
             workspace[
                 "canonicalShadowLineupDiscovery"
             ] = (
@@ -747,6 +773,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 "canonicalShadowExactArtifactDiscovery"
             ] = (
                 canonical_shadow_exact_artifact_discovery
+                .to_diagnostics()
+            )
+
+            workspace[
+                "canonicalShadowProductionExecution"
+            ] = (
+                canonical_production_shadow_execution
                 .to_diagnostics()
             )
 
@@ -826,6 +859,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 )
 
                 shared_diagnostics[
+                    "canonical_shadow_production_execution"
+                ] = (
+                    canonical_production_shadow_execution
+                    .to_diagnostics()
+                )
+
+                shared_diagnostics[
                     "canonical_shadow_bootstrap_readiness"
                 ] = canonical_shadow_bootstrap_readiness
 
@@ -866,6 +906,10 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 ),
                 "canonical_shadow_exact_artifact_discovery": (
                     canonical_shadow_exact_artifact_discovery
+                    .to_diagnostics()
+                ),
+                "canonical_shadow_production_execution": (
+                    canonical_production_shadow_execution
                     .to_diagnostics()
                 ),
                 "canonical_shadow_bootstrap_readiness": (
