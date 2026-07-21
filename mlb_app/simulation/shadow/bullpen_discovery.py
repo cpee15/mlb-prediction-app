@@ -1,0 +1,312 @@
+"""Active-roster bullpen discovery for canonical shadow bootstrap inputs."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
+
+
+CANONICAL_SHADOW_BULLPEN_DISCOVERY_VERSION = (
+    "canonical_shadow_bullpen_discovery_v1"
+)
+
+
+def _normalize_identifier(value: Any) -> Optional[str]:
+    if value in (None, "") or isinstance(value, bool):
+        return None
+
+    try:
+        parsed = int(value)
+        return str(parsed) if parsed > 0 else None
+    except (TypeError, ValueError):
+        text = str(value).strip()
+        return text or None
+
+
+def _pitcher_identifiers(
+    records: Any,
+    *,
+    starter_id: Any,
+) -> Tuple[str, ...]:
+    if not isinstance(records, Sequence) or isinstance(
+        records,
+        (str, bytes),
+    ):
+        return ()
+
+    normalized_starter = _normalize_identifier(
+        starter_id
+    )
+    ordered = []
+
+    for record in records:
+        if not isinstance(record, Mapping):
+            continue
+
+        player_type = str(
+            record.get("player_type") or ""
+        ).strip().lower()
+
+        if player_type != "pitcher":
+            continue
+
+        identifier = _normalize_identifier(
+            record.get("mlb_player_id")
+            or record.get("player_id")
+            or record.get("pitcher_id")
+            or record.get("id")
+        )
+
+        if (
+            identifier is None
+            or identifier == normalized_starter
+            or identifier in ordered
+        ):
+            continue
+
+        ordered.append(identifier)
+
+    return tuple(ordered)
+
+
+@dataclass(frozen=True)
+class CanonicalShadowBullpenSideDiscovery:
+    team_id: Optional[str] = None
+    starter_id: Optional[str] = None
+    bullpen_pitcher_ids: Tuple[str, ...] = ()
+    source_record_count: int = 0
+    status: str = "unavailable"
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+
+    @property
+    def ready(self) -> bool:
+        return len(self.bullpen_pitcher_ids) > 0
+
+    def readiness_fields(
+        self,
+        *,
+        side: str,
+    ) -> Dict[str, Any]:
+        if not self.ready:
+            return {}
+
+        return {
+            f"{side}_bullpen_pitcher_ids": [
+                {"pitcher_id": pitcher_id}
+                for pitcher_id in self.bullpen_pitcher_ids
+            ]
+        }
+
+    def to_diagnostics(self) -> Dict[str, Any]:
+        return {
+            "status": self.status,
+            "ready": self.ready,
+            "source": "mlb_stats_active_roster",
+            "team_id_present": self.team_id is not None,
+            "starter_id_present": (
+                self.starter_id is not None
+            ),
+            "source_record_count": (
+                self.source_record_count
+            ),
+            "validated_pitcher_count": len(
+                self.bullpen_pitcher_ids
+            ),
+            "minimum_pitcher_count": 1,
+            "error_type": self.error_type,
+            "error_message": self.error_message,
+            "pitcher_identifiers_exposed": False,
+        }
+
+
+@dataclass(frozen=True)
+class CanonicalShadowBullpenDiscovery:
+    away: CanonicalShadowBullpenSideDiscovery
+    home: CanonicalShadowBullpenSideDiscovery
+    discovery_version: str = (
+        CANONICAL_SHADOW_BULLPEN_DISCOVERY_VERSION
+    )
+
+    def __post_init__(self) -> None:
+        if self.discovery_version != (
+            CANONICAL_SHADOW_BULLPEN_DISCOVERY_VERSION
+        ):
+            raise ValueError(
+                "unsupported canonical shadow bullpen "
+                "discovery version"
+            )
+
+    @property
+    def ready(self) -> bool:
+        return self.away.ready and self.home.ready
+
+    @property
+    def status(self) -> str:
+        if self.ready:
+            return "ready"
+
+        if (
+            self.away.status == "error"
+            or self.home.status == "error"
+        ):
+            return "error"
+
+        if self.away.ready or self.home.ready:
+            return "partial"
+
+        return "unavailable"
+
+    def readiness_matchup_fields(
+        self,
+    ) -> Dict[str, Any]:
+        fields = {}
+        fields.update(
+            self.away.readiness_fields(side="away")
+        )
+        fields.update(
+            self.home.readiness_fields(side="home")
+        )
+        return fields
+
+    def to_diagnostics(self) -> Dict[str, Any]:
+        return {
+            "schema_version": self.discovery_version,
+            "status": self.status,
+            "ready": self.ready,
+            "source": "mlb_stats_active_roster",
+            "away": self.away.to_diagnostics(),
+            "home": self.home.to_diagnostics(),
+            "pitcher_identifiers_exposed": False,
+            "activation_permitted": False,
+            "authoritative_source": "legacy",
+        }
+
+
+def _discover_side(
+    *,
+    team_id: Any,
+    team_name: Any,
+    starter_id: Any,
+    season: int,
+    roster_fetcher: Callable[..., Sequence[Mapping[str, Any]]],
+) -> CanonicalShadowBullpenSideDiscovery:
+    normalized_team = _normalize_identifier(
+        team_id
+    )
+    normalized_starter = _normalize_identifier(
+        starter_id
+    )
+
+    if normalized_team is None:
+        return CanonicalShadowBullpenSideDiscovery(
+            starter_id=normalized_starter,
+            status="blocked",
+            error_type="missing_team_id",
+            error_message=(
+                "team_id is required for active-roster "
+                "bullpen discovery"
+            ),
+        )
+
+    if normalized_starter is None:
+        return CanonicalShadowBullpenSideDiscovery(
+            team_id=normalized_team,
+            status="blocked",
+            error_type="missing_starter_id",
+            error_message=(
+                "starter_id is required to exclude the "
+                "scheduled starter"
+            ),
+        )
+
+    try:
+        records = roster_fetcher(
+            int(normalized_team),
+            int(season),
+            team_name=team_name,
+        )
+    except Exception as exc:
+        return CanonicalShadowBullpenSideDiscovery(
+            team_id=normalized_team,
+            starter_id=normalized_starter,
+            status="error",
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
+
+    if not isinstance(records, Sequence) or isinstance(
+        records,
+        (str, bytes),
+    ):
+        return CanonicalShadowBullpenSideDiscovery(
+            team_id=normalized_team,
+            starter_id=normalized_starter,
+            status="blocked",
+            error_type="invalid_payload",
+            error_message=(
+                "active-roster fetcher must return a sequence"
+            ),
+        )
+
+    pitcher_ids = _pitcher_identifiers(
+        records,
+        starter_id=normalized_starter,
+    )
+
+    return CanonicalShadowBullpenSideDiscovery(
+        team_id=normalized_team,
+        starter_id=normalized_starter,
+        bullpen_pitcher_ids=pitcher_ids,
+        source_record_count=len(records),
+        status=(
+            "ready"
+            if pitcher_ids
+            else "unavailable"
+        ),
+    )
+
+
+def discover_canonical_shadow_bullpens(
+    *,
+    away_team_id: Any,
+    away_team_name: Any,
+    away_starter_id: Any,
+    home_team_id: Any,
+    home_team_name: Any,
+    home_starter_id: Any,
+    season: int,
+    roster_fetcher: Optional[
+        Callable[..., Sequence[Mapping[str, Any]]]
+    ] = None,
+) -> CanonicalShadowBullpenDiscovery:
+    """
+    Discover active-roster bullpen IDs without activating canonical execution.
+
+    Active-roster pitchers are treated as a bootstrap pitching-plan candidate,
+    not a claim about game availability, leverage role, or expected usage.
+    """
+
+    if roster_fetcher is None:
+        from mlb_app.dashboard_player_population import (
+            fetch_active_roster,
+        )
+
+        roster_fetcher = fetch_active_roster
+
+    return CanonicalShadowBullpenDiscovery(
+        away=_discover_side(
+            team_id=away_team_id,
+            team_name=away_team_name,
+            starter_id=away_starter_id,
+            season=season,
+            roster_fetcher=roster_fetcher,
+        ),
+        home=_discover_side(
+            team_id=home_team_id,
+            team_name=home_team_name,
+            starter_id=home_starter_id,
+            season=season,
+            roster_fetcher=roster_fetcher,
+        ),
+    )
