@@ -13,6 +13,7 @@ SUPPORTED_ADVANCEMENT_OUTCOMES = frozenset(
     {
         "single",
         "double",
+        "triple",
         "out",
     }
 )
@@ -113,6 +114,14 @@ def enumerate_legal_runner_destinations(
                 destinations=(Base.SECOND,),
             )
         )
+    elif outcome == "triple":
+        legal.append(
+            LegalRunnerDestinations(
+                runner_id=batter_id,
+                start_base=Base.HOME,
+                destinations=(Base.THIRD,),
+            )
+        )
 
     return tuple(legal)
 
@@ -154,7 +163,11 @@ def _third_base_destinations(
     outcome: str,
     context: BattedBallContext,
 ) -> Tuple[Base, ...]:
-    if outcome in {"single", "double"}:
+    if outcome in {
+        "single",
+        "double",
+        "triple",
+    }:
         return (Base.HOME,)
 
     if context.batted_ball_type in {
@@ -175,7 +188,7 @@ def _second_base_destinations(
 ) -> Tuple[Base, ...]:
     if outcome == "single":
         return (Base.THIRD, Base.HOME)
-    if outcome == "double":
+    if outcome in {"double", "triple"}:
         return (Base.HOME,)
 
     if context.batted_ball_type in {
@@ -197,6 +210,8 @@ def _first_base_destinations(
         return (Base.SECOND, Base.THIRD)
     if outcome == "double":
         return (Base.THIRD, Base.HOME)
+    if outcome == "triple":
+        return (Base.HOME,)
 
     # Force plays and fielder's choices are Layer 10E concerns.
     return (Base.FIRST,)

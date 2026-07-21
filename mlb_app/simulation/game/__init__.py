@@ -42,7 +42,6 @@ from .orchestrator import (
     simulate_canonical_game,
 )
 from .outcome_resolution import (
-    EMPTY_BASE_HIT_DESTINATIONS,
     resolve_canonical_sampled_plate_appearance,
 )
 from .pa_resolver_factory import (
@@ -139,7 +138,6 @@ __all__ = [
     "DEFAULT_CANONICAL_PROBABILITY_FALLBACK_TIERS",
     "DEFAULT_CANONICAL_MODEL_VERSION",
     "DEFAULT_CANONICAL_SIMULATION_COUNT",
-    "EMPTY_BASE_HIT_DESTINATIONS",
     "CanonicalTrialFactoryInput",
     "CanonicalTrialExecutionPlan",
     "CanonicalTrialResolverContext",

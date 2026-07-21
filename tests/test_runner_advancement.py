@@ -399,7 +399,7 @@ def test_unsupported_outcome_is_rejected():
         sampler.sample(
             state=state(),
             batter_id="batter",
-            primary_outcome="triple",
+            primary_outcome="home_run",
             context=context(),
         )
 

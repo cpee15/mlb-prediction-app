@@ -95,6 +95,12 @@ class BaselineRunnerAdvancementSampler:
                 context=context,
             )
 
+        if outcome == "triple":
+            return self._sample_triple(
+                state=state,
+                batter_id=batter_id,
+            )
+
         if outcome == "out":
             return self._sample_out(
                 state=state,
@@ -249,6 +255,43 @@ class BaselineRunnerAdvancementSampler:
         return RunnerAdvancementResult(
             movements=tuple(movements),
             probabilities_used=tuple(decisions),
+        )
+
+    def _sample_triple(
+        self,
+        *,
+        state: GameState,
+        batter_id: str,
+    ) -> RunnerAdvancementResult:
+        movements = []
+
+        for start_base, runner_id in (
+            (Base.THIRD, state.third),
+            (Base.SECOND, state.second),
+            (Base.FIRST, state.first),
+        ):
+            if runner_id is None:
+                continue
+
+            movements.append(
+                _movement(
+                    runner_id=runner_id,
+                    start=start_base,
+                    end=Base.HOME,
+                )
+            )
+
+        movements.append(
+            _movement(
+                runner_id=batter_id,
+                start=Base.HOME,
+                end=Base.THIRD,
+                forced=True,
+            )
+        )
+
+        return RunnerAdvancementResult(
+            movements=tuple(movements),
         )
 
     def _sample_out(
