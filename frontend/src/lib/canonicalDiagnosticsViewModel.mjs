@@ -554,7 +554,16 @@ export function buildCanonicalDiagnosticsViewModel(
     shadow.status,
     hasCanonicalShadow
       ? 'unknown'
-      : 'unavailable',
+      : 'not_run',
+  )
+
+  const availabilityReason = (
+    hasCanonicalShadow
+      ? null
+      : (
+        'Canonical shadow execution was not attached ' +
+        'to this simulation payload.'
+      )
   )
 
   return {
@@ -586,6 +595,7 @@ export function buildCanonicalDiagnosticsViewModel(
         shadow.schema_version || null,
       errorType: shadow.error_type || null,
       errorMessage: shadow.error_message || null,
+      availabilityReason,
     },
 
     realism: buildRealism(shared, shadow),
