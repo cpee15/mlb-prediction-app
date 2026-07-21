@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { API_BASE } from '../lib/api'
+import {
+  buildCanonicalDiagnosticsViewModel,
+} from '../lib/canonicalDiagnosticsViewModel.mjs'
 
 const API = API_BASE
 
@@ -124,6 +127,67 @@ const s = {
     padding: '12px',
   },
   summary: { cursor: 'pointer', color: '#c9d1d9', fontWeight: 800 },
+  diagnosticHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    gap: '12px',
+    marginBottom: '14px',
+  },
+  diagnosticStatus: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '7px',
+    borderRadius: '999px',
+    padding: '5px 10px',
+    fontSize: '12px',
+    fontWeight: 800,
+  },
+  featureGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+    gap: '8px',
+  },
+  featureRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '9px',
+    border: '1px solid #30363d',
+    borderRadius: '9px',
+    padding: '9px 10px',
+    background: '#0d1117',
+  },
+  featureIcon: {
+    width: '20px',
+    height: '20px',
+    borderRadius: '999px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    fontSize: '12px',
+    fontWeight: 900,
+  },
+  warning: {
+    border: '1px solid #9e6a03',
+    borderRadius: '9px',
+    background: 'rgba(158, 106, 3, 0.12)',
+    color: '#d29922',
+    padding: '10px 12px',
+    marginTop: '8px',
+    fontSize: '13px',
+  },
+  rawPayload: {
+    maxHeight: '440px',
+    overflow: 'auto',
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+    color: '#c9d1d9',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    fontSize: '12px',
+    lineHeight: 1.5,
+  },
   noData: { color: '#8b949e', padding: '18px', textAlign: 'center' },
 }
 
@@ -183,10 +247,6 @@ function getSharedDirectInputs(game) {
 
 function getSharedPAModels(game) {
   return getSharedSimulation(game)?.pa_models || {}
-}
-
-function isSimulationModel(model) {
-  return String(model?.model_name || '').startsWith('Simulation:')
 }
 
 function isPresent(v) {
@@ -699,61 +759,397 @@ function SimulationTab({ workspace, game }) {
   )
 }
 
-function DiagnosticModelCard({ model }) {
-  const inputs = model?.inputs || {}
+function shortDigest(value) {
+  if (!value) return '—'
+  const text = String(value)
+  return text.length > 18
+    ? `${text.slice(0, 10)}…${text.slice(-6)}`
+    : text
+}
+
+function statusPresentation(state) {
+  const normalized = String(state || '').toLowerCase()
+
+  if (
+    normalized === 'complete' ||
+    normalized === 'available'
+  ) {
+    return {
+      label: 'Complete',
+      foreground: '#3fb950',
+      background: 'rgba(46, 160, 67, 0.15)',
+      symbol: '✓',
+    }
+  }
+
+  if (normalized === 'error') {
+    return {
+      label: 'Error',
+      foreground: '#f85149',
+      background: 'rgba(248, 81, 73, 0.15)',
+      symbol: '!',
+    }
+  }
+
+  if (
+    normalized === 'disabled' ||
+    normalized === 'unavailable'
+  ) {
+    return {
+      label: label(state || 'Unavailable'),
+      foreground: '#8b949e',
+      background: '#21262d',
+      symbol: '○',
+    }
+  }
+
+  return {
+    label: label(state || 'Unknown'),
+    foreground: '#d29922',
+    background: 'rgba(210, 153, 34, 0.15)',
+    symbol: '•',
+  }
+}
+
+function DiagnosticStatusBadge({ state }) {
+  const presentation = statusPresentation(state)
+
   return (
-    <div style={{ ...s.metricCard, marginBottom: '10px' }}>
-      <div style={{ color: '#e6edf3', fontWeight: 800 }}>
-        {model?.model_name || 'Model'}
-        <span style={s.pill}>{model?.status || 'N/A'}</span>
-        <span style={s.pill}>Confidence: {model?.data_confidence || 'N/A'}</span>
-      </div>
-      <div style={{ color: '#58a6ff', fontSize: '24px', fontWeight: 850, margin: '8px 0' }}>
-        {model?.score ?? '—'}
-      </div>
-      <div style={{ color: '#8b949e', fontSize: '13px', marginBottom: '8px' }}>
-        {model?.formula || 'No formula supplied.'}
-      </div>
-      <details>
-        <summary style={s.summary}>Inputs / missing fields</summary>
-        <div style={{ ...s.grid, marginTop: '10px' }}>
-          {Object.entries(inputs).map(([k, v]) => (
-            <div key={k} style={{ background: '#0d1117', border: '1px solid #30363d', borderRadius: '8px', padding: '8px' }}>
-              <div style={{ color: '#8b949e', fontSize: '12px' }}>{k}</div>
-              <pre style={{ margin: 0, color: '#c9d1d9', whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
-                {typeof v === 'object' ? JSON.stringify(v, null, 2) : String(v ?? '—')}
-              </pre>
-            </div>
-          ))}
+    <span
+      style={{
+        ...s.diagnosticStatus,
+        color: presentation.foreground,
+        background: presentation.background,
+      }}
+    >
+      <span>{presentation.symbol}</span>
+      {presentation.label}
+    </span>
+  )
+}
+
+function RealismFeature({ feature }) {
+  const presentations = {
+    enabled: {
+      symbol: '✓',
+      foreground: '#3fb950',
+      background: 'rgba(46, 160, 67, 0.15)',
+    },
+    deferred: {
+      symbol: '○',
+      foreground: '#d29922',
+      background: 'rgba(210, 153, 34, 0.15)',
+    },
+    disabled: {
+      symbol: '–',
+      foreground: '#f85149',
+      background: 'rgba(248, 81, 73, 0.15)',
+    },
+    unknown: {
+      symbol: '?',
+      foreground: '#8b949e',
+      background: '#21262d',
+    },
+  }
+
+  const presentation =
+    presentations[feature.status] ||
+    presentations.unknown
+
+  return (
+    <div style={s.featureRow}>
+      <span
+        style={{
+          ...s.featureIcon,
+          color: presentation.foreground,
+          background: presentation.background,
+        }}
+      >
+        {presentation.symbol}
+      </span>
+
+      <div>
+        <div
+          style={{
+            color: '#e6edf3',
+            fontSize: '13px',
+            fontWeight: 750,
+          }}
+        >
+          {feature.label}
         </div>
-        <div style={{ color: '#8b949e', marginTop: '8px' }}>
-          Missing: {(model?.missing_inputs || []).length ? model.missing_inputs.join(', ') : 'None'}
-        </div>
-      </details>
+
+        {feature.detail ? (
+          <div
+            style={{
+              color: '#8b949e',
+              fontSize: '11px',
+              marginTop: '2px',
+            }}
+          >
+            {feature.detail}
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }
 
 function DiagnosticsTab({ game }) {
-  const away = game?.teams?.away || {}
-  const home = game?.teams?.home || {}
-  const diagnosticModels = [
-    ...(away.models || []),
-    ...(home.models || []),
-  ].filter(m => !isSimulationModel(m))
+  const sharedSimulation = getSharedSimulation(game)
+
+  const view = buildCanonicalDiagnosticsViewModel({
+    ...sharedSimulation,
+    game_state_realism: (
+      game?.game_state_realism ||
+      sharedSimulation?.game_state_realism
+    ),
+  })
+
+  const status = view.status
+  const coverage = view.coverage
+  const integrity = view.integrity
+  const provenance = view.provenance
 
   return (
     <div>
+      <div style={s.diagnosticHeader}>
+        <div>
+          <h3
+            style={{
+              margin: 0,
+              color: '#e6edf3',
+              fontSize: '21px',
+            }}
+          >
+            Canonical Simulation Diagnostics
+          </h3>
+
+          <div
+            style={{
+              color: '#8b949e',
+              fontSize: '13px',
+              marginTop: '5px',
+            }}
+          >
+            Coverage, integrity, realism, and provenance for the
+            event-driven shadow simulation.
+          </div>
+        </div>
+
+        <DiagnosticStatusBadge state={status.state} />
+      </div>
+
+      <div style={s.splitGrid}>
+        <GenericPanel
+          title="Canonical Simulation"
+          subtitle={
+            status.modelVersion ||
+            'Canonical shadow simulation'
+          }
+          tag="Shadow"
+          tagTone="diagnostic"
+        >
+          <StatRow
+            k="Status"
+            v={status.label || status.state}
+            format="text"
+          />
+          <StatRow
+            k="Canonical Output"
+            v={
+              status.canonicalAvailable
+                ? 'Available'
+                : 'Unavailable'
+            }
+            format="text"
+          />
+          <StatRow
+            k="Authoritative Source"
+            v={status.authoritativeSource}
+            format="text"
+          />
+          <StatRow
+            k="Legacy Simulations"
+            v={status.legacySimulationCount}
+            format="num"
+          />
+          <StatRow
+            k="Canonical Simulations"
+            v={status.canonicalSimulationCount}
+            format="num"
+          />
+          <StatRow
+            k="Schema"
+            v={status.schemaVersion}
+            format="text"
+          />
+        </GenericPanel>
+
+        <GenericPanel title="Probability Coverage">
+          <StatRow
+            k="Total Resolutions"
+            v={coverage.totalResolutions}
+            format="num"
+          />
+          <StatRow
+            k="Exact Resolution Rate"
+            v={coverage.exactRate}
+            format="pct"
+          />
+          <StatRow
+            k="Fallback Rate"
+            v={coverage.fallbackRate}
+            format="pct"
+          />
+          <StatRow
+            k="Exact Resolutions"
+            v={coverage.exactResolutions}
+            format="num"
+          />
+          <StatRow
+            k="Fallback Resolutions"
+            v={coverage.fallbackResolutions}
+            format="num"
+          />
+
+          {coverage.tiers.length ? (
+            <div style={{ marginTop: '10px' }}>
+              <div style={s.metricLabel}>
+                Resolution tiers
+              </div>
+
+              {coverage.tiers.map(item => (
+                <StatRow
+                  key={item.tier}
+                  k={item.label}
+                  v={item.count}
+                  format="num"
+                />
+              ))}
+            </div>
+          ) : null}
+        </GenericPanel>
+      </div>
+
+      <h3 style={s.sectionTitle}>
+        Game-State Realism
+      </h3>
+
+      <div style={s.featureGrid}>
+        {view.realism.features.map(feature => (
+          <RealismFeature
+            key={feature.key}
+            feature={feature}
+          />
+        ))}
+      </div>
+
+      <div style={s.splitGrid}>
+        <GenericPanel title="Simulation Integrity">
+          {integrity.metrics.map(metric => (
+            <StatRow
+              key={metric.key}
+              k={metric.label}
+              v={metric.value}
+              format="pct"
+            />
+          ))}
+
+          <StatRow
+            k="Earned Run Status"
+            v={integrity.earnedRunStatus}
+            format="text"
+          />
+        </GenericPanel>
+
+        <GenericPanel title="Input Provenance">
+          <StatRow
+            k="Game PK"
+            v={provenance.gamePk}
+            format="num"
+          />
+          <StatRow
+            k="Provider"
+            v={
+              provenance.provider.name ||
+              provenance.provider.identity
+            }
+            format="text"
+          />
+          <StatRow
+            k="Provider Version"
+            v={provenance.provider.version}
+            format="text"
+          />
+          <StatRow
+            k="Artifact ID"
+            v={provenance.provider.artifactId}
+            format="text"
+          />
+          <StatRow
+            k="Exact Artifact Rows"
+            v={provenance.exactArtifact.recordCount}
+            format="num"
+          />
+          <StatRow
+            k="Fallback Catalog Rows"
+            v={provenance.fallbackCatalog.recordCount}
+            format="num"
+          />
+          <StatRow
+            k="Assembly Digest"
+            v={shortDigest(provenance.assemblyDigest)}
+            format="text"
+          />
+          <StatRow
+            k="Exact Artifact Digest"
+            v={shortDigest(provenance.exactArtifact.digest)}
+            format="text"
+          />
+          <StatRow
+            k="Fallback Catalog Digest"
+            v={shortDigest(provenance.fallbackCatalog.digest)}
+            format="text"
+          />
+
+          {provenance.fallbackPolicy.tiers.length ? (
+            <StatRow
+              k="Fallback Policy"
+              v={provenance.fallbackPolicy.tiers
+                .map(item => item.label)
+                .join(' → ')}
+              format="text"
+            />
+          ) : null}
+        </GenericPanel>
+      </div>
+
+      {view.warnings.length ? (
+        <>
+          <h3 style={s.sectionTitle}>Warnings</h3>
+
+          {view.warnings.map(warning => (
+            <div key={warning} style={s.warning}>
+              {label(warning)}
+            </div>
+          ))}
+        </>
+      ) : null}
+
       <details style={s.details}>
-        <summary style={s.summary}>Shared simulation payload</summary>
-        <pre style={{ whiteSpace: 'pre-wrap', color: '#c9d1d9', fontFamily: 'inherit' }}>
-          {JSON.stringify(game?.sharedSimulation || {}, null, 2)}
+        <summary style={s.summary}>
+          Advanced: raw canonical payload
+        </summary>
+
+        <pre style={s.rawPayload}>
+          {JSON.stringify(
+            view.raw.canonicalShadow,
+            null,
+            2,
+          )}
         </pre>
       </details>
-
-      {diagnosticModels.length ? diagnosticModels.map((model, idx) => (
-        <DiagnosticModelCard key={`${model?.model_name || 'model'}-${idx}`} model={model} />
-      )) : <div style={s.noData}>No diagnostic models available.</div>}
     </div>
   )
 }
@@ -824,8 +1220,6 @@ function GameProjectionCard({ game }) {
         ))}
       </div>
 
-      {renderGameStateRealismDiagnostics(game?.game_state_realism)}
-
       {(
         !awayRunModel ||
         !homeRunModel ||
@@ -839,48 +1233,6 @@ function GameProjectionCard({ game }) {
 
 
 
-const GAME_STATE_REALISM_FIELDS = [
-  ["base_out_state_enabled", "Base/out state"],
-  ["runner_advancement_enabled", "Runner advancement"],
-  ["extras_enabled", "Extra innings"],
-  ["ghost_runner_enabled", "Ghost runner"],
-  ["walkoff_shortening_enabled", "Walkoff shortening"],
-  ["double_play_enabled", "Double-play logic"],
-  ["sac_fly_enabled", "Sac-fly logic"],
-  ["steals_model_status", "Steals model"],
-];
-
-function formatGameStateRealismValue(value) {
-  if (value === true) return "Enabled";
-  if (value === false) return "Disabled";
-  if (value === null || value === undefined || value === "") return "Unavailable";
-  return String(value);
-}
-
-function renderGameStateRealismDiagnostics(gameStateRealism) {
-  if (!gameStateRealism) return null;
-
-  return (
-    <div className="mt-3 rounded border border-slate-700 bg-slate-900/40 p-3 text-xs text-slate-200">
-      <div className="mb-2 font-semibold text-slate-100">
-        Game-State Realism Diagnostics
-      </div>
-      <div className="mb-2 text-slate-400">
-        Diagnostic-only. Does not replace final projection probability.
-      </div>
-      <div className="grid gap-1 sm:grid-cols-2">
-        {GAME_STATE_REALISM_FIELDS.map(([field, label]) => (
-          <div key={field} className="flex justify-between gap-3">
-            <span className="text-slate-400">{label}</span>
-            <span className="font-medium text-slate-100">
-              {formatGameStateRealismValue(gameStateRealism[field])}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function ModelProjectionsPage() {
   const [date, setDate] = useState(today())
