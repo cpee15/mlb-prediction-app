@@ -1,6 +1,25 @@
 export const CANONICAL_DIAGNOSTICS_VIEW_MODEL_VERSION =
   'canonical_diagnostics_view_model_v1'
 
+const BOOTSTRAP_REQUIREMENTS = [
+  ['game_identity', 'Game identity'],
+  ['away_lineup', 'Away lineup'],
+  ['home_lineup', 'Home lineup'],
+  ['away_starter', 'Away starter'],
+  ['home_starter', 'Home starter'],
+  ['away_bullpen', 'Away bullpen plan'],
+  ['home_bullpen', 'Home bullpen plan'],
+  ['probability_provider', 'Probability provider'],
+  [
+    'exact_probability_artifact',
+    'Exact probability artifact',
+  ],
+  [
+    'fallback_probability_catalog',
+    'Fallback probability catalog',
+  ],
+]
+
 const REALISM_FEATURES = [
   {
     key: 'base_out_state',
@@ -238,6 +257,108 @@ function uniqueStrings(values) {
     ),
   ]
 }
+
+function buildBootstrapReadiness(
+  sharedSimulation,
+) {
+  const diagnostics = objectValue(
+    sharedSimulation.diagnostics
+  )
+
+  const report = {
+    ...objectValue(
+      diagnostics
+        .canonical_shadow_bootstrap_readiness
+    ),
+    ...objectValue(
+      sharedSimulation
+        .canonical_shadow_bootstrap_readiness
+    ),
+  }
+
+  const requirements = objectValue(
+    report.requirements
+  )
+
+  const items = BOOTSTRAP_REQUIREMENTS.map(
+    ([key, labelText]) => {
+      const requirement = objectValue(
+        requirements[key]
+      )
+
+      const ready = requirement.ready === true
+
+      let detail = null
+
+      if (
+        key.endsWith('_lineup') &&
+        finiteNumber(
+          requirement.player_count
+        ) !== null
+      ) {
+        detail = (
+          `${requirement.player_count} of ` +
+          `${requirement.required_player_count || 9} players`
+        )
+      } else if (
+        key.endsWith('_bullpen') &&
+        finiteNumber(
+          requirement.pitcher_count
+        ) !== null
+      ) {
+        detail = (
+          `${requirement.pitcher_count} pitchers`
+        )
+      } else if (requirement.source) {
+        detail = humanize(requirement.source)
+      }
+
+      return {
+        key,
+        label: labelText,
+        ready,
+        status: ready ? 'ready' : 'blocked',
+        detail,
+        source: requirement.source || null,
+      }
+    }
+  )
+
+  const readyCount = items.filter(
+    item => item.ready
+  ).length
+
+  const missingRequirements = arrayValue(
+    report.missing_requirements
+  ).map(String)
+
+  return {
+    available: Object.keys(report).length > 0,
+    schemaVersion:
+      report.schema_version || null,
+    status: report.status || null,
+    ready: report.ready === true,
+    gamePk: firstPresent(
+      report.game_pk,
+      null,
+    ),
+    readyCount,
+    totalCount: items.length,
+    blockedCount: items.length - readyCount,
+    items,
+    missingRequirements,
+    activationPermitted:
+      report.activation_permitted === true,
+    activationStatus:
+      report.activation_status || null,
+    probabilityRecordsExposed:
+      report.probability_records_exposed ??
+      null,
+    authoritativeSource:
+      report.authoritative_source || 'legacy',
+  }
+}
+
 
 function buildRealism(sharedSimulation, shadow) {
   const diagnostics = objectValue(
@@ -546,6 +667,10 @@ export function buildCanonicalDiagnosticsViewModel(
   const hasCanonicalShadow =
     Object.keys(shadow).length > 0
 
+  const bootstrapReadiness = (
+    buildBootstrapReadiness(shared)
+  )
+
   const canonicalAvailable = Boolean(
     shadow.canonical_available
   )
@@ -561,8 +686,17 @@ export function buildCanonicalDiagnosticsViewModel(
     hasCanonicalShadow
       ? null
       : (
-        'Canonical shadow execution was not attached ' +
-        'to this simulation payload.'
+        bootstrapReadiness.available &&
+        bootstrapReadiness.blockedCount > 0
+          ? (
+            'Canonical shadow execution is blocked by ' +
+            `${bootstrapReadiness.blockedCount} missing ` +
+            'production requirements.'
+          )
+          : (
+            'Canonical shadow execution was not attached ' +
+            'to this simulation payload.'
+          )
       )
   )
 
@@ -598,6 +732,7 @@ export function buildCanonicalDiagnosticsViewModel(
       availabilityReason,
     },
 
+    bootstrapReadiness,
     realism: buildRealism(shared, shadow),
     coverage: buildCoverage(shadow),
     integrity: buildIntegrity(shadow),
@@ -606,6 +741,10 @@ export function buildCanonicalDiagnosticsViewModel(
 
     raw: {
       canonicalShadow: shadow,
+      bootstrapReadiness: objectValue(
+        diagnostics
+          .canonical_shadow_bootstrap_readiness
+      ),
     },
   }
 }

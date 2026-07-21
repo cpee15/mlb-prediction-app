@@ -912,6 +912,7 @@ function DiagnosticsTab({ game }) {
   })
 
   const status = view.status
+  const bootstrap = view.bootstrapReadiness
   const coverage = view.coverage
   const integrity = view.integrity
   const provenance = view.provenance
@@ -992,6 +993,94 @@ function DiagnosticsTab({ game }) {
               format="text"
             />
           </div>
+
+          {bootstrap.available ? (
+            <div style={{ marginTop: '18px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                  marginBottom: '10px',
+                }}
+              >
+                <div style={s.metricLabel}>
+                  Activation readiness
+                </div>
+
+                <span style={s.pill}>
+                  {bootstrap.readyCount} of{' '}
+                  {bootstrap.totalCount} ready
+                </span>
+              </div>
+
+              <div style={s.featureGrid}>
+                {bootstrap.items.map(item => (
+                  <div
+                    key={item.key}
+                    style={s.featureRow}
+                  >
+                    <span
+                      style={{
+                        ...s.featureIcon,
+                        color: (
+                          item.ready
+                            ? '#3fb950'
+                            : '#f85149'
+                        ),
+                        background: (
+                          item.ready
+                            ? 'rgba(46, 160, 67, 0.15)'
+                            : 'rgba(248, 81, 73, 0.15)'
+                        ),
+                      }}
+                    >
+                      {item.ready ? '✓' : '×'}
+                    </span>
+
+                    <div>
+                      <div
+                        style={{
+                          color: '#e6edf3',
+                          fontSize: '13px',
+                          fontWeight: 750,
+                        }}
+                      >
+                        {item.label}
+                      </div>
+
+                      {item.detail ? (
+                        <div
+                          style={{
+                            color: '#8b949e',
+                            fontSize: '11px',
+                            marginTop: '2px',
+                          }}
+                        >
+                          {item.detail}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  color: '#8b949e',
+                  fontSize: '12px',
+                  lineHeight: 1.5,
+                  marginTop: '10px',
+                }}
+              >
+                Diagnostic only. Readiness does not permit
+                activation or change the authoritative projection
+                source.
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div style={s.splitGrid}>
