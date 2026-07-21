@@ -20,6 +20,7 @@ from mlb_app.simulation.game_simulation_builder import build_game_simulation as 
 from mlb_app.simulation.shadow import (
     build_canonical_shadow_bootstrap_readiness,
     discover_canonical_shadow_bullpens,
+    discover_canonical_shadow_fallback_catalog,
     discover_canonical_shadow_lineups,
     discover_canonical_shadow_probability_provider,
 )
@@ -665,11 +666,25 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 )
             )
 
+            canonical_shadow_fallback_catalog_discovery = (
+                discover_canonical_shadow_fallback_catalog(
+                    workspace=workspace,
+                    provider=(
+                        canonical_shadow_probability_provider_discovery
+                        .provider
+                    ),
+                )
+            )
+
             canonical_readiness_workspace = dict(
                 workspace
             )
             canonical_readiness_workspace.update(
                 canonical_shadow_probability_provider_discovery
+                .readiness_workspace_fields()
+            )
+            canonical_readiness_workspace.update(
+                canonical_shadow_fallback_catalog_discovery
                 .readiness_workspace_fields()
             )
 
@@ -701,6 +716,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 "canonicalShadowProbabilityProviderDiscovery"
             ] = (
                 canonical_shadow_probability_provider_discovery
+                .to_diagnostics()
+            )
+
+            workspace[
+                "canonicalShadowFallbackCatalogDiscovery"
+            ] = (
+                canonical_shadow_fallback_catalog_discovery
                 .to_diagnostics()
             )
 
@@ -766,6 +788,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 )
 
                 shared_diagnostics[
+                    "canonical_shadow_fallback_catalog_discovery"
+                ] = (
+                    canonical_shadow_fallback_catalog_discovery
+                    .to_diagnostics()
+                )
+
+                shared_diagnostics[
                     "canonical_shadow_bootstrap_readiness"
                 ] = canonical_shadow_bootstrap_readiness
 
@@ -798,6 +827,10 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 ),
                 "canonical_shadow_probability_provider_discovery": (
                     canonical_shadow_probability_provider_discovery
+                    .to_diagnostics()
+                ),
+                "canonical_shadow_fallback_catalog_discovery": (
+                    canonical_shadow_fallback_catalog_discovery
                     .to_diagnostics()
                 ),
                 "canonical_shadow_bootstrap_readiness": (
