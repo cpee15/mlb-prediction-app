@@ -19,6 +19,7 @@ from .simulation.game_simulator import simulate_game_with_bullpen
 from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 from mlb_app.simulation.shadow import (
     build_canonical_shadow_bootstrap_readiness,
+    discover_canonical_shadow_bullpens,
     discover_canonical_shadow_lineups,
 )
 
@@ -633,11 +634,27 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 )
             )
 
+            canonical_shadow_bullpen_discovery = (
+                discover_canonical_shadow_bullpens(
+                    away_team_id=away.get("team_id"),
+                    away_team_name=away.get("team_name"),
+                    away_starter_id=away.get("pitcher_id"),
+                    home_team_id=home.get("team_id"),
+                    home_team_name=home.get("team_name"),
+                    home_starter_id=home.get("pitcher_id"),
+                    season=date_obj.year,
+                )
+            )
+
             canonical_readiness_matchup = dict(
                 matchup
             )
             canonical_readiness_matchup.update(
                 canonical_shadow_lineup_discovery
+                .readiness_matchup_fields()
+            )
+            canonical_readiness_matchup.update(
+                canonical_shadow_bullpen_discovery
                 .readiness_matchup_fields()
             )
 
@@ -655,6 +672,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 "canonicalShadowLineupDiscovery"
             ] = (
                 canonical_shadow_lineup_discovery
+                .to_diagnostics()
+            )
+
+            workspace[
+                "canonicalShadowBullpenDiscovery"
+            ] = (
+                canonical_shadow_bullpen_discovery
                 .to_diagnostics()
             )
 
@@ -706,6 +730,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 )
 
                 shared_diagnostics[
+                    "canonical_shadow_bullpen_discovery"
+                ] = (
+                    canonical_shadow_bullpen_discovery
+                    .to_diagnostics()
+                )
+
+                shared_diagnostics[
                     "canonical_shadow_bootstrap_readiness"
                 ] = canonical_shadow_bootstrap_readiness
 
@@ -730,6 +761,10 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 "game_state_realism": _build_game_state_realism_diagnostics(),
                 "canonical_shadow_lineup_discovery": (
                     canonical_shadow_lineup_discovery
+                    .to_diagnostics()
+                ),
+                "canonical_shadow_bullpen_discovery": (
+                    canonical_shadow_bullpen_discovery
                     .to_diagnostics()
                 ),
                 "canonical_shadow_bootstrap_readiness": (
