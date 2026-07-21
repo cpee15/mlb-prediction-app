@@ -169,9 +169,6 @@ def compare_shadow_payloads(
         )
     )
 
-    if legacy_count != canonical_count:
-        warnings.add("simulation_count_mismatch")
-
     unavailable = [
         item.name
         for item in comparisons + ranges

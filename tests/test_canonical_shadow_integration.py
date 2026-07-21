@@ -283,3 +283,44 @@ def test_output_is_json_serializable():
     )
 
     assert "canonical_shadow_v1" in encoded
+
+
+def test_different_shadow_trial_count_is_not_a_warning():
+    legacy = legacy_result()
+    legacy["simulations"] = 3000
+    legacy["metadata"]["simulation_count"] = 3000
+
+    diagnostics = compare_shadow_payloads(
+        legacy_result=legacy,
+        canonical_payload=canonical_payload(),
+    )
+
+    count = comparison(
+        diagnostics,
+        "simulation_count",
+    )
+
+    assert count.available is True
+    assert count.legacy_value == 3000.0
+    assert count.canonical_value == 2.0
+    assert count.absolute_difference == 2998.0
+    assert (
+        "simulation_count_mismatch"
+        not in diagnostics.warnings
+    )
+
+
+def test_earned_run_warning_remains_preserved():
+    diagnostics = compare_shadow_payloads(
+        legacy_result=legacy_result(),
+        canonical_payload=canonical_payload(),
+    )
+
+    assert (
+        diagnostics.earned_run_status
+        == "not_reconstructed"
+    )
+    assert (
+        "earned_runs_not_fully_reconstructed"
+        in diagnostics.warnings
+    )
