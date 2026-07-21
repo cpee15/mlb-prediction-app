@@ -1,0 +1,325 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from mlb_app import model_projections
+from mlb_app.simulation.game import (
+    CANONICAL_PA_OUTCOME_ORDER,
+    CanonicalOutcomeProbability,
+    CanonicalProbabilityArtifact,
+    CanonicalProbabilityArtifactRecord,
+    CanonicalProbabilityFallbackCatalog,
+    CanonicalProbabilityFallbackRecord,
+    CanonicalProbabilityFallbackTier,
+    CanonicalProbabilityProviderIdentity,
+)
+from mlb_app.simulation.shadow import (
+    CanonicalShadowBullpenDiscovery,
+    CanonicalShadowBullpenSideDiscovery,
+    CanonicalShadowExactArtifactDiscovery,
+    CanonicalShadowFallbackCatalogDiscovery,
+    CanonicalShadowLineupDiscovery,
+    CanonicalShadowProbabilityProviderDiscovery,
+    run_canonical_production_shadow,
+)
+
+
+PROVIDER = CanonicalProbabilityProviderIdentity(
+    provider_name="model_projections_pa_outcome",
+    provider_version="pa_outcome_v1",
+)
+
+
+def probability_points():
+    values = {
+        "out": 0.43,
+        "single": 0.15,
+        "double": 0.05,
+        "triple": 0.005,
+        "hr": 0.03,
+        "bb": 0.085,
+        "hbp": 0.01,
+        "k": 0.24,
+    }
+
+    return tuple(
+        CanonicalOutcomeProbability(
+            outcome=outcome,
+            probability=values[outcome.value],
+        )
+        for outcome in CANONICAL_PA_OUTCOME_ORDER
+    )
+
+
+def lineups():
+    return CanonicalShadowLineupDiscovery(
+        away_player_ids=tuple(
+            f"a{index}"
+            for index in range(1, 10)
+        ),
+        home_player_ids=tuple(
+            f"h{index}"
+            for index in range(1, 10)
+        ),
+        away_source_count=9,
+        home_source_count=9,
+        status="ready",
+    )
+
+
+def bullpens():
+    return CanonicalShadowBullpenDiscovery(
+        away=CanonicalShadowBullpenSideDiscovery(
+            team_id="1",
+            starter_id="100",
+            bullpen_pitcher_ids=("101",),
+            source_record_count=2,
+            status="ready",
+        ),
+        home=CanonicalShadowBullpenSideDiscovery(
+            team_id="2",
+            starter_id="200",
+            bullpen_pitcher_ids=("201",),
+            source_record_count=2,
+            status="ready",
+        ),
+    )
+
+
+def provider_discovery():
+    return CanonicalShadowProbabilityProviderDiscovery(
+        provider=PROVIDER,
+        model_versions=("pa_outcome_v1",),
+        valid_model_count=4,
+        status="ready",
+    )
+
+
+def exact_discovery():
+    records = tuple(
+        CanonicalProbabilityArtifactRecord(
+            batter_id=batter_id,
+            pitcher_id=pitcher_id,
+            probabilities=probability_points(),
+        )
+        for batter_id, pitcher_id in (
+            *(
+                (f"a{index}", "200")
+                for index in range(1, 10)
+            ),
+            *(
+                (f"h{index}", "100")
+                for index in range(1, 10)
+            ),
+        )
+    )
+
+    return CanonicalShadowExactArtifactDiscovery(
+        artifact=CanonicalProbabilityArtifact(
+            provider=PROVIDER,
+            records=records,
+        ),
+        away_record_count=9,
+        home_record_count=9,
+        away_real_profile_count=9,
+        home_real_profile_count=9,
+        status="ready",
+    )
+
+
+def fallback_discovery():
+    return CanonicalShadowFallbackCatalogDiscovery(
+        catalog=CanonicalProbabilityFallbackCatalog(
+            provider=PROVIDER,
+            records=(
+                CanonicalProbabilityFallbackRecord(
+                    tier=(
+                        CanonicalProbabilityFallbackTier
+                        .GLOBAL
+                    ),
+                    identity=None,
+                    probabilities=probability_points(),
+                ),
+            ),
+        ),
+        source_model_count=4,
+        status="ready",
+    )
+
+
+def executed_shadow():
+    return run_canonical_production_shadow(
+        game_pk=123,
+        lineups=lineups(),
+        bullpens=bullpens(),
+        provider_discovery=provider_discovery(),
+        exact_artifact_discovery=exact_discovery(),
+        fallback_catalog_discovery=(
+            fallback_discovery()
+        ),
+        bootstrap_ready=True,
+        simulation_count=2,
+    )
+
+
+def legacy_payload():
+    return {
+        "model_version": "shared-simulation-v1",
+        "simulation_count": 3000,
+        "away_win_probability": 0.48,
+        "home_win_probability": 0.52,
+        "away_expected_runs": 4.1,
+        "home_expected_runs": 4.4,
+        "expected_total_runs": 8.5,
+        "diagnostics": {
+            "existing": True,
+        },
+    }
+
+
+def test_executed_material_reaches_comparator():
+    result = (
+        model_projections
+        ._attach_production_shadow_comparison(
+            legacy_result=legacy_payload(),
+            production_execution=executed_shadow(),
+        )
+    )
+
+    shadow = result["diagnostics"][
+        "canonical_shadow"
+    ]
+
+    assert shadow["enabled"] is True
+    assert shadow["canonical_available"] is True
+    assert shadow["authoritative_source"] == (
+        "legacy"
+    )
+    assert shadow["status"] in {
+        "compared",
+        "partial",
+    }
+
+
+def test_comparator_attaches_probability_diagnostics():
+    result = (
+        model_projections
+        ._attach_production_shadow_comparison(
+            legacy_result=legacy_payload(),
+            production_execution=executed_shadow(),
+        )
+    )
+
+    probability = result["diagnostics"][
+        "canonical_shadow"
+    ]["probability_resolution"]
+
+    assert probability[
+        "schema_version"
+    ] == (
+        "canonical_probability_diagnostics_shadow_v1"
+    )
+    assert probability["summary"][
+        "total_resolutions"
+    ] > 0
+    assert probability[
+        "tier_usage"
+    ]
+
+
+def test_comparator_attaches_atomic_input_provenance():
+    execution = executed_shadow()
+
+    result = (
+        model_projections
+        ._attach_production_shadow_comparison(
+            legacy_result=legacy_payload(),
+            production_execution=execution,
+        )
+    )
+
+    provenance = result["diagnostics"][
+        "canonical_shadow"
+    ]["input_provenance"]
+
+    assert provenance[
+        "schema_version"
+    ] == "canonical_shadow_input_provenance_v1"
+    assert provenance[
+        "probability_provider"
+    ]["identity"] == PROVIDER.identity
+    assert provenance["assembly_digest"] == (
+        execution.execution_inputs
+        .assembly_digest
+    )
+    assert provenance[
+        "authoritative_source"
+    ] == "legacy"
+
+
+def test_legacy_values_remain_authoritative():
+    legacy = legacy_payload()
+
+    result = (
+        model_projections
+        ._attach_production_shadow_comparison(
+            legacy_result=legacy,
+            production_execution=executed_shadow(),
+        )
+    )
+
+    assert result[
+        "away_win_probability"
+    ] == legacy["away_win_probability"]
+
+    assert result[
+        "home_win_probability"
+    ] == legacy["home_win_probability"]
+
+    assert result[
+        "expected_total_runs"
+    ] == legacy["expected_total_runs"]
+
+    assert result is not legacy
+
+
+@dataclass(frozen=True)
+class BlockedExecution:
+    material: object = None
+    status: str = "blocked"
+
+
+def test_blocked_execution_leaves_payload_unchanged():
+    legacy = legacy_payload()
+
+    result = (
+        model_projections
+        ._attach_production_shadow_comparison(
+            legacy_result=legacy,
+            production_execution=BlockedExecution(),
+        )
+    )
+
+    assert result is legacy
+    assert "canonical_shadow" not in (
+        result["diagnostics"]
+    )
+
+
+def test_invalid_legacy_payload_is_rejected():
+    try:
+        (
+            model_projections
+            ._attach_production_shadow_comparison(
+                legacy_result=[],
+                production_execution=executed_shadow(),
+            )
+        )
+    except TypeError as exc:
+        assert str(exc) == (
+            "legacy_result must be a dictionary"
+        )
+    else:
+        raise AssertionError(
+            "invalid legacy payload must fail"
+        )
