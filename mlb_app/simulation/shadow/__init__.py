@@ -29,6 +29,12 @@ from .execution_factory import (
     CanonicalShadowExecutionBundleFactory,
     build_canonical_shadow_execution_bundle_factory,
 )
+from .production_execution import (
+    CANONICAL_PRODUCTION_SHADOW_EXECUTION_VERSION,
+    DEFAULT_PRODUCTION_SHADOW_SIMULATION_COUNT,
+    CanonicalProductionShadowExecution,
+    run_canonical_production_shadow,
+)
 from .probability_provider_discovery import (
     CANONICAL_SHADOW_PROBABILITY_PROVIDER_DISCOVERY_VERSION,
     CanonicalShadowProbabilityProviderDiscovery,
@@ -79,7 +85,9 @@ __all__ = [
     "CANONICAL_SHADOW_EXACT_ARTIFACT_DISCOVERY_VERSION",
     "CANONICAL_SHADOW_FALLBACK_CATALOG_DISCOVERY_VERSION",
     "CANONICAL_SHADOW_LINEUP_DISCOVERY_VERSION",
+    "DEFAULT_PRODUCTION_SHADOW_SIMULATION_COUNT",
     "MIN_EXACT_BATTER_RECORDS_PER_SIDE",
+    "CANONICAL_PRODUCTION_SHADOW_EXECUTION_VERSION",
     "CANONICAL_SHADOW_PROBABILITY_PROVIDER_DISCOVERY_VERSION",
     "CANONICAL_SHADOW_INPUT_PROVENANCE_VERSION",
     "CANONICAL_PROBABILITY_DIAGNOSTICS_SHADOW_VERSION",
@@ -92,6 +100,7 @@ __all__ = [
     "CanonicalShadowExactArtifactDiscovery",
     "CanonicalShadowFallbackCatalogDiscovery",
     "CanonicalShadowLineupDiscovery",
+    "CanonicalProductionShadowExecution",
     "CanonicalShadowProbabilityProviderDiscovery",
     "CanonicalShadowExecutionMaterial",
     "MetricComparison",
@@ -105,6 +114,7 @@ __all__ = [
     "discover_canonical_shadow_fallback_catalog",
     "discover_canonical_shadow_lineups",
     "discover_canonical_shadow_probability_provider",
+    "run_canonical_production_shadow",
     "canonical_shadow_execution_bundle_to_material",
     "canonical_shadow_input_provenance_to_dict",
     "build_canonical_shadow_execution_bundle_factory",
