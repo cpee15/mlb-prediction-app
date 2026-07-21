@@ -19,6 +19,7 @@ from .simulation.game_simulator import simulate_game_with_bullpen
 from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 from mlb_app.simulation.shadow import (
     build_canonical_shadow_bootstrap_readiness,
+    discover_canonical_shadow_lineups,
 )
 
 
@@ -626,14 +627,35 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 or matchup.get("gamePk")
             )
 
+            canonical_shadow_lineup_discovery = (
+                discover_canonical_shadow_lineups(
+                    game_pk=game_pk,
+                )
+            )
+
+            canonical_readiness_matchup = dict(
+                matchup
+            )
+            canonical_readiness_matchup.update(
+                canonical_shadow_lineup_discovery
+                .readiness_matchup_fields()
+            )
+
             canonical_shadow_bootstrap_readiness = (
                 build_canonical_shadow_bootstrap_readiness(
                     game_pk=game_pk,
-                    matchup=matchup,
+                    matchup=canonical_readiness_matchup,
                     away_context=away,
                     home_context=home,
                     workspace=workspace,
                 )
+            )
+
+            workspace[
+                "canonicalShadowLineupDiscovery"
+            ] = (
+                canonical_shadow_lineup_discovery
+                .to_diagnostics()
             )
 
             workspace[
@@ -677,6 +699,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                     ] = shared_diagnostics
 
                 shared_diagnostics[
+                    "canonical_shadow_lineup_discovery"
+                ] = (
+                    canonical_shadow_lineup_discovery
+                    .to_diagnostics()
+                )
+
+                shared_diagnostics[
                     "canonical_shadow_bootstrap_readiness"
                 ] = canonical_shadow_bootstrap_readiness
 
@@ -699,6 +728,10 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
             games.append({
                 "game_pk": matchup.get("game_pk"),
                 "game_state_realism": _build_game_state_realism_diagnostics(),
+                "canonical_shadow_lineup_discovery": (
+                    canonical_shadow_lineup_discovery
+                    .to_diagnostics()
+                ),
                 "canonical_shadow_bootstrap_readiness": (
                     canonical_shadow_bootstrap_readiness
                 ),
