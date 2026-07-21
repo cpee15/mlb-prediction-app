@@ -453,3 +453,153 @@ test('does not mutate the source payload', () => {
 
   assert.deepEqual(payload, snapshot)
 })
+
+test('surfaces fail-open production execution errors', () => {
+  const payload = sharedSimulation()
+
+  delete payload.diagnostics.canonical_shadow
+
+  payload.diagnostics
+    .canonical_shadow_bootstrap_readiness.status =
+      'ready'
+
+  payload.diagnostics
+    .canonical_shadow_bootstrap_readiness.ready =
+      true
+
+  payload.diagnostics
+    .canonical_shadow_bootstrap_readiness
+    .missing_requirements = []
+
+  for (
+    const requirement of Object.values(
+      payload.diagnostics
+        .canonical_shadow_bootstrap_readiness
+        .requirements
+    )
+  ) {
+    requirement.ready = true
+  }
+
+  payload.diagnostics
+    .canonical_shadow_production_execution = {
+      schema_version:
+        'canonical_production_shadow_execution_v1',
+      status: 'error',
+      executed: false,
+      simulation_count: 0,
+      canonical_available: false,
+      provider_identity:
+        'model_projections_pa_outcome:pa_outcome_v1',
+      error_type: 'ValueError',
+      error_message:
+        'example production execution failure',
+      activation_permitted: false,
+      production_authority_changed: false,
+      authoritative_source: 'legacy',
+    }
+
+  const view = buildCanonicalDiagnosticsViewModel(
+    payload,
+  )
+
+  assert.equal(view.status.state, 'error')
+  assert.equal(
+    view.productionExecution.available,
+    true,
+  )
+  assert.equal(
+    view.productionExecution.status,
+    'error',
+  )
+  assert.equal(
+    view.productionExecution.errorType,
+    'ValueError',
+  )
+  assert.equal(
+    view.productionExecution.errorMessage,
+    'example production execution failure',
+  )
+  assert.match(
+    view.status.availabilityReason,
+    /ValueError: example production execution failure/,
+  )
+  assert.deepEqual(
+    view.warnings,
+    ['example production execution failure'],
+  )
+  assert.equal(
+    view.status.authoritativeSource,
+    'legacy',
+  )
+})
+
+test('distinguishes executed-but-unattached material', () => {
+  const payload = sharedSimulation()
+
+  delete payload.diagnostics.canonical_shadow
+
+  payload.diagnostics
+    .canonical_shadow_production_execution = {
+      schema_version:
+        'canonical_production_shadow_execution_v1',
+      status: 'executed',
+      executed: true,
+      simulation_count: 25,
+      canonical_available: true,
+      canonical_model_version:
+        'canonical-event-model-v1',
+      activation_permitted: false,
+      production_authority_changed: false,
+      authoritative_source: 'legacy',
+    }
+
+  const view = buildCanonicalDiagnosticsViewModel(
+    payload,
+  )
+
+  assert.equal(view.status.state, 'executed')
+  assert.equal(
+    view.productionExecution.executed,
+    true,
+  )
+  assert.equal(
+    view.productionExecution.simulationCount,
+    25,
+  )
+  assert.equal(
+    view.status.modelVersion,
+    'canonical-event-model-v1',
+  )
+  assert.match(
+    view.status.availabilityReason,
+    /executed, but comparison diagnostics were not attached/,
+  )
+})
+
+test('preserves blocked readiness presentation', () => {
+  const payload = sharedSimulation()
+
+  delete payload.diagnostics.canonical_shadow
+
+  payload.diagnostics
+    .canonical_shadow_production_execution = {
+      schema_version:
+        'canonical_production_shadow_execution_v1',
+      status: 'blocked',
+      executed: false,
+      simulation_count: 0,
+      canonical_available: false,
+      authoritative_source: 'legacy',
+    }
+
+  const view = buildCanonicalDiagnosticsViewModel(
+    payload,
+  )
+
+  assert.equal(view.status.state, 'blocked')
+  assert.match(
+    view.status.availabilityReason,
+    /7 missing production requirements/,
+  )
+})

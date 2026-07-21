@@ -360,6 +360,61 @@ function buildBootstrapReadiness(
 }
 
 
+function buildProductionExecution(
+  sharedSimulation,
+) {
+  const diagnostics = objectValue(
+    sharedSimulation.diagnostics
+  )
+
+  const execution = {
+    ...objectValue(
+      diagnostics
+        .canonical_shadow_production_execution
+    ),
+    ...objectValue(
+      sharedSimulation
+        .canonical_shadow_production_execution
+    ),
+  }
+
+  const status = execution.status || null
+  const errorType = execution.error_type || null
+  const errorMessage = execution.error_message || null
+
+  return {
+    available: Object.keys(execution).length > 0,
+    schemaVersion:
+      execution.schema_version || null,
+    status,
+    executed: execution.executed === true,
+    canonicalAvailable:
+      execution.canonical_available === true,
+    simulationCount: finiteNumber(
+      execution.simulation_count
+    ),
+    providerIdentity:
+      execution.provider_identity || null,
+    exactArtifactDigest:
+      execution.exact_artifact_digest || null,
+    fallbackCatalogDigest:
+      execution.fallback_catalog_digest || null,
+    inputAssemblyDigest:
+      execution.input_assembly_digest || null,
+    canonicalModelVersion:
+      execution.canonical_model_version || null,
+    errorType,
+    errorMessage,
+    activationPermitted:
+      execution.activation_permitted === true,
+    productionAuthorityChanged:
+      execution.production_authority_changed === true,
+    authoritativeSource:
+      execution.authoritative_source || 'legacy',
+  }
+}
+
+
 function buildRealism(sharedSimulation, shadow) {
   const diagnostics = objectValue(
     sharedSimulation.diagnostics
@@ -671,34 +726,77 @@ export function buildCanonicalDiagnosticsViewModel(
     buildBootstrapReadiness(shared)
   )
 
+  const productionExecution = (
+    buildProductionExecution(shared)
+  )
+
   const canonicalAvailable = Boolean(
     shadow.canonical_available
   )
 
   const state = firstPresent(
     shadow.status,
+    (
+      productionExecution.available &&
+      productionExecution.status !== 'not_run'
+        ? productionExecution.status
+        : null
+    ),
     hasCanonicalShadow
       ? 'unknown'
       : 'not_run',
   )
 
-  const availabilityReason = (
-    hasCanonicalShadow
-      ? null
-      : (
-        bootstrapReadiness.available &&
-        bootstrapReadiness.blockedCount > 0
-          ? (
-            'Canonical shadow execution is blocked by ' +
-            `${bootstrapReadiness.blockedCount} missing ` +
-            'production requirements.'
-          )
-          : (
-            'Canonical shadow execution was not attached ' +
-            'to this simulation payload.'
-          )
+  let availabilityReason = null
+
+  if (!hasCanonicalShadow) {
+    if (
+      productionExecution.status === 'error'
+    ) {
+      const errorPrefix = (
+        productionExecution.errorType
+          ? `${productionExecution.errorType}: `
+          : ''
       )
-  )
+
+      availabilityReason = (
+        'Canonical shadow execution failed open. ' +
+        errorPrefix +
+        (
+          productionExecution.errorMessage ||
+          'No error message was supplied.'
+        )
+      )
+    } else if (
+      productionExecution.status === 'executed'
+    ) {
+      availabilityReason = (
+        'Canonical trials executed, but comparison ' +
+        'diagnostics were not attached to this payload.'
+      )
+    } else if (
+      bootstrapReadiness.available &&
+      bootstrapReadiness.blockedCount > 0
+    ) {
+      availabilityReason = (
+        'Canonical shadow execution is blocked by ' +
+        `${bootstrapReadiness.blockedCount} missing ` +
+        'production requirements.'
+      )
+    } else if (
+      productionExecution.status === 'blocked'
+    ) {
+      availabilityReason = (
+        'Canonical shadow execution remained blocked ' +
+        'despite complete bootstrap readiness.'
+      )
+    } else {
+      availabilityReason = (
+        'Canonical shadow execution was not attached ' +
+        'to this simulation payload.'
+      )
+    }
+  }
 
   return {
     viewModelVersion:
@@ -720,6 +818,8 @@ export function buildCanonicalDiagnosticsViewModel(
         shadow.canonical_simulation_count
       ),
       modelVersion: firstPresent(
+        productionExecution
+          .canonicalModelVersion,
         metadata.canonical_model_version,
         metadata.model_version,
         shared.model_version,
@@ -733,17 +833,29 @@ export function buildCanonicalDiagnosticsViewModel(
     },
 
     bootstrapReadiness,
+    productionExecution,
     realism: buildRealism(shared, shadow),
     coverage: buildCoverage(shadow),
     integrity: buildIntegrity(shadow),
     provenance: buildProvenance(shadow),
-    warnings: buildWarnings(shadow),
+    warnings: uniqueStrings([
+      buildWarnings(shadow),
+      (
+        productionExecution.status === 'error'
+          ? productionExecution.errorMessage
+          : null
+      ),
+    ]),
 
     raw: {
       canonicalShadow: shadow,
       bootstrapReadiness: objectValue(
         diagnostics
           .canonical_shadow_bootstrap_readiness
+      ),
+      productionExecution: objectValue(
+        diagnostics
+          .canonical_shadow_production_execution
       ),
     },
   }
