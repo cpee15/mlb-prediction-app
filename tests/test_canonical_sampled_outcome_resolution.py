@@ -217,15 +217,7 @@ def test_empty_base_hits_place_batter_at_fixed_base(
     assert event.runs_scored == ()
 
 
-@pytest.mark.parametrize(
-    "outcome",
-    [
-        CanonicalPlateAppearanceOutcome.TRIPLE,
-    ],
-)
-def test_occupied_base_hits_require_future_advancement_layer(
-    outcome,
-):
+def test_occupied_base_triple_advances_runner():
     state = GameState(
         inning=1,
         half="top",
@@ -236,16 +228,23 @@ def test_occupied_base_hits_require_future_advancement_layer(
         ),
     )
 
-    with pytest.raises(
-        ValueError,
-        match="occupied bases is not supported",
-    ):
-        resolve_canonical_sampled_plate_appearance(
-            sampled(
-                outcome,
-                state=state,
-            )
+    event = resolve_canonical_sampled_plate_appearance(
+        sampled(
+            CanonicalPlateAppearanceOutcome.TRIPLE,
+            state=state,
         )
+    )
+
+    assert event.event_type == "triple"
+    assert event.state_after.first is None
+    assert event.state_after.second is None
+    assert event.state_after.third == (
+        "away_batter_0"
+    )
+    assert event.state_after.away_score == 1
+    assert event.runs_scored == (
+        "away_batter_1",
+    )
 
 
 def test_home_run_scores_all_runners_and_batter():

@@ -93,6 +93,7 @@ def sampled(
     [
         CanonicalPlateAppearanceOutcome.SINGLE,
         CanonicalPlateAppearanceOutcome.DOUBLE,
+        CanonicalPlateAppearanceOutcome.TRIPLE,
     ],
 )
 def test_occupied_base_hits_resolve_with_advancement(
@@ -129,6 +130,73 @@ def test_occupied_base_hits_resolve_with_advancement(
         event.runner_movements
         == resolution.advancement.movements
     )
+
+
+def test_occupied_base_triple_scores_all_runners():
+    state = GameState(
+        inning=4,
+        half="top",
+        bases=(
+            "away_batter_1",
+            "away_batter_2",
+            "away_batter_3",
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.TRIPLE,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert event.event_type == "triple"
+    assert event.state_after.first is None
+    assert event.state_after.second is None
+    assert event.state_after.third == (
+        "away_batter_0"
+    )
+    assert event.state_after.away_score == 3
+    assert event.state_after.home_score == 0
+
+    scored = {
+        movement.runner_id
+        for movement in event.runner_movements
+        if movement.scored
+    }
+
+    assert scored == {
+        "away_batter_1",
+        "away_batter_2",
+        "away_batter_3",
+    }
+
+
+def test_public_sampled_resolver_routes_occupied_triple():
+    state = GameState(
+        inning=6,
+        half="top",
+        bases=(
+            "away_batter_1",
+            None,
+            "away_batter_3",
+        ),
+    )
+
+    event = resolve_canonical_sampled_plate_appearance(
+        sampled(
+            CanonicalPlateAppearanceOutcome.TRIPLE,
+            state=state,
+        )
+    )
+
+    assert event.event_type == "triple"
+    assert event.state_after.third == (
+        "away_batter_0"
+    )
+    assert event.state_after.away_score == 2
 
 
 def test_batted_ball_out_uses_explicit_advancement():

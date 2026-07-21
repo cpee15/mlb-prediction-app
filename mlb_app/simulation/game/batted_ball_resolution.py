@@ -42,6 +42,7 @@ SUPPORTED_BATTED_BALL_ADVANCEMENT_OUTCOMES = frozenset(
         CanonicalPlateAppearanceOutcome.OUT,
         CanonicalPlateAppearanceOutcome.SINGLE,
         CanonicalPlateAppearanceOutcome.DOUBLE,
+        CanonicalPlateAppearanceOutcome.TRIPLE,
     }
 )
 
@@ -99,7 +100,7 @@ def resolve_canonical_batted_ball_outcome(
     sampled: CanonicalSampledPlateAppearance,
 ) -> CanonicalBattedBallResolution:
     """
-    Resolve a sampled single, double, or batted-ball out.
+    Resolve a sampled single, double, triple, or batted-ball out.
 
     Context and advancement RNGs are independently derived from immutable
     sampled plate-appearance identity. No shared mutable RNG is accepted.
