@@ -29,6 +29,11 @@ from .execution_factory import (
     CanonicalShadowExecutionBundleFactory,
     build_canonical_shadow_execution_bundle_factory,
 )
+from .probability_provider_discovery import (
+    CANONICAL_SHADOW_PROBABILITY_PROVIDER_DISCOVERY_VERSION,
+    CanonicalShadowProbabilityProviderDiscovery,
+    discover_canonical_shadow_probability_provider,
+)
 from .lineup_discovery import (
     CANONICAL_SHADOW_LINEUP_DISCOVERY_VERSION,
     CanonicalShadowLineupDiscovery,
@@ -61,6 +66,7 @@ __all__ = [
     "CANONICAL_SHADOW_EXECUTION_BUNDLE_FACTORY_VERSION",
     "CANONICAL_SHADOW_INPUT_ASSEMBLY_VERSION",
     "CANONICAL_SHADOW_LINEUP_DISCOVERY_VERSION",
+    "CANONICAL_SHADOW_PROBABILITY_PROVIDER_DISCOVERY_VERSION",
     "CANONICAL_SHADOW_INPUT_PROVENANCE_VERSION",
     "CANONICAL_PROBABILITY_DIAGNOSTICS_SHADOW_VERSION",
     "CanonicalShadowDiagnostics",
@@ -70,6 +76,7 @@ __all__ = [
     "CanonicalShadowExecutionBundleFactory",
     "CanonicalShadowExecutionInputs",
     "CanonicalShadowLineupDiscovery",
+    "CanonicalShadowProbabilityProviderDiscovery",
     "CanonicalShadowExecutionMaterial",
     "MetricComparison",
     "RangeComparison",
@@ -79,6 +86,7 @@ __all__ = [
     "build_canonical_shadow_bootstrap_readiness",
     "discover_canonical_shadow_bullpens",
     "discover_canonical_shadow_lineups",
+    "discover_canonical_shadow_probability_provider",
     "canonical_shadow_execution_bundle_to_material",
     "canonical_shadow_input_provenance_to_dict",
     "build_canonical_shadow_execution_bundle_factory",
