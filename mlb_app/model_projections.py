@@ -549,6 +549,42 @@ def _build_projection_simulation_cards(matchup: Dict[str, Any], away: Dict[str, 
     return {"away": [away_card, game_total_card], "home": [home_card], "workspace": workspace}
 
 
+def _projection_offense_inputs(
+    *,
+    matchup: Dict[str, Any],
+    side: str,
+    session: Session,
+    team_id: Optional[int],
+    season: int,
+) -> Dict[str, Any]:
+    """
+    Preserve confirmed player-level offense inputs from matchup generation.
+
+    Exact canonical batter-pitcher artifact discovery requires the individual
+    confirmed-lineup rows retained under ``lineup``. Team splits remain the
+    fail-open fallback when confirmed player-level inputs are unavailable.
+    """
+
+    candidate = matchup.get(
+        f"{side}_offense_inputs"
+    )
+
+    if isinstance(candidate, dict):
+        lineup = candidate.get("lineup")
+
+        if (
+            isinstance(lineup, list)
+            and len(lineup) > 0
+        ):
+            return candidate
+
+    return _team_split_inputs(
+        session,
+        team_id,
+        season,
+    )
+
+
 def _side_context(matchup: Dict[str, Any], side: str, session: Session, season: int) -> Dict[str, Any]:
     pitcher_id = matchup.get(f"{side}_pitcher_id")
     arsenal = matchup.get(f"{side}_pitch_arsenal") or {}
@@ -568,7 +604,13 @@ def _side_context(matchup: Dict[str, Any], side: str, session: Session, season: 
         "pitcher_features": matchup.get(f"{side}_pitcher_features") or {},
         "pitch_arsenal": arsenal,
         "pitch_arsenal_source": arsenal_source,
-        "offense_inputs": _team_split_inputs(session, team_id, season),
+        "offense_inputs": _projection_offense_inputs(
+            matchup=matchup,
+            side=side,
+            session=session,
+            team_id=team_id,
+            season=season,
+        ),
         "bullpen_inputs": _bullpen_inputs(session, team_id, team_name),
     }
     ctx["models"] = [
