@@ -43,6 +43,8 @@ __all__ = [
     "DraftKingsSlatePlayer",
     "draftkings_slate_to_dict",
     "ingest_draftkings_salary_csv",
+    "DRAFTKINGS_PROJECTION_MATCH_SCHEMA_VERSION",
+    "match_canonical_projections_to_draftkings",
 ]
 
 from .player_rows import (
@@ -61,4 +63,9 @@ from .draftkings_slate import (
     DraftKingsSlatePlayer,
     draftkings_slate_to_dict,
     ingest_draftkings_salary_csv,
+)
+
+from .draftkings_matching import (
+    DRAFTKINGS_PROJECTION_MATCH_SCHEMA_VERSION,
+    match_canonical_projections_to_draftkings,
 )
