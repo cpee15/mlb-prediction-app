@@ -14,6 +14,15 @@ from .batted_ball_resolution import (
     derive_canonical_batted_ball_seed,
     resolve_canonical_batted_ball_outcome,
 )
+from .bullpen_selector import (
+    CANONICAL_BULLPEN_SELECTOR_VERSION,
+    CanonicalBullpenPitcher,
+    CanonicalBullpenRole,
+    CanonicalBullpenSelection,
+    CanonicalBullpenSelectionContext,
+    CanonicalBullpenSelector,
+    build_canonical_bullpen_selector,
+)
 from .contracts import (
     CanonicalGameConfig,
     CanonicalGameResult,
@@ -129,6 +138,13 @@ from .validation import (
 
 __all__ = [
     "CanonicalBattedBallResolution",
+    "build_canonical_bullpen_selector",
+    "CanonicalBullpenSelector",
+    "CanonicalBullpenSelectionContext",
+    "CanonicalBullpenSelection",
+    "CanonicalBullpenRole",
+    "CanonicalBullpenPitcher",
+    "CANONICAL_BULLPEN_SELECTOR_VERSION",
     "CanonicalGameBoxScore",
     "GameBoxScoreReconciliation",
     "CanonicalGameConfig",
