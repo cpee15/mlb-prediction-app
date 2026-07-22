@@ -49,6 +49,16 @@ from .pa_resolver_factory import (
     CanonicalPlateAppearanceResolverFactory,
     build_canonical_pa_resolver_factory,
 )
+from .pitcher_lifecycle import (
+    CANONICAL_PITCHER_LIFECYCLE_VERSION,
+    CanonicalPitcherLifecycleState,
+    CanonicalPitcherRole,
+    CanonicalPitchingDecision,
+    CanonicalPitchingDecisionAction,
+    CanonicalPitchingDecisionContext,
+    reduce_pitcher_lifecycle,
+    retire_pitcher,
+)
 from .probability import (
     CANONICAL_PA_OUTCOME_ORDER,
     CANONICAL_PA_PROBABILITY_VERSION,
@@ -156,6 +166,14 @@ __all__ = [
     "CanonicalPlateAppearanceQuery",
     "CanonicalSampledPlateAppearance",
     "CanonicalPitchingPlan",
+    "retire_pitcher",
+    "reduce_pitcher_lifecycle",
+    "CanonicalPitchingDecisionContext",
+    "CanonicalPitchingDecisionAction",
+    "CanonicalPitchingDecision",
+    "CanonicalPitcherRole",
+    "CanonicalPitcherLifecycleState",
+    "CANONICAL_PITCHER_LIFECYCLE_VERSION",
     "CanonicalProbabilityArtifact",
     "CanonicalProbabilityArtifactAdapter",
     "CanonicalProbabilityArtifactRecord",
