@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 from mlb_app.simulation.events import (
     GameState,
     PlayEvent,
 )
 
+from .bullpen_selector import (
+    CanonicalBullpenPitcher,
+    CanonicalBullpenSelector,
+    build_canonical_bullpen_selector,
+)
+from .pitcher_hook_policy import (
+    CanonicalStarterHookPolicy,
+    build_baseline_starter_hook_policy,
+)
+from .pitching_manager import CanonicalPitchingManager
 from .matchup_input import CanonicalMatchupInput
 from .orchestrator import PlateAppearanceResolver
 from .outcome_resolution import (
@@ -45,6 +55,21 @@ class CanonicalPlateAppearanceResolverFactory:
     probability_provider: (
         CanonicalPlateAppearanceProbabilityProvider
     )
+    pitching_manager: Optional[
+        CanonicalPitchingManager
+    ] = None
+    starter_hook_policy: Optional[
+        CanonicalStarterHookPolicy
+    ] = None
+    bullpen_selector: Optional[
+        CanonicalBullpenSelector
+    ] = None
+    away_bullpen: Optional[
+        Tuple[CanonicalBullpenPitcher, ...]
+    ] = None
+    home_bullpen: Optional[
+        Tuple[CanonicalBullpenPitcher, ...]
+    ] = None
     version: str = (
         CANONICAL_PA_RESOLVER_FACTORY_VERSION
     )
@@ -93,12 +118,33 @@ class CanonicalPlateAppearanceResolverFactory:
                 "CanonicalMatchupInput"
             )
 
+        pitching_manager = None
+
+        if (
+            self.away_bullpen is not None
+            and self.home_bullpen is not None
+        ):
+            pitching_manager = CanonicalPitchingManager(
+                matchup_input=matchup_input,
+                starter_hook_policy=(
+                    self.starter_hook_policy
+                    or build_baseline_starter_hook_policy()
+                ),
+                bullpen_selector=(
+                    self.bullpen_selector
+                    or build_canonical_bullpen_selector()
+                ),
+                away_bullpen=self.away_bullpen,
+                home_bullpen=self.home_bullpen,
+            )
+
         return _CanonicalPlateAppearanceResolver(
             context=context,
             matchup_input=matchup_input,
             probability_provider=(
                 self.probability_provider
             ),
+            pitching_manager=pitching_manager,
         )
 
 
@@ -112,6 +158,10 @@ class _CanonicalPlateAppearanceResolver:
         CanonicalPlateAppearanceProbabilityProvider
     )
 
+    pitching_manager: Optional[
+        CanonicalPitchingManager
+    ] = None
+
     def __call__(
         self,
         state: GameState,
@@ -123,9 +173,17 @@ class _CanonicalPlateAppearanceResolver:
                 "state must be a GameState"
             )
 
-        pitcher_id = _fixed_pitcher_for_state(
-            matchup_input=self.matchup_input,
-            state=state,
+        pitcher_id = (
+            self.pitching_manager
+            .pitcher_for_plate_appearance(
+                state=state,
+                batter_id=batter_id,
+            )
+            if self.pitching_manager is not None
+            else _fixed_pitcher_for_state(
+                matchup_input=self.matchup_input,
+                state=state,
+            )
         )
 
         query = CanonicalPlateAppearanceQuery(
@@ -161,11 +219,18 @@ class _CanonicalPlateAppearanceResolver:
             probabilities
         )
 
-        return (
+        event = (
             resolve_canonical_sampled_plate_appearance(
                 sampled
             )
         )
+
+        if self.pitching_manager is not None:
+            self.pitching_manager.record_plate_appearance(
+                event
+            )
+
+        return event
 
 
 def _fixed_pitcher_for_state(

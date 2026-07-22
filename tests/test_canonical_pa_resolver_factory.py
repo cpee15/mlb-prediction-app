@@ -4,6 +4,10 @@ import pytest
 
 from mlb_app.simulation.events import GameState
 from mlb_app.simulation.game import (
+    CanonicalBullpenPitcher,
+    CanonicalBullpenRole,
+    CanonicalStarterHookPolicy,
+    build_canonical_bullpen_selector,
     CANONICAL_PA_OUTCOME_ORDER,
     CanonicalGameConfig,
     CanonicalLineup,
@@ -355,3 +359,79 @@ def test_execution_plan_replays_identically():
     )
 
     assert first == second
+
+
+def test_resolver_factory_can_change_pitchers_with_manager():
+    queries = []
+
+    provider = all_out_provider(queries)
+
+    factory = CanonicalPlateAppearanceResolverFactory(
+        probability_provider=provider,
+        starter_hook_policy=CanonicalStarterHookPolicy(
+            minimum_batters_faced=3,
+            target_batters_faced=3,
+            maximum_batters_faced=3,
+        ),
+        bullpen_selector=(
+            build_canonical_bullpen_selector()
+        ),
+        away_bullpen=(
+            CanonicalBullpenPitcher(
+                pitcher_id="away_reliever",
+                role=(
+                    CanonicalBullpenRole.LONG_RELIEF
+                ),
+            ),
+        ),
+        home_bullpen=(
+            CanonicalBullpenPitcher(
+                pitcher_id="home_reliever",
+                role=(
+                    CanonicalBullpenRole.LONG_RELIEF
+                ),
+            ),
+        ),
+    )
+
+    matchup_input = matchup()
+    context = (
+        build_canonical_trial_resolver_context(
+            factory_input=factory_input(),
+            trial_index=0,
+            matchup_input=matchup_input,
+        )
+    )
+
+    resolver = factory(context)
+
+    state = GameState(
+        inning=4,
+        half="top",
+    )
+
+    for index in range(4):
+        state = replace(
+            state,
+            outs=0,
+            batting_order_index=index,
+            plate_appearance_number=index,
+        )
+
+        event = resolver(
+            state,
+            f"away_batter_{index}",
+            index,
+        )
+
+        state = event.state_after
+
+    assert tuple(
+        query.pitcher_id
+        for query in queries
+    ) == (
+        "home_starter",
+        "home_starter",
+        "home_starter",
+        "home_reliever",
+    )
