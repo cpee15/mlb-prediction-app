@@ -14,6 +14,10 @@ from .bullpen_selector import (
 )
 from .matchup_input import CanonicalMatchupInput
 from .pitcher_hook_policy import CanonicalStarterHookPolicy
+from .reliever_hook_policy import (
+    CanonicalRelieverHookPolicy,
+    build_baseline_reliever_hook_policy,
+)
 from .pitcher_lifecycle import (
     CanonicalPitcherLifecycleState,
     CanonicalPitcherRole,
@@ -43,6 +47,13 @@ class CanonicalPitchingManager:
     bullpen_selector: CanonicalBullpenSelector
     away_bullpen: Tuple[CanonicalBullpenPitcher, ...]
     home_bullpen: Tuple[CanonicalBullpenPitcher, ...]
+    reliever_hook_policy: CanonicalRelieverHookPolicy = (
+        field(
+            default_factory=(
+                build_baseline_reliever_hook_policy
+            )
+        )
+    )
     version: str = CANONICAL_PITCHING_MANAGER_VERSION
     _active: Dict[str, CanonicalPitcherLifecycleState] = field(
         init=False,
@@ -86,6 +97,15 @@ class CanonicalPitchingManager:
             raise TypeError(
                 "bullpen_selector must be a "
                 "CanonicalBullpenSelector"
+            )
+
+        if not isinstance(
+            self.reliever_hook_policy,
+            CanonicalRelieverHookPolicy,
+        ):
+            raise TypeError(
+                "reliever_hook_policy must be a "
+                "CanonicalRelieverHookPolicy"
             )
 
         if self.version != (
@@ -154,29 +174,32 @@ class CanonicalPitchingManager:
         team_side = self._fielding_team_side(state)
         lifecycle = self._active[team_side]
 
-        if (
-            lifecycle.role
-            is CanonicalPitcherRole.STARTER
-        ):
-            decision_context = self._decision_context(
-                state=state,
-                batter_id=batter_id,
-                lifecycle=lifecycle,
-            )
+        decision_context = self._decision_context(
+            state=state,
+            batter_id=batter_id,
+            lifecycle=lifecycle,
+        )
 
+        if lifecycle.role is (
+            CanonicalPitcherRole.STARTER
+        ):
             decision = self.starter_hook_policy.decide(
                 decision_context
             )
+        else:
+            decision = self.reliever_hook_policy.decide(
+                decision_context
+            )
 
-            if decision.action is (
-                CanonicalPitchingDecisionAction.REPLACE
-            ):
-                lifecycle = self._replace_pitcher(
-                    team_side=team_side,
-                    state=state,
-                    decision_context=decision_context,
-                    decision=decision,
-                )
+        if decision.action is (
+            CanonicalPitchingDecisionAction.REPLACE
+        ):
+            lifecycle = self._replace_pitcher(
+                team_side=team_side,
+                state=state,
+                decision_context=decision_context,
+                decision=decision,
+            )
 
         return lifecycle.pitcher_id
 

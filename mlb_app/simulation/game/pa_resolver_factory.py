@@ -20,6 +20,10 @@ from .pitcher_hook_policy import (
     build_baseline_starter_hook_policy,
 )
 from .pitching_manager import CanonicalPitchingManager
+from .reliever_hook_policy import (
+    CanonicalRelieverHookPolicy,
+    build_baseline_reliever_hook_policy,
+)
 from .matchup_input import CanonicalMatchupInput
 from .orchestrator import PlateAppearanceResolver
 from .outcome_resolution import (
@@ -63,6 +67,9 @@ class CanonicalPlateAppearanceResolverFactory:
     ] = None
     bullpen_selector: Optional[
         CanonicalBullpenSelector
+    ] = None
+    reliever_hook_policy: Optional[
+        CanonicalRelieverHookPolicy
     ] = None
     away_bullpen: Optional[
         Tuple[CanonicalBullpenPitcher, ...]
@@ -133,6 +140,10 @@ class CanonicalPlateAppearanceResolverFactory:
                 bullpen_selector=(
                     self.bullpen_selector
                     or build_canonical_bullpen_selector()
+                ),
+                reliever_hook_policy=(
+                    self.reliever_hook_policy
+                    or build_baseline_reliever_hook_policy()
                 ),
                 away_bullpen=self.away_bullpen,
                 home_bullpen=self.home_bullpen,

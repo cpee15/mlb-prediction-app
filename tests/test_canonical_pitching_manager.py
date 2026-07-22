@@ -11,6 +11,7 @@ from mlb_app.simulation.game import (
     CanonicalMatchupInput,
     CanonicalPitcherRole,
     CanonicalPitchingManager,
+    CanonicalRelieverHookPolicy,
     CanonicalPitchingPlan,
     CanonicalProbabilityProviderIdentity,
     CanonicalStarterHookPolicy,
@@ -257,3 +258,136 @@ def test_reliever_is_not_reprocessed_by_starter_policy():
 
     assert first == "home_long"
     assert second == "home_long"
+
+
+def test_manager_chains_relievers_after_workload():
+    value = CanonicalPitchingManager(
+        matchup_input=matchup(),
+        starter_hook_policy=CanonicalStarterHookPolicy(
+            minimum_batters_faced=3,
+            target_batters_faced=3,
+            maximum_batters_faced=3,
+        ),
+        bullpen_selector=(
+            build_canonical_bullpen_selector()
+        ),
+        reliever_hook_policy=CanonicalRelieverHookPolicy(
+            minimum_batters_faced=3,
+            target_batters_faced=3,
+            maximum_batters_faced=3,
+        ),
+        away_bullpen=bullpen("away"),
+        home_bullpen=bullpen("home"),
+    )
+
+    state = GameState(
+        inning=4,
+        half="top",
+    )
+
+    value._active["home"] = replace(
+        value.active_lifecycle("home"),
+        batters_faced=3,
+    )
+
+    starter = value.pitcher_for_plate_appearance(
+        state=state,
+        batter_id="away_batter_0",
+    )
+
+    first_reliever = starter
+
+    for index in range(3):
+        value.record_plate_appearance(
+            event(
+                state=state,
+                pitcher_id=first_reliever,
+                batter_id=f"away_batter_{index}",
+            )
+        )
+
+    second_reliever = (
+        value.pitcher_for_plate_appearance(
+            state=state,
+            batter_id="away_batter_3",
+        )
+    )
+
+    assert first_reliever == "home_long"
+    assert second_reliever == "home_middle"
+    assert value.used_pitcher_ids("home") == (
+        "home_starter",
+        "home_long",
+        "home_middle",
+    )
+
+    completed = value.completed_lifecycles(
+        "home"
+    )
+
+    assert tuple(
+        lifecycle.pitcher_id
+        for lifecycle in completed
+    ) == (
+        "home_starter",
+        "home_long",
+    )
+
+
+def test_last_available_reliever_is_held():
+    value = CanonicalPitchingManager(
+        matchup_input=matchup(),
+        starter_hook_policy=CanonicalStarterHookPolicy(
+            minimum_batters_faced=3,
+            target_batters_faced=3,
+            maximum_batters_faced=3,
+        ),
+        bullpen_selector=(
+            build_canonical_bullpen_selector()
+        ),
+        reliever_hook_policy=CanonicalRelieverHookPolicy(
+            minimum_batters_faced=3,
+            target_batters_faced=3,
+            maximum_batters_faced=3,
+        ),
+        away_bullpen=bullpen("away"),
+        home_bullpen=bullpen("home"),
+    )
+
+    state = GameState(
+        inning=6,
+        half="top",
+    )
+
+    value._active["home"] = replace(
+        value.active_lifecycle("home"),
+        batters_faced=3,
+    )
+
+    starter = value.pitcher_for_plate_appearance(
+        state=state,
+        batter_id="away_batter_0",
+    )
+
+    reliever = starter
+
+    value._used_pitcher_ids["home"].append(
+        "home_long"
+    )
+
+    for index in range(3):
+        value.record_plate_appearance(
+            event(
+                state=state,
+                pitcher_id=reliever,
+                batter_id=f"away_batter_{index}",
+            )
+        )
+
+    held = value.pitcher_for_plate_appearance(
+        state=state,
+        batter_id="away_batter_3",
+    )
+
+    assert reliever == "home_middle"
+    assert held == "home_middle"
