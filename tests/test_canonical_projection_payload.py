@@ -178,7 +178,7 @@ def test_dfs_distributions_are_configurable():
     assert pitcher_dfs.mean == -3.0
 
 
-def test_earned_run_weight_is_not_projected():
+def test_earned_run_weight_requires_reconstruction():
     payload = aggregate_projection_payload(
         box_scores=(
             run(
@@ -201,8 +201,62 @@ def test_earned_run_weight_is_not_projected():
 
     assert "dfs_points" not in pitcher_metric_names
     assert (
-        "pitcher_dfs_earned_run_weight_unsupported"
+        "pitcher_dfs_earned_runs_unavailable"
         in payload.diagnostics.warnings
+    )
+
+
+def test_reconstructed_earned_runs_are_scored():
+    box_score = run(
+        away_runs=1,
+        home_runs=0,
+        batter_runs=1,
+        pitcher_runs=1,
+    )
+    pitcher = box_score.pitchers[0]
+
+    reconstructed = ReducedBoxScore(
+        away=box_score.away,
+        home=box_score.home,
+        batters=box_score.batters,
+        pitchers=(
+            PitcherBoxScore(
+                player_id=pitcher.player_id,
+                team_side=pitcher.team_side,
+                batters_faced=pitcher.batters_faced,
+                outs_recorded=pitcher.outs_recorded,
+                hits_allowed=pitcher.hits_allowed,
+                home_runs_allowed=(
+                    pitcher.home_runs_allowed
+                ),
+                walks=pitcher.walks,
+                hit_batters=pitcher.hit_batters,
+                strikeouts=pitcher.strikeouts,
+                runs_allowed=pitcher.runs_allowed,
+                earned_runs=1,
+                earned_run_status="reconstructed",
+            ),
+        ),
+        pitcher_attribution_complete=True,
+    )
+
+    payload = aggregate_projection_payload(
+        box_scores=(reconstructed,),
+        model_version="canonical_event_model_v1",
+        pitcher_dfs_rules=PitcherDfsScoringRules(
+            earned_run=-2.0,
+        ),
+    )
+
+    dfs = metric(
+        payload.pitchers[0],
+        "dfs_points",
+    ).summary
+
+    assert dfs.mean == -2.0
+    assert (
+        "pitcher_dfs_earned_runs_unavailable"
+        not in payload.diagnostics.warnings
     )
 
 

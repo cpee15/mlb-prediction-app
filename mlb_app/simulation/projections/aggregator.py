@@ -191,11 +191,13 @@ def aggregate_projection_payload(
             "replay_validation_failures_present"
         )
 
-    if pitcher_dfs_rules is not None and (
-        pitcher_dfs_rules.earned_run != 0.0
+    if (
+        pitcher_dfs_rules is not None
+        and pitcher_dfs_rules.earned_run != 0.0
+        and earned_run_status != "reconstructed"
     ):
         warnings.append(
-            "pitcher_dfs_earned_run_weight_unsupported"
+            "pitcher_dfs_earned_runs_unavailable"
         )
 
     run_id = _deterministic_run_id(
@@ -335,7 +337,14 @@ def _aggregate_pitchers(
 
         include_dfs = (
             dfs_rules is not None
-            and dfs_rules.earned_run == 0.0
+            and (
+                dfs_rules.earned_run == 0.0
+                or _player_earned_runs_available(
+                    runs=runs,
+                    team_side=team_side,
+                    player_id=player_id,
+                )
+            )
         )
 
         if include_dfs:
@@ -427,6 +436,32 @@ def _find_pitcher(
         ),
         None,
     )
+
+
+def _player_earned_runs_available(
+    *,
+    runs: Tuple[ReducedBoxScore, ...],
+    team_side: str,
+    player_id: str,
+) -> bool:
+    for run in runs:
+        line = _find_pitcher(
+            run=run,
+            team_side=team_side,
+            player_id=player_id,
+        )
+
+        if line is None:
+            continue
+
+        if (
+            line.earned_run_status
+            != "reconstructed"
+            or line.earned_runs is None
+        ):
+            return False
+
+    return True
 
 
 def _earned_run_status(
