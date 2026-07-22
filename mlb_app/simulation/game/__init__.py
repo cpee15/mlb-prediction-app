@@ -67,6 +67,11 @@ from .pitcher_hook_policy import (
     CanonicalStarterHookPolicy,
     build_baseline_starter_hook_policy,
 )
+from .reliever_hook_policy import (
+    CANONICAL_RELIEVER_HOOK_POLICY_VERSION,
+    CanonicalRelieverHookPolicy,
+    build_baseline_reliever_hook_policy,
+)
 from .pitcher_lifecycle import (
     CANONICAL_PITCHER_LIFECYCLE_VERSION,
     CanonicalPitcherLifecycleState,
@@ -200,6 +205,9 @@ __all__ = [
     "CanonicalPitchingDecision",
     "CanonicalPitcherRole",
     "CanonicalPitcherLifecycleState",
+    "build_baseline_reliever_hook_policy",
+    "CanonicalRelieverHookPolicy",
+    "CANONICAL_RELIEVER_HOOK_POLICY_VERSION",
     "build_baseline_starter_hook_policy",
     "CanonicalStarterHookPolicy",
     "CANONICAL_STARTER_HOOK_POLICY_VERSION",
