@@ -18,6 +18,11 @@ from .reliever_hook_policy import (
     CanonicalRelieverHookPolicy,
     build_baseline_reliever_hook_policy,
 )
+from .earned_run_reconstruction import (
+    CanonicalEarnedRunReconstructor,
+    CanonicalPitcherRunLine,
+    CanonicalRunClassification,
+)
 from .pitcher_responsibility import (
     CanonicalPitcherResponsibilityLedger,
     CanonicalRunnerResponsibility,
@@ -77,6 +82,12 @@ class CanonicalPitchingManager:
     )
     _responsibility_ledger: (
         CanonicalPitcherResponsibilityLedger
+    ) = field(
+        init=False,
+        repr=False,
+    )
+    _earned_run_reconstructor: (
+        CanonicalEarnedRunReconstructor
     ) = field(
         init=False,
         repr=False,
@@ -178,6 +189,10 @@ class CanonicalPitchingManager:
             CanonicalPitcherResponsibilityLedger()
         )
 
+        self._earned_run_reconstructor = (
+            CanonicalEarnedRunReconstructor()
+        )
+
     def pitcher_for_plate_appearance(
         self,
         *,
@@ -234,9 +249,45 @@ class CanonicalPitchingManager:
             event,
         )
 
-        self._responsibility_ledger.apply_event(
-            event
+        before = {
+            value.runner_id: value
+            for value in (
+                self._responsibility_ledger
+                .active_responsibilities()
+            )
+        }
+
+        scored = (
+            self._responsibility_ledger
+            .apply_event(event)
         )
+
+        after = {
+            value.runner_id: value
+            for value in (
+                self._responsibility_ledger
+                .active_responsibilities()
+            )
+        }
+
+        for runner_id, responsibility in after.items():
+            if runner_id not in before:
+                self._earned_run_reconstructor.record_runner_reach(
+                    responsibility=responsibility,
+                    event=event,
+                )
+
+        for movement in event.runner_movements:
+            if movement.is_out:
+                self._earned_run_reconstructor.retire_runner(
+                    movement.runner_id
+                )
+
+        for responsibility in scored:
+            (
+                self._earned_run_reconstructor
+                .classify_scored_run(responsibility)
+            )
 
         self._active[team_side] = updated
         return updated
@@ -259,6 +310,22 @@ class CanonicalPitchingManager:
         return (
             self._responsibility_ledger
             .active_responsibilities()
+        )
+
+    def run_classifications(
+        self,
+    ) -> Tuple[CanonicalRunClassification, ...]:
+        return (
+            self._earned_run_reconstructor
+            .classifications()
+        )
+
+    def reconstructed_pitcher_run_lines(
+        self,
+    ) -> Tuple[CanonicalPitcherRunLine, ...]:
+        return (
+            self._earned_run_reconstructor
+            .pitcher_run_lines()
         )
 
     def scored_run_responsibilities(

@@ -72,6 +72,12 @@ from .reliever_hook_policy import (
     CanonicalRelieverHookPolicy,
     build_baseline_reliever_hook_policy,
 )
+from .earned_run_reconstruction import (
+    CANONICAL_EARNED_RUN_RECONSTRUCTION_VERSION,
+    CanonicalEarnedRunReconstructor,
+    CanonicalPitcherRunLine,
+    CanonicalRunClassification,
+)
 from .pitcher_responsibility import (
     CANONICAL_PITCHER_RESPONSIBILITY_VERSION,
     CanonicalPitcherResponsibilityLedger,
@@ -211,6 +217,10 @@ __all__ = [
     "CanonicalPitchingDecision",
     "CanonicalPitcherRole",
     "CanonicalPitcherLifecycleState",
+    "CanonicalRunClassification",
+    "CanonicalPitcherRunLine",
+    "CanonicalEarnedRunReconstructor",
+    "CANONICAL_EARNED_RUN_RECONSTRUCTION_VERSION",
     "CanonicalScoredRunResponsibility",
     "CanonicalRunnerResponsibility",
     "CanonicalPitcherResponsibilityLedger",
