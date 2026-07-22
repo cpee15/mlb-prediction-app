@@ -220,3 +220,34 @@ def test_plan_rejects_reversed_lineups():
             home_lineup=lineup("away"),
             resolver_factory=lambda context: out_event,
         )
+
+
+def test_resolver_context_defaults_to_nine_regulation_innings():
+    value = build_canonical_trial_resolver_context(
+        factory_input=factory_input(),
+        trial_index=0,
+    )
+
+    assert value.regulation_innings == 9
+
+
+def test_resolver_context_accepts_custom_regulation_innings():
+    value = build_canonical_trial_resolver_context(
+        factory_input=factory_input(),
+        trial_index=0,
+        regulation_innings=7,
+    )
+
+    assert value.regulation_innings == 7
+
+
+def test_resolver_context_rejects_invalid_regulation_innings():
+    with pytest.raises(
+        ValueError,
+        match="must be positive",
+    ):
+        build_canonical_trial_resolver_context(
+            factory_input=factory_input(),
+            trial_index=0,
+            regulation_innings=0,
+        )

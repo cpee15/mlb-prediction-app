@@ -485,3 +485,105 @@ def test_resolver_registers_extra_inning_automatic_runner():
     assert responsibility.responsible_pitcher_id == (
         "home_starter"
     )
+
+
+def test_resolver_uses_configurable_automatic_runner_boundary():
+    queries = []
+
+    factory = CanonicalPlateAppearanceResolverFactory(
+        probability_provider=all_out_provider(queries),
+        away_bullpen=(
+            CanonicalBullpenPitcher(
+                pitcher_id="away_reliever",
+                role=CanonicalBullpenRole.LONG_RELIEF,
+            ),
+        ),
+        home_bullpen=(
+            CanonicalBullpenPitcher(
+                pitcher_id="home_reliever",
+                role=CanonicalBullpenRole.LONG_RELIEF,
+            ),
+        ),
+    )
+
+    resolver = factory(
+        build_canonical_trial_resolver_context(
+            factory_input=factory_input(),
+            trial_index=0,
+            regulation_innings=1,
+            matchup_input=matchup(),
+        )
+    )
+
+    state = GameState(
+        inning=2,
+        half="top",
+        bases=(None, "away_batter_8", None),
+    )
+
+    resolver(
+        state,
+        "away_batter_0",
+        0,
+    )
+
+    responsibility = (
+        resolver.pitching_manager
+        .responsibility_for_runner(
+            "away_batter_8"
+        )
+    )
+
+    assert responsibility is not None
+    assert responsibility.reached_on_event_type == (
+        "automatic_runner:2:top"
+    )
+
+
+def test_resolver_does_not_register_runner_at_regulation_boundary():
+    queries = []
+
+    factory = CanonicalPlateAppearanceResolverFactory(
+        probability_provider=all_out_provider(queries),
+        away_bullpen=(
+            CanonicalBullpenPitcher(
+                pitcher_id="away_reliever",
+                role=CanonicalBullpenRole.LONG_RELIEF,
+            ),
+        ),
+        home_bullpen=(
+            CanonicalBullpenPitcher(
+                pitcher_id="home_reliever",
+                role=CanonicalBullpenRole.LONG_RELIEF,
+            ),
+        ),
+    )
+
+    resolver = factory(
+        build_canonical_trial_resolver_context(
+            factory_input=factory_input(),
+            trial_index=0,
+            regulation_innings=2,
+            matchup_input=matchup(),
+        )
+    )
+
+    state = GameState(
+        inning=2,
+        half="top",
+        bases=(None, "away_batter_8", None),
+    )
+
+    resolver(
+        state,
+        "away_batter_0",
+        0,
+    )
+
+    assert (
+        resolver.pitching_manager
+        .responsibility_for_runner(
+            "away_batter_8"
+        )
+        is None
+    )
