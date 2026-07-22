@@ -104,6 +104,23 @@ class DashboardFolderCreateRequest(BaseModel):
     is_default: bool = False
 
 
+class DashboardFolderRenameRequest(BaseModel):
+    folder_name: str = Field(max_length=255)
+
+
+class DashboardItemRenameRequest(BaseModel):
+    title: str = Field(max_length=255)
+
+
+def _validated_dashboard_name(value: str) -> str:
+    name = str(value or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if len(name) > 255:
+        raise HTTPException(status_code=400, detail="Name must be 255 characters or fewer")
+    return name
+
+
 
 def _session_factory():
     database_url = os.getenv("DATABASE_URL") or os.getenv("SQLALCHEMY_DATABASE_URL") or os.getenv("POSTGRES_URL") or "sqlite:///mlb.db"
@@ -627,6 +644,31 @@ def my_dashboard_create_folder(
         return {"ok": True, "folder": _serialize_folder(folder, [])}
 
 
+@router.patch("/my-dashboard/folders/{folder_id}")
+def my_dashboard_rename_folder(
+    folder_id: int,
+    request: DashboardFolderRenameRequest,
+    mlb_dashboard_session: Optional[str] = Cookie(default=None),
+    x_dashboard_session: Optional[str] = Header(default=None, alias="X-Dashboard-Session"),
+) -> Dict[str, Any]:
+    Session = _session_factory()
+    with Session() as session:
+        user = _get_active_user(session, _resolve_session_token(mlb_dashboard_session, x_dashboard_session))
+        if not user:
+            raise HTTPException(status_code=401, detail="Dashboard sign-in required")
+        folder = (
+            session.query(AppDashboardFolder)
+            .filter(AppDashboardFolder.id == folder_id, AppDashboardFolder.user_id == user.id)
+            .first()
+        )
+        if not folder:
+            raise HTTPException(status_code=404, detail="Folder not found")
+        folder.folder_name = _validated_dashboard_name(request.folder_name)
+        folder.updated_at = _utcnow()
+        session.commit()
+        return {"ok": True, "folder": _serialize_folder(folder, [])}
+
+
 @router.get("/my-dashboard/items")
 def my_dashboard_items(
     folder_id: Optional[int] = Query(default=None),
@@ -677,5 +719,30 @@ def my_dashboard_create_item(
             updated_at=now,
         )
         session.add(item)
+        session.commit()
+        return {"ok": True, "item": _serialize_item(item)}
+
+
+@router.patch("/my-dashboard/items/{item_id}")
+def my_dashboard_rename_item(
+    item_id: int,
+    request: DashboardItemRenameRequest,
+    mlb_dashboard_session: Optional[str] = Cookie(default=None),
+    x_dashboard_session: Optional[str] = Header(default=None, alias="X-Dashboard-Session"),
+) -> Dict[str, Any]:
+    Session = _session_factory()
+    with Session() as session:
+        user = _get_active_user(session, _resolve_session_token(mlb_dashboard_session, x_dashboard_session))
+        if not user:
+            raise HTTPException(status_code=401, detail="Dashboard sign-in required")
+        item = (
+            session.query(AppDashboardItem)
+            .filter(AppDashboardItem.id == item_id, AppDashboardItem.user_id == user.id)
+            .first()
+        )
+        if not item:
+            raise HTTPException(status_code=404, detail="Saved report not found")
+        item.title = _validated_dashboard_name(request.title)
+        item.updated_at = _utcnow()
         session.commit()
         return {"ok": True, "item": _serialize_item(item)}

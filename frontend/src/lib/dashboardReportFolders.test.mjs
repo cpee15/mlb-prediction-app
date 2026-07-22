@@ -24,3 +24,13 @@ test('organizes physical folders into daily, weekly, monthly, and custom shelves
 test('summarizes physical folders without double-counting virtual rollups', () => {
   assert.deepEqual(reportFolderSummary(folders), { folderCount: 4, itemCount: 4 })
 })
+
+test('uses a renamed physical folder label without changing computed rollup labels', () => {
+  const renamed = folders.map(folder => folder.id === 1 ? { ...folder, folder_name: 'Opening Day Reports' } : folder)
+  const organized = organizeReportFolders(renamed)
+
+  assert.equal(organized.daily[0].label, 'Opening Day Reports')
+  assert.equal(organized.weekly[0].label, 'Week of 2026-07-20')
+  assert.equal(organized.monthly[0].label, '2026-07')
+  assert.deepEqual(organized.weekly[0].folderIds, [1])
+})

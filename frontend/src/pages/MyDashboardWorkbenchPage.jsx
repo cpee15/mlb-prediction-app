@@ -308,7 +308,7 @@ function WorkbenchFilters({ objectKey, filters, setBasicFilter, setMetricFilter,
       <div style={styles.cardHeader}>
         <div>
           <div style={styles.cardTitle}>Filters</div>
-          <div style={styles.cardSubtitle}>Salesforce-style field criteria mapped to the existing dashboard filter payload.</div>
+          <div style={styles.cardSubtitle}>Flexible field criteria connected to the existing dashboard filters.</div>
         </div>
         <button type="button" onClick={() => runBoard(objectKey)} style={styles.primaryButton} disabled={loading}>{loading ? 'Running…' : 'Run'}</button>
       </div>
@@ -672,7 +672,7 @@ export default function MyDashboardWorkbenchPage() {
           <section style={viewport.isNarrow ? styles.heroNarrow : styles.hero}>
             <div>
               <div style={styles.eyebrow}>My Dashboard Workbench</div>
-              <h1 style={styles.title}>Salesforce-style baseball reports</h1>
+              <h1 style={styles.title}>Custom baseball reports</h1>
               <p style={styles.subtitle}>Object picker, available fields, filters, and table output. Expensive formulas no longer block initial page load.</p>
               <div style={styles.pillRow}>
                 <StatusPill>Signed in: {profile.username}</StatusPill>

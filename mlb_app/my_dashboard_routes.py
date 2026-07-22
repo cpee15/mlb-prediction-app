@@ -96,7 +96,7 @@ def my_dashboard_health() -> Dict[str, Any]:
         "persistence": "frontend_localStorage_v1",
         "supported_components": sorted(SUPPORTED_COMPONENTS),
         "query_contract": {
-            "style": "salesforce_inspired_query_and_describe",
+            "style": "mlbgpt_report_query_and_describe",
             "default_page_size": DEFAULT_PAGE_SIZE,
             "maximum_page_size": MAX_PAGE_SIZE,
             "full_candidate_universe": True,

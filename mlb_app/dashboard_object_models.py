@@ -1,4 +1,4 @@
-"""Canonical object-store schema for Salesforce-style dashboard reports.
+"""Canonical object-store schema for metadata-driven dashboard reports.
 
 This module only defines the durable contract. Population and report routing are
 deliberately implemented in later sprint slices so the existing solver routes
