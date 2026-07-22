@@ -482,3 +482,91 @@ def test_manager_preserves_inherited_runner_responsibility():
     assert scored[0].pitcher_on_mound_id == (
         reliever_id
     )
+
+
+def test_manager_reconstructs_inherited_earned_run():
+    value = manager()
+    state = GameState(
+        inning=4,
+        half="top",
+    )
+
+    reach = replace(
+        build_play_event(
+            sequence=0,
+            event_type="single",
+            batter_id="away_batter_0",
+            state_before=state,
+            runner_movements=(
+                RunnerMovement(
+                    runner_id="away_batter_0",
+                    start_base=0,
+                    end_base=1,
+                ),
+            ),
+        ),
+        pitcher_id="home_starter",
+    )
+
+    value.record_plate_appearance(reach)
+
+    value._active["home"] = replace(
+        value.active_lifecycle("home"),
+        batters_faced=27,
+    )
+
+    reliever_id = (
+        value.pitcher_for_plate_appearance(
+            state=replace(
+                state,
+                bases=("away_batter_0", None, None),
+            ),
+            batter_id="away_batter_1",
+        )
+    )
+
+    score = replace(
+        build_play_event(
+            sequence=1,
+            event_type="double",
+            batter_id="away_batter_1",
+            state_before=replace(
+                state,
+                bases=("away_batter_0", None, None),
+            ),
+            runner_movements=(
+                RunnerMovement(
+                    runner_id="away_batter_0",
+                    start_base=1,
+                    end_base=Base.HOME,
+                    scored=True,
+                ),
+                RunnerMovement(
+                    runner_id="away_batter_1",
+                    start_base=0,
+                    end_base=2,
+                ),
+            ),
+        ),
+        pitcher_id=reliever_id,
+    )
+
+    value.record_plate_appearance(score)
+
+    classifications = value.run_classifications()
+    lines = value.reconstructed_pitcher_run_lines()
+
+    assert len(classifications) == 1
+    assert classifications[0].earned is True
+    assert classifications[0].responsible_pitcher_id == (
+        "home_starter"
+    )
+    assert classifications[0].pitcher_on_mound_id == (
+        reliever_id
+    )
+
+    assert len(lines) == 1
+    assert lines[0].pitcher_id == "home_starter"
+    assert lines[0].runs_allowed == 1
+    assert lines[0].earned_runs == 1
+    assert lines[0].unearned_runs == 0
