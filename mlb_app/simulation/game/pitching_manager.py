@@ -18,6 +18,11 @@ from .reliever_hook_policy import (
     CanonicalRelieverHookPolicy,
     build_baseline_reliever_hook_policy,
 )
+from .pitcher_responsibility import (
+    CanonicalPitcherResponsibilityLedger,
+    CanonicalRunnerResponsibility,
+    CanonicalScoredRunResponsibility,
+)
 from .pitcher_lifecycle import (
     CanonicalPitcherLifecycleState,
     CanonicalPitcherRole,
@@ -67,6 +72,12 @@ class CanonicalPitchingManager:
         repr=False,
     )
     _used_pitcher_ids: Dict[str, list[str]] = field(
+        init=False,
+        repr=False,
+    )
+    _responsibility_ledger: (
+        CanonicalPitcherResponsibilityLedger
+    ) = field(
         init=False,
         repr=False,
     )
@@ -163,6 +174,10 @@ class CanonicalPitchingManager:
             ],
         }
 
+        self._responsibility_ledger = (
+            CanonicalPitcherResponsibilityLedger()
+        )
+
     def pitcher_for_plate_appearance(
         self,
         *,
@@ -219,8 +234,43 @@ class CanonicalPitchingManager:
             event,
         )
 
+        self._responsibility_ledger.apply_event(
+            event
+        )
+
         self._active[team_side] = updated
         return updated
+
+    def responsibility_for_runner(
+        self,
+        runner_id: str,
+    ) -> CanonicalRunnerResponsibility | None:
+        return (
+            self._responsibility_ledger
+            .responsibility_for_runner(runner_id)
+        )
+
+    def active_runner_responsibilities(
+        self,
+    ) -> Tuple[
+        CanonicalRunnerResponsibility,
+        ...,
+    ]:
+        return (
+            self._responsibility_ledger
+            .active_responsibilities()
+        )
+
+    def scored_run_responsibilities(
+        self,
+    ) -> Tuple[
+        CanonicalScoredRunResponsibility,
+        ...,
+    ]:
+        return (
+            self._responsibility_ledger
+            .scored_run_responsibilities()
+        )
 
     def active_lifecycle(
         self,

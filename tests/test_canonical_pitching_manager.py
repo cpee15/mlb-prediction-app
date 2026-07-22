@@ -1,7 +1,9 @@
 from dataclasses import replace
 
 from mlb_app.simulation.events import (
+    Base,
     GameState,
+    RunnerMovement,
     build_play_event,
 )
 from mlb_app.simulation.game import (
@@ -391,3 +393,92 @@ def test_last_available_reliever_is_held():
 
     assert reliever == "home_middle"
     assert held == "home_middle"
+
+
+def test_manager_preserves_inherited_runner_responsibility():
+    value = manager()
+    state = GameState(
+        inning=4,
+        half="top",
+    )
+
+    starter_event = replace(
+        build_play_event(
+            sequence=0,
+            event_type="single",
+            batter_id="away_batter_0",
+            state_before=state,
+            runner_movements=(
+                RunnerMovement(
+                    runner_id="away_batter_0",
+                    start_base=0,
+                    end_base=1,
+                ),
+            ),
+            outs_recorded=(),
+        ),
+        pitcher_id="home_starter",
+    )
+
+    value.record_plate_appearance(
+        starter_event
+    )
+
+    value._active["home"] = replace(
+        value.active_lifecycle("home"),
+        batters_faced=27,
+    )
+
+    reliever_id = (
+        value.pitcher_for_plate_appearance(
+            state=replace(
+                state,
+                bases=("away_batter_0", None, None),
+            ),
+            batter_id="away_batter_1",
+        )
+    )
+
+    scoring_event = replace(
+        build_play_event(
+            sequence=1,
+            event_type="double",
+            batter_id="away_batter_1",
+            state_before=replace(
+                state,
+                bases=("away_batter_0", None, None),
+            ),
+            runner_movements=(
+                RunnerMovement(
+                    runner_id="away_batter_0",
+                    start_base=1,
+                    end_base=Base.HOME,
+                    scored=True,
+                ),
+                RunnerMovement(
+                    runner_id="away_batter_1",
+                    start_base=0,
+                    end_base=2,
+                ),
+            ),
+            outs_recorded=(),
+        ),
+        pitcher_id=reliever_id,
+    )
+
+    value.record_plate_appearance(
+        scoring_event
+    )
+
+    scored = value.scored_run_responsibilities()
+
+    assert len(scored) == 1
+    assert scored[0].runner_id == (
+        "away_batter_0"
+    )
+    assert scored[0].responsible_pitcher_id == (
+        "home_starter"
+    )
+    assert scored[0].pitcher_on_mound_id == (
+        reliever_id
+    )
