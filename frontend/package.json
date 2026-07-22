@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test src/lib/landing/selectBetOfTheDay.test.mjs src/lib/modelTrackerPnl.test.mjs src/lib/dashboardReportUtils.test.mjs src/lib/dashboardQueryState.test.mjs src/lib/dashboardReportBuilderState.test.mjs src/lib/dashboardReportFolders.test.mjs src/lib/dashboardRenameState.test.mjs src/lib/canonicalDiagnosticsViewModel.test.mjs",
+    "test": "node --test src/lib/landing/selectBetOfTheDay.test.mjs src/lib/modelTrackerPnl.test.mjs src/lib/dashboardReportUtils.test.mjs src/lib/dashboardQueryState.test.mjs src/lib/dashboardReportBuilderState.test.mjs src/lib/dashboardReportFolders.test.mjs src/lib/dashboardRenameState.test.mjs src/lib/dashboardSession.test.mjs src/lib/canonicalDiagnosticsViewModel.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

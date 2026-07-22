@@ -1,6 +1,6 @@
 const PROD_API_BASE = 'https://mlb-prediction-app-production-732c.up.railway.app'
 
-export const API_BASE = import.meta.env.VITE_API_BASE_URL || PROD_API_BASE
+export const API_BASE = import.meta.env?.VITE_API_BASE_URL || PROD_API_BASE
 const JSON_CACHE = new Map()
 const IN_FLIGHT_JSON = new Map()
 const STORAGE_PREFIX = 'mlb-json-cache:v2:'
@@ -136,9 +136,10 @@ function urlString(input) {
 function isDashboardSessionRoute(url) {
   try {
     const parsed = new URL(url, API_BASE)
-    return parsed.pathname.startsWith('/my-dashboard')
+    return parsed.pathname.startsWith('/my-dashboard') || parsed.pathname.startsWith('/admin')
   } catch {
-    return String(url || '').startsWith('/my-dashboard')
+    const value = String(url || '')
+    return value.startsWith('/my-dashboard') || value.startsWith('/admin')
   }
 }
 

@@ -70,6 +70,7 @@ Primary implementation:
 | Bet105 Sportsbook | `/sportsbook/bet105` | `Bet105SportsbookPage.jsx` | `mlb_app/sportsbook_routes.py` and KIBL provider modules |
 | Model Projections | `/models/projections` | `ModelProjectionsPage.jsx` | `mlb_app/model_projection_routes.py` |
 | My Dashboard | `/my-dashboard` | `MyDashboardReportBuilderPage.jsx` | `mlb_app/my_dashboard_routes.py`, `my_dashboard_solver.py` |
+| MLBGPT Control Center | `/admin` (private, owner only) | `AdminControlCenterPage.jsx` | `mlb_app/admin_routes.py`, `admin_access.py` |
 | AI Data Assistant | `/ai-data-assistant` | `AIPage.jsx` | `mlb_app/ai_data_assistant_routes.py` |
 | Model Tracker | `/model-tracker` | `ModelTrackerPage.jsx` | `mlb_app/model_tracker_routes.py` |
 | News | `/news` | `NewsPageClean.jsx` | `mlb_app/news_routes.py` |

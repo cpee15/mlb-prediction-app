@@ -271,6 +271,24 @@ class AppUser(Base):
     updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class AppUserRole(Base):
+    """Additive server-owned role assignment for application users."""
+
+    __tablename__ = "app_user_roles"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    user_id: int = Column(Integer, nullable=False, unique=True, index=True)
+    role: str = Column(String(32), nullable=False, default="user", index=True)
+    assignment_source: str = Column(String(64), nullable=False)
+    assigned_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+    verified_at: Optional[datetime] = Column(DateTime, nullable=True)
+    updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_app_user_roles_role_user", "role", "user_id"),
+    )
+
+
 class AppUserPreference(Base):
     __tablename__ = "app_user_preferences"
 
