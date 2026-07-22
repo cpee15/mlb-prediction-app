@@ -9,6 +9,8 @@ from mlb_app.simulation.events import (
     RunnerMovement,
 )
 from mlb_app.simulation.game import (
+    CanonicalExecutedTrial,
+    CanonicalPitcherRunLine,
     CanonicalGameConfig,
     CanonicalLineup,
     run_canonical_trials,
@@ -335,3 +337,65 @@ def test_nonpositive_simulation_count_is_rejected():
             simulations=0,
             model_version="canonical_trial_test_v1",
         )
+
+def test_executed_trial_marks_pitcher_runs_reconstructed():
+    observed_indices = []
+
+    game = game_factory(
+        winners=("away",),
+        observed_indices=observed_indices,
+    )(0)
+
+    pitcher_ids = tuple(
+        sorted(
+            {
+                event.pitcher_id
+                for event in game.events
+                if event.pitcher_id is not None
+            }
+        )
+    )
+
+    assert pitcher_ids
+    assert observed_indices == [0]
+
+    responsible_pitcher = next(
+        event.pitcher_id
+        for event in game.events
+        if event.runs_scored
+    )
+
+    executed = CanonicalExecutedTrial(
+        game=game,
+        reconstructed_pitcher_run_lines=(
+            CanonicalPitcherRunLine(
+                pitcher_id=responsible_pitcher,
+                runs_allowed=1,
+                earned_runs=1,
+                unearned_runs=0,
+            ),
+        ),
+        earned_run_reconstruction_complete=True,
+    )
+
+    batch = run_canonical_trials(
+        trial_factory=lambda _: executed,
+        simulations=1,
+        model_version="test-model",
+    )
+
+    assert (
+        batch.projections.diagnostics
+        .earned_run_status
+        == "reconstructed"
+    )
+    assert (
+        "earned_runs_not_fully_reconstructed"
+        not in batch.projections.diagnostics.warnings
+    )
+
+    for line in batch.box_scores[0].pitchers:
+        assert line.earned_run_status == (
+            "reconstructed"
+        )
+        assert line.earned_runs is not None

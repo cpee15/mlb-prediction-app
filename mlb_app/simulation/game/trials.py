@@ -23,6 +23,11 @@ from mlb_app.simulation.projections import (
 from .box_score import (
     GameBoxScoreReconciliation,
     reduce_canonical_game_box_score,
+    validate_game_box_score_reconciliation,
+)
+from .executed_trial import (
+    CanonicalExecutedTrial,
+    overlay_reconstructed_pitcher_run_lines,
 )
 from .contracts import (
     CanonicalGameResult,
@@ -33,7 +38,7 @@ from .validation import validate_canonical_game
 
 CanonicalTrialFactory = Callable[
     [int],
-    CanonicalGameResult,
+    object,
 ]
 
 
@@ -271,12 +276,33 @@ def run_canonical_trials(
     game_validation_values = []
 
     for trial_index in range(simulations):
-        game = trial_factory(trial_index)
+        produced = trial_factory(trial_index)
 
-        if not isinstance(game, CanonicalGameResult):
+        if isinstance(
+            produced,
+            CanonicalExecutedTrial,
+        ):
+            game = produced.game
+            reconstructed_lines = (
+                produced
+                .reconstructed_pitcher_run_lines
+            )
+            reconstruction_complete = (
+                produced
+                .earned_run_reconstruction_complete
+            )
+        elif isinstance(
+            produced,
+            CanonicalGameResult,
+        ):
+            game = produced
+            reconstructed_lines = None
+            reconstruction_complete = False
+        else:
             raise TypeError(
                 "trial_factory must return "
-                "CanonicalGameResult"
+                "CanonicalGameResult or "
+                "CanonicalExecutedTrial"
             )
 
         validation = validate_canonical_game(game)
@@ -294,16 +320,40 @@ def run_canonical_trials(
             game
         )
 
-        if not reduced.reconciliation.passed:
+        box_score = reduced.box_score
+
+        if reconstruction_complete:
+            box_score = (
+                overlay_reconstructed_pitcher_run_lines(
+                    box_score=box_score,
+                    run_lines=reconstructed_lines,
+                )
+            )
+
+            reconciliation = (
+                validate_game_box_score_reconciliation(
+                    result=game,
+                    box_score=box_score,
+                    game_validation_passed=(
+                        validation.passed
+                    ),
+                )
+            )
+        else:
+            reconciliation = (
+                reduced.reconciliation
+            )
+
+        if not reconciliation.passed:
             raise ValueError(
                 "canonical trial failed box-score "
                 f"reconciliation at index {trial_index}"
             )
 
         games.append(game)
-        box_scores.append(reduced.box_score)
+        box_scores.append(box_score)
         reconciliations.append(
-            reduced.reconciliation
+            reconciliation
         )
 
     game_tuple = tuple(games)

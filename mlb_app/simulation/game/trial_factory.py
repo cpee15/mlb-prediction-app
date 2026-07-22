@@ -15,6 +15,9 @@ from .contracts import (
     CanonicalGameResult,
     CanonicalLineup,
 )
+from .executed_trial import (
+    CanonicalExecutedTrial,
+)
 from .factory_input import (
     CanonicalTrialFactoryInput,
 )
@@ -263,7 +266,7 @@ def run_canonical_trial_execution_plan(
 
     def trial_factory(
         trial_index: int,
-    ) -> CanonicalGameResult:
+    ) -> CanonicalExecutedTrial:
         context = (
             build_canonical_trial_resolver_context(
                 factory_input=plan.factory_input,
@@ -280,11 +283,39 @@ def run_canonical_trial_execution_plan(
                 "plate-appearance resolver"
             )
 
-        return simulate_canonical_game(
+        game = simulate_canonical_game(
             away_lineup=plan.away_lineup,
             home_lineup=plan.home_lineup,
             resolve_plate_appearance=resolver,
             config=plan.game_config,
+        )
+
+        reconstructed_lines = (
+            resolver.reconstructed_pitcher_run_lines()
+            if hasattr(
+                resolver,
+                "reconstructed_pitcher_run_lines",
+            )
+            else ()
+        )
+
+        reconstruction_complete = (
+            resolver.earned_run_reconstruction_complete()
+            if hasattr(
+                resolver,
+                "earned_run_reconstruction_complete",
+            )
+            else False
+        )
+
+        return CanonicalExecutedTrial(
+            game=game,
+            reconstructed_pitcher_run_lines=(
+                tuple(reconstructed_lines)
+            ),
+            earned_run_reconstruction_complete=(
+                reconstruction_complete
+            ),
         )
 
     return run_canonical_trials(
