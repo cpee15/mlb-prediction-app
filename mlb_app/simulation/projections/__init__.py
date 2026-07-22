@@ -34,4 +34,11 @@ __all__ = [
     "projection_payload_to_dict",
     "summarize_values",
     "validate_projection_payload",
+    "CANONICAL_PLAYER_PROJECTION_ROWS_VERSION",
+    "canonical_player_projection_rows",
 ]
+
+from .player_rows import (
+    CANONICAL_PLAYER_PROJECTION_ROWS_VERSION,
+    canonical_player_projection_rows,
+)
