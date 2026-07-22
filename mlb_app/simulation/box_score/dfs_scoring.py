@@ -31,6 +31,39 @@ class PitcherDfsScoringRules:
     earned_run: float = 0.0
 
 
+DRAFTKINGS_CLASSIC_BATTER_RULES = (
+    BatterDfsScoringRules(
+        single=3.0,
+        double=5.0,
+        triple=8.0,
+        home_run=10.0,
+        walk=2.0,
+        hit_by_pitch=2.0,
+        run=2.0,
+        rbi=2.0,
+    )
+)
+
+DRAFTKINGS_CLASSIC_PITCHER_RULES = (
+    PitcherDfsScoringRules(
+        out_recorded=0.75,
+        strikeout=2.0,
+        hit_allowed=-0.6,
+        walk=-0.6,
+        hit_batter=-0.6,
+        earned_run=-2.0,
+    )
+)
+
+DRAFTKINGS_CLASSIC_UNSUPPORTED_CATEGORIES = (
+    "batter_stolen_base",
+    "pitcher_win",
+    "pitcher_complete_game",
+    "pitcher_complete_game_shutout",
+    "pitcher_no_hitter",
+)
+
+
 def score_batter(
     line: BatterBoxScore,
     rules: BatterDfsScoringRules,

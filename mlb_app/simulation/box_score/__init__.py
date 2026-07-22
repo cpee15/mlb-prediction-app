@@ -7,6 +7,9 @@ from .contracts import (
     TeamBoxScore,
 )
 from .dfs_scoring import (
+    DRAFTKINGS_CLASSIC_BATTER_RULES,
+    DRAFTKINGS_CLASSIC_PITCHER_RULES,
+    DRAFTKINGS_CLASSIC_UNSUPPORTED_CATEGORIES,
     BatterDfsScoringRules,
     PitcherDfsScoringRules,
     score_batter,
@@ -21,6 +24,9 @@ from .validation import (
 __all__ = [
     "BatterBoxScore",
     "BatterDfsScoringRules",
+    "DRAFTKINGS_CLASSIC_BATTER_RULES",
+    "DRAFTKINGS_CLASSIC_PITCHER_RULES",
+    "DRAFTKINGS_CLASSIC_UNSUPPORTED_CATEGORIES",
     "BoxScoreValidation",
     "PitcherBoxScore",
     "PitcherDfsScoringRules",
