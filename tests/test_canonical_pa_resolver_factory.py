@@ -435,3 +435,53 @@ def test_resolver_factory_can_change_pitchers_with_manager():
         "home_starter",
         "home_reliever",
     )
+
+def test_resolver_registers_extra_inning_automatic_runner():
+    queries = []
+    factory = CanonicalPlateAppearanceResolverFactory(
+        probability_provider=all_out_provider(queries),
+        away_bullpen=(
+            CanonicalBullpenPitcher(
+                pitcher_id="away_reliever",
+                role=CanonicalBullpenRole.LONG_RELIEF,
+            ),
+        ),
+        home_bullpen=(
+            CanonicalBullpenPitcher(
+                pitcher_id="home_reliever",
+                role=CanonicalBullpenRole.LONG_RELIEF,
+            ),
+        ),
+    )
+
+    resolver = factory(
+        build_canonical_trial_resolver_context(
+            factory_input=factory_input(),
+            trial_index=0,
+            matchup_input=matchup(),
+        )
+    )
+
+    state = GameState(
+        inning=10,
+        half="top",
+        bases=(None, "away_batter_8", None),
+    )
+
+    resolver(
+        state,
+        "away_batter_0",
+        0,
+    )
+
+    responsibility = (
+        resolver.pitching_manager
+        .responsibility_for_runner(
+            "away_batter_8"
+        )
+    )
+
+    assert responsibility is not None
+    assert responsibility.responsible_pitcher_id == (
+        "home_starter"
+    )

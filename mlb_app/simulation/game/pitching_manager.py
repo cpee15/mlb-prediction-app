@@ -233,6 +233,37 @@ class CanonicalPitchingManager:
 
         return lifecycle.pitcher_id
 
+    def register_automatic_runner(
+        self,
+        *,
+        state: GameState,
+        runner_id: str,
+    ) -> CanonicalRunnerResponsibility:
+        team_side = self._fielding_team_side(state)
+        pitcher_id = self._active[
+            team_side
+        ].pitcher_id
+
+        responsibility = (
+            self._responsibility_ledger
+            .register_automatic_runner(
+                runner_id=runner_id,
+                responsible_pitcher_id=pitcher_id,
+                inning=state.inning,
+                half=state.half,
+            )
+        )
+
+        try:
+            self._earned_run_reconstructor.record_automatic_runner(
+                responsibility
+            )
+        except ValueError as exc:
+            if "already recorded" not in str(exc):
+                raise
+
+        return responsibility
+
     def record_plate_appearance(
         self,
         event: PlayEvent,

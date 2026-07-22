@@ -114,6 +114,51 @@ class CanonicalPitcherResponsibilityLedger:
             CanonicalScoredRunResponsibility
         ] = []
 
+    def register_automatic_runner(
+        self,
+        *,
+        runner_id: str,
+        responsible_pitcher_id: str,
+        inning: int,
+        half: str,
+    ) -> CanonicalRunnerResponsibility:
+        if not runner_id:
+            raise ValueError(
+                "runner_id is required"
+            )
+
+        if not responsible_pitcher_id:
+            raise ValueError(
+                "responsible_pitcher_id is required"
+            )
+
+        if inning < 1:
+            raise ValueError(
+                "inning must be positive"
+            )
+
+        if half not in {"top", "bottom"}:
+            raise ValueError(
+                "half must be 'top' or 'bottom'"
+            )
+
+        if runner_id in self._active:
+            return self._active[runner_id]
+
+        responsibility = CanonicalRunnerResponsibility(
+            runner_id=runner_id,
+            responsible_pitcher_id=(
+                responsible_pitcher_id
+            ),
+            reached_on_event_sequence=0,
+            reached_on_event_type=(
+                f"automatic_runner:{inning}:{half}"
+            ),
+        )
+
+        self._active[runner_id] = responsibility
+        return responsibility
+
     def apply_event(
         self,
         event: PlayEvent,

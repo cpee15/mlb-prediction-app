@@ -129,9 +129,40 @@ class CanonicalEarnedRunReconstructor:
 
     def __init__(self) -> None:
         self._reach_events: Dict[str, PlayEvent] = {}
+        self._automatic_runners: Dict[
+            str,
+            CanonicalRunnerResponsibility,
+        ] = {}
         self._classifications: list[
             CanonicalRunClassification
         ] = []
+
+    def record_automatic_runner(
+        self,
+        responsibility: CanonicalRunnerResponsibility,
+    ) -> None:
+        if not isinstance(
+            responsibility,
+            CanonicalRunnerResponsibility,
+        ):
+            raise TypeError(
+                "responsibility must be a "
+                "CanonicalRunnerResponsibility"
+            )
+
+        runner_id = responsibility.runner_id
+
+        if (
+            runner_id in self._reach_events
+            or runner_id in self._automatic_runners
+        ):
+            raise ValueError(
+                "runner reach is already recorded"
+            )
+
+        self._automatic_runners[
+            runner_id
+        ] = responsibility
 
     def record_runner_reach(
         self,
@@ -187,14 +218,27 @@ class CanonicalEarnedRunReconstructor:
             responsibility.runner_id,
             None,
         )
+        automatic_runner = (
+            self._automatic_runners.pop(
+                responsibility.runner_id,
+                None,
+            )
+        )
 
-        if reach_event is None:
+        if (
+            reach_event is None
+            and automatic_runner is None
+        ):
             raise ValueError(
                 "scored runner has no recorded reach event"
             )
 
         reached_on_error = bool(
-            reach_event.attribution.error_fielder_id
+            reach_event is not None
+            and reach_event.attribution.error_fielder_id
+        )
+        is_automatic_runner = (
+            automatic_runner is not None
         )
 
         classification = CanonicalRunClassification(
@@ -205,14 +249,24 @@ class CanonicalEarnedRunReconstructor:
             pitcher_on_mound_id=(
                 responsibility.pitcher_on_mound_id
             ),
-            earned=not reached_on_error,
+            earned=(
+                not reached_on_error
+                and not is_automatic_runner
+            ),
             classification_reason=(
-                "reached_on_fielding_error"
-                if reached_on_error
-                else "no_explicit_error_on_reach"
+                "automatic_runner"
+                if is_automatic_runner
+                else (
+                    "reached_on_fielding_error"
+                    if reached_on_error
+                    else "no_explicit_error_on_reach"
+                )
             ),
             reached_on_event_sequence=(
-                reach_event.sequence
+                automatic_runner
+                .reached_on_event_sequence
+                if automatic_runner is not None
+                else reach_event.sequence
             ),
             scoring_event_sequence=(
                 responsibility.scoring_event_sequence
@@ -226,6 +280,10 @@ class CanonicalEarnedRunReconstructor:
 
     def retire_runner(self, runner_id: str) -> None:
         self._reach_events.pop(
+            runner_id,
+            None,
+        )
+        self._automatic_runners.pop(
             runner_id,
             None,
         )

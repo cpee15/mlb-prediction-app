@@ -173,6 +173,10 @@ class _CanonicalPlateAppearanceResolver:
         CanonicalPitchingManager
     ] = None
     scored_run_count: int = 0
+    registered_automatic_runner_keys: Tuple[
+        Tuple[int, str, str],
+        ...,
+    ] = ()
 
     def earned_run_reconstruction_complete(
         self,
@@ -208,6 +212,39 @@ class _CanonicalPlateAppearanceResolver:
             raise TypeError(
                 "state must be a GameState"
             )
+
+        if self.pitching_manager is not None:
+            automatic_runner_id = state.bases[1]
+            automatic_runner_key = (
+                state.inning,
+                state.half,
+                automatic_runner_id or "",
+            )
+
+            should_register = (
+                state.outs == 0
+                and state.plate_appearance_number >= 0
+                and automatic_runner_id is not None
+                and automatic_runner_key
+                not in self.registered_automatic_runner_keys
+                and state.inning
+                > 9
+            )
+
+            if should_register:
+                self.pitching_manager.register_automatic_runner(
+                    state=state,
+                    runner_id=automatic_runner_id,
+                )
+
+                object.__setattr__(
+                    self,
+                    "registered_automatic_runner_keys",
+                    (
+                        self.registered_automatic_runner_keys
+                        + (automatic_runner_key,)
+                    ),
+                )
 
         pitcher_id = (
             self.pitching_manager
