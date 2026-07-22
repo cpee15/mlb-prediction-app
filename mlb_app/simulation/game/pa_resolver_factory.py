@@ -228,7 +228,7 @@ class _CanonicalPlateAppearanceResolver:
                 and automatic_runner_key
                 not in self.registered_automatic_runner_keys
                 and state.inning
-                > 9
+                > self.context.regulation_innings
             )
 
             if should_register:

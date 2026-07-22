@@ -46,6 +46,7 @@ class CanonicalTrialResolverContext:
     factory_input: CanonicalTrialFactoryInput
     trial_index: int
     trial_seed: int
+    regulation_innings: int = 9
     matchup_input: Optional[
         CanonicalMatchupInput
     ] = None
@@ -72,6 +73,19 @@ class CanonicalTrialResolverContext:
         ):
             raise ValueError(
                 "trial_index is outside the factory input"
+            )
+
+        if isinstance(
+            self.regulation_innings,
+            bool,
+        ):
+            raise TypeError(
+                "regulation_innings must be an integer"
+            )
+
+        if self.regulation_innings < 1:
+            raise ValueError(
+                "regulation_innings must be positive"
             )
 
         expected_seed = (
@@ -229,6 +243,7 @@ def build_canonical_trial_resolver_context(
     *,
     factory_input: CanonicalTrialFactoryInput,
     trial_index: int,
+    regulation_innings: int = 9,
     matchup_input: Optional[
         CanonicalMatchupInput
     ] = None,
@@ -241,6 +256,7 @@ def build_canonical_trial_resolver_context(
         trial_seed=factory_input.seed_for_trial(
             trial_index
         ),
+        regulation_innings=regulation_innings,
         matchup_input=matchup_input,
     )
 
@@ -271,6 +287,9 @@ def run_canonical_trial_execution_plan(
             build_canonical_trial_resolver_context(
                 factory_input=plan.factory_input,
                 trial_index=trial_index,
+                regulation_innings=(
+                    plan.game_config.regulation_innings
+                ),
                 matchup_input=plan.matchup_input,
             )
         )
