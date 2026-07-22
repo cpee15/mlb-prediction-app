@@ -58,6 +58,10 @@ from .pa_resolver_factory import (
     CanonicalPlateAppearanceResolverFactory,
     build_canonical_pa_resolver_factory,
 )
+from .pitching_manager import (
+    CANONICAL_PITCHING_MANAGER_VERSION,
+    CanonicalPitchingManager,
+)
 from .pitcher_hook_policy import (
     CANONICAL_STARTER_HOOK_POLICY_VERSION,
     CanonicalStarterHookPolicy,
@@ -187,6 +191,8 @@ __all__ = [
     "CanonicalPlateAppearanceQuery",
     "CanonicalSampledPlateAppearance",
     "CanonicalPitchingPlan",
+    "CanonicalPitchingManager",
+    "CANONICAL_PITCHING_MANAGER_VERSION",
     "retire_pitcher",
     "reduce_pitcher_lifecycle",
     "CanonicalPitchingDecisionContext",

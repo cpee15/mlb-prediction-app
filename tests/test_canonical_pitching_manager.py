@@ -1,0 +1,259 @@
+from dataclasses import replace
+
+from mlb_app.simulation.events import (
+    GameState,
+    build_play_event,
+)
+from mlb_app.simulation.game import (
+    CanonicalBullpenPitcher,
+    CanonicalBullpenRole,
+    CanonicalLineup,
+    CanonicalMatchupInput,
+    CanonicalPitcherRole,
+    CanonicalPitchingManager,
+    CanonicalPitchingPlan,
+    CanonicalProbabilityProviderIdentity,
+    CanonicalStarterHookPolicy,
+    build_canonical_bullpen_selector,
+)
+
+
+def matchup():
+    return CanonicalMatchupInput(
+        game_pk=123,
+        away_lineup=CanonicalLineup(
+            team_side="away",
+            player_ids=tuple(
+                f"away_batter_{index}"
+                for index in range(9)
+            ),
+        ),
+        home_lineup=CanonicalLineup(
+            team_side="home",
+            player_ids=tuple(
+                f"home_batter_{index}"
+                for index in range(9)
+            ),
+        ),
+        away_pitching_plan=CanonicalPitchingPlan(
+            team_side="away",
+            starter_id="away_starter",
+            bullpen_pitcher_ids=(
+                "away_long",
+                "away_middle",
+            ),
+        ),
+        home_pitching_plan=CanonicalPitchingPlan(
+            team_side="home",
+            starter_id="home_starter",
+            bullpen_pitcher_ids=(
+                "home_long",
+                "home_middle",
+            ),
+        ),
+        probability_provider=(
+            CanonicalProbabilityProviderIdentity(
+                provider_name="test",
+                provider_version="v1",
+            )
+        ),
+    )
+
+
+def bullpen(prefix):
+    return (
+        CanonicalBullpenPitcher(
+            pitcher_id=f"{prefix}_long",
+            role=CanonicalBullpenRole.LONG_RELIEF,
+        ),
+        CanonicalBullpenPitcher(
+            pitcher_id=f"{prefix}_middle",
+            role=CanonicalBullpenRole.MIDDLE_RELIEF,
+        ),
+    )
+
+
+def manager():
+    return CanonicalPitchingManager(
+        matchup_input=matchup(),
+        starter_hook_policy=CanonicalStarterHookPolicy(
+            minimum_batters_faced=3,
+            target_batters_faced=3,
+            maximum_batters_faced=3,
+        ),
+        bullpen_selector=(
+            build_canonical_bullpen_selector()
+        ),
+        away_bullpen=bullpen("away"),
+        home_bullpen=bullpen("home"),
+    )
+
+
+def event(
+    *,
+    state,
+    pitcher_id,
+    batter_id,
+):
+    return replace(
+        build_play_event(
+            sequence=state.plate_appearance_number,
+            event_type="out",
+            batter_id=batter_id,
+            state_before=state,
+            runner_movements=(),
+            outs_recorded=(),
+        ),
+        pitcher_id=pitcher_id,
+    )
+
+
+def test_manager_starts_with_both_starters():
+    value = manager()
+
+    assert (
+        value.active_lifecycle("home").pitcher_id
+        == "home_starter"
+    )
+    assert (
+        value.active_lifecycle("away").pitcher_id
+        == "away_starter"
+    )
+
+
+def test_top_half_uses_home_pitcher():
+    value = manager()
+
+    pitcher = value.pitcher_for_plate_appearance(
+        state=GameState(
+            inning=1,
+            half="top",
+        ),
+        batter_id="away_batter_0",
+    )
+
+    assert pitcher == "home_starter"
+
+
+def test_bottom_half_uses_away_pitcher():
+    value = manager()
+
+    pitcher = value.pitcher_for_plate_appearance(
+        state=GameState(
+            inning=1,
+            half="bottom",
+        ),
+        batter_id="home_batter_0",
+    )
+
+    assert pitcher == "away_starter"
+
+
+def test_manager_reduces_active_lifecycle():
+    value = manager()
+    state = GameState(
+        inning=1,
+        half="top",
+    )
+
+    pitcher = value.pitcher_for_plate_appearance(
+        state=state,
+        batter_id="away_batter_0",
+    )
+
+    updated = value.record_plate_appearance(
+        event(
+            state=state,
+            pitcher_id=pitcher,
+            batter_id="away_batter_0",
+        )
+    )
+
+    assert updated.batters_faced == 1
+
+
+def test_manager_replaces_starter_after_threshold():
+    value = manager()
+    state = GameState(
+        inning=4,
+        half="top",
+    )
+
+    for index in range(3):
+        state = replace(
+            state,
+            batting_order_index=index,
+            plate_appearance_number=index,
+        )
+
+        pitcher = value.pitcher_for_plate_appearance(
+            state=state,
+            batter_id=f"away_batter_{index}",
+        )
+
+        value.record_plate_appearance(
+            event(
+                state=state,
+                pitcher_id=pitcher,
+                batter_id=f"away_batter_{index}",
+            )
+        )
+
+    next_state = replace(
+        state,
+        batting_order_index=3,
+        plate_appearance_number=3,
+    )
+
+    pitcher = value.pitcher_for_plate_appearance(
+        state=next_state,
+        batter_id="away_batter_3",
+    )
+
+    assert pitcher == "home_long"
+    assert (
+        value.active_lifecycle("home").role
+        is CanonicalPitcherRole.RELIEVER
+    )
+    assert value.used_pitcher_ids("home") == (
+        "home_starter",
+        "home_long",
+    )
+
+    completed = value.completed_lifecycles(
+        "home"
+    )
+
+    assert len(completed) == 1
+    assert completed[0].pitcher_id == (
+        "home_starter"
+    )
+    assert completed[0].active is False
+
+
+def test_reliever_is_not_reprocessed_by_starter_policy():
+    value = manager()
+    state = GameState(
+        inning=4,
+        half="top",
+    )
+
+    starter = value.active_lifecycle("home")
+
+    value._active["home"] = replace(
+        starter,
+        batters_faced=3,
+    )
+
+    first = value.pitcher_for_plate_appearance(
+        state=state,
+        batter_id="away_batter_3",
+    )
+
+    second = value.pitcher_for_plate_appearance(
+        state=state,
+        batter_id="away_batter_3",
+    )
+
+    assert first == "home_long"
+    assert second == "home_long"
