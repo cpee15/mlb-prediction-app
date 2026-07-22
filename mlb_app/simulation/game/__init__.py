@@ -49,6 +49,11 @@ from .pa_resolver_factory import (
     CanonicalPlateAppearanceResolverFactory,
     build_canonical_pa_resolver_factory,
 )
+from .pitcher_hook_policy import (
+    CANONICAL_STARTER_HOOK_POLICY_VERSION,
+    CanonicalStarterHookPolicy,
+    build_baseline_starter_hook_policy,
+)
 from .pitcher_lifecycle import (
     CANONICAL_PITCHER_LIFECYCLE_VERSION,
     CanonicalPitcherLifecycleState,
@@ -173,6 +178,9 @@ __all__ = [
     "CanonicalPitchingDecision",
     "CanonicalPitcherRole",
     "CanonicalPitcherLifecycleState",
+    "build_baseline_starter_hook_policy",
+    "CanonicalStarterHookPolicy",
+    "CANONICAL_STARTER_HOOK_POLICY_VERSION",
     "CANONICAL_PITCHER_LIFECYCLE_VERSION",
     "CanonicalProbabilityArtifact",
     "CanonicalProbabilityArtifactAdapter",
