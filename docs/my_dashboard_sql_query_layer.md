@@ -2,7 +2,7 @@
 
 Issue: #1043
 
-This PR adds the database-backed query boundary for the existing Salesforce-style Workbench architecture.
+This PR adds the database-backed query boundary for the existing metadata-driven Workbench architecture.
 
 ## Preserved behavior
 
@@ -15,7 +15,7 @@ This PR adds the database-backed query boundary for the existing Salesforce-styl
 
 `query_dashboard_dataset()` reads only the current persisted `my_dashboard_records` version for the requested date, component, and dataset mode. It applies relational and registered JSON metric filters in SQL before counting, sorting, and pagination.
 
-The response preserves the current Salesforce-inspired contract:
+The response preserves the current MLBGPT contract:
 
 - `items`
 - `records`

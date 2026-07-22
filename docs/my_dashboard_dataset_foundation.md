@@ -10,7 +10,7 @@ This foundation does not change the current frontend or route behavior. The exis
 
 - Existing My Dashboard solvers remain the analytical candidate builders.
 - `my_dashboard_records` is the persisted, reportable dataset owned exclusively by My Dashboard.
-- A later SQL query PR will read this dataset using the existing Salesforce-style `items`, `records`, `totalSize`, `page_info`, and `object_info` response contract.
+- A later SQL query PR will read this dataset using the existing metadata-driven `items`, `records`, `totalSize`, `page_info`, and `object_info` response contract.
 - User filters and scoring weights are query definitions and are never stored in the shared analytical dataset.
 
 ## Dataset identity

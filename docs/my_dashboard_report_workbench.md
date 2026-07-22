@@ -1,10 +1,10 @@
-# My Dashboard Salesforce Workbench Architecture
+# My Dashboard Report Workbench Architecture
 
 ## Purpose
 
-My Dashboard should evolve from a curated card surface into the first Salesforce-style workbench inside MLBGPT.
+My Dashboard should evolve from a curated card surface into the first metadata-driven workbench inside MLBGPT.
 
-The goal is not to replace the model formulas. The goal is to expose the formulas through a faster, mobile-stable, metadata-driven interface that behaves like Salesforce Reports/Object Manager:
+The goal is not to replace the model formulas. The goal is to expose the formulas through a faster, mobile-stable, metadata-driven interface that behaves like metadata-driven reports and field management:
 
 - choose an object/component
 - inspect available fields
@@ -26,9 +26,9 @@ Existing backend foundation:
 - active-lineup solving exists as an additive wrapper and must stay additive
 - hydration endpoint exists for yesterday confirmed 1-9 lineups
 
-## Salesforce mapping
+## Report Builder mapping
 
-| Salesforce concept | MLBGPT equivalent |
+| Report Builder concept | MLBGPT equivalent |
 | --- | --- |
 | Object | Dashboard component / future workbench object |
 | Field list | Item fields + metrics returned by `available_filters` |
@@ -156,7 +156,7 @@ Phase 1 is complete when:
 - component results load independently
 - filters remain usable on mobile
 - backend remains backward compatible
-- Salesforce-style workbench contract is documented and ready for implementation
+- metadata-driven workbench contract is documented and ready for implementation
 
 Phase 2 is complete when:
 
@@ -166,3 +166,9 @@ Phase 2 is complete when:
 - table results are available with larger/paginated row counts
 - saved dashboard items can store Workbench filters/sorts
 - AI can populate filters instead of merely writing prose
+
+## Immediate next ticket: roles and Workbench language
+
+After the report-shelf polish and rename controls, define a server-owned `user` versus `admin` capability contract before adding an advanced Workbench. Standard users should continue using allowlisted report types, fields, filters, weights, and personal folders. Administrators may receive broader dataset inspection and advanced report tools only through explicit capabilities returned by the authenticated profile.
+
+The advanced Workbench must use a constrained MLBGPT report language compiled into parameterized, allowlisted database operations. Unrestricted raw SQL is out of scope until a separate design covers read-only enforcement, schema allowlists, row limits, timeouts, and audit logging.
