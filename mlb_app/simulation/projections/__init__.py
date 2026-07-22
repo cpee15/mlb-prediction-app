@@ -36,9 +36,16 @@ __all__ = [
     "validate_projection_payload",
     "CANONICAL_PLAYER_PROJECTION_ROWS_VERSION",
     "canonical_player_projection_rows",
+    "CANONICAL_PLAYER_IDENTITY_ENRICHMENT_VERSION",
+    "enrich_canonical_player_projection_rows",
 ]
 
 from .player_rows import (
     CANONICAL_PLAYER_PROJECTION_ROWS_VERSION,
     canonical_player_projection_rows,
+)
+
+from .player_identity import (
+    CANONICAL_PLAYER_IDENTITY_ENRICHMENT_VERSION,
+    enrich_canonical_player_projection_rows,
 )
