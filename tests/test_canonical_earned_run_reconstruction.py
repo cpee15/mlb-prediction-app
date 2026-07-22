@@ -226,3 +226,33 @@ def test_duplicate_reach_record_is_rejected():
             responsibility=responsibility,
             event=event,
         )
+
+
+def test_automatic_runner_is_classified_unearned():
+    value = CanonicalEarnedRunReconstructor()
+
+    responsibility = CanonicalRunnerResponsibility(
+        runner_id="runner_auto",
+        responsible_pitcher_id="starter",
+        reached_on_event_sequence=0,
+        reached_on_event_type="automatic_runner:10:top",
+    )
+
+    value.record_automatic_runner(
+        responsibility
+    )
+
+    classification = value.classify_scored_run(
+        CanonicalScoredRunResponsibility(
+            runner_id="runner_auto",
+            responsible_pitcher_id="starter",
+            pitcher_on_mound_id="starter",
+            scoring_event_sequence=1,
+            scoring_event_type="single",
+        )
+    )
+
+    assert classification.earned is False
+    assert classification.classification_reason == (
+        "automatic_runner"
+    )

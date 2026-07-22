@@ -570,3 +570,25 @@ def test_manager_reconstructs_inherited_earned_run():
     assert lines[0].runs_allowed == 1
     assert lines[0].earned_runs == 1
     assert lines[0].unearned_runs == 0
+
+
+def test_manager_assigns_automatic_runner_to_active_pitcher():
+    value = manager()
+    state = GameState(
+        inning=10,
+        half="top",
+        bases=(None, "away_batter_8", None),
+    )
+
+    responsibility = value.register_automatic_runner(
+        state=state,
+        runner_id="away_batter_8",
+    )
+
+    assert responsibility.runner_id == "away_batter_8"
+    assert responsibility.responsible_pitcher_id == (
+        "home_starter"
+    )
+    assert responsibility.reached_on_event_type == (
+        "automatic_runner:10:top"
+    )
