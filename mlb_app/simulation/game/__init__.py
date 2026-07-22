@@ -30,6 +30,10 @@ from .contracts import (
     GameCompletionReason,
     HalfInningRecord,
 )
+from .executed_trial import (
+    CanonicalExecutedTrial,
+    overlay_reconstructed_pitcher_run_lines,
+)
 from .factory_input import (
     CANONICAL_TRIAL_FACTORY_INPUT_VERSION,
     CANONICAL_TRIAL_SEED_VERSION,
@@ -169,6 +173,8 @@ __all__ = [
     "CanonicalGameBoxScore",
     "GameBoxScoreReconciliation",
     "CanonicalGameConfig",
+    "overlay_reconstructed_pitcher_run_lines",
+    "CanonicalExecutedTrial",
     "CanonicalGameResult",
     "CanonicalGameOutcomeProjection",
     "CanonicalTrialBatch",

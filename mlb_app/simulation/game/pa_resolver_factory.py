@@ -172,6 +172,31 @@ class _CanonicalPlateAppearanceResolver:
     pitching_manager: Optional[
         CanonicalPitchingManager
     ] = None
+    scored_run_count: int = 0
+
+    def earned_run_reconstruction_complete(
+        self,
+    ) -> bool:
+        if self.pitching_manager is None:
+            return False
+
+        reconstructed_count = len(
+            self.pitching_manager
+            .run_classifications()
+        )
+
+        return reconstructed_count == self.scored_run_count
+
+    def reconstructed_pitcher_run_lines(
+        self,
+    ):
+        if self.pitching_manager is None:
+            return ()
+
+        return (
+            self.pitching_manager
+            .reconstructed_pitcher_run_lines()
+        )
 
     def __call__(
         self,
@@ -239,6 +264,13 @@ class _CanonicalPlateAppearanceResolver:
         if self.pitching_manager is not None:
             self.pitching_manager.record_plate_appearance(
                 event
+            )
+
+            object.__setattr__(
+                self,
+                "scored_run_count",
+                self.scored_run_count
+                + len(event.runs_scored),
             )
 
         return event
