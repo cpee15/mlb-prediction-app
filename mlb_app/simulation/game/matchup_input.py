@@ -25,6 +25,11 @@ class CanonicalPitchingPlan:
     team_side: str
     starter_id: str
     bullpen_pitcher_ids: Tuple[str, ...]
+    plan_type: str = "traditional_starter"
+    preferred_replacement_pitcher_ids: Tuple[
+        str,
+        ...,
+    ] = ()
 
     def __post_init__(self) -> None:
         if self.team_side not in {
@@ -58,6 +63,56 @@ class CanonicalPitchingPlan:
         if self.starter_id in self.bullpen_pitcher_ids:
             raise ValueError(
                 "starter cannot also appear in bullpen"
+            )
+
+        allowed_plan_types = {
+            "traditional_starter",
+            "opener_bulk",
+            "tandem",
+            "bullpen_game",
+            "workload_capped_starter",
+            "unknown_fallback",
+        }
+
+        if self.plan_type not in allowed_plan_types:
+            raise ValueError(
+                "unsupported canonical pitching plan type"
+            )
+
+        if any(
+            not pitcher_id
+            for pitcher_id
+            in self.preferred_replacement_pitcher_ids
+        ):
+            raise ValueError(
+                "preferred replacement pitcher "
+                "identifiers are required"
+            )
+
+        if len(
+            self.preferred_replacement_pitcher_ids
+        ) != len(
+            set(
+                self.preferred_replacement_pitcher_ids
+            )
+        ):
+            raise ValueError(
+                "preferred replacement pitcher "
+                "identifiers must be unique"
+            )
+
+        bullpen_ids = set(
+            self.bullpen_pitcher_ids
+        )
+
+        if any(
+            pitcher_id not in bullpen_ids
+            for pitcher_id
+            in self.preferred_replacement_pitcher_ids
+        ):
+            raise ValueError(
+                "preferred replacement pitchers "
+                "must belong to bullpen"
             )
 
     @property

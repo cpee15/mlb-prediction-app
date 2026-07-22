@@ -261,3 +261,39 @@ def test_execution_plan_rejects_mismatched_lineup():
             resolver_factory=lambda context: out_event,
             matchup_input=matchup_input,
         )
+
+def test_pitching_plan_accepts_opener_bulk_sequence():
+    value = CanonicalPitchingPlan(
+        team_side="home",
+        starter_id="opener",
+        bullpen_pitcher_ids=(
+            "bulk",
+            "middle",
+        ),
+        plan_type="opener_bulk",
+        preferred_replacement_pitcher_ids=(
+            "bulk",
+        ),
+    )
+
+    assert value.plan_type == "opener_bulk"
+    assert (
+        value.preferred_replacement_pitcher_ids
+        == ("bulk",)
+    )
+
+
+def test_pitching_plan_rejects_preferred_pitcher_outside_bullpen():
+    with pytest.raises(
+        ValueError,
+        match="must belong to bullpen",
+    ):
+        CanonicalPitchingPlan(
+            team_side="home",
+            starter_id="opener",
+            bullpen_pitcher_ids=("middle",),
+            plan_type="opener_bulk",
+            preferred_replacement_pitcher_ids=(
+                "bulk",
+            ),
+        )

@@ -401,16 +401,33 @@ class CanonicalPitchingManager:
     ) -> CanonicalPitcherLifecycleState:
         bullpen = self._bullpen_for_team(team_side)
 
-        selection = self.bullpen_selector.select(
-            CanonicalBullpenSelectionContext(
-                pitching_decision=decision,
-                game_context=decision_context,
+        preferred_pitcher_id = (
+            self._preferred_replacement_pitcher_id(
+                team_side=team_side,
                 bullpen=bullpen,
-                previously_used_pitcher_ids=tuple(
-                    self._used_pitcher_ids[team_side]
-                ),
             )
         )
+
+        if preferred_pitcher_id is not None:
+            selection = next(
+                pitcher
+                for pitcher in bullpen
+                if pitcher.pitcher_id
+                == preferred_pitcher_id
+            )
+        else:
+            selection = self.bullpen_selector.select(
+                CanonicalBullpenSelectionContext(
+                    pitching_decision=decision,
+                    game_context=decision_context,
+                    bullpen=bullpen,
+                    previously_used_pitcher_ids=tuple(
+                        self._used_pitcher_ids[
+                            team_side
+                        ]
+                    ),
+                )
+            )
 
         retired = retire_pitcher(
             self._active[team_side]
@@ -431,6 +448,39 @@ class CanonicalPitchingManager:
         )
 
         return replacement
+
+    def _preferred_replacement_pitcher_id(
+        self,
+        *,
+        team_side: str,
+        bullpen: Tuple[
+            CanonicalBullpenPitcher,
+            ...,
+        ],
+    ) -> str | None:
+        plan = (
+            self.matchup_input.away_pitching_plan
+            if team_side == "away"
+            else self.matchup_input.home_pitching_plan
+        )
+
+        available_ids = {
+            pitcher.pitcher_id
+            for pitcher in bullpen
+            if pitcher.available
+            and pitcher.pitcher_id
+            not in self._used_pitcher_ids[team_side]
+        }
+
+        return next(
+            (
+                pitcher_id
+                for pitcher_id
+                in plan.preferred_replacement_pitcher_ids
+                if pitcher_id in available_ids
+            ),
+            None,
+        )
 
     def _decision_context(
         self,
