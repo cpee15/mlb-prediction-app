@@ -277,3 +277,105 @@ def test_invalid_simulation_count_fails_open():
     assert result.status == "error"
     assert result.executed is False
     assert result.error_type == "ValueError"
+
+
+def opener_bulk_classification(
+    *,
+    starter_id,
+    bulk_id,
+):
+    return {
+        "plan_type": "opener_bulk",
+        "fallback_used": False,
+        "planned_sequence": [
+            {
+                "order": 1,
+                "role": "opener",
+                "pitcher_id": starter_id,
+            },
+            {
+                "order": 2,
+                "role": "bulk_follower",
+                "pitcher_id": bulk_id,
+            },
+        ],
+        "diagnostics": {
+            "production_activation": False,
+        },
+    }
+
+
+def test_production_matchup_activates_opener_bulk_plan():
+    result = run(
+        away_pitching_plan_classification=(
+            opener_bulk_classification(
+                starter_id="100",
+                bulk_id="101",
+            )
+        ),
+    )
+
+    assert result.status == "executed"
+
+    plan = (
+        result.execution_inputs
+        .matchup_input
+        .away_pitching_plan
+    )
+
+    assert plan.plan_type == "opener_bulk"
+    assert (
+        plan.preferred_replacement_pitcher_ids
+        == ("101",)
+    )
+
+
+def test_unknown_classification_falls_back_safely():
+    result = run(
+        away_pitching_plan_classification={
+            "plan_type": "unknown_fallback",
+            "fallback_used": True,
+            "planned_sequence": [],
+        },
+    )
+
+    assert result.status == "executed"
+
+    plan = (
+        result.execution_inputs
+        .matchup_input
+        .away_pitching_plan
+    )
+
+    assert plan.plan_type == (
+        "traditional_starter"
+    )
+    assert (
+        plan.preferred_replacement_pitcher_ids
+        == ()
+    )
+
+
+def test_preferred_replacement_outside_bullpen_is_ignored():
+    result = run(
+        away_pitching_plan_classification=(
+            opener_bulk_classification(
+                starter_id="100",
+                bulk_id="999",
+            )
+        ),
+    )
+
+    assert result.status == "executed"
+
+    plan = (
+        result.execution_inputs
+        .matchup_input
+        .away_pitching_plan
+    )
+
+    assert plan.plan_type == "opener_bulk"
+    assert (
+        plan.preferred_replacement_pitcher_ids
+        == ()
+    )

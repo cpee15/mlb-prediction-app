@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 from mlb_app.simulation.game import (
     CanonicalLineup,
@@ -150,6 +150,76 @@ class CanonicalProductionShadowExecution:
         }
 
 
+def _canonical_pitching_plan_metadata(
+    *,
+    classification: Optional[
+        Mapping[str, Any]
+    ],
+    starter_id: str,
+    bullpen_pitcher_ids: Tuple[str, ...],
+) -> Tuple[str, Tuple[str, ...]]:
+    if not isinstance(classification, Mapping):
+        return "traditional_starter", ()
+
+    plan_type = str(
+        classification.get(
+            "plan_type",
+            "traditional_starter",
+        )
+    ).strip()
+
+    supported_plan_types = {
+        "traditional_starter",
+        "opener_bulk",
+        "tandem",
+        "bullpen_game",
+        "workload_capped_starter",
+        "unknown_fallback",
+    }
+
+    if plan_type not in supported_plan_types:
+        return "traditional_starter", ()
+
+    if classification.get("fallback_used") is True:
+        return "traditional_starter", ()
+
+    bullpen_ids = set(bullpen_pitcher_ids)
+    preferred = []
+    seen = set()
+
+    planned_sequence = classification.get(
+        "planned_sequence"
+    )
+
+    if isinstance(planned_sequence, (list, tuple)):
+        for row in planned_sequence:
+            if not isinstance(row, Mapping):
+                continue
+
+            pitcher_id = str(
+                row.get("pitcher_id") or ""
+            ).strip()
+
+            if (
+                not pitcher_id
+                or pitcher_id == starter_id
+                or pitcher_id not in bullpen_ids
+                or pitcher_id in seen
+            ):
+                continue
+
+            seen.add(pitcher_id)
+            preferred.append(pitcher_id)
+
+    if plan_type not in {
+        "opener_bulk",
+        "tandem",
+    }:
+        preferred = []
+
+    return plan_type, tuple(preferred)
+
+
 def _build_matchup_input(
     *,
     game_pk: int,
@@ -158,6 +228,12 @@ def _build_matchup_input(
     provider_discovery: (
         CanonicalShadowProbabilityProviderDiscovery
     ),
+    away_pitching_plan_classification: Optional[
+        Mapping[str, Any]
+    ] = None,
+    home_pitching_plan_classification: Optional[
+        Mapping[str, Any]
+    ] = None,
 ) -> CanonicalMatchupInput:
     provider = provider_discovery.provider
 
@@ -174,6 +250,35 @@ def _build_matchup_input(
             "both scheduled starters are required"
         )
 
+    away_bullpen_ids = (
+        bullpens.away.bullpen_pitcher_ids
+    )
+    home_bullpen_ids = (
+        bullpens.home.bullpen_pitcher_ids
+    )
+
+    (
+        away_plan_type,
+        away_preferred_replacements,
+    ) = _canonical_pitching_plan_metadata(
+        classification=(
+            away_pitching_plan_classification
+        ),
+        starter_id=away_starter,
+        bullpen_pitcher_ids=away_bullpen_ids,
+    )
+
+    (
+        home_plan_type,
+        home_preferred_replacements,
+    ) = _canonical_pitching_plan_metadata(
+        classification=(
+            home_pitching_plan_classification
+        ),
+        starter_id=home_starter,
+        bullpen_pitcher_ids=home_bullpen_ids,
+    )
+
     return CanonicalMatchupInput(
         game_pk=int(game_pk),
         away_lineup=CanonicalLineup(
@@ -187,15 +292,19 @@ def _build_matchup_input(
         away_pitching_plan=CanonicalPitchingPlan(
             team_side="away",
             starter_id=away_starter,
-            bullpen_pitcher_ids=(
-                bullpens.away.bullpen_pitcher_ids
+            bullpen_pitcher_ids=away_bullpen_ids,
+            plan_type=away_plan_type,
+            preferred_replacement_pitcher_ids=(
+                away_preferred_replacements
             ),
         ),
         home_pitching_plan=CanonicalPitchingPlan(
             team_side="home",
             starter_id=home_starter,
-            bullpen_pitcher_ids=(
-                bullpens.home.bullpen_pitcher_ids
+            bullpen_pitcher_ids=home_bullpen_ids,
+            plan_type=home_plan_type,
+            preferred_replacement_pitcher_ids=(
+                home_preferred_replacements
             ),
         ),
         probability_provider=provider,
@@ -220,6 +329,12 @@ def run_canonical_production_shadow(
     simulation_count: int = (
         DEFAULT_PRODUCTION_SHADOW_SIMULATION_COUNT
     ),
+    away_pitching_plan_classification: Optional[
+        Mapping[str, Any]
+    ] = None,
+    home_pitching_plan_classification: Optional[
+        Mapping[str, Any]
+    ] = None,
 ) -> CanonicalProductionShadowExecution:
     """
     Execute a small canonical batch when every production input is ready.
@@ -274,6 +389,12 @@ def run_canonical_production_shadow(
             lineups=lineups,
             bullpens=bullpens,
             provider_discovery=provider_discovery,
+            away_pitching_plan_classification=(
+                away_pitching_plan_classification
+            ),
+            home_pitching_plan_classification=(
+                home_pitching_plan_classification
+            ),
         )
 
         fallback_policy = (
