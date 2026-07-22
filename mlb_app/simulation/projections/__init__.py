@@ -38,6 +38,11 @@ __all__ = [
     "canonical_player_projection_rows",
     "CANONICAL_PLAYER_IDENTITY_ENRICHMENT_VERSION",
     "enrich_canonical_player_projection_rows",
+    "DRAFTKINGS_SLATE_SCHEMA_VERSION",
+    "DraftKingsSlate",
+    "DraftKingsSlatePlayer",
+    "draftkings_slate_to_dict",
+    "ingest_draftkings_salary_csv",
 ]
 
 from .player_rows import (
@@ -48,4 +53,12 @@ from .player_rows import (
 from .player_identity import (
     CANONICAL_PLAYER_IDENTITY_ENRICHMENT_VERSION,
     enrich_canonical_player_projection_rows,
+)
+
+from .draftkings_slate import (
+    DRAFTKINGS_SLATE_SCHEMA_VERSION,
+    DraftKingsSlate,
+    DraftKingsSlatePlayer,
+    draftkings_slate_to_dict,
+    ingest_draftkings_salary_csv,
 )
