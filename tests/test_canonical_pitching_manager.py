@@ -592,3 +592,113 @@ def test_manager_assigns_automatic_runner_to_active_pitcher():
     assert responsibility.reached_on_event_type == (
         "automatic_runner:10:top"
     )
+
+
+def test_manager_prefers_bulk_follower_after_opener():
+    matchup_input = matchup()
+
+    matchup_input = replace(
+        matchup_input,
+        home_pitching_plan=CanonicalPitchingPlan(
+            team_side="home",
+            starter_id="home_starter",
+            bullpen_pitcher_ids=(
+                "home_long",
+                "home_middle",
+            ),
+            plan_type="opener_bulk",
+            preferred_replacement_pitcher_ids=(
+                "home_middle",
+            ),
+        ),
+    )
+
+    value = CanonicalPitchingManager(
+        matchup_input=matchup_input,
+        starter_hook_policy=CanonicalStarterHookPolicy(
+            minimum_batters_faced=3,
+            target_batters_faced=3,
+            maximum_batters_faced=3,
+        ),
+        bullpen_selector=(
+            build_canonical_bullpen_selector()
+        ),
+        away_bullpen=bullpen("away"),
+        home_bullpen=bullpen("home"),
+    )
+
+    value._active["home"] = replace(
+        value.active_lifecycle("home"),
+        batters_faced=3,
+    )
+
+    pitcher = value.pitcher_for_plate_appearance(
+        state=GameState(
+            inning=2,
+            half="top",
+        ),
+        batter_id="away_batter_0",
+    )
+
+    assert pitcher == "home_middle"
+
+
+def test_manager_falls_back_when_preferred_pitcher_unavailable():
+    matchup_input = matchup()
+
+    matchup_input = replace(
+        matchup_input,
+        home_pitching_plan=CanonicalPitchingPlan(
+            team_side="home",
+            starter_id="home_starter",
+            bullpen_pitcher_ids=(
+                "home_long",
+                "home_middle",
+            ),
+            plan_type="opener_bulk",
+            preferred_replacement_pitcher_ids=(
+                "home_middle",
+            ),
+        ),
+    )
+
+    home_options = (
+        CanonicalBullpenPitcher(
+            pitcher_id="home_long",
+            role=CanonicalBullpenRole.LONG_RELIEF,
+        ),
+        CanonicalBullpenPitcher(
+            pitcher_id="home_middle",
+            role=CanonicalBullpenRole.MIDDLE_RELIEF,
+            available=False,
+        ),
+    )
+
+    value = CanonicalPitchingManager(
+        matchup_input=matchup_input,
+        starter_hook_policy=CanonicalStarterHookPolicy(
+            minimum_batters_faced=3,
+            target_batters_faced=3,
+            maximum_batters_faced=3,
+        ),
+        bullpen_selector=(
+            build_canonical_bullpen_selector()
+        ),
+        away_bullpen=bullpen("away"),
+        home_bullpen=home_options,
+    )
+
+    value._active["home"] = replace(
+        value.active_lifecycle("home"),
+        batters_faced=3,
+    )
+
+    pitcher = value.pitcher_for_plate_appearance(
+        state=GameState(
+            inning=2,
+            half="top",
+        ),
+        batter_id="away_batter_0",
+    )
+
+    assert pitcher == "home_long"
