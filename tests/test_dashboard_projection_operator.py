@@ -7,6 +7,8 @@ from sqlalchemy.orm import sessionmaker
 from mlb_app.dashboard_object_models import DashboardPlayerCurrent, DashboardProjectionRun
 from mlb_app.dashboard_player_population import CANONICAL_POPULATION_POLICY_VERSION
 from mlb_app.dashboard_projection_operator import (
+    ProjectionCoverageError,
+    _critical_coverage_guard,
     ensure_canonical_projection,
     fetch_verified_active_rosters,
     run_canonical_projection_refresh,
@@ -46,6 +48,7 @@ def test_operator_refresh_populates_from_verified_sources_and_records_success():
         request_get=request_get,
         matchup_builder=lambda *_: [{"game_pk": 10, "away_team_id": 1, "away_team_name": "Team 1", "home_team_id": 2, "home_team_name": "Team 2"}],
         lineup_fetcher=lambda _: {"away": [{"id": 101, "fullName": "Verified Hitter"}], "home": []},
+        overlay_refresher=None,
     )
     assert result["status"] == "success"
     assert result["team_count"] == 30
@@ -63,6 +66,7 @@ def test_operator_failure_is_audited_without_erasing_prior_current_projection():
         request_get=request_get,
         matchup_builder=lambda *_: [{"game_pk": 10, "away_team_id": 1, "away_team_name": "Team 1", "home_team_id": 2, "home_team_name": "Team 2"}],
         lineup_fetcher=lambda _: {"away": [{"id": 101, "fullName": "Verified Hitter"}], "home": []},
+        overlay_refresher=None,
     )
     version = session.query(DashboardPlayerCurrent).one().projection_version
 
@@ -101,16 +105,24 @@ def test_empty_projection_auto_bootstraps_once_and_reuses_current_rows(monkeypat
         return {"run_id": 7, "projection_version": "bootstrap-v1"}
 
     target_date = dt.date(2026, 7, 20)
-    first = ensure_canonical_projection(session, target_date=target_date, refresh=refresh, required_player_type="hitter")
-    second = ensure_canonical_projection(session, target_date=target_date, refresh=refresh, required_player_type="hitter")
+    checked_at = dt.datetime(2026, 7, 20, 12, 0, 0)
+    first = ensure_canonical_projection(session, target_date=target_date, refresh=refresh, required_player_type="hitter", now=checked_at)
+    second = ensure_canonical_projection(session, target_date=target_date, refresh=refresh, required_player_type="hitter", now=checked_at)
 
     assert first == {
         "status": "populated",
         "current_count": 1,
         "run_id": 7,
         "projection_version": "bootstrap-v1",
+        "latest_snapshot_date": "2026-07-20",
+        "age_hours": 0.0,
     }
-    assert second == {"status": "already_available", "current_count": 1}
+    assert second == {
+        "status": "already_available",
+        "current_count": 1,
+        "latest_snapshot_date": "2026-07-20",
+        "age_hours": 0.0,
+    }
     assert calls == [target_date]
 
 
@@ -232,6 +244,7 @@ def test_confirmed_lineup_failure_does_not_block_roster_aggregate_baseline():
         matchup_builder=lambda *_args, **_kwargs: (_ for _ in ()).throw(
             RuntimeError("matchup source unavailable")
         ),
+        overlay_refresher=None,
     )
 
     assert result["status"] == "success"
@@ -241,6 +254,61 @@ def test_confirmed_lineup_failure_does_not_block_roster_aggregate_baseline():
     current = session.query(DashboardPlayerCurrent).one()
     assert current.full_name == "Roster Hitter"
     assert current.exit_velocity == 91.0
+
+
+def test_stale_projection_refreshes_for_newer_requested_date():
+    session = make_session()
+    updated_at = dt.datetime(2026, 7, 20, 12, 0, 0)
+    session.add(DashboardPlayerCurrent(
+        mlb_player_id=101,
+        snapshot_id=1,
+        player_type="hitter",
+        full_name="Stale Hitter",
+        is_active=True,
+        metrics_json={},
+        projection_version="july-20",
+        source_freshness_json={"snapshot_date": "2026-07-20"},
+        provenance_json={"population_policy_version": CANONICAL_POPULATION_POLICY_VERSION},
+        promoted_at=updated_at,
+        updated_at=updated_at,
+    ))
+    session.commit()
+    calls = []
+
+    def refresh(current_session, *, target_date):
+        calls.append(target_date)
+        row = current_session.get(DashboardPlayerCurrent, 101)
+        row.source_freshness_json = {"snapshot_date": target_date.isoformat()}
+        row.updated_at = dt.datetime(2026, 7, 23, 12, 0, 0)
+        current_session.commit()
+        return {"run_id": 23, "projection_version": "july-23"}
+
+    result = ensure_canonical_projection(
+        session,
+        target_date=dt.date(2026, 7, 23),
+        required_player_type="hitter",
+        refresh=refresh,
+        now=dt.datetime(2026, 7, 23, 12, 0, 0),
+    )
+
+    assert calls == [dt.date(2026, 7, 23)]
+    assert result["status"] == "populated"
+    assert result["latest_snapshot_date"] == "2026-07-23"
+
+
+def test_critical_hitter_coverage_gate_rejects_sparse_projection(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_COVERAGE_GATE_MIN_HITTER_POPULATION", "50")
+    monkeypatch.setenv("DASHBOARD_MIN_HITTER_CRITICAL_FIELD_COVERAGE", "0.25")
+    sparse_fields = {
+        field: {"non_null_count": 14, "coverage": 0.0369}
+        for field in ("model_score", "confidence", "xwoba", "xba")
+    }
+    with pytest.raises(ProjectionCoverageError, match="implausibly sparse"):
+        _critical_coverage_guard({
+            "field_coverage": {
+                "hitter": {"row_count": 379, "fields": sparse_fields},
+            },
+        })
 
 
 

@@ -8,7 +8,7 @@ export const CANONICAL_REPORT_TYPES = {
 const LEGACY_DEFAULT_FIELDS = ['rank', 'entity_name', 'team', 'opponent', 'score', 'confidence']
 
 function usesLegacyLineupDataset(objectKey, activeLineupsOnly) {
-  return Boolean(activeLineupsOnly && ['hitters', 'overall_players'].includes(objectKey))
+  return Boolean(activeLineupsOnly && objectKey === 'overall_players')
 }
 
 export const DEFAULT_FIELDS_BY_OBJECT = {
@@ -52,6 +52,9 @@ export function canonicalSortField(field) {
 export function buildReportRequest({ objectKey, activeLineupsOnly, date, cleanedFilters, query }) {
   const useLineups = usesLegacyLineupDataset(objectKey, activeLineupsOnly)
   const reportType = useLineups ? null : CANONICAL_REPORT_TYPES[objectKey]
+  const confirmedCanonicalHitters = Boolean(
+    activeLineupsOnly && objectKey === 'hitters' && reportType,
+  )
   const { weights = {}, ...criteria } = cleanedFilters || {}
   if (reportType) {
     return {
@@ -67,6 +70,7 @@ export function buildReportRequest({ objectKey, activeLineupsOnly, date, cleaned
         sort_by: canonicalSortField(query.sort_by),
         sort_direction: query.sort_direction,
         include_metadata: true,
+        confirmed_lineups_only: confirmedCanonicalHitters,
       },
     }
   }
@@ -120,4 +124,38 @@ export function normalizeCanonicalPage(json, query) {
       previous_page: query.page_number > 1 ? query.page_number - 1 : null,
     },
   }
+}
+
+export function reportExecutionFacts(result) {
+  const population = result?.population || {}
+  const lineup = result?.lineup_filter || {}
+  const provenance = result?.provenance || {}
+  const bootstrap = result?.population_bootstrap || {}
+  const mode = population.mode === 'confirmed_lineup'
+    ? 'Confirmed 1–9'
+    : population.mode === 'all_active'
+      ? 'All active players'
+      : 'Legacy report population'
+  return {
+    mode,
+    lineupStatus: lineup.lineup_status || null,
+    confirmedCount: lineup.confirmed_batter_count ?? null,
+    snapshotDate: provenance.snapshot_date || bootstrap.latest_snapshot_date || null,
+    projectionVersion: Array.isArray(provenance.projection_versions)
+      ? provenance.projection_versions[0] || null
+      : null,
+    ageHours: bootstrap.age_hours ?? null,
+  }
+}
+
+export function savedReportExecutionMode(item, fallback = false) {
+  const payload = item?.payload_json || {}
+  const definition = payload.definition || {}
+  if (typeof definition.active_lineups_only === 'boolean') {
+    return definition.active_lineups_only
+  }
+  if (typeof payload.workbench_state?.activeLineupsOnly === 'boolean') {
+    return payload.workbench_state.activeLineupsOnly
+  }
+  return Boolean(fallback)
 }

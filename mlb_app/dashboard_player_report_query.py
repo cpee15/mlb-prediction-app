@@ -202,6 +202,8 @@ def query_player_report(
     session: Session,
     report_type: str,
     *,
+    population_player_ids: Optional[Iterable[int]] = None,
+    population_mode: str = "all_active",
     filters: Any = None,
     weights: Any = None,
     page_size: int = DEFAULT_PAGE_SIZE,
@@ -230,6 +232,19 @@ def query_player_report(
         DashboardPlayerCurrent.is_active.is_(True),
         DashboardPlayerCurrent.player_type == config["population"]["player_type"],
     )
+    normalized_population_ids: Optional[List[int]] = None
+    if population_player_ids is not None:
+        normalized_population_ids = sorted({
+            int(value)
+            for value in population_player_ids
+            if value not in (None, "")
+        })
+        query = query.filter(
+            DashboardPlayerCurrent.mlb_player_id.in_(normalized_population_ids)
+            if normalized_population_ids
+            else False
+        )
+    population_count = query.count()
     query, applied_filters = _apply_filters(query, report_type, filters)
     total_count = query.count()
     normalized_weights, weight_labels = _normalize_weights(report_type, weights)
@@ -255,17 +270,30 @@ def query_player_report(
 
     versions = [value for (value,) in query.with_entities(DashboardPlayerCurrent.projection_version).distinct().all()]
     promoted_at, updated_at = query.with_entities(func.max(DashboardPlayerCurrent.promoted_at), func.max(DashboardPlayerCurrent.updated_at)).one()
+    freshness_row = query.order_by(
+        DashboardPlayerCurrent.updated_at.desc(),
+        DashboardPlayerCurrent.mlb_player_id.asc(),
+    ).first()
+    source_freshness = dict(freshness_row.source_freshness_json or {}) if freshness_row else {}
     response = {
         "report_type": report_type, "component": config["ui_object"], "records": records,
         "items": records, "totalSize": total_count, "total_count": total_count,
         "done": offset + len(records) >= total_count,
         "page_info": {"page_number": page_number, "page_size": page_size, "returned": len(records), "has_next_page": offset + len(records) < total_count},
         "query": {"source": "dashboard_player_current", "sort_by": sort_by, "sort_direction": direction, "selected_fields": requested_fields},
+        "population": {
+            "mode": population_mode,
+            "candidate_id_count": len(normalized_population_ids) if normalized_population_ids is not None else None,
+            "matched_current_count": population_count,
+            "filtered_count": total_count,
+        },
         "filters_applied": applied_filters, "weights": normalized_weights,
         "weight_explanation": explanations, "query_source": "dashboard_player_current",
         "provenance": {
             "source_object": "dashboard_player_current",
             "projection_versions": sorted(versions),
+            "snapshot_date": source_freshness.get("snapshot_date"),
+            "source_freshness": source_freshness,
             "promoted_at": _iso(promoted_at),
             "updated_at": _iso(updated_at),
             "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),

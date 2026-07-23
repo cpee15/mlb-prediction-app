@@ -197,16 +197,24 @@ def test_projection_exposes_freshness_provenance_and_versions():
     session = make_session()
     session.add(player(1, "One"))
     session.commit()
-    refresh_player_projection(
+    result = refresh_player_projection(
         session,
         snapshot_date=DATE,
-        row_builder=lambda: [row(1, "One", source_versions={"solver": "v7"}, provenance={"sources": ["solver"]})],
+        row_builder=lambda: [row(
+            1,
+            "One",
+            model_score=0.72,
+            source_versions={"solver": "v7"},
+            provenance={"sources": ["solver"]},
+        )],
         now=NOW,
     )
     current = session.get(DashboardPlayerCurrent, 1)
     assert current.source_freshness_json["snapshot_date"] == DATE.isoformat()
     assert current.source_freshness_json["source_versions"] == {"solver": "v7"}
     assert current.provenance_json["sources"] == ["solver"]
+    assert result["field_coverage"]["hitter"]["row_count"] == 1
+    assert result["field_coverage"]["hitter"]["fields"]["model_score"]["coverage"] == 1.0
 
 
 def test_backfill_retains_each_date_and_promotes_only_final_successful_date():

@@ -112,7 +112,16 @@ They use explicit field catalogs from `GET /my-dashboard/report-types`, SQL vali
 
 ## Suggested Railway schedule
 
-Keep the command opt-in until the first production run is inspected. After acceptance, schedule the current refresh after the upstream roster, Statcast aggregate, and Stored 365 jobs finish:
+The checked-in Railway refresh worker now runs the canonical refresh after its
+matchup, Statcast, hitter-backfill, lineup, and model refresh work. Keep the
+worker on the existing production cadence and use the same production
+`DATABASE_URL` as the API:
+
+```text
+RUN_CANONICAL_DASHBOARD_REFRESH=1
+```
+
+For an isolated operator run, execute:
 
 ```bash
 python scripts/refresh_dashboard_player_projection.py --refresh
@@ -123,11 +132,36 @@ Recommended environment controls:
 ```text
 DASHBOARD_ACTIVE_PLAYER_WINDOW_DAYS=30
 DASHBOARD_PROJECTION_STALE_HOURS=36
+DASHBOARD_COVERAGE_GATE_MIN_HITTER_POPULATION=50
+DASHBOARD_MIN_HITTER_CRITICAL_FIELD_COVERAGE=0.25
 ```
+
+The coverage gate rejects a promotion when model score, confidence, xwOBA, or
+xBA falls below the configured ratio for a normal-sized hitter population.
+The previous current projection remains available after rejection.
 
 Do not run overlapping projection refreshes. The command is idempotent for identical approved content, but simultaneous source collection wastes capacity and makes run evidence harder to interpret.
 
 ## Production verification
+
+For the July 23, 2026 incident, retain this pre-repair baseline in the deployment
+record:
+
+| Measure | Before deployment |
+| --- | ---: |
+| Active hitters | 379 |
+| Active pitchers | 408 |
+| Current projection date | 2026-07-20 |
+| Projection age | 68.24 hours |
+| Hitter model-score coverage | 14 / 379 (3.69%) |
+| Confirmed hitters reported by lineup discovery | 72 |
+| Confirmed hitters returned by the legacy route | 6 |
+
+After deployment, record the same measures from the refresh result and canonical
+status endpoint. Do not mark the incident restored unless the current projection
+date is `2026-07-23`, the refresh run is successful, all critical coverage gates
+pass, and the Confirmed 1–9 report count is derived from the complete confirmed
+MLBAM-ID population rather than a top-ten candidate list.
 
 1. Deploy the merged schema, status endpoint, report queries, and operator command.
 2. Run status-only inspection and save the empty/prior baseline.

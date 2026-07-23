@@ -43,6 +43,7 @@ CLEAR_AI_CACHE_AFTER_REFRESH = os.environ.get("CLEAR_AI_CACHE_AFTER_REFRESH", "1
 RUN_STATCAST_ETL = os.environ.get("RUN_STATCAST_ETL", "0") == "1"
 RUN_HITTER_STATCAST_BACKFILL = os.environ.get("RUN_HITTER_STATCAST_BACKFILL", "0") == "1"
 RUN_HITTING_MATCHUPS_REFRESH = os.environ.get("RUN_HITTING_MATCHUPS_REFRESH", "1") == "1"
+RUN_CANONICAL_DASHBOARD_REFRESH = os.environ.get("RUN_CANONICAL_DASHBOARD_REFRESH", "1") == "1"
 REFRESH_ETL_BACKFILL_DAYS = int(os.environ.get("REFRESH_ETL_BACKFILL_DAYS", "1"))
 os.environ.setdefault("STATCAST_LOOKBACK_DAYS", "365")
 os.environ.setdefault("HITTING_MATCHUPS_DAYS_BACK", "365")
@@ -226,6 +227,48 @@ def _run_hitting_matchups_refresh() -> None:
     )
 
 
+def _run_canonical_dashboard_refresh() -> None:
+    if not RUN_CANONICAL_DASHBOARD_REFRESH:
+        _log(
+            "Skipping canonical MyDashboard refresh because "
+            "RUN_CANONICAL_DASHBOARD_REFRESH=0"
+        )
+        return
+
+    from mlb_app.dashboard_projection_operator import run_canonical_projection_refresh
+    from mlb_app.database import create_tables, get_engine, get_session
+    from mlb_app.my_dashboard_dataset_runtime import mlb_business_date
+
+    target_date = mlb_business_date()
+    database_url = os.environ.get("DATABASE_URL", "sqlite:///mlb.db")
+    engine = get_engine(database_url)
+    create_tables(engine)
+    factory = get_session(engine)
+    _log(
+        "Starting canonical MyDashboard refresh after upstream matchup, "
+        f"Statcast, lineup, and model work for {target_date.isoformat()}"
+    )
+    with factory() as session:
+        result = run_canonical_projection_refresh(
+            session,
+            target_date=target_date,
+        )
+    hitter_coverage = (
+        result.get("projection", {})
+        .get("field_coverage", {})
+        .get("hitter", {})
+    )
+    _log(
+        "Canonical MyDashboard refresh completed: "
+        f"run_id={result.get('run_id')}, "
+        f"active_count={result.get('population', {}).get('active_count')}, "
+        f"current_row_count={result.get('current_row_count')}, "
+        f"hitter_rows={hitter_coverage.get('row_count')}, "
+        f"model_score_coverage="
+        f"{hitter_coverage.get('fields', {}).get('model_score', {}).get('coverage')}"
+    )
+
+
 def _load_targets() -> list[tuple[str, str]]:
     targets: list[tuple[str, str]] = []
 
@@ -313,6 +356,7 @@ def main() -> int:
         f"etl_backfill_days={REFRESH_ETL_BACKFILL_DAYS}, "
         f"run_hitter_statcast_backfill={int(RUN_HITTER_STATCAST_BACKFILL)}, "
         f"run_hitting_matchups_refresh={int(RUN_HITTING_MATCHUPS_REFRESH)}, "
+        f"run_canonical_dashboard_refresh={int(RUN_CANONICAL_DASHBOARD_REFRESH)}, "
         f"clear_ai_cache_after_refresh={int(CLEAR_AI_CACHE_AFTER_REFRESH)}"
     )
 
@@ -338,6 +382,12 @@ def main() -> int:
         _run_hitter_statcast_backfill()
     except Exception as exc:
         _log(f"Hitter Statcast backfill failed: {exc}")
+        return 1
+
+    try:
+        _run_canonical_dashboard_refresh()
+    except Exception as exc:
+        _log(f"Canonical MyDashboard refresh failed: {exc}")
         return 1
 
     _log("Refresh job completed successfully")

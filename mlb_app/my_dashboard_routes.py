@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import my_dashboard_solver as dashboard_solver
-from .active_lineup_solver import build_active_lineup_solver_payload
+from .active_lineup_solver import build_active_lineup_solver_payload, build_confirmed_lineup_index
 from .admin_access import DashboardPrincipal, require_capability
 from .admin_configuration import profile_key_for_role
 from .dashboard_canonical_status import canonical_dashboard_status
@@ -77,6 +77,7 @@ class DashboardPlayerReportRequest(BaseModel):
     sort_direction: str = "desc"
     selected_fields: Optional[List[str]] = None
     include_metadata: bool = True
+    confirmed_lineups_only: bool = False
 
 
 class QueryStudioRequest(BaseModel):
@@ -233,6 +234,9 @@ def my_dashboard_player_report_query(payload: DashboardPlayerReportRequest) -> D
                     selected_fields=payload.selected_fields, include_metadata=payload.include_metadata,
                 )
             bootstrap = None
+            lineup_index = None
+            population_player_ids = None
+            population_mode = "all_active"
             if payload.report_type in {"all_active_hitters", "all_active_pitchers"}:
                 bootstrap = ensure_canonical_projection(
                     session,
@@ -243,14 +247,50 @@ def my_dashboard_player_report_query(payload: DashboardPlayerReportRequest) -> D
                         else "pitcher"
                     ),
                 )
+            if payload.confirmed_lineups_only:
+                if payload.report_type != "all_active_hitters":
+                    raise ValueError("Confirmed 1–9 is supported only for the active hitters report")
+                target_date = payload.as_of_date or mlb_business_date()
+                lineup_index = build_confirmed_lineup_index(session, target_date.isoformat())
+                population_player_ids = {
+                    int(value)
+                    for value in lineup_index.get("confirmed_ids") or set()
+                    if str(value).isdigit()
+                }
+                population_mode = "confirmed_lineup"
             result = query_player_report(
                 session, payload.report_type, filters=payload.filters, weights=payload.weights,
                 page_size=payload.page_size, page_number=payload.page_number,
                 sort_by=payload.sort_by, sort_direction=payload.sort_direction,
                 selected_fields=payload.selected_fields, include_metadata=payload.include_metadata,
+                population_player_ids=population_player_ids, population_mode=population_mode,
             )
             if bootstrap is not None:
                 result["population_bootstrap"] = bootstrap
+            if lineup_index is not None:
+                lineup_metadata = dict(lineup_index.get("metadata") or {})
+                lineup_metadata["matched_current_count"] = result["population"]["matched_current_count"]
+                lineup_metadata["unmatched_confirmed_count"] = max(
+                    0,
+                    int(result["population"]["candidate_id_count"] or 0)
+                    - int(result["population"]["matched_current_count"]),
+                )
+                lineup_metadata["filtered_out_count"] = max(
+                    0,
+                    int(result["population"]["matched_current_count"])
+                    - int(result["population"]["filtered_count"]),
+                )
+                lineup_metadata["removed_unconfirmed_count"] = 0
+                result["lineup_filter"] = lineup_metadata
+                result["model_state"] = lineup_metadata.get("model_state")
+                result["lineup_revision"] = lineup_metadata.get("lineup_revision")
+                for record in result.get("records") or []:
+                    record.update({
+                        "lineup_verified": True,
+                        "lineup_source": lineup_metadata.get("source"),
+                        "confirmed_lineup_date": lineup_metadata.get("confirmed_lineup_date"),
+                        "lineup_revision": lineup_metadata.get("lineup_revision"),
+                    })
             return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
