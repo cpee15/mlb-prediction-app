@@ -61,6 +61,7 @@ test('projections tab renders requested batter metrics', async () => {
     '3B',
     'HR',
     'BB',
+    'SB',
     'DK Mean',
     'DK Floor',
     'DK Median',

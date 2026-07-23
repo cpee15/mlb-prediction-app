@@ -876,6 +876,7 @@ const BATTER_PROJECTION_COLUMNS = [
   { key: 'triples', label: '3B' },
   { key: 'homeRuns', label: 'HR' },
   { key: 'walks', label: 'BB' },
+  { key: 'stolenBases', label: 'SB' },
   { key: 'strikeouts', label: 'K' },
   { key: 'dfsMean', label: 'DK Mean' },
   { key: 'dfsFloor', label: 'DK Floor' },

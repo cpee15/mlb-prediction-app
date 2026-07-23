@@ -113,6 +113,10 @@ function batterRow(row) {
     triples,
     homeRuns,
     walks: metricValue(row, 'walks'),
+    stolenBases: metricValue(
+      row,
+      'stolen_bases',
+    ),
     strikeouts: metricValue(
       row,
       'strikeouts',
