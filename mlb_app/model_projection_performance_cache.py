@@ -157,7 +157,7 @@ def cached_projection_simulation_cards(matchup: Dict[str, Any], away: Dict[str, 
     ttl = env_ttl("MODEL_PROJECTION_SIMULATION_CACHE_TTL_SECONDS")
     cached = get_cache(cache_key, ttl)
     if isinstance(cached, dict):
-        cached.setdefault("cache_hit", True)
+        cached["cache_hit"] = True
         cached.setdefault("cache_key", cache_key)
         return cached
 
