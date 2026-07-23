@@ -28,8 +28,10 @@ from .probability import (
 
 
 CANONICAL_BATTED_BALL_RESOLUTION_VERSION = (
-    "canonical_batted_ball_resolution_v1"
+    "canonical_batted_ball_resolution_v2"
 )
+
+BASELINE_GROUND_BALL_DOUBLE_PLAY_PROBABILITY = 0.55
 
 CANONICAL_OUT_SUBTYPES: Tuple[str, ...] = (
     "groundout",
@@ -58,6 +60,8 @@ class CanonicalBattedBallResolution:
     advancement: RunnerAdvancementResult
     context_seed: int
     advancement_seed: int
+    force_play_seed: Optional[int] = None
+    force_play_draw: Optional[float] = None
     outcome_subtype: Optional[str] = None
     resolution_version: str = (
         CANONICAL_BATTED_BALL_RESOLUTION_VERSION
@@ -87,6 +91,30 @@ class CanonicalBattedBallResolution:
         if self.advancement_seed < 0:
             raise ValueError(
                 "advancement_seed cannot be negative"
+            )
+
+        if (
+            self.force_play_seed is not None
+            and self.force_play_seed < 0
+        ):
+            raise ValueError(
+                "force_play_seed cannot be negative"
+            )
+
+        if (
+            self.force_play_draw is not None
+            and not 0.0 <= self.force_play_draw < 1.0
+        ):
+            raise ValueError(
+                "force_play_draw must be in [0, 1)"
+            )
+
+        if (
+            self.force_play_draw is not None
+            and self.force_play_seed is None
+        ):
+            raise ValueError(
+                "force_play_draw requires force_play_seed"
             )
 
         if self.resolution_version != (
@@ -135,6 +163,15 @@ def resolve_canonical_batted_ball_outcome(
         sampled=sampled,
         purpose="advancement",
     )
+    force_play_seed = (
+        derive_canonical_batted_ball_seed(
+            sampled=sampled,
+            purpose="force_play",
+        )
+        if outcome
+        is CanonicalPlateAppearanceOutcome.OUT
+        else None
+    )
 
     outcome_subtype = (
         _sample_outcome_subtype(context_seed)
@@ -163,10 +200,22 @@ def resolve_canonical_batted_ball_outcome(
         context=context,
     )
 
+    force_play_draw = (
+        random.Random(force_play_seed).random()
+        if (
+            force_play_seed is not None
+            and outcome_subtype == "groundout"
+            and query.state.first is not None
+            and query.state.outs < 2
+        )
+        else None
+    )
+
     special_out_event_type = (
         _select_special_out_event_type(
             state=query.state,
             outcome_subtype=outcome_subtype,
+            force_play_draw=force_play_draw,
         )
         if outcome is CanonicalPlateAppearanceOutcome.OUT
         else None
@@ -221,6 +270,12 @@ def resolve_canonical_batted_ball_outcome(
         advancement=advancement,
         context_seed=context_seed,
         advancement_seed=advancement_seed,
+        force_play_seed=(
+            force_play_seed
+            if force_play_draw is not None
+            else None
+        ),
+        force_play_draw=force_play_draw,
         outcome_subtype=outcome_subtype,
     )
 
@@ -229,6 +284,7 @@ def _select_special_out_event_type(
     *,
     state,
     outcome_subtype: Optional[str],
+    force_play_draw: Optional[float] = None,
 ) -> Optional[str]:
     """Select an explicit canonical scoring-rule out transition."""
 
@@ -237,7 +293,18 @@ def _select_special_out_event_type(
         and state.first is not None
         and state.outs < 2
     ):
-        return "ground_ball_double_play"
+        if force_play_draw is None:
+            raise ValueError(
+                "eligible groundout requires force_play_draw"
+            )
+
+        if (
+            force_play_draw
+            < BASELINE_GROUND_BALL_DOUBLE_PLAY_PROBABILITY
+        ):
+            return "ground_ball_double_play"
+
+        return "ground_ball_fielders_choice"
 
     if (
         outcome_subtype == "flyout"
