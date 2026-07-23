@@ -421,3 +421,51 @@ test('explains projection schema mismatches', () => {
     /received canonical_player_projection_rows_v2/,
   )
 })
+
+
+test('reads canonical projections from sharedSimulation diagnostics', () => {
+  const source = payload()
+  const shadow = source.diagnostics.canonical_shadow
+
+  const view = buildCanonicalProjectionsViewModel({
+    sharedSimulation: {
+      diagnostics: {
+        canonical_shadow: shadow,
+      },
+    },
+  })
+
+  assert.equal(view.available, true)
+  assert.equal(view.runId, 'run-123')
+  assert.equal(view.batters.length, 1)
+  assert.equal(view.pitchers.length, 1)
+})
+
+
+test('prefers top-level projection diagnostics when both paths exist', () => {
+  const source = payload()
+  const topLevelShadow = source.diagnostics.canonical_shadow
+
+  const view = buildCanonicalProjectionsViewModel({
+    diagnostics: {
+      canonical_shadow: topLevelShadow,
+    },
+    sharedSimulation: {
+      diagnostics: {
+        canonical_shadow: {
+          player_projections: {
+            schema_version: (
+              'canonical_player_projection_rows_v1'
+            ),
+            run_id: 'shared-run',
+            simulation_count: 25,
+            players: [],
+          },
+        },
+      },
+    },
+  })
+
+  assert.equal(view.available, true)
+  assert.equal(view.runId, 'run-123')
+})
