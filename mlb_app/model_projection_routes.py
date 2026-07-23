@@ -16,6 +16,7 @@ from .shared_artifacts import (
     attach_artifact_metadata,
     artifact_metadata,
     cache_artifact,
+    MODEL_PROJECTION_WORKSPACE_VERSION,
     model_projection_date_key,
     model_projection_probability_key,
     payload_input_hash,
@@ -44,7 +45,7 @@ def _attach_projection_artifact_metadata(payload: Dict[str, Any], target_date: s
         cache_key=_projection_cache_key(target_date),
         source_route="/models/projections",
         source_builder="model_projection_routes._build_uncached_projection_payload",
-        model_version="model_projection_probability_v1",
+        model_version=MODEL_PROJECTION_WORKSPACE_VERSION,
         probability_source="model_projections",
     )
     attach_artifact_metadata(payload, metadata)
@@ -129,6 +130,7 @@ def _apply_projection_probability_contract(payload: Dict[str, Any], target_date:
     notes.append("Canonical matchup probability remains available as a compatibility/fallback diagnostic, not the displayed Model Projections source of truth.")
     payload["source_notes"] = notes
     payload["probability_contract"] = "model_projection_probability_v1"
+    payload["workspace_contract"] = MODEL_PROJECTION_WORKSPACE_VERSION
     payload["probability_source"] = "model_projections"
     return payload
 
@@ -168,7 +170,7 @@ def warm_model_projection_payload(target_date: str) -> Dict[str, Any]:
         artifact_type="model_projection_date",
         source_route="/models/projections",
         source_builder="model_projection_routes.warm_model_projection_payload",
-        model_version="model_projection_probability_v1",
+        model_version=MODEL_PROJECTION_WORKSPACE_VERSION,
         probability_source="model_projections",
     )
     return {
@@ -177,6 +179,7 @@ def warm_model_projection_payload(target_date: str) -> Dict[str, Any]:
         "games_cached": len(stored.get("games") or []) if isinstance(stored, dict) else None,
         "cache_key": _projection_cache_key(target_date),
         "probability_contract": "model_projection_probability_v1",
+        "workspace_contract": MODEL_PROJECTION_WORKSPACE_VERSION,
         "artifact": stored.get("artifact") if isinstance(stored, dict) else None,
     }
 
