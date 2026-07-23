@@ -8,6 +8,9 @@ from typing import Any, Dict, Optional
 from mlb_app.simulation.game.probability_diagnostics import (
     CanonicalProbabilityResolutionDiagnostics,
 )
+from mlb_app.simulation.projections import (
+    canonical_player_projection_rows,
+)
 from .input_assembly import (
     CanonicalShadowExecutionInputs,
 )
@@ -99,6 +102,31 @@ def attach_canonical_shadow(
     shadow_payload = shadow_diagnostics_to_dict(
         shadow
     )
+
+    if enabled and canonical_payload is not None:
+        try:
+            shadow_payload[
+                "player_projections"
+            ] = canonical_player_projection_rows(
+                canonical_payload
+            )
+        except Exception as exc:
+            shadow_payload[
+                "player_projections"
+            ] = {
+                "schema_version": (
+                    "canonical_player_projection_rows_v1"
+                ),
+                "status": "error",
+                "error_type": (
+                    exc.__class__.__name__
+                ),
+                "error_message": str(exc),
+                "players": [],
+                "identity_enrichment_applied": False,
+                "authoritative": False,
+                "authoritative_source": "legacy",
+            }
 
     if probability_resolution_diagnostics is not None:
         try:

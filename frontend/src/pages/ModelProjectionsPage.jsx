@@ -3,6 +3,9 @@ import { API_BASE } from '../lib/api'
 import {
   buildCanonicalDiagnosticsViewModel,
 } from '../lib/canonicalDiagnosticsViewModel.mjs'
+import {
+  buildCanonicalProjectionsViewModel,
+} from '../lib/canonicalProjectionsViewModel.mjs'
 
 const API = API_BASE
 
@@ -759,6 +762,254 @@ function SimulationTab({ workspace, game }) {
   )
 }
 
+function projectionNumber(value, digits = 2) {
+  const parsed = Number(value)
+
+  if (!Number.isFinite(parsed)) return '—'
+
+  return parsed.toFixed(digits)
+}
+
+function ProjectionTable({
+  title,
+  columns,
+  rows,
+}) {
+  return (
+    <div style={{ ...s.metricCard, marginTop: '14px' }}>
+      <div style={s.metricLabel}>{title}</div>
+
+      {!rows.length ? (
+        <div style={s.noData}>
+          No {title.toLowerCase()} are available for this run.
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              minWidth: '1120px',
+              marginTop: '10px',
+            }}
+          >
+            <thead>
+              <tr>
+                {columns.map(column => (
+                  <th
+                    key={column.key}
+                    style={{
+                      color: '#8b949e',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      letterSpacing: '0.04em',
+                      padding: '9px 8px',
+                      textAlign: column.align || 'right',
+                      borderBottom: '1px solid #30363d',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {column.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+
+            <tbody>
+              {rows.map(row => (
+                <tr
+                  key={
+                    row.mlbPlayerId ||
+                    row.playerId ||
+                    `${row.side}-${row.name}`
+                  }
+                >
+                  {columns.map(column => (
+                    <td
+                      key={column.key}
+                      style={{
+                        color: (
+                          column.key === 'name'
+                            ? '#e6edf3'
+                            : '#c9d1d9'
+                        ),
+                        fontSize: '12px',
+                        padding: '9px 8px',
+                        textAlign: column.align || 'right',
+                        borderBottom: '1px solid #21262d',
+                        whiteSpace: 'nowrap',
+                        fontWeight: (
+                          column.key === 'name' ||
+                          column.key === 'dfsMean'
+                            ? 600
+                            : 400
+                        ),
+                      }}
+                    >
+                      {column.format === 'text'
+                        ? row[column.key]
+                        : projectionNumber(
+                            row[column.key],
+                            column.digits ?? 2,
+                          )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const BATTER_PROJECTION_COLUMNS = [
+  { key: 'name', label: 'Player', format: 'text', align: 'left' },
+  { key: 'side', label: 'Side', format: 'text', align: 'left' },
+  { key: 'plateAppearances', label: 'PA' },
+  { key: 'hits', label: 'H' },
+  { key: 'runs', label: 'R' },
+  { key: 'rbis', label: 'RBI' },
+  { key: 'singles', label: '1B' },
+  { key: 'doubles', label: '2B' },
+  { key: 'triples', label: '3B' },
+  { key: 'homeRuns', label: 'HR' },
+  { key: 'walks', label: 'BB' },
+  { key: 'stolenBases', label: 'SB' },
+  { key: 'strikeouts', label: 'K' },
+  { key: 'dfsMean', label: 'DK Mean' },
+  { key: 'dfsFloor', label: 'DK Floor' },
+  { key: 'dfsMedian', label: 'DK Median' },
+  { key: 'dfsCeiling', label: 'DK Ceiling' },
+]
+
+const PITCHER_PROJECTION_COLUMNS = [
+  { key: 'name', label: 'Pitcher', format: 'text', align: 'left' },
+  { key: 'side', label: 'Side', format: 'text', align: 'left' },
+  { key: 'battersFaced', label: 'BF' },
+  { key: 'inningsPitched', label: 'IP' },
+  { key: 'hitsAllowed', label: 'H' },
+  { key: 'walks', label: 'BB' },
+  { key: 'hitByPitch', label: 'HBP' },
+  { key: 'strikeouts', label: 'K' },
+  { key: 'runs', label: 'R' },
+  { key: 'earnedRuns', label: 'ER' },
+  { key: 'dfsMean', label: 'DK Mean' },
+  { key: 'dfsFloor', label: 'DK Floor' },
+  { key: 'dfsMedian', label: 'DK Median' },
+  { key: 'dfsCeiling', label: 'DK Ceiling' },
+]
+
+function ProjectionsTab({ game }) {
+  const view = (
+    buildCanonicalProjectionsViewModel(game)
+  )
+
+  if (!view.available) {
+    return (
+      <div style={s.noData}>
+        Canonical player projections are not available for this
+        game. This tab only renders rows produced by the same
+        canonical simulation run shown in Simulation and
+        Diagnostics.
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div style={s.diagnosticHeader}>
+        <div>
+          <h3
+            style={{
+              margin: 0,
+              color: '#e6edf3',
+              fontSize: '21px',
+            }}
+          >
+            Canonical Player Projections
+          </h3>
+
+          <div
+            style={{
+              color: '#8b949e',
+              fontSize: '13px',
+              marginTop: '5px',
+            }}
+          >
+            Player outcomes derived from the exact same trial
+            batch as this game simulation.
+          </div>
+        </div>
+
+        <Tag tone="diagnostic">
+          Non-authoritative shadow
+        </Tag>
+      </div>
+
+      <div style={s.grid}>
+        <GenericPanel title="Run Identity">
+          <StatRow
+            k="Run ID"
+            v={view.runId}
+            format="text"
+          />
+          <StatRow
+            k="Model Version"
+            v={view.modelVersion}
+            format="text"
+          />
+          <StatRow
+            k="Simulation Count"
+            v={view.simulationCount}
+            format="num"
+          />
+        </GenericPanel>
+
+        <GenericPanel title="Projection Contract">
+          <StatRow
+            k="Schema"
+            v={view.schemaVersion}
+            format="text"
+          />
+          <StatRow
+            k="Source Schema"
+            v={view.sourceProjectionSchemaVersion}
+            format="text"
+          />
+          <StatRow
+            k="Authoritative Source"
+            v={view.authoritativeSource}
+            format="text"
+          />
+          <StatRow
+            k="Identity Enrichment"
+            v={
+              view.identityEnrichmentApplied
+                ? 'applied'
+                : 'not applied'
+            }
+            format="text"
+          />
+        </GenericPanel>
+      </div>
+
+      <ProjectionTable
+        title="Batter Projections"
+        columns={BATTER_PROJECTION_COLUMNS}
+        rows={view.batters}
+      />
+
+      <ProjectionTable
+        title="Pitcher Projections"
+        columns={PITCHER_PROJECTION_COLUMNS}
+        rows={view.pitchers}
+      />
+    </div>
+  )
+}
+
 function shortDigest(value) {
   if (!value) return '—'
   const text = String(value)
@@ -1310,6 +1561,7 @@ const TABS = [
   ['matchup', 'Matchup Analysis'],
   ['bullpen', 'Bullpen'],
   ['simulation', 'Simulation'],
+  ['projections', 'Projections'],
   ['diagnostics', 'Diagnostics'],
 ]
 
@@ -1331,6 +1583,7 @@ function GameProjectionCard({ game }) {
     if (activeTab === 'matchup') return <MatchupTab workspace={workspace} />
     if (activeTab === 'bullpen') return <BullpenTab workspace={workspace} game={game} />
     if (activeTab === 'simulation') return <SimulationTab workspace={workspace} game={game} />
+    if (activeTab === 'projections') return <ProjectionsTab game={game} />
     if (activeTab === 'diagnostics') return <DiagnosticsTab game={game} />
     return null
   }

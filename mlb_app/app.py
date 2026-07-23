@@ -102,6 +102,9 @@ from .matchup_workspace_builder import (
     build_bullpen_adjusted_game_simulation,
 )
 from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
+from .draftkings_projection_routes import (
+    router as draftkings_projection_router,
+)
 from .daily_odds_routes import router as daily_odds_router
 from .simulation.inning_simulator import simulate_half_innings
 from .model_projection_routes import router as model_projection_router
@@ -1392,6 +1395,9 @@ def create_app():
         allow_headers=["*"],
     )
 
+    app.include_router(
+        draftkings_projection_router
+    )
     app.include_router(batter_router)
     app.include_router(daily_odds_router)
     app.include_router(model_projection_router)
