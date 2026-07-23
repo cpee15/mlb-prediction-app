@@ -36,6 +36,13 @@ test('the workspace preserves the approved type system and responsive breakpoint
   assert.match(studioSource, /overflow: 'auto'/)
 })
 
+test('the landing and workspace expose a persisted light, dark, and system theme control', () => {
+  assert.match(workspaceSource, /DASHBOARD_THEME_KEY/)
+  assert.match(workspaceSource, /prefers-color-scheme: dark/)
+  assert.match(workspaceSource, /Dashboard color theme/)
+  assert.match(workspaceSource, /data-dashboard-theme/)
+})
+
 test('new MyDashboard surfaces contain no prohibited legacy product name', () => {
   const prohibited = ['sales', 'force'].join('')
   assert.equal(workspaceSource.toLowerCase().includes(prohibited), false)
