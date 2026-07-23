@@ -3,6 +3,7 @@ from dataclasses import replace
 import pytest
 
 from mlb_app.simulation.events import (
+    Base,
     BattedBallContext,
     GameState,
 )
@@ -622,3 +623,364 @@ def test_ineligible_groundout_has_no_force_play_provenance(
     assert resolution.event.event_type == "out"
     assert resolution.force_play_seed is None
     assert resolution.force_play_draw is None
+
+
+def test_flyout_runner_on_third_can_hold(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "flyout",
+    )
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_fly_tag_resolution",
+        lambda **_kwargs: {
+            "origin_base": Base.THIRD,
+            "runner_id": "away_batter_3",
+            "destination": Base.HOME,
+            "attempt_draw": 0.99,
+            "success_draw": None,
+            "attempted": False,
+            "succeeded": False,
+        },
+    )
+
+    state = GameState(
+        inning=6,
+        half="top",
+        outs=0,
+        bases=(
+            None,
+            None,
+            "away_batter_3",
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert event.event_type == "caught_fly"
+    assert event.state_after.outs == 1
+    assert event.state_after.third == "away_batter_3"
+    assert event.runs_scored == ()
+    assert resolution.tag_origin_base is Base.THIRD
+    assert resolution.tag_attempt_draw == 0.99
+    assert resolution.tag_success_draw is None
+
+
+def test_flyout_runner_on_second_tags_safely_to_third(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "flyout",
+    )
+
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_fly_tag_resolution",
+        lambda **_kwargs: {
+            "origin_base": Base.SECOND,
+            "runner_id": "away_batter_2",
+            "destination": Base.THIRD,
+            "attempt_draw": 0.10,
+            "success_draw": 0.10,
+            "attempted": True,
+            "succeeded": True,
+        },
+    )
+
+    state = GameState(
+        inning=6,
+        half="top",
+        outs=0,
+        bases=(
+            None,
+            "away_batter_2",
+            None,
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert event.event_type == "caught_fly_tag_advance"
+    assert event.state_after.outs == 1
+    assert event.state_after.second is None
+    assert event.state_after.third == "away_batter_2"
+    assert resolution.tag_origin_base is Base.SECOND
+    assert resolution.tag_attempt_draw == 0.10
+    assert resolution.tag_success_draw == 0.10
+
+
+def test_flyout_runner_on_first_tags_safely_to_second(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "flyout",
+    )
+
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_fly_tag_resolution",
+        lambda **_kwargs: {
+            "origin_base": Base.FIRST,
+            "runner_id": "away_batter_1",
+            "destination": Base.SECOND,
+            "attempt_draw": 0.01,
+            "success_draw": 0.10,
+            "attempted": True,
+            "succeeded": True,
+        },
+    )
+
+    state = GameState(
+        inning=6,
+        half="top",
+        outs=0,
+        bases=(
+            "away_batter_1",
+            None,
+            None,
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert event.event_type == "caught_fly_tag_advance"
+    assert event.state_after.outs == 1
+    assert event.state_after.first is None
+    assert event.state_after.second == "away_batter_1"
+
+
+def test_flyout_tag_attempt_can_end_in_tag_out(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "flyout",
+    )
+
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_fly_tag_resolution",
+        lambda **_kwargs: {
+            "origin_base": Base.SECOND,
+            "runner_id": "away_batter_2",
+            "destination": Base.THIRD,
+            "attempt_draw": 0.10,
+            "success_draw": 0.99,
+            "attempted": True,
+            "succeeded": False,
+        },
+    )
+
+    state = GameState(
+        inning=6,
+        half="top",
+        outs=0,
+        bases=(
+            None,
+            "away_batter_2",
+            None,
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert event.event_type == "caught_fly_tag_out"
+    assert event.state_after.outs == 2
+    assert event.state_after.bases == (
+        None,
+        None,
+        None,
+    )
+    assert tuple(
+        record.reason
+        for record in event.outs_recorded
+    ) == (
+        "caught_fly",
+        "tag_out",
+    )
+
+
+def test_runner_on_third_safe_tag_is_sacrifice_fly(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "flyout",
+    )
+
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_fly_tag_resolution",
+        lambda **_kwargs: {
+            "origin_base": Base.THIRD,
+            "runner_id": "away_batter_3",
+            "destination": Base.HOME,
+            "attempt_draw": 0.10,
+            "success_draw": 0.10,
+            "attempted": True,
+            "succeeded": True,
+        },
+    )
+
+    state = GameState(
+        inning=7,
+        half="top",
+        outs=1,
+        bases=(
+            None,
+            None,
+            "away_batter_3",
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert event.event_type == "sacrifice_fly"
+    assert event.state_after.outs == 2
+    assert event.state_after.away_score == 1
+    assert event.runs_scored == (
+        "away_batter_3",
+    )
+    assert event.attribution.rbi_count == 1
+
+
+def test_flyout_with_two_outs_is_not_tag_eligible(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "flyout",
+    )
+
+    state = GameState(
+        inning=7,
+        half="top",
+        outs=2,
+        bases=(
+            None,
+            "away_batter_2",
+            None,
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    assert resolution.event.event_type == "caught_fly"
+    assert resolution.event.state_after.outs == 3
+    assert resolution.event.state_after.second == (
+        "away_batter_2"
+    )
+    assert resolution.tag_attempt_seed is None
+    assert resolution.tag_attempt_draw is None
+    assert resolution.tag_success_seed is None
+    assert resolution.tag_success_draw is None
+
+
+def test_failed_tag_after_caught_fly_can_record_third_out(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "flyout",
+    )
+
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_fly_tag_resolution",
+        lambda **_kwargs: {
+            "origin_base": Base.SECOND,
+            "runner_id": "away_batter_2",
+            "destination": Base.THIRD,
+            "attempt_draw": 0.10,
+            "success_draw": 0.99,
+            "attempted": True,
+            "succeeded": False,
+        },
+    )
+
+    state = GameState(
+        inning=8,
+        half="top",
+        outs=1,
+        bases=(
+            None,
+            "away_batter_2",
+            None,
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert event.state_after.outs == 3
+    assert tuple(
+        record.out_number
+        for record in event.outs_recorded
+    ) == (
+        2,
+        3,
+    )
+    assert tuple(
+        record.reason
+        for record in event.outs_recorded
+    ) == (
+        "caught_fly",
+        "tag_out",
+    )
