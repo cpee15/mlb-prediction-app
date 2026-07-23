@@ -1,3 +1,7 @@
+import {
+  buildCanonicalDiagnosticsViewModel,
+} from './canonicalDiagnosticsViewModel.mjs'
+
 function asObject(value) {
   return value && typeof value === 'object'
     ? value
@@ -199,6 +203,92 @@ function sortRows(rows) {
   })
 }
 
+function unavailableProjectionState(game) {
+  const diagnostics = (
+    buildCanonicalDiagnosticsViewModel(game)
+  )
+
+  const execution = (
+    diagnostics.productionExecution || {}
+  )
+  const readiness = (
+    diagnostics.bootstrapReadiness || {}
+  )
+
+  const status = String(
+    execution.status ||
+    diagnostics.status?.state ||
+    'not_run'
+  ).toLowerCase()
+
+  if (status === 'error') {
+    return {
+      state: 'error',
+      title: 'Canonical projection run failed',
+      message: (
+        diagnostics.status?.availabilityReason ||
+        execution.errorMessage ||
+        'The canonical simulation failed open before player projections could be attached.'
+      ),
+      blockers: [],
+      errorType: execution.errorType || null,
+      errorMessage: execution.errorMessage || null,
+    }
+  }
+
+  if (
+    readiness.available &&
+    readiness.blockedCount > 0
+  ) {
+    return {
+      state: 'blocked',
+      title: 'Canonical projections blocked',
+      message: (
+        diagnostics.status?.availabilityReason ||
+        'Required canonical simulation inputs are missing.'
+      ),
+      blockers: (
+        readiness.items || []
+      )
+        .filter(item => !item.ready)
+        .map(item => ({
+          key: item.key,
+          label: item.label,
+          detail: item.detail || null,
+        })),
+      errorType: null,
+      errorMessage: null,
+    }
+  }
+
+  if (status === 'executed') {
+    return {
+      state: 'attachment_missing',
+      title: 'Canonical projections were not attached',
+      message: (
+        diagnostics.status?.availabilityReason ||
+        'Canonical trials executed, but same-run player projection rows were not attached to this response.'
+      ),
+      blockers: [],
+      errorType: null,
+      errorMessage: null,
+    }
+  }
+
+  return {
+    state: 'not_run',
+    title: 'Canonical simulation was not available',
+    message: (
+      diagnostics.status?.availabilityReason ||
+      'Canonical player projections require a completed canonical simulation run for this game.'
+    ),
+    blockers: [],
+    errorType: null,
+    errorMessage: null,
+  }
+}
+
+
 export function buildCanonicalProjectionsViewModel(
   game,
 ) {
@@ -216,8 +306,15 @@ export function buildCanonicalProjectionsViewModel(
     players.length > 0
   )
 
+  const unavailable = (
+    available
+      ? null
+      : unavailableProjectionState(game)
+  )
+
   return {
     available,
+    unavailable,
     status: projections.status || (
       available ? 'available' : 'unavailable'
     ),

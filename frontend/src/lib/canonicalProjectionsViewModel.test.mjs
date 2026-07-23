@@ -170,3 +170,143 @@ test('leaves stolen bases unavailable when simulation omits metric', () => {
     null,
   )
 })
+
+test('explains blocked canonical projections', () => {
+  const view = (
+    buildCanonicalProjectionsViewModel({
+      diagnostics: {
+        canonical_shadow_bootstrap_readiness: {
+          status: 'blocked',
+          ready: false,
+          requirements: {
+            game_identity: {
+              ready: true,
+            },
+            away_lineup: {
+              ready: false,
+              player_count: 7,
+              required_player_count: 9,
+            },
+            home_lineup: {
+              ready: true,
+              player_count: 9,
+              required_player_count: 9,
+            },
+            away_starter: {
+              ready: true,
+            },
+            home_starter: {
+              ready: true,
+            },
+            away_bullpen: {
+              ready: true,
+              pitcher_count: 7,
+            },
+            home_bullpen: {
+              ready: true,
+              pitcher_count: 7,
+            },
+            probability_provider: {
+              ready: true,
+              source: 'canonical provider',
+            },
+            exact_probability_artifact: {
+              ready: true,
+              source: 'exact artifact',
+            },
+            fallback_probability_catalog: {
+              ready: true,
+              source: 'fallback catalog',
+            },
+          },
+          missing_requirements: [
+            'away_lineup',
+          ],
+        },
+        canonical_shadow_production_execution: {
+          status: 'blocked',
+          executed: false,
+        },
+      },
+    })
+  )
+
+  assert.equal(view.available, false)
+  assert.equal(
+    view.unavailable.state,
+    'blocked',
+  )
+  assert.equal(
+    view.unavailable.title,
+    'Canonical projections blocked',
+  )
+  assert.equal(
+    view.unavailable.blockers.length,
+    1,
+  )
+  assert.equal(
+    view.unavailable.blockers[0].label,
+    'Away lineup',
+  )
+  assert.equal(
+    view.unavailable.blockers[0].detail,
+    '7 of 9 players',
+  )
+})
+
+test('explains canonical execution errors', () => {
+  const view = (
+    buildCanonicalProjectionsViewModel({
+      diagnostics: {
+        canonical_shadow_production_execution: {
+          status: 'error',
+          executed: false,
+          error_type: 'RuntimeError',
+          error_message: 'provider failed',
+        },
+      },
+    })
+  )
+
+  assert.equal(view.available, false)
+  assert.equal(
+    view.unavailable.state,
+    'error',
+  )
+  assert.equal(
+    view.unavailable.title,
+    'Canonical projection run failed',
+  )
+  assert.equal(
+    view.unavailable.errorType,
+    'RuntimeError',
+  )
+  assert.match(
+    view.unavailable.message,
+    /provider failed/,
+  )
+})
+
+test('explains missing projection attachment after execution', () => {
+  const view = (
+    buildCanonicalProjectionsViewModel({
+      diagnostics: {
+        canonical_shadow_production_execution: {
+          status: 'executed',
+          executed: true,
+          canonical_available: true,
+        },
+      },
+    })
+  )
+
+  assert.equal(view.available, false)
+  assert.equal(
+    view.unavailable.state,
+    'attachment_missing',
+  )
+  assert.equal(
+    view.unavailable.title,
+    'Canonical projections were not attached',
+  )
+})

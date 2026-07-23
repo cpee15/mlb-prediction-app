@@ -70,3 +70,24 @@ test('projections tab renders requested batter metrics', async () => {
     assert.match(source, new RegExp(label))
   }
 })
+
+test('projections tab explains unavailable canonical states', async () => {
+  const source = await pageSource()
+
+  assert.match(
+    source,
+    /view\.unavailable\.title/,
+  )
+  assert.match(
+    source,
+    /view\.unavailable\.message/,
+  )
+  assert.match(
+    source,
+    /view\.unavailable\.blockers/,
+  )
+  assert.match(
+    source,
+    /same\s+canonical simulation run/i,
+  )
+})
