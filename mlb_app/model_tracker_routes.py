@@ -10,7 +10,16 @@ import secrets
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Cookie, Header, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from .admin_access import (
+    USER_CAPABILITIES,
+    access_payload_for_user,
+    ensure_owner_admin_role,
+    is_configured_admin_email,
+    resolve_principal,
+    resolve_session_token,
+)
 
 from .database import (
     AppDashboardFolder,
@@ -77,12 +86,31 @@ DEFAULT_FILTER_FIELDS = ["search_text", "team", "opponent", "min_score", "max_sc
 
 
 class DashboardProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: str
     username: str
     password: Optional[str] = None
     feature_interests: List[str] = Field(default_factory=list)
     wants_newsletter: bool = False
     plan_type: Optional[str] = "free"
+
+
+class DashboardRegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str
+    username: str
+    password: str = Field(min_length=8, max_length=256)
+    feature_interests: List[str] = Field(default_factory=list)
+    wants_newsletter: bool = False
+
+
+class DashboardLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str
+    password: str = Field(min_length=1, max_length=256)
 
 
 class DashboardItemCreateRequest(BaseModel):
@@ -195,15 +223,25 @@ def _verify_password(password: str, stored: Optional[str]) -> bool:
 
 
 def _resolve_session_token(cookie_token: Optional[str], header_token: Optional[str]) -> Optional[str]:
-    return header_token or cookie_token
+    return resolve_session_token(cookie_token, header_token)
 
 
 
-def _serialize_user(user: AppUser, prefs: Optional[AppUserPreference]) -> Dict[str, Any]:
+def _serialize_user(
+    user: AppUser,
+    prefs: Optional[AppUserPreference],
+    access: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    resolved_access = access or {
+        "role": "user",
+        "capabilities": list(USER_CAPABILITIES),
+    }
     return {
         "id": user.id,
         "email": user.email,
         "username": user.username,
+        "role": resolved_access["role"],
+        "capabilities": list(resolved_access["capabilities"]),
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "updated_at": user.updated_at.isoformat() if user.updated_at else None,
         "preferences": {
@@ -358,31 +396,39 @@ def _seed_default_dashboard(session, user_id: int, folder_id: int) -> None:
 
 
 
-def _upsert_preferences(session, user_id: int, request: DashboardProfileRequest) -> AppUserPreference:
+def _upsert_preferences(session, user_id: int, request: BaseModel) -> AppUserPreference:
     prefs = session.query(AppUserPreference).filter(AppUserPreference.user_id == user_id).first()
     now = _utcnow()
-    feature_interests = [choice for choice in request.feature_interests if choice in FEATURE_CHOICES]
+    requested_interests = getattr(request, "feature_interests", []) or []
+    feature_interests = [choice for choice in requested_interests if choice in FEATURE_CHOICES]
+    wants_newsletter = bool(getattr(request, "wants_newsletter", False))
+    requested_plan = getattr(request, "plan_type", None)
     if prefs is None:
         prefs = AppUserPreference(
             user_id=user_id,
-            wants_newsletter=request.wants_newsletter,
+            wants_newsletter=wants_newsletter,
             feature_interests_json=feature_interests,
-            plan_type=request.plan_type or "free",
+            plan_type=requested_plan or "free",
             created_at=now,
             updated_at=now,
         )
         session.add(prefs)
     else:
-        prefs.wants_newsletter = request.wants_newsletter
+        prefs.wants_newsletter = wants_newsletter
         prefs.feature_interests_json = feature_interests
-        prefs.plan_type = request.plan_type or prefs.plan_type or "free"
+        prefs.plan_type = requested_plan or prefs.plan_type or "free"
         prefs.updated_at = now
     return prefs
 
 
 
-def _create_session(session, user_id: int) -> AppSession:
-    now = _utcnow()
+def _create_session(
+    session,
+    user_id: int,
+    *,
+    now: Optional[dt.datetime] = None,
+) -> AppSession:
+    now = now or _utcnow()
     expires_at = now + dt.timedelta(hours=DASHBOARD_SESSION_HOURS)
     token = secrets.token_urlsafe(32)
     db_session = AppSession(
@@ -399,24 +445,18 @@ def _create_session(session, user_id: int) -> AppSession:
 
 
 def _get_active_user(session, token: Optional[str]) -> Optional[AppUser]:
-    if not token:
+    principal = resolve_principal(session, token)
+    if not principal:
         return None
-    now = _utcnow()
-    db_session = (
-        session.query(AppSession)
-        .filter(AppSession.session_token == token, AppSession.expires_at > now)
-        .order_by(AppSession.id.desc())
-        .first()
-    )
-    if not db_session:
-        return None
-    db_session.last_seen_at = now
-    user = session.query(AppUser).filter(AppUser.id == db_session.user_id).first()
-    return user
+    return session.query(AppUser).filter(AppUser.id == principal.user_id).first()
 
 
 
-def _get_workspace_payload(session, user: AppUser) -> Dict[str, Any]:
+def _get_workspace_payload(
+    session,
+    user: AppUser,
+    access: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     prefs = session.query(AppUserPreference).filter(AppUserPreference.user_id == user.id).first()
     default_folder = _get_or_create_default_folder(session, user.id)
     today_folder = _get_or_create_today_folder(session, user.id)
@@ -440,12 +480,123 @@ def _get_workspace_payload(session, user: AppUser) -> Dict[str, Any]:
         items_by_folder.setdefault(item.folder_id, []).append(item)
 
     return {
-        "user": _serialize_user(user, prefs),
+        "user": _serialize_user(user, prefs, access),
         "folders": [_serialize_folder(folder, items_by_folder.get(folder.id, [])) for folder in folders],
         "default_folder_id": default_folder.id,
         "today_folder_id": today_folder.id,
         "feature_choices": FEATURE_CHOICES,
         "seeded_components": [component["key"] for component in DEFAULT_COMPONENTS],
+    }
+
+
+def _validated_registration_password(password: Optional[str]) -> str:
+    value = str(password or "")
+    if len(value) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be at least 8 characters.",
+        )
+    if len(value) > 256:
+        raise HTTPException(
+            status_code=400,
+            detail="Password must be 256 characters or fewer.",
+        )
+    return value
+
+
+def _validated_identity(email: str, username: Optional[str] = None) -> tuple[str, Optional[str]]:
+    normalized_email = _normalize_email(email)
+    normalized_username = _normalize_username(username or "") if username is not None else None
+    if not normalized_email or "@" not in normalized_email:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+    if username is not None and not normalized_username:
+        raise HTTPException(status_code=400, detail="Username is required")
+    return normalized_email, normalized_username
+
+
+def _verified_login_user(session, email: str, password: Optional[str]) -> AppUser:
+    user = session.query(AppUser).filter(AppUser.email == email).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not user.password_hash:
+        raise HTTPException(
+            status_code=409,
+            detail="Account recovery is required before this profile can sign in.",
+        )
+    if not password:
+        raise HTTPException(status_code=401, detail="Password is required")
+    if not _verify_password(password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return user
+
+
+def _provision_new_user(
+    session,
+    *,
+    email: str,
+    username: str,
+    password: str,
+    preferences: BaseModel,
+) -> tuple[AppUser, AppUserPreference]:
+    if session.query(AppUser).filter(AppUser.email == email).first() is not None:
+        raise HTTPException(status_code=409, detail="An account already exists for this email")
+    if is_configured_admin_email(email):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "The configured owner account must be provisioned before its "
+                "email is added to MLBGPT_ADMIN_EMAILS."
+            ),
+        )
+    now = _utcnow()
+    user = AppUser(
+        email=email,
+        username=username,
+        password_hash=_hash_password(password),
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(user)
+    session.flush()
+    prefs = _upsert_preferences(session, user.id, preferences)
+    default_folder = _get_or_create_default_folder(session, user.id)
+    _seed_default_dashboard(session, user.id, default_folder.id)
+    _get_or_create_today_folder(session, user.id)
+    return user, prefs
+
+
+def _issue_dashboard_session(
+    session,
+    response: Response,
+    user: AppUser,
+    prefs: Optional[AppUserPreference],
+    *,
+    verified_login: bool,
+) -> Dict[str, Any]:
+    now = _utcnow()
+    if verified_login:
+        ensure_owner_admin_role(session, user, verified_at=now)
+    db_session = _create_session(session, user.id, now=now)
+    access = access_payload_for_user(
+        session,
+        user,
+        session_created_at=db_session.created_at,
+    )
+    default_folder = _get_or_create_default_folder(session, user.id)
+    session.flush()
+    response.set_cookie(
+        key=DASHBOARD_SESSION_COOKIE,
+        value=db_session.session_token,
+        **_cookie_settings(),
+    )
+    return {
+        "ok": True,
+        "user": _serialize_user(user, prefs, access),
+        "default_folder_id": default_folder.id,
+        "session_expires_at": db_session.expires_at.isoformat(),
+        # Compatibility: current MyDashboard clients also send the session header.
+        "session_token": db_session.session_token,
+        "cookie_settings": _cookie_settings(),
     }
 
 
@@ -513,57 +664,118 @@ def model_tracker_results_refresh(date: Optional[str] = Query(default=None)) -> 
         raise HTTPException(status_code=500, detail={"message": "Model Tracker result refresh failed", "error": str(exc)}) from exc
 
 
+@router.post("/my-dashboard/auth/register")
+def my_dashboard_register(
+    request: DashboardRegisterRequest,
+    response: Response,
+) -> Dict[str, Any]:
+    email, username = _validated_identity(request.email, request.username)
+    Session = _session_factory()
+    with Session() as session:
+        user, prefs = _provision_new_user(
+            session,
+            email=email,
+            username=username or "",
+            password=request.password,
+            preferences=request,
+        )
+        payload = _issue_dashboard_session(
+            session,
+            response,
+            user,
+            prefs,
+            verified_login=False,
+        )
+        session.commit()
+        return payload
+
+
+@router.post("/my-dashboard/auth/login")
+def my_dashboard_login(
+    request: DashboardLoginRequest,
+    response: Response,
+) -> Dict[str, Any]:
+    email, _ = _validated_identity(request.email)
+    Session = _session_factory()
+    with Session() as session:
+        user = _verified_login_user(session, email, request.password)
+        prefs = session.query(AppUserPreference).filter(AppUserPreference.user_id == user.id).first()
+        payload = _issue_dashboard_session(
+            session,
+            response,
+            user,
+            prefs,
+            verified_login=True,
+        )
+        session.commit()
+        return payload
+
+
+@router.post("/my-dashboard/auth/logout")
+def my_dashboard_logout(
+    response: Response,
+    mlb_dashboard_session: Optional[str] = Cookie(default=None),
+    x_dashboard_session: Optional[str] = Header(default=None, alias="X-Dashboard-Session"),
+) -> Dict[str, Any]:
+    token = _resolve_session_token(mlb_dashboard_session, x_dashboard_session)
+    Session = _session_factory()
+    with Session() as session:
+        if token:
+            session.query(AppSession).filter(AppSession.session_token == token).delete(
+                synchronize_session=False
+            )
+        session.commit()
+    cookie = _cookie_settings()
+    response.delete_cookie(
+        key=DASHBOARD_SESSION_COOKIE,
+        path=cookie["path"],
+        secure=cookie["secure"],
+        httponly=cookie["httponly"],
+        samesite=cookie["samesite"],
+    )
+    return {"ok": True}
+
+
 @router.post("/my-dashboard/profile")
 def my_dashboard_profile_create(request: DashboardProfileRequest, response: Response) -> Dict[str, Any]:
-    email = _normalize_email(request.email)
-    username = _normalize_username(request.username)
-    if not email or "@" not in email:
-        raise HTTPException(status_code=400, detail="A valid email is required")
-    if not username:
-        raise HTTPException(status_code=400, detail="Username is required")
+    """Compatibility profile endpoint with safe register-or-login behavior."""
 
+    email, username = _validated_identity(request.email, request.username)
     Session = _session_factory()
     with Session() as session:
         user = session.query(AppUser).filter(AppUser.email == email).first()
-        now = _utcnow()
         if user is None:
-            user = AppUser(
+            password = _validated_registration_password(request.password)
+            user, prefs = _provision_new_user(
+                session,
                 email=email,
-                username=username,
-                password_hash=_hash_password(request.password) if request.password else None,
-                created_at=now,
-                updated_at=now,
+                username=username or "",
+                password=password,
+                preferences=request,
             )
-            session.add(user)
-            session.flush()
+            payload = _issue_dashboard_session(
+                session,
+                response,
+                user,
+                prefs,
+                verified_login=False,
+            )
         else:
-            if user.password_hash and request.password and not _verify_password(request.password, user.password_hash):
-                raise HTTPException(status_code=403, detail="Password does not match existing account")
+            # Verify first. No profile or preference data is mutated on failure.
+            user = _verified_login_user(session, email, request.password)
+            now = _utcnow()
             user.username = username or user.username
-            if request.password and not user.password_hash:
-                user.password_hash = _hash_password(request.password)
             user.updated_at = now
-
-        prefs = _upsert_preferences(session, user.id, request)
-        default_folder = _get_or_create_default_folder(session, user.id)
-        _seed_default_dashboard(session, user.id, default_folder.id)
-        _get_or_create_today_folder(session, user.id)
-        db_session = _create_session(session, user.id)
+            prefs = _upsert_preferences(session, user.id, request)
+            payload = _issue_dashboard_session(
+                session,
+                response,
+                user,
+                prefs,
+                verified_login=True,
+            )
         session.commit()
-
-        response.set_cookie(
-            key=DASHBOARD_SESSION_COOKIE,
-            value=db_session.session_token,
-            **_cookie_settings(),
-        )
-        return {
-            "ok": True,
-            "user": _serialize_user(user, prefs),
-            "default_folder_id": default_folder.id,
-            "session_expires_at": db_session.expires_at.isoformat(),
-            "session_token": db_session.session_token,
-            "cookie_settings": _cookie_settings(),
-        }
+        return payload
 
 
 @router.get("/my-dashboard/profile")
@@ -573,14 +785,18 @@ def my_dashboard_profile_get(
 ) -> Dict[str, Any]:
     Session = _session_factory()
     with Session() as session:
-        user = _get_active_user(session, _resolve_session_token(mlb_dashboard_session, x_dashboard_session))
-        if not user:
+        principal = resolve_principal(
+            session,
+            _resolve_session_token(mlb_dashboard_session, x_dashboard_session),
+        )
+        if not principal:
             return {"authenticated": False}
+        user = session.query(AppUser).filter(AppUser.id == principal.user_id).first()
         prefs = session.query(AppUserPreference).filter(AppUserPreference.user_id == user.id).first()
         session.commit()
         return {
             "authenticated": True,
-            "user": _serialize_user(user, prefs),
+            "user": _serialize_user(user, prefs, principal.access_payload()),
             "feature_choices": FEATURE_CHOICES,
         }
 
@@ -592,10 +808,14 @@ def my_dashboard_workspace(
 ) -> Dict[str, Any]:
     Session = _session_factory()
     with Session() as session:
-        user = _get_active_user(session, _resolve_session_token(mlb_dashboard_session, x_dashboard_session))
-        if not user:
+        principal = resolve_principal(
+            session,
+            _resolve_session_token(mlb_dashboard_session, x_dashboard_session),
+        )
+        if not principal:
             raise HTTPException(status_code=401, detail="Dashboard sign-in required")
-        payload = _get_workspace_payload(session, user)
+        user = session.query(AppUser).filter(AppUser.id == principal.user_id).first()
+        payload = _get_workspace_payload(session, user, principal.access_payload())
         session.commit()
         return payload
 
