@@ -76,8 +76,8 @@ FEATURE_FLAG_DEFINITIONS: Dict[str, Dict[str, str]] = {
         "description": "Foundation gate for future owner-only federation controls.",
     },
     "workbench_query_enabled": {
-        "label": "Workbench query",
-        "description": "Foundation gate only; the Workbench compiler and execution remain unavailable.",
+        "label": "Query Studio",
+        "description": "Gates the owner-only constrained Query Studio in MyDashboard.",
     },
     "federation_refresh_enabled": {
         "label": "Federation refresh",

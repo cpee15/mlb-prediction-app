@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import test from 'node:test'
+
+const appSource = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8')
+const workspaceSource = readFileSync(new URL('../pages/MyDashboardReportBuilderPage.jsx', import.meta.url), 'utf8')
+const studioSource = readFileSync(new URL('../components/QueryStudioPanel.jsx', import.meta.url), 'utf8')
+
+test('/my-dashboard resolves to the current Report Builder workspace', () => {
+  assert.match(appSource, /path="\/my-dashboard" element={<MyDashboardReportBuilderPage\s*\/>}/)
+  assert.doesNotMatch(appSource, /MyDashboardWorkbenchPage/)
+})
+
+test('the routed page owns both the signed-out landing and authenticated workspace', () => {
+  assert.match(workspaceSource, /if \(!profile\) return/)
+  assert.match(workspaceSource, /Sign in to MyDashboard/)
+  assert.match(workspaceSource, /Private report workspace/)
+  assert.match(workspaceSource, /Build your report\./)
+})
+
+test('Query Studio visibility is capability-derived and the server remains the execution boundary', () => {
+  assert.match(workspaceSource, /hasDashboardCapability\(profile, 'workbench\.advanced'\) \? <QueryStudioPanel/)
+  assert.doesNotMatch(workspaceSource, /profile\.(email|plan_type)\s*===/)
+  assert.match(studioSource, /dashboardApi\('\/my-dashboard\/query-studio\/metadata'/)
+  assert.match(studioSource, /dashboardApi\(path/)
+  assert.match(studioSource, /Normalized request and bindings/)
+  assert.match(studioSource, /event\.(metaKey|ctrlKey)/)
+})
+
+test('the workspace preserves the approved type system and responsive breakpoints', () => {
+  assert.match(workspaceSource, /Franklin Gothic/)
+  assert.match(workspaceSource, /Century Gothic/)
+  assert.match(workspaceSource, /const isMobile = width < 760/)
+  assert.match(workspaceSource, /const isNarrow = width < 1050/)
+  assert.match(studioSource, /overflowX: 'auto'/)
+  assert.match(studioSource, /overflow: 'auto'/)
+})
+
+test('new MyDashboard surfaces contain no prohibited legacy product name', () => {
+  const prohibited = ['sales', 'force'].join('')
+  assert.equal(workspaceSource.toLowerCase().includes(prohibited), false)
+  assert.equal(studioSource.toLowerCase().includes(prohibited), false)
+})
