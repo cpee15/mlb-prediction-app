@@ -168,3 +168,21 @@ def test_projection_workspace_version_changes_cache_namespace() -> None:
     assert key.endswith(
         f"{MODEL_PROJECTION_WORKSPACE_VERSION}:{date}"
     )
+
+
+def test_model_projection_workspace_v3_invalidates_prior_payload_cache():
+    date = "2026-07-23"
+
+    key = model_projection_date_key(date)
+
+    assert MODEL_PROJECTION_WORKSPACE_VERSION == (
+        "model_projection_workspace_v3"
+    )
+    assert key.endswith(
+        "model_projection_workspace_v3:"
+        + date
+    )
+    assert (
+        "model_projection_workspace_v2"
+        not in key
+    )
