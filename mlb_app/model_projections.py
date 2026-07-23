@@ -60,12 +60,14 @@ def _build_game_state_realism_diagnostics() -> dict:
         "walkoff_shortening_enabled": True,
         "extras_walkoff_model_status": "diagnostic_wired",
         "double_play_enabled": True,
+        "multi_out_scoring": True,
         "double_play_rate_source": "existing_simulation_transition_logic",
         "double_play_transition_summary": {
             "status": "diagnostic_only",
             "final_probability_replacement": False,
         },
         "sac_fly_enabled": True,
+        "sacrifice_fly_scoring": True,
         "sac_fly_rate_source": "existing_simulation_transition_logic",
         "sac_fly_transition_summary": {
             "status": "diagnostic_only",
