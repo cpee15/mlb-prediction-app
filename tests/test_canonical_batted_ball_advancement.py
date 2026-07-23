@@ -227,8 +227,16 @@ def test_batted_ball_out_uses_explicit_advancement():
     assert event.outs_recorded[0].runner_id == (
         "away_batter_0"
     )
+    expected_reason = {
+        "flyout": "caught_fly",
+        "lineout_popout": "caught_fly",
+    }.get(
+        resolution.outcome_subtype,
+        resolution.outcome_subtype,
+    )
+
     assert event.outs_recorded[0].reason == (
-        resolution.outcome_subtype
+        expected_reason
     )
     assert event.runner_movements[-1].is_out
 
@@ -339,6 +347,11 @@ def test_groundout_with_runner_on_first_becomes_double_play(
         "mlb_app.simulation.game."
         "batted_ball_resolution._sample_outcome_subtype",
         lambda _seed: "groundout",
+    )
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution.random.Random.random",
+        lambda _rng: 0.10,
     )
 
     state = GameState(
@@ -501,3 +514,111 @@ def test_lineout_popout_becomes_caught_fly(
 
     assert resolution.event.event_type == "caught_fly"
     assert resolution.event.state_after.outs == 1
+
+
+def test_groundout_force_play_can_be_fielders_choice(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "groundout",
+    )
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution.random.Random.random",
+        lambda _rng: 0.90,
+    )
+
+    state = GameState(
+        inning=5,
+        half="top",
+        outs=0,
+        bases=(
+            "away_batter_1",
+            None,
+            None,
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert event.event_type == (
+        "ground_ball_fielders_choice"
+    )
+    assert event.pitcher_id == "home_starter"
+    assert event.state_after.outs == 1
+    assert event.state_after.first == (
+        "away_batter_0"
+    )
+    assert event.state_after.second is None
+    assert resolution.force_play_seed is not None
+    assert resolution.force_play_draw == 0.90
+
+
+def test_force_play_seed_is_independent():
+    value = sampled(
+        CanonicalPlateAppearanceOutcome.OUT,
+        state=GameState(
+            inning=5,
+            half="top",
+            bases=(
+                "away_batter_1",
+                None,
+                None,
+            ),
+        ),
+    )
+
+    context_seed = derive_canonical_batted_ball_seed(
+        sampled=value,
+        purpose="context",
+    )
+    advancement_seed = derive_canonical_batted_ball_seed(
+        sampled=value,
+        purpose="advancement",
+    )
+    force_play_seed = derive_canonical_batted_ball_seed(
+        sampled=value,
+        purpose="force_play",
+    )
+
+    assert force_play_seed != context_seed
+    assert force_play_seed != advancement_seed
+
+
+def test_ineligible_groundout_has_no_force_play_provenance(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "groundout",
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=GameState(
+                inning=5,
+                half="top",
+                outs=2,
+                bases=(
+                    "away_batter_1",
+                    None,
+                    None,
+                ),
+            ),
+        )
+    )
+
+    assert resolution.event.event_type == "out"
+    assert resolution.force_play_seed is None
+    assert resolution.force_play_draw is None
