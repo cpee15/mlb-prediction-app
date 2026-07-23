@@ -330,3 +330,174 @@ def test_strikeout_does_not_use_batted_ball_resolution():
                 CanonicalPlateAppearanceOutcome.STRIKEOUT
             )
         )
+
+
+def test_groundout_with_runner_on_first_becomes_double_play(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "groundout",
+    )
+
+    state = GameState(
+        inning=5,
+        half="top",
+        outs=0,
+        bases=(
+            "away_batter_1",
+            None,
+            None,
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert event.event_type == (
+        "ground_ball_double_play"
+    )
+    assert event.pitcher_id == "home_starter"
+    assert event.state_after.outs == 2
+    assert event.state_after.bases == (
+        None,
+        None,
+        None,
+    )
+    assert len(event.outs_recorded) == 2
+
+
+def test_groundout_with_two_outs_remains_ordinary_out(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "groundout",
+    )
+
+    state = GameState(
+        inning=5,
+        half="top",
+        outs=2,
+        bases=(
+            "away_batter_1",
+            None,
+            None,
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert event.event_type == "out"
+    assert event.state_after.outs == 3
+    assert len(event.outs_recorded) == 1
+
+
+def test_flyout_with_runner_on_third_becomes_sacrifice_fly(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "flyout",
+    )
+
+    state = GameState(
+        inning=7,
+        half="top",
+        outs=1,
+        bases=(
+            None,
+            None,
+            "away_batter_3",
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert event.event_type == "sacrifice_fly"
+    assert event.pitcher_id == "home_starter"
+    assert event.state_after.outs == 2
+    assert event.state_after.away_score == 1
+    assert event.runs_scored == (
+        "away_batter_3",
+    )
+    assert event.attribution.rbi_count == 1
+
+
+def test_flyout_without_runner_on_third_becomes_caught_fly(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "flyout",
+    )
+
+    state = GameState(
+        inning=7,
+        half="top",
+        outs=0,
+        bases=(
+            "away_batter_1",
+            None,
+            None,
+        ),
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+            state=state,
+        )
+    )
+
+    event = resolution.event
+
+    assert event.event_type == "caught_fly"
+    assert event.pitcher_id == "home_starter"
+    assert event.state_after.outs == 1
+    assert event.state_after.first == (
+        "away_batter_1"
+    )
+
+
+def test_lineout_popout_becomes_caught_fly(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "mlb_app.simulation.game."
+        "batted_ball_resolution._sample_outcome_subtype",
+        lambda _seed: "lineout_popout",
+    )
+
+    resolution = resolve_canonical_batted_ball_outcome(
+        sampled(
+            CanonicalPlateAppearanceOutcome.OUT,
+        )
+    )
+
+    assert resolution.event.event_type == "caught_fly"
+    assert resolution.event.state_after.outs == 1

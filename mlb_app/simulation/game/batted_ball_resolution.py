@@ -12,6 +12,7 @@ from mlb_app.simulation.events import (
     BaselineBattedBallContextProvider,
     BaselineRunnerAdvancementSampler,
     BattedBallContext,
+    MultiOutPlayResolver,
     OutRecord,
     PlayEvent,
     RunnerAdvancementResult,
@@ -162,34 +163,51 @@ def resolve_canonical_batted_ball_outcome(
         context=context,
     )
 
-    if outcome is CanonicalPlateAppearanceOutcome.OUT:
-        movements = advancement.movements + (
-            RunnerMovement(
-                runner_id=query.batter_id,
-                start_base=Base.HOME,
-                end_base=None,
-                is_out=True,
-            ),
+    special_out_event_type = (
+        _select_special_out_event_type(
+            state=query.state,
+            outcome_subtype=outcome_subtype,
         )
-        outs_recorded = (
-            OutRecord(
-                runner_id=query.batter_id,
-                out_number=query.state.outs + 1,
-                reason=outcome_subtype,
-            ),
+        if outcome is CanonicalPlateAppearanceOutcome.OUT
+        else None
+    )
+
+    if special_out_event_type is not None:
+        event = MultiOutPlayResolver().resolve(
+            state=query.state,
+            event_type=special_out_event_type,
+            batter_id=query.batter_id,
+            sequence=query.sequence,
         )
     else:
-        movements = advancement.movements
-        outs_recorded = ()
+        if outcome is CanonicalPlateAppearanceOutcome.OUT:
+            movements = advancement.movements + (
+                RunnerMovement(
+                    runner_id=query.batter_id,
+                    start_base=Base.HOME,
+                    end_base=None,
+                    is_out=True,
+                ),
+            )
+            outs_recorded = (
+                OutRecord(
+                    runner_id=query.batter_id,
+                    out_number=query.state.outs + 1,
+                    reason=outcome_subtype,
+                ),
+            )
+        else:
+            movements = advancement.movements
+            outs_recorded = ()
 
-    event = build_play_event(
-        sequence=query.sequence,
-        event_type=outcome.value,
-        batter_id=query.batter_id,
-        state_before=query.state,
-        runner_movements=movements,
-        outs_recorded=outs_recorded,
-    )
+        event = build_play_event(
+            sequence=query.sequence,
+            event_type=outcome.value,
+            batter_id=query.batter_id,
+            state_before=query.state,
+            runner_movements=movements,
+            outs_recorded=outs_recorded,
+        )
 
     event = replace(
         event,
@@ -205,6 +223,36 @@ def resolve_canonical_batted_ball_outcome(
         advancement_seed=advancement_seed,
         outcome_subtype=outcome_subtype,
     )
+
+
+def _select_special_out_event_type(
+    *,
+    state,
+    outcome_subtype: Optional[str],
+) -> Optional[str]:
+    """Select an explicit canonical scoring-rule out transition."""
+
+    if (
+        outcome_subtype == "groundout"
+        and state.first is not None
+        and state.outs < 2
+    ):
+        return "ground_ball_double_play"
+
+    if (
+        outcome_subtype == "flyout"
+        and state.third is not None
+        and state.outs < 2
+    ):
+        return "sacrifice_fly"
+
+    if outcome_subtype in {
+        "flyout",
+        "lineout_popout",
+    }:
+        return "caught_fly"
+
+    return None
 
 
 def derive_canonical_batted_ball_seed(
