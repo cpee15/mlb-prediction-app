@@ -52,6 +52,7 @@ function payload() {
                 runs: metric(0.8),
                 rbis: metric(1.1),
                 walks: metric(0.5),
+                stolen_bases: metric(0.2),
                 strikeouts: metric(1.2),
               },
             },
@@ -114,6 +115,7 @@ test('derives batter hits from component means', () => {
   assert.equal(batter.name, 'Test Batter')
   assert.equal(batter.plateAppearances, 4.4)
   assert.equal(batter.hits, 1.5)
+  assert.equal(batter.stolenBases, 0.2)
   assert.equal(batter.dfsMean, 10.5)
   assert.equal(batter.dfsFloor, 3)
   assert.equal(batter.dfsMedian, 9)
@@ -145,4 +147,26 @@ test('returns unavailable view without rows', () => {
   assert.equal(view.available, false)
   assert.deepEqual(view.batters, [])
   assert.deepEqual(view.pitchers, [])
+})
+
+test('leaves stolen bases unavailable when simulation omits metric', () => {
+  const source = payload()
+  delete (
+    source
+      .diagnostics
+      .canonical_shadow
+      .player_projections
+      .players[0]
+      .metrics
+      .stolen_bases
+  )
+
+  const view = (
+    buildCanonicalProjectionsViewModel(source)
+  )
+
+  assert.equal(
+    view.batters[0].stolenBases,
+    null,
+  )
 })
