@@ -909,10 +909,77 @@ function ProjectionsTab({ game }) {
   if (!view.available) {
     return (
       <div style={s.noData}>
-        Canonical player projections are not available for this
-        game. This tab only renders rows produced by the same
-        canonical simulation run shown in Simulation and
-        Diagnostics.
+        <div
+          style={{
+            color: '#e6edf3',
+            fontSize: '16px',
+            fontWeight: 800,
+            marginBottom: '8px',
+          }}
+        >
+          {view.unavailable.title}
+        </div>
+
+        <div>
+          {view.unavailable.message}
+        </div>
+
+        {view.unavailable.blockers.length ? (
+          <div
+            style={{
+              marginTop: '14px',
+              display: 'grid',
+              gap: '8px',
+            }}
+          >
+            {view.unavailable.blockers.map(
+              blocker => (
+                <div
+                  key={blocker.key}
+                  style={{
+                    border: '1px solid #30363d',
+                    borderRadius: '8px',
+                    padding: '9px 11px',
+                    background: '#161b22',
+                  }}
+                >
+                  <div
+                    style={{
+                      color: '#e6edf3',
+                      fontWeight: 750,
+                    }}
+                  >
+                    {blocker.label}
+                  </div>
+
+                  {blocker.detail ? (
+                    <div
+                      style={{
+                        color: '#8b949e',
+                        fontSize: '12px',
+                        marginTop: '3px',
+                      }}
+                    >
+                      {blocker.detail}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            )}
+          </div>
+        ) : null}
+
+        <div
+          style={{
+            color: '#8b949e',
+            fontSize: '12px',
+            marginTop: '12px',
+          }}
+        >
+          This tab only renders rows produced by the same
+          canonical simulation run shown in Simulation and
+          Diagnostics.
+        </div>
       </div>
     )
   }
