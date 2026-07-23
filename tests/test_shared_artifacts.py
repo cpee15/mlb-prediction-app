@@ -3,6 +3,7 @@ from __future__ import annotations
 from mlb_app.model_projection_routes import _apply_projection_probability_contract, _attach_projection_artifact_metadata, _projection_cache_key
 from mlb_app.schedule_calendar import build_schedule_calendar_snapshot, get_or_build_schedule_calendar_snapshot
 from mlb_app.shared_artifacts import (
+    MODEL_PROJECTION_WORKSPACE_VERSION,
     ARTIFACT_SCHEMA_VERSION,
     artifact_key,
     attach_artifact_metadata,
@@ -44,7 +45,14 @@ def test_artifact_keys_are_separated_by_type_and_model_contract() -> None:
     assert len(keys) == 5
     assert schedule_calendar_key(date).startswith(f"artifact:{ARTIFACT_SCHEMA_VERSION}:schedule_calendar")
     assert model_projection_date_key(date).startswith(f"artifact:{ARTIFACT_SCHEMA_VERSION}:model_projection_date")
-    assert "probability_contract_v1" in model_projection_date_key(date)
+    assert (
+        MODEL_PROJECTION_WORKSPACE_VERSION
+        in model_projection_date_key(date)
+    )
+    assert (
+        "probability_contract_v1"
+        not in model_projection_date_key(date)
+    )
 
 
 def test_unknown_artifact_type_raises() -> None:
@@ -150,3 +158,13 @@ def test_projection_probability_artifact_metadata_is_attached_to_game_probabilit
     assert probability["artifact"]["cache_key"] == expected_key
     assert probability["artifact"]["input_hash"] == expected_hash
     assert updated["games"][0]["probability_cache_key"] == expected_key
+
+
+def test_projection_workspace_version_changes_cache_namespace() -> None:
+    date = "2026-07-09"
+
+    key = model_projection_date_key(date)
+
+    assert key.endswith(
+        f"{MODEL_PROJECTION_WORKSPACE_VERSION}:{date}"
+    )

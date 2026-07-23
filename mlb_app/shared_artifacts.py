@@ -36,8 +36,17 @@ def matchups_date_key(date: str) -> str:
     return artifact_key("matchups_date", date)
 
 
+MODEL_PROJECTION_WORKSPACE_VERSION = (
+    "model_projection_workspace_v2"
+)
+
+
 def model_projection_date_key(date: str) -> str:
-    return artifact_key("model_projection_date", "probability_contract_v1", date)
+    return artifact_key(
+        "model_projection_date",
+        MODEL_PROJECTION_WORKSPACE_VERSION,
+        date,
+    )
 
 
 def model_projection_probability_key(
@@ -181,6 +190,7 @@ __all__ = [
     "get_or_build_artifact",
     "matchup_overview_key",
     "matchups_date_key",
+    "MODEL_PROJECTION_WORKSPACE_VERSION",
     "model_projection_date_key",
     "model_projection_probability_key",
     "payload_input_hash",
