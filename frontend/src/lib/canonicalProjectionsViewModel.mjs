@@ -358,8 +358,18 @@ function unavailableProjectionState(
 export function buildCanonicalProjectionsViewModel(
   game,
 ) {
+  const sharedSimulation = asObject(
+    game?.sharedSimulation,
+  )
+  const sharedDiagnostics = asObject(
+    sharedSimulation.diagnostics,
+  )
+  const topLevelDiagnostics = asObject(
+    game?.diagnostics,
+  )
   const shadow = asObject(
-    game?.diagnostics?.canonical_shadow,
+    topLevelDiagnostics.canonical_shadow ||
+    sharedDiagnostics.canonical_shadow,
   )
   const projections = asObject(
     shadow.player_projections,
