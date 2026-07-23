@@ -17,6 +17,9 @@ from .team_offense_prior import build_team_offense_prior
 from .simulation.pa_outcome_model import build_pa_outcome_probabilities
 from .simulation.game_simulator import simulate_game_with_bullpen
 from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
+from mlb_app.simulation.projections import (
+    enrich_canonical_player_projection_rows,
+)
 from mlb_app.simulation.shadow import (
     build_canonical_shadow_bootstrap_readiness,
     discover_canonical_shadow_bullpens,
@@ -697,6 +700,89 @@ def _attach_production_shadow_comparison(
     )
 
 
+def _enrich_game_workspace_player_projections(
+    *,
+    session: Session,
+    shared_simulation: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Enrich attached same-run canonical player rows.
+
+    This function never reruns simulation, changes projection values, or
+    changes legacy production authority. Missing or malformed shadow
+    projection material fails open and leaves the game payload usable.
+    """
+
+    if not isinstance(shared_simulation, dict):
+        return shared_simulation
+
+    diagnostics = shared_simulation.get(
+        "diagnostics"
+    )
+
+    if not isinstance(diagnostics, dict):
+        return shared_simulation
+
+    shadow = diagnostics.get(
+        "canonical_shadow"
+    )
+
+    if not isinstance(shadow, dict):
+        return shared_simulation
+
+    player_projections = shadow.get(
+        "player_projections"
+    )
+
+    if not isinstance(player_projections, dict):
+        return shared_simulation
+
+    try:
+        shadow["player_projections"] = (
+            enrich_canonical_player_projection_rows(
+                session=session,
+                payload=player_projections,
+            )
+        )
+    except Exception as exc:
+        identity_diagnostics = (
+            player_projections.setdefault(
+                "identity_enrichment",
+                {},
+            )
+        )
+
+        if not isinstance(
+            identity_diagnostics,
+            dict,
+        ):
+            identity_diagnostics = {}
+            player_projections[
+                "identity_enrichment"
+            ] = identity_diagnostics
+
+        identity_diagnostics.update(
+            {
+                "schema_version": (
+                    "canonical_player_identity_enrichment_v1"
+                ),
+                "status": "error",
+                "error_type": (
+                    exc.__class__.__name__
+                ),
+                "error_message": str(exc),
+                "source": (
+                    "dashboard_player_current"
+                ),
+                "authoritative_source": (
+                    "legacy"
+                ),
+            }
+        )
+
+    return shared_simulation
+
+
 def build_model_projection_payload(session: Session, target_date: str) -> Dict[str, Any]:
     try:
         date_obj = datetime.datetime.strptime(target_date, "%Y-%m-%d").date()
@@ -895,6 +981,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                     production_execution=(
                         canonical_production_shadow_execution
                     ),
+                )
+            )
+
+            shared_simulation = (
+                _enrich_game_workspace_player_projections(
+                    session=session,
+                    shared_simulation=shared_simulation,
                 )
             )
 
