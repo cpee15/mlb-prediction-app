@@ -10,6 +10,7 @@ instantiate a database engine and session maker based on a connection URL.
 from __future__ import annotations
 
 from datetime import date, datetime
+import uuid
 from typing import Optional
 
 from sqlalchemy import (
@@ -22,6 +23,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
     Index,
     inspect,
@@ -299,6 +301,169 @@ class AppUserPreference(Base):
     plan_type: Optional[str] = Column(String(64), nullable=True)
     created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AppUserDirectoryProfile(Base):
+    """Additive administrative metadata for an existing ``app_users`` row."""
+
+    __tablename__ = "app_user_directory_profiles"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    user_id: int = Column(Integer, nullable=False, unique=True, index=True)
+    public_id: str = Column(
+        String(36),
+        nullable=False,
+        unique=True,
+        index=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    first_name: Optional[str] = Column(String(80), nullable=True)
+    last_name: Optional[str] = Column(String(80), nullable=True)
+    display_name: Optional[str] = Column(String(160), nullable=True)
+    alias: Optional[str] = Column(String(80), nullable=True)
+    title: Optional[str] = Column(String(120), nullable=True)
+    company: Optional[str] = Column(String(160), nullable=True)
+    is_active: bool = Column(Boolean, nullable=False, default=True, index=True)
+    is_locked: bool = Column(Boolean, nullable=False, default=False, index=True)
+    locale: str = Column(String(32), nullable=False, default="en_US")
+    language: str = Column(String(16), nullable=False, default="en")
+    timezone: str = Column(String(64), nullable=False, default="UTC")
+    session_version: int = Column(Integer, nullable=False, default=1)
+    last_login_at: Optional[datetime] = Column(DateTime, nullable=True)
+    created_by_user_id: Optional[int] = Column(Integer, nullable=True)
+    updated_by_user_id: Optional[int] = Column(Integer, nullable=True)
+    created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class FederatedIdentity(Base):
+    """Provider subject mapping only; credentials and provider tokens never belong here."""
+
+    __tablename__ = "federated_identities"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    public_id: str = Column(
+        String(36),
+        nullable=False,
+        unique=True,
+        index=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    user_id: int = Column(Integer, nullable=False, index=True)
+    provider: str = Column(String(64), nullable=False)
+    issuer: str = Column(String(255), nullable=False)
+    subject: str = Column(String(255), nullable=False)
+    federation_identifier: Optional[str] = Column(String(255), nullable=True, index=True)
+    verified_at: Optional[datetime] = Column(DateTime, nullable=True)
+    last_authenticated_at: Optional[datetime] = Column(DateTime, nullable=True)
+    created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("issuer", "subject", name="uq_federated_identity_issuer_subject"),
+    )
+
+
+class AppAccessProfile(Base):
+    """Persisted catalog identity for code-owned role/capability profiles."""
+
+    __tablename__ = "app_access_profiles"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    profile_key: str = Column(String(64), nullable=False, unique=True, index=True)
+    label: str = Column(String(120), nullable=False)
+    role: str = Column(String(32), nullable=False, unique=True, index=True)
+    description: Optional[str] = Column(String(500), nullable=True)
+    created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AppGlobalSetting(Base):
+    __tablename__ = "app_global_settings"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    namespace: str = Column(String(64), nullable=False)
+    setting_key: str = Column(String(128), nullable=False)
+    value_type: str = Column(String(24), nullable=False)
+    value_json = Column(JSON, nullable=True)
+    default_value_json = Column(JSON, nullable=True)
+    validation_json = Column(JSON, nullable=True)
+    description: Optional[str] = Column(String(500), nullable=True)
+    environment_override: bool = Column(Boolean, nullable=False, default=False)
+    sensitive_reference: Optional[str] = Column(String(255), nullable=True)
+    updated_by_user_id: Optional[int] = Column(Integer, nullable=True)
+    created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("namespace", "setting_key", name="uq_app_global_setting_key"),
+    )
+
+
+class AppUserSetting(Base):
+    __tablename__ = "app_user_settings"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    user_id: int = Column(Integer, nullable=False, index=True)
+    namespace: str = Column(String(64), nullable=False)
+    setting_key: str = Column(String(128), nullable=False)
+    value_type: str = Column(String(24), nullable=False)
+    value_json = Column(JSON, nullable=True)
+    updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "namespace",
+            "setting_key",
+            name="uq_app_user_setting_key",
+        ),
+    )
+
+
+class AppFeatureFlag(Base):
+    __tablename__ = "app_feature_flags"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    flag_key: str = Column(String(128), nullable=False, unique=True, index=True)
+    enabled: bool = Column(Boolean, nullable=False, default=False)
+    target_profiles_json = Column(JSON, nullable=True)
+    updated_by_user_id: Optional[int] = Column(Integer, nullable=True)
+    created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AppAdminAuditEvent(Base):
+    __tablename__ = "app_admin_audit_events"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    public_id: str = Column(
+        String(36),
+        nullable=False,
+        unique=True,
+        index=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    actor_user_id: int = Column(Integer, nullable=False, index=True)
+    actor_session_id: Optional[int] = Column(Integer, nullable=True, index=True)
+    action: str = Column(String(128), nullable=False, index=True)
+    target_type: str = Column(String(64), nullable=False, index=True)
+    target_identifier: str = Column(String(255), nullable=False)
+    before_json = Column(JSON, nullable=True)
+    after_json = Column(JSON, nullable=True)
+    source: str = Column(String(64), nullable=False, default="control_center_api")
+    created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class AppLoginHistory(Base):
+    __tablename__ = "app_login_history"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    user_id: int = Column(Integer, nullable=False, index=True)
+    session_id: Optional[int] = Column(Integer, nullable=True, index=True)
+    authentication_method: str = Column(String(64), nullable=False, default="password")
+    successful: bool = Column(Boolean, nullable=False, default=True)
+    created_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 class AppDashboardFolder(Base):

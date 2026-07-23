@@ -13,8 +13,10 @@ from mlb_app.dashboard_report_types import list_report_types
 from mlb_app.database import (
     AppDashboardFolder,
     AppDashboardItem,
+    AppLoginHistory,
     AppSession,
     AppUser,
+    AppUserDirectoryProfile,
     AppUserPreference,
     AppUserRole,
     Base,
@@ -285,6 +287,12 @@ def test_owner_role_bootstraps_only_after_verified_login(auth_store, monkeypatch
         active = session.query(AppSession).filter_by(user_id=ids["owner"]).all()
         assert len(active) == 1
         assert active[0].session_token == payload["session_token"]
+        directory = session.query(AppUserDirectoryProfile).filter_by(user_id=ids["owner"]).one()
+        assert directory.last_login_at is not None
+        login = session.query(AppLoginHistory).filter_by(user_id=ids["owner"]).one()
+        assert login.session_id == active[0].id
+        assert login.authentication_method == "password"
+        assert login.successful is True
 
 
 def test_allowlisted_email_cannot_be_registered_into_owner_access(auth_store, monkeypatch):
@@ -623,22 +631,25 @@ def test_admin_overview_uses_dynamic_counts_and_safe_identity(auth_store, monkey
     assert "components" not in payload["operations"]["hydration"]
     assert "internal_token" not in repr(payload)
     assert {item["key"] for item in payload["locked_sections"]} == {
-        "settings",
         "operations",
         "workbench",
-        "audit",
     }
 
 
-def test_admin_router_is_direct_and_read_only():
-    methods_by_path = {
-        route.path: route.methods
-        for route in admin_routes.router.routes
-        if hasattr(route, "methods")
-    }
+def test_admin_router_is_direct_and_limits_mutation_to_phase_two_contract():
+    methods_by_path = {}
+    for route in admin_routes.router.routes:
+        if hasattr(route, "methods"):
+            methods_by_path.setdefault(route.path, set()).update(route.methods)
     assert methods_by_path == {
         "/admin/overview": {"GET"},
+        "/admin/me": {"GET"},
         "/admin/objects": {"GET"},
         "/admin/apps": {"GET"},
         "/admin/users": {"GET"},
+        "/admin/users/{user_id}": {"GET", "PATCH"},
+        "/admin/profiles": {"GET"},
+        "/admin/settings": {"GET", "PATCH"},
+        "/admin/feature-flags": {"GET", "PATCH"},
+        "/admin/audit-events": {"GET"},
     }

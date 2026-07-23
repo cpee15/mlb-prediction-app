@@ -1,5 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { adminAccessState, dashboardApi, logoutDashboardSession } from '../lib/dashboardSession.mjs'
+import {
+  editableUserPayload,
+  featureFlagUpdatePayload,
+  settingUpdatePayload,
+  userEditorValues,
+} from '../lib/adminControlCenterState.mjs'
 
 const FRANKLIN = '"Franklin Gothic Medium", "Franklin Gothic", "Arial Narrow", Arial, sans-serif'
 const CENTURY = '"Century Gothic", CenturyGothic, AppleGothic, Arial, sans-serif'
@@ -13,10 +19,10 @@ const SECTIONS = [
   ['objects', 'Object Manager', 'functional'],
   ['apps', 'Apps', 'functional'],
   ['users', 'Users & Access', 'functional'],
-  ['settings', 'Settings', 'locked'],
+  ['settings', 'Settings', 'functional'],
   ['operations', 'Operations', 'locked'],
   ['workbench', 'Workbench', 'locked'],
-  ['audit', 'Audit Log', 'locked'],
+  ['audit', 'Audit Log', 'functional'],
 ]
 
 const ENDPOINTS = {
@@ -24,6 +30,30 @@ const ENDPOINTS = {
   objects: '/admin/objects',
   apps: '/admin/apps',
   users: '/admin/users',
+  audit: '/admin/audit-events',
+}
+
+async function loadAdminSection(section) {
+  if (section === 'users') {
+    const [users, profiles] = await Promise.all([
+      dashboardApi('/admin/users'),
+      dashboardApi('/admin/profiles'),
+    ])
+    return { ...users, profiles: profiles.profiles || [] }
+  }
+  if (section === 'settings') {
+    const [settings, flags, profiles] = await Promise.all([
+      dashboardApi('/admin/settings'),
+      dashboardApi('/admin/feature-flags'),
+      dashboardApi('/admin/profiles'),
+    ])
+    return {
+      settings: settings.settings || [],
+      feature_flags: flags.feature_flags || [],
+      profiles: profiles.profiles || [],
+    }
+  }
+  return dashboardApi(ENDPOINTS[section])
 }
 
 function titleCase(value) {
@@ -62,8 +92,8 @@ function OverviewPanel({ data }) {
   const hydration = data?.operations?.hydration || {}
   return <div style={s.stack}>
     <section style={s.heroCard}>
-      <div><div style={s.eyebrow}>Owner Console</div><h2 style={s.sectionTitle}>System overview</h2><p style={s.copy}>Read-only visibility into registered MLBGPT objects, application surfaces, users, and operational freshness.</p></div>
-      <div style={s.badgeRow}><Badge tone="green">{data?.administrator?.role || 'admin'}</Badge><Badge>{counts.capabilities || 0} capabilities</Badge><Badge tone="amber">Read only</Badge></div>
+      <div><div style={s.eyebrow}>Owner Console</div><h2 style={s.sectionTitle}>System overview</h2><p style={s.copy}>Private visibility into registered MLBGPT objects, applications, users, configuration, and operational freshness.</p></div>
+      <div style={s.badgeRow}><Badge tone="green">{data?.administrator?.role || 'admin'}</Badge><Badge>{counts.capabilities || 0} capabilities</Badge><Badge tone="amber">Owner only</Badge></div>
     </section>
     <div style={s.metricGrid}>
       <Metric label="Registered objects" value={counts.objects} />
@@ -80,7 +110,7 @@ function OverviewPanel({ data }) {
         <Metric label="Warnings" value={hydration.warning_count} />
       </div>
     </section>
-    <section style={s.card}><div style={s.cardHeader}><div><div style={s.eyebrow}>Roadmap Boundary</div><h3 style={s.cardTitle}>Next-phase areas</h3></div><Badge tone="amber">Locked</Badge></div><div style={s.lockGrid}>{(data?.locked_sections || []).map(section => <div style={s.lockCard} key={section.key}><strong>{section.label}</strong><span>{section.next_phase}</span></div>)}</div></section>
+    <section style={s.card}><div style={s.cardHeader}><div><div style={s.eyebrow}>Roadmap Boundary</div><h3 style={s.cardTitle}>Still locked</h3></div><Badge tone="amber">2 areas</Badge></div><div style={s.lockGrid}>{(data?.locked_sections || []).map(section => <div style={s.lockCard} key={section.key}><strong>{section.label}</strong><span>{section.next_phase}</span></div>)}</div></section>
   </div>
 }
 
@@ -115,13 +145,110 @@ function AppsPanel({ data }) {
   return <div style={s.stack}><section style={s.sectionHeader}><div><div style={s.eyebrow}>Code-owned Registry</div><h2 style={s.sectionTitle}>Applications</h2><p style={s.copy}>User-facing application surfaces and their safe availability classifications.</p></div><Badge>{data?.totalSize || 0} surfaces</Badge></section><div style={s.appGrid}>{(data?.apps || []).map(app => <article style={s.card} key={app.key}><div style={s.cardHeader}><div><small style={s.apiName}>{app.route}</small><h3 style={s.cardTitle}>{app.label}</h3></div><Badge tone={app.visibility === 'admin' ? 'amber' : app.visibility === 'authenticated' ? 'green' : 'blue'}>{titleCase(app.visibility)}</Badge></div><div style={s.detailList}><span><b>Status</b>{titleCase(app.feature_status)}</span><span><b>Health</b>{titleCase(app.health_classification)}</span></div></article>)}</div></div>
 }
 
-function UsersPanel({ data }) {
-  return <div style={s.stack}><section style={s.sectionHeader}><div><div style={s.eyebrow}>Safe Directory</div><h2 style={s.sectionTitle}>Users & Access</h2><p style={s.copy}>Identity, role, plan display value, and resolved capabilities only. Sessions, credentials, preferences, and saved report contents are excluded.</p></div><Badge>{data?.totalSize || 0} users</Badge></section><div style={s.tableWrap}><table style={s.table}><thead><tr><th style={s.th}>User</th><th style={s.th}>Role</th><th style={s.th}>Plan</th><th style={s.th}>Capabilities</th><th style={s.th}>Created</th><th style={s.th}>Updated</th></tr></thead><tbody>{(data?.users || []).map(user => <tr key={user.id}><td style={s.td}><strong>{user.username}</strong><small style={s.userEmail}>{user.email}</small></td><td style={s.td}><Badge tone={user.role === 'admin' ? 'amber' : 'blue'}>{titleCase(user.role)}</Badge></td><td style={s.td}>{titleCase(user.plan)}</td><td style={s.td}>{formatValue(user.capabilities)}</td><td style={s.td}>{user.created_at || '—'}</td><td style={s.td}>{user.updated_at || '—'}</td></tr>)}</tbody></table></div></div>
+function UsersPanel({ data, currentUserId, onRefresh }) {
+  const [selected, setSelected] = useState(null)
+  const [editor, setEditor] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  async function editUser(userId) {
+    setMessage('')
+    try {
+      const payload = await dashboardApi(`/admin/users/${userId}`)
+      setSelected(payload.user)
+      setEditor(userEditorValues(payload.user))
+    } catch (error) {
+      setMessage(error.message || 'User profile could not be loaded.')
+    }
+  }
+
+  async function saveUser(event) {
+    event.preventDefault()
+    setSaving(true)
+    setMessage('')
+    try {
+      const payload = await dashboardApi(`/admin/users/${selected.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editableUserPayload(editor)),
+      })
+      setSelected(payload.user)
+      setEditor(userEditorValues(payload.user))
+      setMessage(payload.sessions_revoked ? 'Profile saved. Existing sessions were revoked.' : 'Profile saved.')
+      await onRefresh()
+    } catch (error) {
+      setMessage(error.message || 'Profile could not be saved.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return <div style={s.stack}>
+    <section style={s.sectionHeader}><div><div style={s.eyebrow}>Safe Directory</div><h2 style={s.sectionTitle}>Users & Access</h2><p style={s.copy}>Edit directory metadata and account state. Roles and capabilities remain server-owned and cannot be changed here.</p></div><Badge>{data?.totalSize || 0} users</Badge></section>
+    <div style={s.appGrid}>{(data?.profiles || []).map(profile => <article style={s.card} key={profile.key}><div style={s.cardHeader}><div><small style={s.apiName}>{profile.key}</small><h3 style={s.cardTitle}>{profile.label}</h3></div><Badge tone={profile.role === 'admin' ? 'amber' : 'blue'}>{titleCase(profile.role)}</Badge></div><p style={s.copy}>{profile.description}</p><small style={s.muted}>{profile.capabilities.length} server-owned capabilities · Read only</small></article>)}</div>
+    {message ? <div style={message.includes('could not') ? s.error : s.success}>{message}</div> : null}
+    {selected ? <form style={s.card} onSubmit={saveUser}>
+      <div style={s.cardHeader}><div><div style={s.eyebrow}>Directory record</div><h3 style={s.cardTitle}>{selected.email}</h3></div><button type="button" style={s.secondaryButton} onClick={() => setSelected(null)}>Cancel</button></div>
+      <div style={s.formGrid}>{['username', 'first_name', 'last_name', 'display_name', 'alias', 'title', 'company', 'locale', 'language', 'timezone'].map(key => <label style={s.field} key={key}>{titleCase(key)}<input style={s.input} value={editor[key] || ''} onChange={event => setEditor(current => ({ ...current, [key]: event.target.value }))} /></label>)}</div>
+      <div style={s.checkRow}><label><input type="checkbox" checked={editor.is_active !== false} disabled={selected.id === currentUserId} onChange={event => setEditor(current => ({ ...current, is_active: event.target.checked }))} /> Active</label><label><input type="checkbox" checked={Boolean(editor.is_locked)} disabled={selected.id === currentUserId} onChange={event => setEditor(current => ({ ...current, is_locked: event.target.checked }))} /> Locked</label><Badge>{titleCase(selected.profile_key)}</Badge></div>
+      <button style={s.primaryButton} disabled={saving}>{saving ? 'Saving…' : 'Save Profile'}</button>
+    </form> : null}
+    <div style={s.tableWrap}><table style={s.table}><thead><tr><th style={s.th}>User</th><th style={s.th}>Role</th><th style={s.th}>Plan</th><th style={s.th}>Capabilities</th><th style={s.th}>Updated</th><th style={s.th}>Action</th></tr></thead><tbody>{(data?.users || []).map(user => <tr key={user.id}><td style={s.td}><strong>{user.username}</strong><small style={s.userEmail}>{user.email}</small></td><td style={s.td}><Badge tone={user.role === 'admin' ? 'amber' : 'blue'}>{titleCase(user.role)}</Badge></td><td style={s.td}>{titleCase(user.plan)}</td><td style={s.td}>{formatValue(user.capabilities)}</td><td style={s.td}>{user.updated_at || '—'}</td><td style={s.td}><button style={s.inlineButton} onClick={() => editUser(user.id)}>Edit</button></td></tr>)}</tbody></table></div>
+  </div>
+}
+
+function SettingsPanel({ data, onRefresh, isMobile }) {
+  const [values, setValues] = useState({})
+  const [flagTargets, setFlagTargets] = useState({})
+  const [message, setMessage] = useState('')
+
+  async function saveSetting(setting) {
+    setMessage('')
+    try {
+      await dashboardApi('/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settingUpdatePayload(setting, values[`${setting.namespace}.${setting.key}`] ?? setting.value)),
+      })
+      setMessage(`${titleCase(setting.key)} saved.`)
+      await onRefresh()
+    } catch (error) { setMessage(error.message || 'Setting could not be saved.') }
+  }
+
+  async function saveFlag(flag, enabled) {
+    setMessage('')
+    try {
+      await dashboardApi('/admin/feature-flags', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(featureFlagUpdatePayload(flag, enabled, flagTargets[flag.key] ?? flag.target_profiles)),
+      })
+      setMessage(`${flag.label} saved.`)
+      await onRefresh()
+    } catch (error) { setMessage(error.message || 'Feature flag could not be saved.') }
+  }
+
+  function toggleTarget(flag, key) {
+    const current = flagTargets[flag.key] ?? flag.target_profiles
+    const next = current.includes(key) ? current.filter(item => item !== key) : [...current, key]
+    setFlagTargets(values => ({ ...values, [flag.key]: next }))
+  }
+
+  return <div style={s.stack}>
+    <section style={s.sectionHeader}><div><div style={s.eyebrow}>Validated Configuration</div><h2 style={s.sectionTitle}>Settings</h2><p style={s.copy}>Only code-registered keys and values are accepted. These controls cannot grant capabilities, store secrets, or bypass server authorization.</p></div><Badge tone="green">Audited</Badge></section>
+    {message ? <div style={message.includes('could not') ? s.error : s.success}>{message}</div> : null}
+    <section style={s.card}><div style={s.eyebrow}>Global defaults</div><div style={s.settingList}>{(data?.settings || []).map(setting => { const id = `${setting.namespace}.${setting.key}`; const allowed = setting.validation?.allowed || []; return <div style={{ ...s.settingRow, ...(isMobile ? s.settingRowMobile : {}) }} key={id}><div><strong>{titleCase(setting.key)}</strong><small style={s.muted}>{setting.description}</small><small style={s.apiName}>{id}</small></div>{allowed.length ? <select style={s.input} value={values[id] ?? setting.value} onChange={event => setValues(current => ({ ...current, [id]: event.target.value }))}>{allowed.map(value => <option key={value}>{value}</option>)}</select> : <input style={s.input} value={values[id] ?? setting.value} onChange={event => setValues(current => ({ ...current, [id]: event.target.value }))} />}<button style={s.inlineButton} onClick={() => saveSetting(setting)}>Save</button></div> })}</div></section>
+    <section style={s.card}><div style={s.eyebrow}>Feature flags</div><p style={s.copy}>All flags default off. They are foundation records only and are not wired into public behavior in this phase.</p><div style={s.settingList}>{(data?.feature_flags || []).map(flag => <div style={{ ...s.settingRow, ...(isMobile ? s.settingRowMobile : {}) }} key={flag.key}><div><strong>{flag.label}</strong><small style={s.muted}>{flag.description}</small><small style={s.apiName}>{flag.key}</small><div style={s.checkRow}>{(data?.profiles || []).map(profile => <label key={profile.key}><input type="checkbox" checked={(flagTargets[flag.key] ?? flag.target_profiles).includes(profile.key)} onChange={() => toggleTarget(flag, profile.key)} /> {profile.label}</label>)}</div></div><Badge tone={flag.enabled ? 'green' : 'amber'}>{flag.enabled ? 'Enabled' : 'Disabled'}</Badge><button style={s.inlineButton} onClick={() => saveFlag(flag, !flag.enabled)}>{flag.enabled ? 'Disable' : 'Enable'}</button></div>)}</div></section>
+  </div>
+}
+
+function AuditPanel({ data }) {
+  return <div style={s.stack}><section style={s.sectionHeader}><div><div style={s.eyebrow}>Immutable History</div><h2 style={s.sectionTitle}>Audit Log</h2><p style={s.copy}>Safe summaries of successful Control Center mutations. Credentials, sessions, secrets, and saved-report content are excluded.</p></div><Badge>{data?.totalSize || 0} events</Badge></section><div style={s.tableWrap}><table style={s.table}><thead><tr><th style={s.th}>Time</th><th style={s.th}>Actor</th><th style={s.th}>Action</th><th style={s.th}>Target</th><th style={s.th}>Before</th><th style={s.th}>After</th></tr></thead><tbody>{(data?.audit_events || []).map(event => <tr key={event.id}><td style={s.td}>{event.created_at}</td><td style={s.td}>{event.actor?.username || event.actor?.id}</td><td style={s.codeCell}>{event.action}</td><td style={s.td}>{event.target_type}: {event.target_identifier}</td><td style={s.td}>{formatValue(event.before)}</td><td style={s.td}>{formatValue(event.after)}</td></tr>)}</tbody></table>{!data?.audit_events?.length ? <div style={s.empty}>No administrative changes have been recorded yet.</div> : null}</div></div>
 }
 
 function LockedPanel({ section, overview }) {
   const contract = (overview?.locked_sections || []).find(item => item.key === section)
-  return <section style={s.lockedPanel}><div style={s.lockIcon}>◇</div><div style={s.eyebrow}>Phase 1 Boundary</div><h2 style={s.sectionTitle}>{contract?.label || titleCase(section)} is locked</h2><p style={s.copy}>{contract?.next_phase || 'This administrative area is intentionally unavailable in the current read-only foundation.'}</p><Badge tone="amber">No mutable controls</Badge></section>
+  return <section style={s.lockedPanel}><div style={s.lockIcon}>◇</div><div style={s.eyebrow}>Phase 2 Boundary</div><h2 style={s.sectionTitle}>{contract?.label || titleCase(section)} is locked</h2><p style={s.copy}>{contract?.next_phase || 'This administrative area is intentionally unavailable in the current foundation.'}</p><Badge tone="amber">Unavailable</Badge></section>
 }
 
 export default function AdminControlCenterPage() {
@@ -172,13 +299,13 @@ export default function AdminControlCenterPage() {
   }, [])
 
   useEffect(() => {
-    if (accessState !== 'ready' || !ENDPOINTS[active] || data[active]) return
+    if (accessState !== 'ready' || (!ENDPOINTS[active] && !['users', 'settings'].includes(active)) || data[active]) return
     let cancelled = false
     async function loadSection() {
       setSectionLoading(true)
       setError('')
       try {
-        const payload = await dashboardApi(ENDPOINTS[active])
+        const payload = await loadAdminSection(active)
         if (!cancelled) setData(current => ({ ...current, [active]: payload }))
       } catch (requestError) {
         if (!cancelled) {
@@ -193,13 +320,20 @@ export default function AdminControlCenterPage() {
     return () => { cancelled = true }
   }, [active, accessState, data])
 
+  async function refreshSection(section) {
+    const payload = await loadAdminSection(section)
+    setData(current => ({ ...current, [section]: payload }))
+  }
+
   const sectionContent = useMemo(() => {
     if (active === 'overview') return <OverviewPanel data={data.overview} />
     if (active === 'objects') return <ObjectPanel data={data.objects} />
     if (active === 'apps') return <AppsPanel data={data.apps} />
-    if (active === 'users') return <UsersPanel data={data.users} />
+    if (active === 'users') return <UsersPanel data={data.users} currentUserId={profile?.id} onRefresh={() => refreshSection('users')} />
+    if (active === 'settings') return <SettingsPanel data={data.settings} onRefresh={() => refreshSection('settings')} isMobile={isMobile} />
+    if (active === 'audit') return <AuditPanel data={data.audit} />
     return <LockedPanel section={active} overview={data.overview} />
-  }, [active, data])
+  }, [active, data, profile, isMobile])
 
   if (accessState === 'loading' && !data.overview) return <StatePage eyebrow="MLBGPT Control Center" title="Verifying administrator access">Checking the active server session.</StatePage>
   if (accessState === 'sign_in_required') return <StatePage eyebrow="Private Administration" title="Sign-in required" action={<a style={s.primaryLink} href="/my-dashboard">Sign in through MyDashboard</a>}>A password-backed MyDashboard session is required before this route can verify administrator access.</StatePage>
@@ -276,4 +410,14 @@ const s = {
   secondaryButton: { padding: '8px 11px', color: C.text, fontFamily: FRANKLIN, fontSize: 11, background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 8 },
   loadingBar: { marginBottom: 10, padding: 8, color: C.blue, background: 'rgba(96,165,250,.1)', borderRadius: 8 },
   error: { marginBottom: 10, padding: 10, color: '#fecaca', background: 'rgba(248,113,113,.12)', border: '1px solid rgba(248,113,113,.3)', borderRadius: 9 },
+  success: { marginBottom: 10, padding: 10, color: '#a7f3d0', background: 'rgba(52,211,153,.12)', border: '1px solid rgba(52,211,153,.3)', borderRadius: 9 },
+  formGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10, margin: '14px 0' },
+  field: { display: 'grid', gap: 5, color: C.muted, fontSize: 11 },
+  input: { minWidth: 0, boxSizing: 'border-box', padding: '8px 9px', color: C.text, fontFamily: CENTURY, fontSize: 12, background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 8 },
+  checkRow: { display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', margin: '10px 0' },
+  primaryButton: { padding: '9px 13px', color: C.text, fontFamily: FRANKLIN, fontSize: 12, background: 'rgba(52,211,153,.18)', border: '1px solid rgba(52,211,153,.45)', borderRadius: 8 },
+  inlineButton: { padding: '6px 9px', color: C.text, fontFamily: FRANKLIN, fontSize: 10, background: 'rgba(96,165,250,.14)', border: '1px solid rgba(96,165,250,.35)', borderRadius: 7 },
+  settingList: { display: 'grid', gap: 8, marginTop: 12 },
+  settingRow: { display: 'grid', gridTemplateColumns: 'minmax(220px,1fr) minmax(150px,260px) auto', gap: 10, alignItems: 'center', padding: 11, background: C.panel2, border: `1px solid ${C.border}`, borderRadius: 10 },
+  settingRowMobile: { gridTemplateColumns: 'minmax(0,1fr)', alignItems: 'stretch' },
 }

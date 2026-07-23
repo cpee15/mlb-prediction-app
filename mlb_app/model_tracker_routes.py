@@ -20,12 +20,15 @@ from .admin_access import (
     resolve_principal,
     resolve_session_token,
 )
+from .admin_configuration import get_or_create_directory_profile
 
 from .database import (
     AppDashboardFolder,
     AppDashboardItem,
     AppSession,
+    AppLoginHistory,
     AppUser,
+    AppUserDirectoryProfile,
     AppUserPreference,
     create_tables,
     get_engine,
@@ -527,6 +530,13 @@ def _verified_login_user(session, email: str, password: Optional[str]) -> AppUse
         raise HTTPException(status_code=401, detail="Password is required")
     if not _verify_password(password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    directory = (
+        session.query(AppUserDirectoryProfile)
+        .filter(AppUserDirectoryProfile.user_id == user.id)
+        .first()
+    )
+    if directory and (not directory.is_active or directory.is_locked):
+        raise HTTPException(status_code=403, detail="This account is inactive or locked")
     return user
 
 
@@ -577,6 +587,16 @@ def _issue_dashboard_session(
     if verified_login:
         ensure_owner_admin_role(session, user, verified_at=now)
     db_session = _create_session(session, user.id, now=now)
+    directory = get_or_create_directory_profile(session, user.id, actor_user_id=user.id)
+    directory.last_login_at = now
+    directory.updated_at = now
+    session.add(AppLoginHistory(
+        user_id=user.id,
+        session_id=db_session.id,
+        authentication_method="password" if verified_login else "password_registration",
+        successful=True,
+        created_at=now,
+    ))
     access = access_payload_for_user(
         session,
         user,

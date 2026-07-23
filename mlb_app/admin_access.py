@@ -13,6 +13,7 @@ from fastapi import Cookie, Depends, Header, HTTPException
 from .database import (
     AppSession,
     AppUser,
+    AppUserDirectoryProfile,
     AppUserRole,
     create_tables,
     get_engine,
@@ -37,12 +38,19 @@ ADMIN_CAPABILITIES: Tuple[str, ...] = tuple(sorted({
     *USER_CAPABILITIES,
     "admin.apps.read",
     "admin.audit.read",
+    "admin.federation.manage",
     "admin.objects.read",
     "admin.operations.read",
+    "admin.operations.run",
     "admin.portal.access",
+    "admin.profiles.manage",
+    "admin.profiles.read",
     "admin.settings.read",
+    "admin.settings.manage",
+    "admin.users.manage",
     "admin.users.read",
     "workbench.advanced",
+    "workbench.execute",
 }))
 
 
@@ -219,6 +227,13 @@ def resolve_principal(session, token: Optional[str]) -> Optional[DashboardPrinci
     user = session.query(AppUser).filter(AppUser.id == db_session.user_id).first()
     if not user:
         return None
+    directory = (
+        session.query(AppUserDirectoryProfile)
+        .filter(AppUserDirectoryProfile.user_id == user.id)
+        .first()
+    )
+    if directory and (not directory.is_active or directory.is_locked):
+        raise HTTPException(status_code=403, detail="This account is inactive or locked")
     db_session.last_seen_at = now
     role = resolved_role_for_user(
         session,
