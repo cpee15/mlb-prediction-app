@@ -203,10 +203,76 @@ function sortRows(rows) {
   })
 }
 
-function unavailableProjectionState(game) {
+function unavailableProjectionState(
+  game,
+  projections,
+) {
   const diagnostics = (
     buildCanonicalDiagnosticsViewModel(game)
   )
+
+  const projectionStatus = String(
+    projections?.status || ''
+  ).toLowerCase()
+  const projectionSchema = (
+    projections?.schema_version || null
+  )
+  const projectionPlayers = asArray(
+    projections?.players,
+  )
+
+  if (projectionStatus === 'error') {
+    return {
+      state: 'attachment_error',
+      title: 'Canonical projection attachment failed',
+      message: (
+        projections?.error_message ||
+        'Canonical player projection rows could not be adapted from the completed simulation payload.'
+      ),
+      blockers: [],
+      errorType: projections?.error_type || null,
+      errorMessage: (
+        projections?.error_message || null
+      ),
+      receivedSchema: projectionSchema,
+    }
+  }
+
+  if (
+    projectionSchema ===
+      'canonical_player_projection_rows_v1' &&
+    projectionPlayers.length === 0
+  ) {
+    return {
+      state: 'empty_rows',
+      title: 'Canonical projection rows were empty',
+      message: (
+        'The canonical projection attachment was present, but it contained no batter or pitcher rows.'
+      ),
+      blockers: [],
+      errorType: null,
+      errorMessage: null,
+      receivedSchema: projectionSchema,
+    }
+  }
+
+  if (
+    projectionSchema &&
+    projectionSchema !==
+      'canonical_player_projection_rows_v1'
+  ) {
+    return {
+      state: 'schema_mismatch',
+      title: 'Canonical projection schema was not recognized',
+      message: (
+        `Expected canonical_player_projection_rows_v1 but received ${projectionSchema}.`
+      ),
+      blockers: [],
+      errorType: null,
+      errorMessage: null,
+      receivedSchema: projectionSchema,
+    }
+  }
 
   const execution = (
     diagnostics.productionExecution || {}
@@ -309,7 +375,10 @@ export function buildCanonicalProjectionsViewModel(
   const unavailable = (
     available
       ? null
-      : unavailableProjectionState(game)
+      : unavailableProjectionState(
+          game,
+          projections,
+        )
   )
 
   return {

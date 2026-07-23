@@ -310,3 +310,114 @@ test('explains missing projection attachment after execution', () => {
     'Canonical projections were not attached',
   )
 })
+
+
+test('explains projection attachment adapter errors', () => {
+  const view = (
+    buildCanonicalProjectionsViewModel({
+      diagnostics: {
+        canonical_shadow: {
+          player_projections: {
+            schema_version: (
+              'canonical_player_projection_rows_v1'
+            ),
+            status: 'error',
+            error_type: 'ValueError',
+            error_message: (
+              'metric count must match simulation_count'
+            ),
+            players: [],
+          },
+        },
+        canonical_shadow_production_execution: {
+          status: 'executed',
+          executed: true,
+          canonical_available: true,
+        },
+      },
+    })
+  )
+
+  assert.equal(view.available, false)
+  assert.equal(
+    view.unavailable.state,
+    'attachment_error',
+  )
+  assert.equal(
+    view.unavailable.errorType,
+    'ValueError',
+  )
+  assert.match(
+    view.unavailable.message,
+    /metric count must match simulation_count/,
+  )
+})
+
+
+test('explains empty canonical projection rows', () => {
+  const view = (
+    buildCanonicalProjectionsViewModel({
+      diagnostics: {
+        canonical_shadow: {
+          player_projections: {
+            schema_version: (
+              'canonical_player_projection_rows_v1'
+            ),
+            status: 'available',
+            players: [],
+          },
+        },
+        canonical_shadow_production_execution: {
+          status: 'executed',
+          executed: true,
+        },
+      },
+    })
+  )
+
+  assert.equal(view.available, false)
+  assert.equal(
+    view.unavailable.state,
+    'empty_rows',
+  )
+  assert.equal(
+    view.unavailable.title,
+    'Canonical projection rows were empty',
+  )
+})
+
+
+test('explains projection schema mismatches', () => {
+  const view = (
+    buildCanonicalProjectionsViewModel({
+      diagnostics: {
+        canonical_shadow: {
+          player_projections: {
+            schema_version: (
+              'canonical_player_projection_rows_v2'
+            ),
+            players: [
+              {
+                player_id: 'b-1',
+              },
+            ],
+          },
+        },
+      },
+    })
+  )
+
+  assert.equal(view.available, false)
+  assert.equal(
+    view.unavailable.state,
+    'schema_mismatch',
+  )
+  assert.equal(
+    view.unavailable.receivedSchema,
+    'canonical_player_projection_rows_v2',
+  )
+  assert.match(
+    view.unavailable.message,
+    /received canonical_player_projection_rows_v2/,
+  )
+})
