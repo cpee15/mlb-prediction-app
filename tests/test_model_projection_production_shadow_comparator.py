@@ -323,3 +323,50 @@ def test_invalid_legacy_payload_is_rejected():
         raise AssertionError(
             "invalid legacy payload must fail"
         )
+
+
+def test_executed_shadow_attaches_same_run_player_projections():
+    execution = executed_shadow()
+
+    result = (
+        model_projections
+        ._attach_production_shadow_comparison(
+            legacy_result={
+                "status": "ok",
+                "diagnostics": {},
+            },
+            production_execution=execution,
+        )
+    )
+
+    shadow = result["diagnostics"]["canonical_shadow"]
+    projections = shadow["player_projections"]
+
+    assert projections["schema_version"] == (
+        "canonical_player_projection_rows_v1"
+    )
+    assert projections["run_id"] == (
+        execution.material.canonical_payload["run_id"]
+    )
+    assert projections["simulation_count"] == (
+        execution
+        .material
+        .canonical_payload["simulation_count"]
+    )
+    assert projections["players"]
+
+
+def test_realism_payload_exposes_frontend_capability_aliases():
+    realism = (
+        model_projections
+        ._build_game_state_realism_diagnostics()
+    )
+
+    assert realism["multi_out_scoring"] is True
+    assert (
+        realism["sacrifice_fly_scoring"]
+        is True
+    )
+    assert realism["steals_model_status"] == (
+        "deferred_not_active"
+    )
