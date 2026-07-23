@@ -35,6 +35,11 @@ navigation, tabs, and buttons; Century Gothic is used for copy, controls, labels
 and result data. Responsive breakpoints collapse the split landing and workspace
 columns without substituting a separate mobile page.
 
+The landing and authenticated workspace also expose Light, Dark, and System
+display modes. System follows the browser's live operating-system preference.
+The selected display preference is stored locally under a presentation-only key;
+it is never used for identity, capability, report, or authorization decisions.
+
 ## Query Studio authorization
 
 The Query Studio panel appears only when the authenticated server response
