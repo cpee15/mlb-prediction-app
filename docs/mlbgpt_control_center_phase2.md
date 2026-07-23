@@ -47,7 +47,7 @@ The initial feature flags are:
 - `workbench_query_enabled`
 - `federation_refresh_enabled`
 
-All four resolve to false without a stored override. Target profiles must be `owner_administrator` or `standard_user`. A flag never grants a capability and none of these flags is connected to public product behavior in this phase.
+All four resolve to false without a stored override. Target profiles must be `owner_administrator` or `standard_user`. A flag never grants a capability. In Phase 2 these flags were not connected to public product behavior; issue #1178 subsequently connected `workbench_query_enabled` to the private Query Studio while retaining capability enforcement.
 
 Plaintext secret values are not accepted. Future sensitive configuration must use an environment-backed or external secret reference and must never be serialized through these APIs.
 
@@ -69,4 +69,4 @@ Operations and Workbench remain locked. There is still no public Admin navigatio
 
 ## Next implementation phase
 
-The next ticket should define the constrained MLBGPT Workbench request language and compiler over the existing object/field registry. It must accept structured object, field, filter, grouping, aggregate, weight, sort, pagination, date, and relationship inputs; reject arbitrary SQL and physical table names; use bound parameters; enforce cost and row limits; and preserve saved-report compatibility. Permission Sets and delegated role administration remain a later separately reviewed phase.
+Issue #1178 provides the initial constrained MLBGPT Query Studio language over the existing object/field registry. See `docs/my_dashboard_query_studio.md` for its implemented grammar and security boundary. Grouping, aggregates, weights, relationship syntax, richer date controls, and cost policies remain incremental language work. Permission Sets and delegated role administration remain a later separately reviewed phase.

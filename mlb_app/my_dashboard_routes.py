@@ -4,17 +4,19 @@ import datetime as dt
 import os
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import my_dashboard_solver as dashboard_solver
 from .active_lineup_solver import build_active_lineup_solver_payload
+from .admin_access import DashboardPrincipal, require_capability
+from .admin_configuration import profile_key_for_role
 from .dashboard_canonical_status import canonical_dashboard_status
 from .dashboard_player_report_query import query_player_report
 from .dashboard_projection_operator import ensure_canonical_projection
 from .dashboard_related_report_query import query_related_report
 from .dashboard_report_types import list_report_types
-from .database import create_tables, get_engine, get_session
+from .database import AppFeatureFlag, create_tables, get_engine, get_session
 from .my_dashboard_context_cache import install_dashboard_context_cache
 from .my_dashboard_dataset_runtime import mlb_business_date, run_dataset_query, should_use_dataset_query
 from .my_dashboard_observability import (
@@ -31,6 +33,7 @@ from .my_dashboard_report_query import (
     install_full_result_finalizer,
 )
 from .shared_payload_cache import env_ttl, get_or_set, make_cache_key, stable_hash
+from .workbench_query import execute_workbench_plan, parse_workbench_statement, queryable_objects
 
 install_full_result_finalizer(dashboard_solver)
 
@@ -74,6 +77,13 @@ class DashboardPlayerReportRequest(BaseModel):
     sort_direction: str = "desc"
     selected_fields: Optional[List[str]] = None
     include_metadata: bool = True
+
+
+class QueryStudioRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    statement: str = Field(min_length=1, max_length=8000)
+    page_number: int = Field(default=1, ge=1)
 
 
 def session_factory():
@@ -129,6 +139,77 @@ def my_dashboard_hydration_status() -> Dict[str, Any]:
 def my_dashboard_report_types() -> Dict[str, Any]:
     report_types = list_report_types()
     return {"report_types": report_types, "totalSize": len(report_types)}
+
+
+def _require_query_studio_enabled(session, principal: DashboardPrincipal) -> None:
+    flag = (
+        session.query(AppFeatureFlag)
+        .filter(AppFeatureFlag.flag_key == "workbench_query_enabled")
+        .first()
+    )
+    profile_key = profile_key_for_role(principal.role)
+    targets = set(flag.target_profiles_json or []) if flag else set()
+    if not flag or not flag.enabled or (targets and profile_key not in targets):
+        raise HTTPException(
+            status_code=403,
+            detail="Query Studio is locked until the owner enables it for this profile.",
+        )
+
+
+@router.get("/my-dashboard/query-studio/metadata")
+def my_dashboard_query_studio_metadata(
+    principal: DashboardPrincipal = Depends(require_capability("workbench.advanced")),
+) -> Dict[str, Any]:
+    factory = session_factory()
+    with factory() as session:
+        _require_query_studio_enabled(session, principal)
+    objects = queryable_objects()
+    return {
+        "language": "mlbgpt_query_v1",
+        "enabled": True,
+        "objects": objects,
+        "totalSize": len(objects),
+        "maximum_page_size": MAX_PAGE_SIZE,
+        "authored_sql_executed": False,
+    }
+
+
+@router.post("/my-dashboard/query-studio/preview")
+def my_dashboard_query_studio_preview(
+    request: QueryStudioRequest,
+    principal: DashboardPrincipal = Depends(require_capability("workbench.advanced")),
+) -> Dict[str, Any]:
+    factory = session_factory()
+    with factory() as session:
+        _require_query_studio_enabled(session, principal)
+    try:
+        plan = parse_workbench_statement(request.statement)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "plan": plan.as_dict(page_number=request.page_number),
+        "authored_sql_executed": False,
+    }
+
+
+@router.post("/my-dashboard/query-studio/execute")
+def my_dashboard_query_studio_execute(
+    request: QueryStudioRequest,
+    principal: DashboardPrincipal = Depends(require_capability("workbench.execute")),
+) -> Dict[str, Any]:
+    if not principal.has_capability("workbench.advanced"):
+        raise HTTPException(status_code=403, detail="Advanced Query Studio access required")
+    try:
+        plan = parse_workbench_statement(request.statement)
+        factory = session_factory()
+        with factory() as session:
+            _require_query_studio_enabled(session, principal)
+            return execute_workbench_plan(session, plan, page_number=request.page_number)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/my-dashboard/canonical/status")
