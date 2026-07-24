@@ -23,8 +23,11 @@ from .pitcher_baserunning_evidence import (
 )
 from .statcast_baserunning_source import (
     CanonicalPitcherBaserunningContext,
+    CanonicalRunnerBaserunningContext,
     CanonicalStatcastPitcherPickoffCounts,
+    CanonicalStatcastRunnerBaserunningCounts,
     materialize_statcast_pitcher_observations,
+    materialize_statcast_runner_observations,
 )
 from .runner_baserunning_evidence import (
     CanonicalRunnerBaserunningObservation,
@@ -317,4 +320,67 @@ def discover_materialized_pitcher_baserunning_evidence(
         runner_observations=runner_observations,
         pitcher_observations=pitcher_observations,
         catcher_composition=catcher_composition,
+    )
+
+
+
+def discover_materialized_runner_baserunning_evidence(
+    *,
+    required_runner_ids: Tuple[str, ...],
+    required_pitcher_ids: Tuple[str, ...],
+    catcher_composition: (
+        CanonicalCatcherObservationComposition
+    ),
+    runner_counts: Tuple[
+        CanonicalStatcastRunnerBaserunningCounts,
+        ...,
+    ] = (),
+    runner_contexts: Tuple[
+        CanonicalRunnerBaserunningContext,
+        ...,
+    ] = (),
+    pitcher_pickoff_counts: Tuple[
+        CanonicalStatcastPitcherPickoffCounts,
+        ...,
+    ] = (),
+    pitcher_contexts: Tuple[
+        CanonicalPitcherBaserunningContext,
+        ...,
+    ] = (),
+) -> CanonicalShadowBaserunningEvidenceDiscovery:
+    """
+    Materialize complete runner and pitcher evidence for discovery.
+
+    Missing runner context or historical outcome counts omit that runner
+    observation and leave complete catalog discovery unavailable. Invalid
+    inputs fail open. No neutral evidence is imputed, and legacy production
+    authority remains unchanged.
+    """
+
+    try:
+        runner_observations = (
+            materialize_statcast_runner_observations(
+                counts=runner_counts,
+                contexts=runner_contexts,
+            )
+        )
+    except Exception as exc:
+        return CanonicalShadowBaserunningEvidenceDiscovery(
+            requested_runner_count=len(
+                required_runner_ids
+            ),
+            requested_pitcher_count=len(
+                required_pitcher_ids
+            ),
+            status="error",
+            error_message=str(exc),
+        )
+
+    return discover_materialized_pitcher_baserunning_evidence(
+        required_runner_ids=required_runner_ids,
+        required_pitcher_ids=required_pitcher_ids,
+        catcher_composition=catcher_composition,
+        pitcher_pickoff_counts=pitcher_pickoff_counts,
+        pitcher_contexts=pitcher_contexts,
+        runner_observations=runner_observations,
     )

@@ -587,6 +587,30 @@ def materialize_statcast_runner_observations(
     fatigue, or injury values are fabricated.
     """
 
+    if any(
+        not isinstance(
+            value,
+            CanonicalStatcastRunnerBaserunningCounts,
+        )
+        for value in counts
+    ):
+        raise TypeError(
+            "counts must contain "
+            "CanonicalStatcastRunnerBaserunningCounts"
+        )
+
+    if any(
+        not isinstance(
+            value,
+            CanonicalRunnerBaserunningContext,
+        )
+        for value in contexts
+    ):
+        raise TypeError(
+            "contexts must contain "
+            "CanonicalRunnerBaserunningContext"
+        )
+
     count_ids = [
         value.runner_id
         for value in counts
