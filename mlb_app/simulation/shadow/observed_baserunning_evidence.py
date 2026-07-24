@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+import hashlib
 from typing import Optional, Tuple
 
 from .baserunning_evidence_discovery import (
@@ -20,6 +22,65 @@ from .runner_baserunning_evidence import (
     CanonicalRunnerBaserunningObservation,
     adapt_observed_runner_baserunning_evidence,
 )
+
+
+CANONICAL_OBSERVED_BASERUNNING_DIGEST_VERSION = (
+    "canonical_observed_baserunning_digest_v1"
+)
+
+
+def _observation_digest(
+    *,
+    required_runner_ids: Tuple[str, ...],
+    required_pitcher_ids: Tuple[str, ...],
+    runner_observations: Tuple[
+        CanonicalRunnerBaserunningObservation,
+        ...,
+    ],
+    pitcher_observations: Tuple[
+        CanonicalPitcherBaserunningObservation,
+        ...,
+    ],
+    away_catcher_observation: Optional[
+        CanonicalCatcherBaserunningObservation
+    ],
+    home_catcher_observation: Optional[
+        CanonicalCatcherBaserunningObservation
+    ],
+) -> str:
+    parts = [
+        CANONICAL_OBSERVED_BASERUNNING_DIGEST_VERSION,
+        "required_runners",
+        *required_runner_ids,
+        "required_pitchers",
+        *required_pitcher_ids,
+        "runner_observations",
+        *(
+            observation.digest
+            for observation in runner_observations
+        ),
+        "pitcher_observations",
+        *(
+            observation.digest
+            for observation in pitcher_observations
+        ),
+        "away_catcher",
+        (
+            away_catcher_observation.digest
+            if away_catcher_observation is not None
+            else "missing"
+        ),
+        "home_catcher",
+        (
+            home_catcher_observation.digest
+            if home_catcher_observation is not None
+            else "missing"
+        ),
+    ]
+
+    return hashlib.sha256(
+        "\x1f".join(parts).encode("utf-8")
+    ).hexdigest()
 
 
 def discover_observed_canonical_baserunning_evidence(
@@ -75,6 +136,18 @@ def discover_observed_canonical_baserunning_evidence(
             if home_catcher_observation is not None
             else None
         )
+        observation_digest = _observation_digest(
+            required_runner_ids=required_runner_ids,
+            required_pitcher_ids=required_pitcher_ids,
+            runner_observations=runner_observations,
+            pitcher_observations=pitcher_observations,
+            away_catcher_observation=(
+                away_catcher_observation
+            ),
+            home_catcher_observation=(
+                home_catcher_observation
+            ),
+        )
     except Exception as exc:
         return CanonicalShadowBaserunningEvidenceDiscovery(
             requested_runner_count=len(
@@ -87,11 +160,18 @@ def discover_observed_canonical_baserunning_evidence(
             error_message=str(exc),
         )
 
-    return discover_canonical_shadow_baserunning_evidence(
-        required_runner_ids=required_runner_ids,
-        required_pitcher_ids=required_pitcher_ids,
-        runner_profiles=runner_profiles,
-        pitcher_profiles=pitcher_profiles,
-        away_catcher=away_catcher,
-        home_catcher=home_catcher,
+    discovery = (
+        discover_canonical_shadow_baserunning_evidence(
+            required_runner_ids=required_runner_ids,
+            required_pitcher_ids=required_pitcher_ids,
+            runner_profiles=runner_profiles,
+            pitcher_profiles=pitcher_profiles,
+            away_catcher=away_catcher,
+            home_catcher=home_catcher,
+        )
+    )
+
+    return replace(
+        discovery,
+        observation_digest=observation_digest,
     )

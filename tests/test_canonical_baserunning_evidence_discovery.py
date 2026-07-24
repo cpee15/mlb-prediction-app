@@ -177,3 +177,19 @@ def test_discovery_version_is_explicit():
     assert discovery.discovery_version == (
         CANONICAL_SHADOW_BASERUNNING_DISCOVERY_VERSION
     )
+
+
+
+def test_discovery_diagnostics_default_observation_digest():
+    discovery = (
+        discover_canonical_shadow_baserunning_evidence(
+            required_runner_ids=(),
+            required_pitcher_ids=(),
+        )
+    )
+
+    assert discovery.observation_digest is None
+    assert (
+        discovery.to_diagnostics()["observation_digest"]
+        is None
+    )

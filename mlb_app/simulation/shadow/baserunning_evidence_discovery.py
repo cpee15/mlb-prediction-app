@@ -37,6 +37,7 @@ class CanonicalShadowBaserunningEvidenceDiscovery:
     available_pitcher_count: int = 0
     status: str = "unavailable"
     error_message: Optional[str] = None
+    observation_digest: Optional[str] = None
     discovery_version: str = (
         CANONICAL_SHADOW_BASERUNNING_DISCOVERY_VERSION
     )
@@ -106,6 +107,14 @@ class CanonicalShadowBaserunningEvidenceDiscovery:
                 "non-ready discovery cannot expose a catalog"
             )
 
+        if (
+            self.observation_digest is not None
+            and not self.observation_digest
+        ):
+            raise ValueError(
+                "observation_digest must be nonempty or None"
+            )
+
         if self.discovery_version != (
             CANONICAL_SHADOW_BASERUNNING_DISCOVERY_VERSION
         ):
@@ -141,6 +150,9 @@ class CanonicalShadowBaserunningEvidenceDiscovery:
                 self.catalog.digest
                 if self.catalog is not None
                 else None
+            ),
+            "observation_digest": (
+                self.observation_digest
             ),
             "error_message": self.error_message,
             "production_activation": False,

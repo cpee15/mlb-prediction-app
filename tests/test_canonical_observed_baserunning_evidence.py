@@ -1,4 +1,5 @@
 from mlb_app.simulation.shadow import (
+    CANONICAL_OBSERVED_BASERUNNING_DIGEST_VERSION,
     CanonicalCatcherBaserunningObservation,
     CanonicalPitcherBaserunningObservation,
     CanonicalRunnerBaserunningObservation,
@@ -184,3 +185,75 @@ def test_same_observations_produce_same_catalog_digest():
     assert first.catalog is not None
     assert second.catalog is not None
     assert first.catalog.digest == second.catalog.digest
+
+
+
+def test_complete_observations_expose_digest_provenance():
+    result = discover()
+
+    assert result.observation_digest is not None
+    assert len(result.observation_digest) == 64
+    assert (
+        result.to_diagnostics()["observation_digest"]
+        == result.observation_digest
+    )
+
+
+def test_same_observations_produce_same_observation_digest():
+    first = discover()
+    second = discover()
+
+    assert first.observation_digest is not None
+    assert (
+        first.observation_digest
+        == second.observation_digest
+    )
+
+
+def test_changed_observation_changes_observation_digest():
+    first = discover()
+    changed = discover(
+        runner_observations=(
+            CanonicalRunnerBaserunningObservation(
+                runner_id="runner",
+                eligible_opportunities=20,
+                stolen_bases=5,
+                caught_stealing=2,
+                speed_score=0.90,
+                lead_quality=0.80,
+                fatigue_index=0.10,
+            ),
+        ),
+    )
+
+    assert first.observation_digest is not None
+    assert changed.observation_digest is not None
+    assert (
+        first.observation_digest
+        != changed.observation_digest
+    )
+
+
+def test_incomplete_observations_preserve_digest():
+    result = discover(
+        runner_observations=(),
+    )
+
+    assert result.status == "unavailable"
+    assert result.observation_digest is not None
+
+
+def test_invalid_observations_do_not_claim_digest():
+    result = discover(
+        runner_observations=(object(),),
+    )
+
+    assert result.status == "error"
+    assert result.observation_digest is None
+
+
+def test_observation_digest_version_is_explicit():
+    assert (
+        CANONICAL_OBSERVED_BASERUNNING_DIGEST_VERSION
+        == "canonical_observed_baserunning_digest_v1"
+    )
