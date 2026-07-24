@@ -408,3 +408,9 @@ from .historical_baserunning_game_materialization import (
     CANONICAL_PLAY_BY_PLAY_BASERUNNING_MATERIALIZATION_VERSION,
     materialize_play_by_play_baserunning_game_records,
 )
+
+from .historical_baserunning_shadow_validation import (
+    CANONICAL_HISTORICAL_BASERUNNING_SHADOW_COLLECTION_VERSION,
+    CanonicalHistoricalBaserunningExecutionGame,
+    collect_historical_baserunning_shadow_validations,
+)
