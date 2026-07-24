@@ -25,6 +25,7 @@ def _field(
     *,
     sortable: bool = True,
     filterable: bool = True,
+    selectable: bool = True,
     nillable: bool = True,
     operators: Optional[List[str]] = None,
     description: str,
@@ -38,11 +39,20 @@ def _field(
         "group": group,
         "sortable": sortable,
         "filterable": filterable,
+        "selectable": selectable,
         "nillable": nillable,
         "source_object": "dashboard_player_current",
         "relationship_path": None,
         "description": description,
-        "supported_operators": operators or (["eq", "in"] if data_type == "id" else (["eq", "neq", "in"] if data_type == "string" else ["eq", "gt", "gte", "lt", "lte", "is_null", "is_not_null"])),
+        "supported_operators": operators or (
+            ["eq", "in"]
+            if data_type == "id"
+            else (
+                ["eq", "neq", "in"]
+                if data_type == "string"
+                else ["eq", "gt", "gte", "lt", "lte", "is_null", "is_not_null"]
+            )
+        ),
         "freshness": freshness,
         "weight_aliases": weight_aliases or [],
     }
@@ -69,10 +79,10 @@ CURRENT_PLAYER_FIELDS: List[Dict[str, Any]] = [
     _field("obp", "OBP", "double", "Production", description="Current approved on-base percentage.", weight_aliases=["OBP"]),
     _field("slg", "SLG", "double", "Production", description="Current approved slugging percentage.", weight_aliases=["SLG"]),
     _field("plate_appearances", "Plate Appearances", "integer", "Sample", description="Plate appearances for the approved analytical context.", weight_aliases=["PA", "Pitches Seen"]),
-    _field("projection_version", "Projection Version", "string", "Audit", filterable=False, description="Atomic projection batch version."),
-    _field("promoted_at", "Promoted At", "datetime", "Audit", filterable=False, description="Timestamp when this current row was promoted."),
-    _field("updated_at", "Updated At", "datetime", "Audit", filterable=False, description="Timestamp when this current row last changed."),
-    _field("metrics", "Extended Metrics", "json", "Audit", sortable=False, filterable=False, description="Explicitly supported extensible scalar metrics."),
+    _field("projection_version", "Projection Version", "string", "Audit", description="Atomic projection batch version."),
+    _field("promoted_at", "Promoted At", "datetime", "Audit", description="Timestamp when this current row was promoted."),
+    _field("updated_at", "Updated At", "datetime", "Audit", description="Timestamp when this current row last changed."),
+    _field("metrics", "Extended Metrics", "json", "Audit", sortable=False, filterable=False, selectable=False, description="Server-owned extended metrics container. Registered scalar metrics are exposed as dedicated fields before they become selectable."),
 ]
 
 
