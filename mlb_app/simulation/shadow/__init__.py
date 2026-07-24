@@ -347,3 +347,10 @@ from .baserunning_calibration_comparison import (
     CanonicalObservedBaserunningTotals,
     compare_baserunning_shadow_to_observed,
 )
+
+from .baserunning_calibration_gate import (
+    CANONICAL_BASERUNNING_CALIBRATION_GATE_VERSION,
+    CanonicalBaserunningCalibrationGate,
+    CanonicalBaserunningCalibrationPolicy,
+    evaluate_baserunning_calibration_gate,
+)
