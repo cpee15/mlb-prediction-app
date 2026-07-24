@@ -77,7 +77,9 @@ def test_installed_finalizer_preserves_every_deduped_filtered_record():
         return list(items), filters or {}, [], len(items), len(items)
 
     def build_response(date, component, items, data_quality, missing_data):
-        return {"date": date, "component": component, "items": items}
+        # Match the shared legacy card helper: it caps presentation rows even
+        # when the report adapter supplies a complete population.
+        return {"date": date, "component": component, "items": items[:10]}
 
     fake_solver = SimpleNamespace(
         dedupe_ranked_items=dedupe,

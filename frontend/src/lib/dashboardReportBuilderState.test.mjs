@@ -7,7 +7,9 @@ import {
   defaultFieldsForObject,
   initialFieldsByObject,
   normalizeCanonicalPage,
+  reportExecutionFacts,
   reportFieldsForMode,
+  savedReportExecutionMode,
 } from './dashboardReportBuilderState.mjs'
 
 const query = { page_number: 1, page_size: 50, sort_by: 'score', sort_direction: 'desc' }
@@ -35,22 +37,51 @@ test('weights rerank canonical players without becoming filter criteria', () => 
   assert.deepEqual(request.payload.weights, { 'K%': 1.6 })
 })
 
-test('legacy and confirmed-lineup objects preserve their existing routes', () => {
+test('confirmed hitters use the canonical report population while noncanonical objects preserve legacy routes', () => {
   assert.equal(buildReportRequest({ objectKey: 'teams', activeLineupsOnly: false, date: '2026-07-16', cleanedFilters: {}, query }).path, '/my-dashboard/solver')
-  assert.equal(buildReportRequest({ objectKey: 'hitters', activeLineupsOnly: true, date: '2026-07-16', cleanedFilters: {}, query }).path, '/my-dashboard/solver/active-lineups')
+  const hitters = buildReportRequest({ objectKey: 'hitters', activeLineupsOnly: true, date: '2026-07-16', cleanedFilters: {}, query })
+  assert.equal(hitters.path, '/my-dashboard/reports/query')
+  assert.equal(hitters.payload.report_type, 'all_active_hitters')
+  assert.equal(hitters.payload.confirmed_lineups_only, true)
+  assert.equal(buildReportRequest({ objectKey: 'overall_players', activeLineupsOnly: true, date: '2026-07-16', cleanedFilters: {}, query }).path, '/my-dashboard/solver/active-lineups')
 })
 
-test('active lineup reports use fields compatible with the legacy dataset', () => {
+test('confirmed hitter reports preserve canonical fields', () => {
   assert.deepEqual(reportFieldsForMode({
     objectKey: 'hitters',
     activeLineupsOnly: true,
     selectedFields: ['rank', 'full_name', 'team_name', 'model_score', 'confidence'],
-  }), ['rank', 'entity_name', 'team', 'opponent', 'score', 'confidence'])
+  }), ['rank', 'full_name', 'team_name', 'model_score', 'confidence'])
   assert.deepEqual(reportFieldsForMode({
     objectKey: 'hitters',
     activeLineupsOnly: false,
     selectedFields: ['rank', 'full_name'],
   }), ['rank', 'full_name'])
+})
+
+test('report execution facts expose population, lineup, projection, and freshness', () => {
+  assert.deepEqual(reportExecutionFacts({
+    population: { mode: 'confirmed_lineup' },
+    lineup_filter: { lineup_status: 'partial', confirmed_batter_count: 72 },
+    provenance: { snapshot_date: '2026-07-23', projection_versions: ['v23'] },
+    population_bootstrap: { age_hours: 0.25 },
+  }), {
+    mode: 'Confirmed 1–9',
+    lineupStatus: 'partial',
+    confirmedCount: 72,
+    snapshotDate: '2026-07-23',
+    projectionVersion: 'v23',
+    ageHours: 0.25,
+  })
+})
+
+test('saved reports restore their original lineup execution mode', () => {
+  assert.equal(savedReportExecutionMode({
+    payload_json: { definition: { active_lineups_only: true } },
+  }), true)
+  assert.equal(savedReportExecutionMode({
+    payload_json: { workbench_state: { activeLineupsOnly: false } },
+  }, true), false)
 })
 
 test('primary objects own independent default column selections', () => {

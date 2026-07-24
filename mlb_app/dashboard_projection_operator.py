@@ -23,6 +23,102 @@ from .lineup_data import MLB_STATS_BASE
 
 _AUTO_BOOTSTRAP_LOCK = threading.Lock()
 _FALSE_VALUES = {"0", "false", "no", "off"}
+CRITICAL_HITTER_FIELDS = ("model_score", "confidence", "xwoba", "xba")
+
+
+class ProjectionCoverageError(RuntimeError):
+    """Raised before promotion when critical report fields are implausibly sparse."""
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return max(0.0, min(1.0, value))
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_snapshot_date(value: Any) -> Optional[dt.date]:
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    if value in (None, ""):
+        return None
+    try:
+        return dt.date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def refresh_dashboard_metric_overlays(
+    session: Any,
+    *,
+    target_date: dt.date,
+) -> Dict[str, Any]:
+    """Hydrate complete report-oriented metric overlays before projection.
+
+    The legacy assistant cards remain top-N presentation surfaces. Canonical
+    snapshots instead consume complete, deduplicated report datasets.
+    """
+
+    from . import my_dashboard_solver
+    from .my_dashboard_dataset import hydrate_dashboard_dataset
+    from .my_dashboard_report_query import install_full_result_finalizer
+
+    install_full_result_finalizer(my_dashboard_solver)
+    results: Dict[str, Any] = {}
+    for component in ("hitters", "pitchers"):
+        payload = my_dashboard_solver.build_dashboard_solver_payload(
+            session=session,
+            date=target_date.isoformat(),
+            component=component,
+            filters={},
+        )
+        results[component] = hydrate_dashboard_dataset(
+            session=session,
+            date=target_date.isoformat(),
+            component=component,
+            payload_builder=lambda value=payload: value,
+            active_lineups=False,
+            ttl_seconds=24 * 60 * 60,
+            solver_version="canonical_projection_overlay_v1",
+        )
+    return results
+
+
+def _critical_coverage_guard(staged_status: Dict[str, Any]) -> None:
+    coverage = (staged_status.get("field_coverage") or {}).get("hitter") or {}
+    row_count = int(coverage.get("row_count") or 0)
+    minimum_population = _positive_int_env(
+        "DASHBOARD_COVERAGE_GATE_MIN_HITTER_POPULATION",
+        50,
+    )
+    if row_count < minimum_population:
+        return
+    minimum_ratio = _positive_float_env(
+        "DASHBOARD_MIN_HITTER_CRITICAL_FIELD_COVERAGE",
+        0.25,
+    )
+    failed = {
+        field: (coverage.get("fields") or {}).get(field, {}).get("coverage", 0.0)
+        for field in CRITICAL_HITTER_FIELDS
+        if (coverage.get("fields") or {}).get(field, {}).get("coverage", 0.0)
+        < minimum_ratio
+    }
+    if failed:
+        detail = ", ".join(f"{field}={ratio:.4f}" for field, ratio in failed.items())
+        raise ProjectionCoverageError(
+            "Refusing to promote implausibly sparse hitter projection "
+            f"(minimum={minimum_ratio:.4f}; {detail})"
+        )
 
 
 def canonical_auto_bootstrap_enabled() -> bool:
@@ -153,6 +249,8 @@ def run_canonical_projection_refresh(
     request_get: Callable[..., Any] = requests.get,
     matchup_builder: Optional[Callable[..., Any]] = None,
     lineup_fetcher: Optional[Callable[..., Any]] = None,
+    overlay_refresher: Optional[Callable[..., Dict[str, Any]]] = refresh_dashboard_metric_overlays,
+    promotion_guard: Optional[Callable[[Dict[str, Any]], None]] = _critical_coverage_guard,
     transition_missing_players: bool = False,
     now: Optional[dt.datetime] = None,
 ) -> Dict[str, Any]:
@@ -192,7 +290,17 @@ def run_canonical_projection_refresh(
             roster_rows=roster_rows,
             transition_missing_players=transition_missing_players,
         )
-        projection = refresh_player_projection(session, snapshot_date=target_date, now=started_at)
+        overlays = (
+            overlay_refresher(session, target_date=target_date)
+            if overlay_refresher is not None
+            else {}
+        )
+        projection = refresh_player_projection(
+            session,
+            snapshot_date=target_date,
+            promotion_guard=promotion_guard,
+            now=started_at,
+        )
         result = {
             "target_date": target_date.isoformat(),
             "team_count": len(teams),
@@ -201,6 +309,7 @@ def run_canonical_projection_refresh(
             "lineup_unresolved_count": len(lineup["unresolved_identities"]),
             "lineup_error_count": len(lineup["errors"]),
             "population": population,
+            "metric_overlays": overlays,
             "projection": projection,
             **projection,
         }
@@ -216,6 +325,9 @@ def run_canonical_projection_refresh(
 def _current_projection_state(
     session: Any,
     required_player_type: Optional[str],
+    *,
+    target_date: Optional[dt.date] = None,
+    now: Optional[dt.datetime] = None,
 ) -> Dict[str, Any]:
     query = session.query(DashboardPlayerCurrent).filter(
         DashboardPlayerCurrent.is_active.is_(True)
@@ -228,10 +340,44 @@ def _current_projection_state(
         == CANONICAL_POPULATION_POLICY_VERSION
         for row in rows
     )
+    snapshot_dates = sorted({
+        parsed
+        for row in rows
+        for parsed in [_parse_snapshot_date((row.source_freshness_json or {}).get("snapshot_date"))]
+        if parsed is not None
+    })
+    latest_snapshot_date = snapshot_dates[-1] if snapshot_dates else None
+    last_updated_at = max((row.updated_at for row in rows if row.updated_at), default=None)
+    checked_at = now or dt.datetime.utcnow()
+    try:
+        stale_after_hours = max(
+            1,
+            int(os.getenv("DASHBOARD_PROJECTION_STALE_HOURS", "36")),
+        )
+    except (TypeError, ValueError):
+        stale_after_hours = 36
+    age_hours = (
+        round((checked_at - last_updated_at).total_seconds() / 3600, 2)
+        if last_updated_at is not None
+        else None
+    )
+    stale_for_date = bool(
+        target_date
+        and (latest_snapshot_date is None or latest_snapshot_date < target_date)
+    )
+    stale_for_age = age_hours is None or age_hours > stale_after_hours
     return {
         "current_count": len(rows),
         "policy_current": policy_current,
         "required_player_type": required_player_type,
+        "snapshot_dates": [value.isoformat() for value in snapshot_dates],
+        "latest_snapshot_date": latest_snapshot_date.isoformat() if latest_snapshot_date else None,
+        "last_updated_at": last_updated_at.isoformat() if last_updated_at else None,
+        "age_hours": age_hours,
+        "stale_after_hours": stale_after_hours,
+        "stale_for_date": stale_for_date,
+        "stale_for_age": stale_for_age,
+        "stale": stale_for_date or stale_for_age,
     }
 
 
@@ -245,18 +391,38 @@ def ensure_canonical_projection(
 ) -> Dict[str, Any]:
     """Refresh missing or stale canonical rows for the requested player type."""
 
-    state = _current_projection_state(session, required_player_type)
-    if state["current_count"] and state["policy_current"]:
-        return {"status": "already_available", "current_count": state["current_count"]}
+    checked_at = now or dt.datetime.utcnow()
+    state = _current_projection_state(
+        session,
+        required_player_type,
+        target_date=target_date,
+        now=checked_at,
+    )
+    if state["current_count"] and state["policy_current"] and not state["stale"]:
+        return {
+            "status": "already_available",
+            "current_count": state["current_count"],
+            "latest_snapshot_date": state["latest_snapshot_date"],
+            "age_hours": state["age_hours"],
+        }
     if not canonical_auto_bootstrap_enabled():
         return {"status": "disabled", "current_count": 0}
 
-    checked_at = now or dt.datetime.utcnow()
     with _AUTO_BOOTSTRAP_LOCK:
         session.expire_all()
-        state = _current_projection_state(session, required_player_type)
-        if state["current_count"] and state["policy_current"]:
-            return {"status": "already_available", "current_count": state["current_count"]}
+        state = _current_projection_state(
+            session,
+            required_player_type,
+            target_date=target_date,
+            now=checked_at,
+        )
+        if state["current_count"] and state["policy_current"] and not state["stale"]:
+            return {
+                "status": "already_available",
+                "current_count": state["current_count"],
+                "latest_snapshot_date": state["latest_snapshot_date"],
+                "age_hours": state["age_hours"],
+            }
 
         try:
             running_timeout_minutes = max(
@@ -303,16 +469,28 @@ def ensure_canonical_projection(
             # established empty-result contract.
             return {
                 "status": "failed",
-                "current_count": _current_projection_state(session, required_player_type)["current_count"],
+                "current_count": _current_projection_state(
+                    session,
+                    required_player_type,
+                    target_date=target_date,
+                    now=checked_at,
+                )["current_count"],
                 "error_type": exc.__class__.__name__,
             }
 
-        state = _current_projection_state(session, required_player_type)
+        state = _current_projection_state(
+            session,
+            required_player_type,
+            target_date=target_date,
+            now=checked_at,
+        )
         return {
             "status": "populated" if state["current_count"] and state["policy_current"] else "empty",
             "current_count": state["current_count"],
             "run_id": result.get("run_id"),
             "projection_version": result.get("projection_version"),
+            "latest_snapshot_date": state["latest_snapshot_date"],
+            "age_hours": state["age_hours"],
         }
 
 

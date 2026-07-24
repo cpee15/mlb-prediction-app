@@ -65,6 +65,38 @@ def test_validated_filters_are_applied_in_sql_before_count_and_page():
     assert confidence["totalSize"] == 2
 
 
+def test_confirmed_population_is_constrained_before_filters_count_and_pagination():
+    session = make_session()
+    result = query_player_report(
+        session,
+        "all_active_hitters",
+        population_player_ids=[1, 2, 999],
+        population_mode="confirmed_lineup",
+        filters={"team": "AAA"},
+        page_size=1,
+        page_number=1,
+    )
+    assert result["population"] == {
+        "mode": "confirmed_lineup",
+        "candidate_id_count": 3,
+        "matched_current_count": 2,
+        "filtered_count": 1,
+    }
+    assert result["totalSize"] == 1
+    assert [row["mlb_player_id"] for row in result["records"]] == [1]
+
+
+def test_empty_confirmed_population_never_falls_back_to_all_active_hitters():
+    result = query_player_report(
+        make_session(),
+        "all_active_hitters",
+        population_player_ids=[],
+        population_mode="confirmed_lineup",
+    )
+    assert result["totalSize"] == 0
+    assert result["population"]["matched_current_count"] == 0
+
+
 @pytest.mark.parametrize(
     "filters, message",
     [

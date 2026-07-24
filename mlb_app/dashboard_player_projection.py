@@ -34,6 +34,22 @@ SNAPSHOT_SCALARS = (
 )
 
 
+def _projection_field_coverage(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    coverage: Dict[str, Any] = {}
+    for player_type in sorted({str(row.get("player_type") or "") for row in rows}):
+        typed_rows = [row for row in rows if str(row.get("player_type") or "") == player_type]
+        total = len(typed_rows)
+        fields = {}
+        for field in SNAPSHOT_SCALARS:
+            non_null = sum(1 for row in typed_rows if row.get(field) is not None)
+            fields[field] = {
+                "non_null_count": non_null,
+                "coverage": round(non_null / total, 4) if total else 0.0,
+            }
+        coverage[player_type] = {"row_count": total, "fields": fields}
+    return coverage
+
+
 def _json_safe(value: Any) -> Any:
     if isinstance(value, (dt.date, dt.datetime)):
         return value.isoformat()
@@ -469,6 +485,7 @@ def refresh_player_projection(
             "current_removed": current_removed,
             "promote_current": promote_current,
             "full_refresh": full_refresh,
+            "field_coverage": _projection_field_coverage(normalized_rows),
         }
         if promotion_guard is not None:
             promotion_guard(dict(staged_status))

@@ -277,6 +277,11 @@ def install_full_result_finalizer(solver_module: Any) -> None:
         final_limit = max(len(filtered), 1)
         final_items = solver_module.dedupe_ranked_items(filtered, key_fn, limit=final_limit) if filtered else []
         response = solver_module.build_response(date, component, final_items, data_quality, missing_data)
+        # ``build_response`` is also used by the legacy card surface and keeps
+        # its historical top-ten presentation cap. Report hydration must retain
+        # the complete deduplicated universe so SQL filtering and confirmed
+        # lineup scoping happen before pagination.
+        response["items"] = final_items
         response.update({
             "filters_applied": filters_applied,
             "available_filters": solver_module.available_filters_for_component(component, deduped_pool),
