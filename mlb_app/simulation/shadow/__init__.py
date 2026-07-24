@@ -309,3 +309,8 @@ from .runner_availability_evidence import (
     CanonicalRunnerAvailabilityObservation,
     decode_runner_availability_rows,
 )
+
+from .runner_baserunning_context_composition import (
+    CANONICAL_RUNNER_CONTEXT_COMPOSITION_VERSION,
+    compose_runner_baserunning_contexts,
+)
