@@ -1,9 +1,13 @@
 import pytest
 
 from mlb_app.simulation.shadow import (
+    CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION,
     CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION,
+    CanonicalRunnerBaserunningContext,
+    CanonicalStatcastRunnerBaserunningCounts,
     aggregate_statcast_runner_baserunning_counts,
     decode_statcast_baserunning_outcomes,
+    materialize_statcast_runner_observations,
 )
 
 
@@ -417,3 +421,172 @@ def test_aggregate_rejects_non_mapping_rows():
                 object(),
             )
         )
+
+
+
+def runner_counts(
+    runner_id="650489",
+):
+    return CanonicalStatcastRunnerBaserunningCounts(
+        runner_id=runner_id,
+        eligible_opportunities=20,
+        stolen_bases=6,
+        caught_stealing=2,
+    )
+
+
+def runner_context(
+    runner_id="650489",
+):
+    return CanonicalRunnerBaserunningContext(
+        runner_id=runner_id,
+        speed_score=0.90,
+        lead_quality=0.80,
+        fatigue_index=0.10,
+        injury_limit_flag=False,
+        context_source_version=(
+            "sprint_speed_and_availability_v1"
+        ),
+    )
+
+
+def test_materializes_complete_runner_observation():
+    observations = (
+        materialize_statcast_runner_observations(
+            counts=(runner_counts(),),
+            contexts=(runner_context(),),
+        )
+    )
+
+    assert len(observations) == 1
+
+    observation = observations[0]
+
+    assert observation.runner_id == "650489"
+    assert observation.eligible_opportunities == 20
+    assert observation.stolen_bases == 6
+    assert observation.caught_stealing == 2
+    assert observation.speed_score == 0.90
+    assert observation.lead_quality == 0.80
+    assert observation.fatigue_index == 0.10
+    assert observation.injury_limit_flag is False
+    assert observation.source_version == (
+        "canonical_statcast_baserunning_source_v1+"
+        "sprint_speed_and_availability_v1"
+    )
+
+
+def test_missing_context_does_not_fabricate_observation():
+    observations = (
+        materialize_statcast_runner_observations(
+            counts=(runner_counts(),),
+            contexts=(),
+        )
+    )
+
+    assert observations == ()
+
+
+def test_context_without_counts_is_ignored():
+    observations = (
+        materialize_statcast_runner_observations(
+            counts=(),
+            contexts=(runner_context(),),
+        )
+    )
+
+    assert observations == ()
+
+
+def test_materialization_preserves_count_order():
+    observations = (
+        materialize_statcast_runner_observations(
+            counts=(
+                runner_counts("runner-2"),
+                runner_counts("runner-1"),
+            ),
+            contexts=(
+                runner_context("runner-1"),
+                runner_context("runner-2"),
+            ),
+        )
+    )
+
+    assert tuple(
+        value.runner_id
+        for value in observations
+    ) == (
+        "runner-2",
+        "runner-1",
+    )
+
+
+def test_duplicate_count_identity_is_rejected():
+    with pytest.raises(
+        ValueError,
+        match=(
+            "runner count identifiers must be unique"
+        ),
+    ):
+        materialize_statcast_runner_observations(
+            counts=(
+                runner_counts(),
+                runner_counts(),
+            ),
+            contexts=(runner_context(),),
+        )
+
+
+def test_duplicate_context_identity_is_rejected():
+    with pytest.raises(
+        ValueError,
+        match=(
+            "runner context identifiers must be unique"
+        ),
+    ):
+        materialize_statcast_runner_observations(
+            counts=(runner_counts(),),
+            contexts=(
+                runner_context(),
+                runner_context(),
+            ),
+        )
+
+
+def test_unavailable_context_source_is_rejected():
+    with pytest.raises(
+        ValueError,
+        match=(
+            "context_source_version must identify "
+            "an available source"
+        ),
+    ):
+        CanonicalRunnerBaserunningContext(
+            runner_id="runner",
+            speed_score=0.50,
+            lead_quality=0.50,
+            fatigue_index=0.50,
+        )
+
+
+def test_context_rate_outside_unit_interval_is_rejected():
+    with pytest.raises(
+        ValueError,
+        match=(
+            "speed_score must be between 0 and 1"
+        ),
+    ):
+        runner_context().__class__(
+            runner_id="runner",
+            speed_score=1.01,
+            lead_quality=0.50,
+            fatigue_index=0.10,
+            context_source_version="test-v1",
+        )
+
+
+def test_materialization_version_is_explicit():
+    assert (
+        runner_context().materialization_version
+        == CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION
+    )

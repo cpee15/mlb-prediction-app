@@ -90,11 +90,14 @@ from .runner_baserunning_evidence import (
     adapt_observed_runner_baserunning_evidence,
 )
 from .statcast_baserunning_source import (
+    CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION,
     CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION,
+    CanonicalRunnerBaserunningContext,
     CanonicalStatcastBaserunningOutcome,
     CanonicalStatcastRunnerBaserunningCounts,
     aggregate_statcast_runner_baserunning_counts,
     decode_statcast_baserunning_outcomes,
+    materialize_statcast_runner_observations,
 )
 from .integration import attach_canonical_shadow
 from .trial_adapter import canonical_trial_batch_to_shadow_payload
@@ -136,11 +139,14 @@ __all__ = [
     "CANONICAL_RUNNER_BASERUNNING_EVIDENCE_VERSION",
     "CanonicalRunnerBaserunningObservation",
     "adapt_observed_runner_baserunning_evidence",
+    "CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION",
     "CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION",
+    "CanonicalRunnerBaserunningContext",
     "CanonicalStatcastBaserunningOutcome",
     "CanonicalStatcastRunnerBaserunningCounts",
     "aggregate_statcast_runner_baserunning_counts",
     "decode_statcast_baserunning_outcomes",
+    "materialize_statcast_runner_observations",
     "CanonicalShadowDiagnostics",
     "CanonicalShadowBullpenDiscovery",
     "CanonicalShadowBullpenSideDiscovery",
