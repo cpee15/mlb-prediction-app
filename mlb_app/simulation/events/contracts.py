@@ -140,6 +140,7 @@ class PlayEvent:
     runs_scored: Tuple[str, ...] = field(default_factory=tuple)
     attribution: PlayAttribution = field(default_factory=PlayAttribution)
     pitcher_id: Optional[str] = None
+    is_plate_appearance: bool = True
 
     def __post_init__(self) -> None:
         if self.sequence < 0:
@@ -153,19 +154,39 @@ class PlayEvent:
                 "pitcher_id cannot be an empty string"
             )
 
-        if self.state_after.plate_appearance_number != (
-            self.state_before.plate_appearance_number + 1
-        ):
+        if not isinstance(self.is_plate_appearance, bool):
             raise ValueError(
-                "a plate-appearance event must increment "
-                "plate_appearance_number exactly once"
+                "is_plate_appearance must be boolean"
             )
 
-        if self.state_after.batting_order_index != (
-            self.state_before.batting_order_index + 1
-        ) % 9:
+        expected_plate_appearance_number = (
+            self.state_before.plate_appearance_number
+            + int(self.is_plate_appearance)
+        )
+        if (
+            self.state_after.plate_appearance_number
+            != expected_plate_appearance_number
+        ):
             raise ValueError(
-                "a plate-appearance event must advance batting order once"
+                "event plate_appearance_number transition "
+                "does not match is_plate_appearance"
+            )
+
+        expected_batting_order_index = (
+            (
+                self.state_before.batting_order_index + 1
+            )
+            % 9
+            if self.is_plate_appearance
+            else self.state_before.batting_order_index
+        )
+        if (
+            self.state_after.batting_order_index
+            != expected_batting_order_index
+        ):
+            raise ValueError(
+                "event batting order transition does not "
+                "match is_plate_appearance"
             )
 
         score_delta = (

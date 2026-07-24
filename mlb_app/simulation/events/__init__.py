@@ -38,6 +38,7 @@ from .legal_transitions import (
     validate_runner_movements,
 )
 
+from .baserunning_resolution import build_baserunning_event
 from .event_validation import validate_resolved_play_components
 from .multi_out_resolver import MultiOutPlayResolver
 from .play_resolution import build_play_event
@@ -81,6 +82,7 @@ __all__ = [
     "MultiOutPlayResolver",
     "PlayAttribution",
     "SacrificeType",
+    "build_baserunning_event",
     "build_play_event",
     "counted_scorers",
     "third_out_is_force_or_batter_runner_out",

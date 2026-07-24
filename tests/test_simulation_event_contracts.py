@@ -7,6 +7,7 @@ from mlb_app.simulation.events import (
     DeterministicPlayResolver,
     GameState,
     PlayLedger,
+    build_baserunning_event,
     replay_events,
 )
 
@@ -232,4 +233,124 @@ def test_resolver_rejects_plate_appearance_after_three_outs():
             event_type="bb",
             batter_id="batter",
             sequence=0,
+        )
+
+
+def test_successful_steal_is_a_non_plate_appearance_event():
+    state = GameState(
+        outs=1,
+        bases=("runner-1", None, "runner-3"),
+        batting_order_index=4,
+        plate_appearance_number=13,
+    )
+
+    event = build_baserunning_event(
+        sequence=0,
+        event_type="stolen_base",
+        batter_id="batter",
+        runner_id="runner-1",
+        state_before=state,
+        origin_base=Base.FIRST,
+        target_base=Base.SECOND,
+        pitcher_id="pitcher",
+    )
+
+    assert event.is_plate_appearance is False
+    assert event.state_after.bases == (
+        None,
+        "runner-1",
+        "runner-3",
+    )
+    assert event.state_after.outs == 1
+    assert event.state_after.batting_order_index == 4
+    assert event.state_after.plate_appearance_number == 13
+    assert event.outs_recorded == ()
+    assert event.runs_scored == ()
+
+
+def test_caught_stealing_records_out_without_advancing_batter():
+    state = GameState(
+        outs=1,
+        bases=("runner-1", "runner-2", None),
+        batting_order_index=7,
+        plate_appearance_number=26,
+    )
+
+    event = build_baserunning_event(
+        sequence=0,
+        event_type="caught_stealing",
+        batter_id="batter",
+        runner_id="runner-2",
+        state_before=state,
+        origin_base=Base.SECOND,
+        target_base=Base.THIRD,
+    )
+
+    assert event.is_plate_appearance is False
+    assert event.state_after.bases == (
+        "runner-1",
+        None,
+        None,
+    )
+    assert event.state_after.outs == 2
+    assert event.state_after.batting_order_index == 7
+    assert event.state_after.plate_appearance_number == 26
+    assert len(event.outs_recorded) == 1
+    assert event.outs_recorded[0].runner_id == "runner-2"
+    assert event.outs_recorded[0].reason == "caught_stealing"
+
+
+def test_baserunning_event_composes_with_next_plate_appearance():
+    resolver = DeterministicPlayResolver()
+    initial_state = GameState(
+        bases=("runner-1", None, None),
+    )
+    ledger = PlayLedger(initial_state=initial_state)
+
+    steal = build_baserunning_event(
+        sequence=0,
+        event_type="stolen_base",
+        batter_id="batter",
+        runner_id="runner-1",
+        state_before=initial_state,
+        origin_base=Base.FIRST,
+        target_base=Base.SECOND,
+    )
+    ledger = ledger.append(steal)
+
+    plate_appearance = resolver.resolve(
+        state=ledger.current_state,
+        event_type="bb",
+        batter_id="batter",
+        sequence=1,
+    )
+    ledger = ledger.append(plate_appearance)
+
+    assert len(ledger.events) == 2
+    assert ledger.events[0].is_plate_appearance is False
+    assert ledger.events[1].is_plate_appearance is True
+    assert ledger.current_state.bases == (
+        "batter",
+        "runner-1",
+        None,
+    )
+    assert ledger.current_state.batting_order_index == 1
+    assert ledger.current_state.plate_appearance_number == 1
+
+
+def test_baserunning_event_rejects_occupied_target_base():
+    with pytest.raises(
+        ValueError,
+        match="target base must be unoccupied",
+    ):
+        build_baserunning_event(
+            sequence=0,
+            event_type="stolen_base",
+            batter_id="batter",
+            runner_id="runner-1",
+            state_before=GameState(
+                bases=("runner-1", "runner-2", None),
+            ),
+            origin_base=Base.FIRST,
+            target_base=Base.SECOND,
         )
