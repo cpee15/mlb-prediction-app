@@ -6,7 +6,11 @@ from mlb_app.simulation.box_score import (
 )
 from mlb_app.simulation.game import (
     CANONICAL_PA_OUTCOME_ORDER,
+    CanonicalBaserunningEvidenceCatalog,
+    CanonicalCatcherBaserunningProfile,
     CanonicalOutcomeProbability,
+    CanonicalPitcherBaserunningProfile,
+    CanonicalRunnerBaserunningProfile,
     CanonicalProbabilityArtifact,
     CanonicalProbabilityArtifactRecord,
     CanonicalProbabilityFallbackCatalog,
@@ -150,6 +154,58 @@ def fallback_discovery():
         catalog=catalog,
         source_model_count=4,
         status="ready",
+    )
+
+
+def baserunning_catalog():
+    return CanonicalBaserunningEvidenceCatalog(
+        runners=tuple(
+            CanonicalRunnerBaserunningProfile(
+                runner_id=runner_id,
+                speed_score=0.50,
+                attempt_rate=0.0,
+                success_rate=0.75,
+                lead_quality=0.50,
+                fatigue_index=0.0,
+            )
+            for runner_id in (
+                *(
+                    f"a{index}"
+                    for index in range(1, 10)
+                ),
+                *(
+                    f"h{index}"
+                    for index in range(1, 10)
+                ),
+            )
+        ),
+        pitchers=tuple(
+            CanonicalPitcherBaserunningProfile(
+                pitcher_id=pitcher_id,
+                hold_score=0.50,
+                delivery_time_score=0.50,
+                pickoff_attempt_rate=0.0,
+                pickoff_success_rate=0.0,
+            )
+            for pitcher_id in (
+                "100",
+                "101",
+                "200",
+                "201",
+            )
+        ),
+        away_catcher=CanonicalCatcherBaserunningProfile(
+            catcher_id="away-catcher",
+            team_side="away",
+            throwing_score=0.50,
+            pop_time_score=0.50,
+        ),
+        home_catcher=CanonicalCatcherBaserunningProfile(
+            catcher_id="home-catcher",
+            team_side="home",
+            throwing_score=0.50,
+            pop_time_score=0.50,
+        ),
     )
 
 
@@ -457,3 +513,36 @@ def test_production_shadow_exposes_reconstructed_earned_runs():
     )
     assert "earned_runs" in pitcher_metric_names
     assert "dfs_points" in pitcher_metric_names
+
+
+
+def test_production_shadow_accepts_injected_baserunning_catalog():
+    source = baserunning_catalog()
+    result = run(
+        baserunning_evidence_catalog=source,
+    )
+
+    assert result.status == "executed"
+    assert result.execution_inputs is not None
+    assert (
+        result.execution_inputs
+        .baserunning_evidence_catalog
+        is source
+    )
+    assert (
+        result.to_diagnostics()[
+            "baserunning_evidence_catalog_digest"
+        ]
+        == source.digest
+    )
+
+
+def test_invalid_production_baserunning_catalog_fails_open():
+    result = run(
+        baserunning_evidence_catalog=object(),
+    )
+
+    assert result.status == "error"
+    assert result.executed is False
+    assert result.material is None
+    assert result.error_type == "TypeError"
