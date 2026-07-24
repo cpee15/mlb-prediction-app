@@ -9,6 +9,9 @@ from mlb_app.simulation.box_score import (
     BatterDfsScoringRules,
     PitcherDfsScoringRules,
 )
+from mlb_app.simulation.game.baserunning_evidence_catalog import (
+    CanonicalBaserunningEvidenceCatalog,
+)
 from mlb_app.simulation.game.contracts import (
     CanonicalGameConfig,
 )
@@ -80,6 +83,9 @@ class CanonicalShadowExecutionBundleFactory:
     matchup_input: CanonicalMatchupInput
     exact_artifact: CanonicalProbabilityArtifact
     fallback_catalog: CanonicalProbabilityFallbackCatalog
+    baserunning_evidence_catalog: Optional[
+        CanonicalBaserunningEvidenceCatalog
+    ] = None
     fallback_policy: CanonicalProbabilityFallbackPolicy = field(
         default_factory=CanonicalProbabilityFallbackPolicy
     )
@@ -121,6 +127,18 @@ class CanonicalShadowExecutionBundleFactory:
             raise TypeError(
                 "fallback_catalog must be a "
                 "CanonicalProbabilityFallbackCatalog"
+            )
+
+        if (
+            self.baserunning_evidence_catalog is not None
+            and not isinstance(
+                self.baserunning_evidence_catalog,
+                CanonicalBaserunningEvidenceCatalog,
+            )
+        ):
+            raise TypeError(
+                "baserunning_evidence_catalog must be "
+                "CanonicalBaserunningEvidenceCatalog or None"
             )
 
         if not isinstance(
@@ -251,6 +269,9 @@ class CanonicalShadowExecutionBundleFactory:
             matchup_input=self.matchup_input,
             exact_artifact=self.exact_artifact,
             fallback_catalog=self.fallback_catalog,
+            baserunning_evidence_catalog=(
+                self.baserunning_evidence_catalog
+            ),
             fallback_policy=self.fallback_policy,
             game_config=self.game_config,
             batter_dfs_rules=self.batter_dfs_rules,
@@ -273,6 +294,9 @@ def build_canonical_shadow_execution_bundle_factory(
     matchup_input: CanonicalMatchupInput,
     exact_artifact: CanonicalProbabilityArtifact,
     fallback_catalog: CanonicalProbabilityFallbackCatalog,
+    baserunning_evidence_catalog: Optional[
+        CanonicalBaserunningEvidenceCatalog
+    ] = None,
     fallback_policy: Optional[
         CanonicalProbabilityFallbackPolicy
     ] = None,
@@ -292,6 +316,9 @@ def build_canonical_shadow_execution_bundle_factory(
         matchup_input=matchup_input,
         exact_artifact=exact_artifact,
         fallback_catalog=fallback_catalog,
+        baserunning_evidence_catalog=(
+            baserunning_evidence_catalog
+        ),
         fallback_policy=(
             fallback_policy
             or CanonicalProbabilityFallbackPolicy()
