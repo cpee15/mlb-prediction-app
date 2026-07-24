@@ -17,9 +17,13 @@ test('calculates visible result range from server page info', () => {
 })
 
 test('uses server-owned field metadata', () => {
-  const fields = serverFields({ object_info: { fields: [{ name: 'metrics.xwOBA', label: 'xwOBA', type: 'double', sortable: true, group: 'Metrics' }] } })
-  assert.equal(fields[0].accessor, 'metrics.xwOBA')
+  const fields = serverFields({ object_info: { fields: [{ name: 'xwoba', label: 'xwOBA', data_type: 'double', sortable: true, filterable: true, selectable: true, supported_operators: ['eq', 'gte'], group: 'Metrics' }] } })
+  assert.equal(fields[0].accessor, 'xwoba')
   assert.equal(fields[0].sortable, true)
+  assert.equal(fields[0].filterable, true)
+  assert.equal(fields[0].selectable, true)
+  assert.equal(fields[0].dataType, 'double')
+  assert.deepEqual(fields[0].supportedOperators, ['eq', 'gte'])
 })
 
 test('builds the complete solver query payload', () => {
