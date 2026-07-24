@@ -18,8 +18,12 @@ from mlb_app.simulation.game.factory_input import (
 from mlb_app.simulation.game.matchup_input import (
     CanonicalMatchupInput,
 )
+from mlb_app.simulation.game.bullpen_selector import (
+    CanonicalBullpenPitcher,
+    CanonicalBullpenRole,
+)
 from mlb_app.simulation.game.pa_resolver_factory import (
-    build_canonical_pa_resolver_factory,
+    CanonicalPlateAppearanceResolverFactory,
 )
 from mlb_app.simulation.game.probability_artifact import (
     CanonicalProbabilityArtifact,
@@ -46,6 +50,21 @@ from .execution_bundle import (
 CANONICAL_SHADOW_EXECUTION_BUNDLE_FACTORY_VERSION = (
     "canonical_shadow_execution_bundle_factory_v1"
 )
+
+
+def _baseline_bullpen(
+    pitcher_ids: tuple[str, ...],
+) -> tuple[CanonicalBullpenPitcher, ...]:
+    """Adapt an identity-only pitching plan into stable bullpen inputs."""
+
+    return tuple(
+        CanonicalBullpenPitcher(
+            pitcher_id=pitcher_id,
+            role=CanonicalBullpenRole.MIDDLE_RELIEF,
+            appearance_priority=index,
+        )
+        for index, pitcher_id in enumerate(pitcher_ids)
+    )
 
 
 @dataclass(frozen=True)
@@ -188,8 +207,18 @@ class CanonicalShadowExecutionBundleFactory:
         )
 
         resolver_factory = (
-            build_canonical_pa_resolver_factory(
-                probability_provider
+            CanonicalPlateAppearanceResolverFactory(
+                probability_provider=probability_provider,
+                away_bullpen=_baseline_bullpen(
+                    self.matchup_input
+                    .away_pitching_plan
+                    .bullpen_pitcher_ids
+                ),
+                home_bullpen=_baseline_bullpen(
+                    self.matchup_input
+                    .home_pitching_plan
+                    .bullpen_pitcher_ids
+                ),
             )
         )
 

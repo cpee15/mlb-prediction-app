@@ -702,3 +702,45 @@ def test_manager_falls_back_when_preferred_pitcher_unavailable():
     )
 
     assert pitcher == "home_long"
+
+
+
+def test_manager_reconstructs_same_play_home_run_batter():
+    value = manager()
+    state = GameState(
+        inning=1,
+        half="top",
+    )
+
+    home_run = replace(
+        build_play_event(
+            sequence=0,
+            event_type="hr",
+            batter_id="away_batter_0",
+            state_before=state,
+            runner_movements=(
+                RunnerMovement(
+                    runner_id="away_batter_0",
+                    start_base=Base.HOME,
+                    end_base=Base.HOME,
+                    scored=True,
+                ),
+            ),
+        ),
+        pitcher_id="home_starter",
+    )
+
+    value.record_plate_appearance(home_run)
+
+    classifications = value.run_classifications()
+    lines = value.reconstructed_pitcher_run_lines()
+
+    assert len(classifications) == 1
+    assert classifications[0].runner_id == (
+        "away_batter_0"
+    )
+    assert classifications[0].earned is True
+    assert len(lines) == 1
+    assert lines[0].pitcher_id == "home_starter"
+    assert lines[0].runs_allowed == 1
+    assert lines[0].earned_runs == 1

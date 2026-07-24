@@ -245,6 +245,14 @@ class CanonicalPitcherResponsibilityLedger:
             self._scored[scored_before:]
         )
 
+    def retire_runner(
+        self,
+        runner_id: str,
+    ) -> None:
+        """Remove responsibility when a runner leaves the bases."""
+
+        self._active.pop(runner_id, None)
+
     def responsibility_for_runner(
         self,
         runner_id: str,
