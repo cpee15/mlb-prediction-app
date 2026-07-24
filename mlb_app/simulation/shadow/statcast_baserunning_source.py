@@ -14,9 +14,16 @@ from typing import (
     Tuple,
 )
 
+from .runner_baserunning_evidence import (
+    CanonicalRunnerBaserunningObservation,
+)
+
 
 CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION = (
     "canonical_statcast_baserunning_source_v1"
+)
+CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION = (
+    "canonical_runner_baserunning_materialization_v1"
 )
 
 _OUTCOME_PATTERN = re.compile(
@@ -463,3 +470,195 @@ def aggregate_statcast_runner_baserunning_counts(
             counts.items()
         )
     )
+
+
+
+def _validate_unit_rate(
+    *,
+    name: str,
+    value: float,
+) -> None:
+    if not isinstance(value, (int, float)):
+        raise TypeError(
+            f"{name} must be numeric"
+        )
+
+    if not 0.0 <= float(value) <= 1.0:
+        raise ValueError(
+            f"{name} must be between 0 and 1"
+        )
+
+
+@dataclass(frozen=True)
+class CanonicalRunnerBaserunningContext:
+    """Explicit non-count context required for one runner."""
+
+    runner_id: str
+    speed_score: float
+    lead_quality: float
+    fatigue_index: float
+    injury_limit_flag: bool = False
+    context_source_version: str = (
+        "unavailable"
+    )
+    materialization_version: str = (
+        CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION
+    )
+
+    def __post_init__(self) -> None:
+        if not self.runner_id:
+            raise ValueError(
+                "runner_id is required"
+            )
+
+        for name, value in (
+            (
+                "speed_score",
+                self.speed_score,
+            ),
+            (
+                "lead_quality",
+                self.lead_quality,
+            ),
+            (
+                "fatigue_index",
+                self.fatigue_index,
+            ),
+        ):
+            _validate_unit_rate(
+                name=name,
+                value=value,
+            )
+
+        if not isinstance(
+            self.injury_limit_flag,
+            bool,
+        ):
+            raise TypeError(
+                "injury_limit_flag must be boolean"
+            )
+
+        if (
+            not self.context_source_version
+            or self.context_source_version
+            == "unavailable"
+        ):
+            raise ValueError(
+                "context_source_version must identify "
+                "an available source"
+            )
+
+        if self.materialization_version != (
+            CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION
+        ):
+            raise ValueError(
+                "unsupported runner baserunning "
+                "materialization version"
+            )
+
+
+def materialize_statcast_runner_observations(
+    *,
+    counts: Tuple[
+        CanonicalStatcastRunnerBaserunningCounts,
+        ...,
+    ],
+    contexts: Tuple[
+        CanonicalRunnerBaserunningContext,
+        ...,
+    ],
+) -> Tuple[
+    CanonicalRunnerBaserunningObservation,
+    ...,
+]:
+    """
+    Join exact Statcast counts to complete runner context.
+
+    Missing context yields no observation for that runner. No speed, lead,
+    fatigue, or injury values are fabricated.
+    """
+
+    count_ids = [
+        value.runner_id
+        for value in counts
+    ]
+    context_ids = [
+        value.runner_id
+        for value in contexts
+    ]
+
+    if len(count_ids) != len(set(count_ids)):
+        raise ValueError(
+            "runner count identifiers must be unique"
+        )
+
+    if len(context_ids) != len(set(context_ids)):
+        raise ValueError(
+            "runner context identifiers must be unique"
+        )
+
+    for value in counts:
+        if not isinstance(
+            value,
+            CanonicalStatcastRunnerBaserunningCounts,
+        ):
+            raise TypeError(
+                "counts must contain "
+                "CanonicalStatcastRunnerBaserunningCounts"
+            )
+
+    for value in contexts:
+        if not isinstance(
+            value,
+            CanonicalRunnerBaserunningContext,
+        ):
+            raise TypeError(
+                "contexts must contain "
+                "CanonicalRunnerBaserunningContext"
+            )
+
+    contexts_by_id = {
+        value.runner_id: value
+        for value in contexts
+    }
+
+    observations = []
+
+    for value in counts:
+        context = contexts_by_id.get(
+            value.runner_id
+        )
+
+        if context is None:
+            continue
+
+        observations.append(
+            CanonicalRunnerBaserunningObservation(
+                runner_id=value.runner_id,
+                eligible_opportunities=(
+                    value.eligible_opportunities
+                ),
+                stolen_bases=value.stolen_bases,
+                caught_stealing=(
+                    value.caught_stealing
+                ),
+                speed_score=float(
+                    context.speed_score
+                ),
+                lead_quality=float(
+                    context.lead_quality
+                ),
+                fatigue_index=float(
+                    context.fatigue_index
+                ),
+                injury_limit_flag=(
+                    context.injury_limit_flag
+                ),
+                source_version=(
+                    f"{value.source_version}+"
+                    f"{context.context_source_version}"
+                ),
+            )
+        )
+
+    return tuple(observations)
