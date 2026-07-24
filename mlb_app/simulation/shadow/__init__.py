@@ -403,3 +403,8 @@ from .mlb_play_by_play_baserunning_source import (
     CanonicalMlbPlayByPlayBaserunningSnapshot,
     source_mlb_play_by_play_baserunning_window,
 )
+
+from .historical_baserunning_game_materialization import (
+    CANONICAL_PLAY_BY_PLAY_BASERUNNING_MATERIALIZATION_VERSION,
+    materialize_play_by_play_baserunning_game_records,
+)

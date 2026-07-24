@@ -12,6 +12,9 @@ from .baserunning_calibration_payload import (
 from .baserunning_output_validation import (
     CanonicalBaserunningOutputValidation,
 )
+from .mlb_play_by_play_baserunning_source import (
+    CanonicalMlbPlayByPlayBaserunningSnapshot,
+)
 from .statcast_baserunning_source import (
     CanonicalStatcastBaserunningOutcome,
 )
@@ -22,6 +25,10 @@ CANONICAL_HISTORICAL_BASERUNNING_SHADOW_GAME_VERSION = (
 )
 CANONICAL_HISTORICAL_BASERUNNING_MATERIALIZATION_VERSION = (
     "canonical_historical_baserunning_materialization_v1"
+)
+
+CANONICAL_PLAY_BY_PLAY_BASERUNNING_MATERIALIZATION_VERSION = (
+    "canonical_play_by_play_baserunning_materialization_v1"
 )
 
 
@@ -253,6 +260,130 @@ def materialize_historical_baserunning_game_records(
                     observed_source_version
                 ),
             )
+        )
+
+    return tuple(records)
+
+
+def materialize_play_by_play_baserunning_game_records(
+    *,
+    shadow_games: Tuple[
+        CanonicalHistoricalBaserunningShadowGame,
+        ...,
+    ],
+    observed: CanonicalMlbPlayByPlayBaserunningSnapshot,
+) -> Tuple[
+    CanonicalHistoricalBaserunningGame,
+    ...,
+]:
+    """
+    Join complete MLB play-by-play totals to shadow validations.
+
+    Exact game identity and official-date coverage are required. Statcast
+    description outcomes are intentionally not used as calibration truth.
+    """
+
+    if not isinstance(shadow_games, tuple):
+        raise TypeError(
+            "shadow_games must be a tuple"
+        )
+    if not shadow_games:
+        raise ValueError(
+            "shadow_games must contain records"
+        )
+
+    for value in shadow_games:
+        if not isinstance(
+            value,
+            CanonicalHistoricalBaserunningShadowGame,
+        ):
+            raise TypeError(
+                "shadow_games must contain "
+                "CanonicalHistoricalBaserunningShadowGame"
+            )
+
+    if not isinstance(
+        observed,
+        CanonicalMlbPlayByPlayBaserunningSnapshot,
+    ):
+        raise TypeError(
+            "observed must be "
+            "CanonicalMlbPlayByPlayBaserunningSnapshot"
+        )
+
+    shadow_by_id = {}
+    for value in shadow_games:
+        if value.game_pk in shadow_by_id:
+            raise ValueError(
+                "historical shadow game identifiers "
+                "must be unique"
+            )
+        shadow_by_id[value.game_pk] = value
+
+    observed_by_id = {
+        value.game_pk: value
+        for value in observed.games
+    }
+
+    if set(shadow_by_id) != set(observed_by_id):
+        raise ValueError(
+            "shadow games must exactly match "
+            "observed play-by-play games"
+        )
+
+    records = []
+    for game_pk in sorted(
+        shadow_by_id,
+        key=lambda value: (
+            shadow_by_id[value].game_date,
+            value,
+        ),
+    ):
+        shadow_game = shadow_by_id[game_pk]
+        observed_game = observed_by_id[game_pk]
+
+        if (
+            shadow_game.game_date
+            != observed_game.game_date
+        ):
+            raise ValueError(
+                "shadow game_date must match "
+                "observed official game_date"
+            )
+
+        records.append(
+            CanonicalHistoricalBaserunningGame(
+                game_pk=game_pk,
+                game_date=shadow_game.game_date,
+                validation=shadow_game.validation,
+                observed_stolen_bases=(
+                    observed_game.stolen_bases
+                ),
+                observed_caught_stealing=(
+                    observed_game.caught_stealing
+                ),
+                observed_source_version=(
+                    observed.source_version
+                ),
+            )
+        )
+
+    if sum(
+        value.observed_stolen_bases
+        for value in records
+    ) != observed.stolen_bases:
+        raise ValueError(
+            "materialized stolen-base total must "
+            "match observed snapshot"
+        )
+
+    if sum(
+        value.observed_caught_stealing
+        for value in records
+    ) != observed.caught_stealing:
+        raise ValueError(
+            "materialized caught-stealing total must "
+            "match observed snapshot"
         )
 
     return tuple(records)
