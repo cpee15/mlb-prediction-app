@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from mlb_app.simulation.box_score import (
+    DRAFTKINGS_CLASSIC_BATTER_RULES,
+    DRAFTKINGS_CLASSIC_PITCHER_RULES,
+)
+
 from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional, Tuple
 
@@ -414,6 +419,12 @@ def run_canonical_production_shadow(
                 exact_artifact=exact_artifact,
                 fallback_catalog=fallback_catalog,
                 fallback_policy=fallback_policy,
+                batter_dfs_rules=(
+                    DRAFTKINGS_CLASSIC_BATTER_RULES
+                ),
+                pitcher_dfs_rules=(
+                    DRAFTKINGS_CLASSIC_PITCHER_RULES
+                ),
             )
         )
 
