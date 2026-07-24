@@ -210,3 +210,97 @@ def test_catalog_preserves_version():
         catalog().catalog_version
         == CANONICAL_BASERUNNING_EVIDENCE_CATALOG_VERSION
     )
+
+
+def test_catalog_digest_is_explicit():
+    value = catalog()
+
+    assert len(value.digest) == 64
+    assert value.digest == value.digest
+
+
+def test_catalog_digest_is_profile_order_independent():
+    value = catalog()
+
+    reversed_catalog = CanonicalBaserunningEvidenceCatalog(
+        runners=tuple(reversed(value.runners)),
+        pitchers=tuple(reversed(value.pitchers)),
+        away_catcher=value.away_catcher,
+        home_catcher=value.home_catcher,
+    )
+
+    assert reversed_catalog.digest == value.digest
+
+
+def test_runner_evidence_change_changes_catalog_digest():
+    value = catalog()
+    runner = value.runners[0]
+
+    changed = CanonicalBaserunningEvidenceCatalog(
+        runners=(
+            CanonicalRunnerBaserunningProfile(
+                runner_id=runner.runner_id,
+                speed_score=runner.speed_score,
+                attempt_rate=runner.attempt_rate,
+                success_rate=runner.success_rate,
+                lead_quality=runner.lead_quality,
+                fatigue_index=0.20,
+                injury_limit_flag=(
+                    runner.injury_limit_flag
+                ),
+            ),
+            *value.runners[1:],
+        ),
+        pitchers=value.pitchers,
+        away_catcher=value.away_catcher,
+        home_catcher=value.home_catcher,
+    )
+
+    assert changed.digest != value.digest
+
+
+def test_pitcher_evidence_change_changes_catalog_digest():
+    value = catalog()
+    pitcher = value.pitchers[0]
+
+    changed = CanonicalBaserunningEvidenceCatalog(
+        runners=value.runners,
+        pitchers=(
+            CanonicalPitcherBaserunningProfile(
+                pitcher_id=pitcher.pitcher_id,
+                hold_score=pitcher.hold_score,
+                delivery_time_score=(
+                    pitcher.delivery_time_score
+                ),
+                pickoff_attempt_rate=0.25,
+                pickoff_success_rate=(
+                    pitcher.pickoff_success_rate
+                ),
+            ),
+            *value.pitchers[1:],
+        ),
+        away_catcher=value.away_catcher,
+        home_catcher=value.home_catcher,
+    )
+
+    assert changed.digest != value.digest
+
+
+def test_catcher_evidence_change_changes_catalog_digest():
+    value = catalog()
+
+    changed = CanonicalBaserunningEvidenceCatalog(
+        runners=value.runners,
+        pitchers=value.pitchers,
+        away_catcher=CanonicalCatcherBaserunningProfile(
+            catcher_id=value.away_catcher.catcher_id,
+            team_side="away",
+            throwing_score=0.10,
+            pop_time_score=(
+                value.away_catcher.pop_time_score
+            ),
+        ),
+        home_catcher=value.home_catcher,
+    )
+
+    assert changed.digest != value.digest
