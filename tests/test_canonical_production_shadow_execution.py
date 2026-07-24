@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from mlb_app.simulation.box_score import (
+    DRAFTKINGS_CLASSIC_BATTER_RULES,
+    DRAFTKINGS_CLASSIC_PITCHER_RULES,
+)
 from mlb_app.simulation.game import (
     CANONICAL_PA_OUTCOME_ORDER,
     CanonicalOutcomeProbability,
@@ -379,3 +383,47 @@ def test_preferred_replacement_outside_bullpen_is_ignored():
         plan.preferred_replacement_pitcher_ids
         == ()
     )
+
+
+def test_production_shadow_activates_draftkings_scoring_rules():
+    result = run()
+
+    assert result.status == "executed"
+    assert result.material is not None
+    assert result.execution_inputs is not None
+
+    payload = result.material.canonical_payload
+
+    batter_metric_names = {
+        metric["name"]
+        for row in payload["batters"]
+        for metric in row["metrics"]
+    }
+    pitcher_metric_names = {
+        metric["name"]
+        for row in payload["pitchers"]
+        for metric in row["metrics"]
+    }
+
+    assert "dfs_points" in batter_metric_names
+
+    assert (
+        result.execution_inputs.batter_dfs_rules
+        is DRAFTKINGS_CLASSIC_BATTER_RULES
+    )
+    assert (
+        result.execution_inputs.pitcher_dfs_rules
+        is DRAFTKINGS_CLASSIC_PITCHER_RULES
+    )
+
+    if (
+        payload["diagnostics"]["earned_run_status"]
+        == "reconstructed"
+    ):
+        assert "dfs_points" in pitcher_metric_names
+    else:
+        assert "dfs_points" not in pitcher_metric_names
+        assert (
+            "pitcher_dfs_earned_runs_unavailable"
+            in payload["diagnostics"]["warnings"]
+        )
