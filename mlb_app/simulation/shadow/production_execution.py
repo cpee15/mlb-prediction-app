@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 from mlb_app.simulation.game import (
+    CanonicalBaserunningEvidenceCatalog,
     CanonicalLineup,
     CanonicalMatchupInput,
     CanonicalPitchingPlan,
@@ -136,6 +137,12 @@ class CanonicalProductionShadowExecution:
             "fallback_catalog_digest": (
                 self.execution_inputs
                 .fallback_catalog_digest
+                if self.execution_inputs is not None
+                else None
+            ),
+            "baserunning_evidence_catalog_digest": (
+                self.execution_inputs
+                .baserunning_evidence_catalog_digest
                 if self.execution_inputs is not None
                 else None
             ),
@@ -331,6 +338,9 @@ def run_canonical_production_shadow(
         CanonicalShadowFallbackCatalogDiscovery
     ),
     bootstrap_ready: bool,
+    baserunning_evidence_catalog: Optional[
+        CanonicalBaserunningEvidenceCatalog
+    ] = None,
     simulation_count: int = (
         DEFAULT_PRODUCTION_SHADOW_SIMULATION_COUNT
     ),
@@ -418,6 +428,9 @@ def run_canonical_production_shadow(
                 matchup_input=matchup_input,
                 exact_artifact=exact_artifact,
                 fallback_catalog=fallback_catalog,
+                baserunning_evidence_catalog=(
+                    baserunning_evidence_catalog
+                ),
                 fallback_policy=fallback_policy,
                 batter_dfs_rules=(
                     DRAFTKINGS_CLASSIC_BATTER_RULES
