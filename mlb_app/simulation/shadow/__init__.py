@@ -374,3 +374,10 @@ from .baserunning_calibration_payload import (
     CanonicalHistoricalBaserunningGame,
     assemble_historical_baserunning_calibration_payload,
 )
+
+from .historical_baserunning_game_materialization import (
+    CANONICAL_HISTORICAL_BASERUNNING_MATERIALIZATION_VERSION,
+    CANONICAL_HISTORICAL_BASERUNNING_SHADOW_GAME_VERSION,
+    CanonicalHistoricalBaserunningShadowGame,
+    materialize_historical_baserunning_game_records,
+)
