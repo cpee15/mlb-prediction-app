@@ -70,6 +70,11 @@ from .input_serialization import (
     CANONICAL_SHADOW_INPUT_PROVENANCE_VERSION,
     canonical_shadow_input_provenance_to_dict,
 )
+from .runner_baserunning_evidence import (
+    CANONICAL_RUNNER_BASERUNNING_EVIDENCE_VERSION,
+    CanonicalRunnerBaserunningObservation,
+    adapt_observed_runner_baserunning_evidence,
+)
 from .integration import attach_canonical_shadow
 from .trial_adapter import canonical_trial_batch_to_shadow_payload
 from .serialization import (
@@ -99,6 +104,9 @@ __all__ = [
     "CANONICAL_SHADOW_PROBABILITY_PROVIDER_DISCOVERY_VERSION",
     "CANONICAL_SHADOW_INPUT_PROVENANCE_VERSION",
     "CANONICAL_PROBABILITY_DIAGNOSTICS_SHADOW_VERSION",
+    "CANONICAL_RUNNER_BASERUNNING_EVIDENCE_VERSION",
+    "CanonicalRunnerBaserunningObservation",
+    "adapt_observed_runner_baserunning_evidence",
     "CanonicalShadowDiagnostics",
     "CanonicalShadowBullpenDiscovery",
     "CanonicalShadowBullpenSideDiscovery",
