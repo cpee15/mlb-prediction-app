@@ -3,6 +3,8 @@ import json
 import pytest
 
 from mlb_app.simulation.box_score import (
+    DRAFTKINGS_CLASSIC_BATTER_RULES,
+    DRAFTKINGS_CLASSIC_PITCHER_RULES,
     BatterBoxScore,
     BatterDfsScoringRules,
     PitcherBoxScore,
@@ -386,3 +388,115 @@ def test_validation_count_must_match_simulations():
             model_version="canonical_event_model_v1",
             replay_validation_passes=(True, False),
         )
+
+
+
+def test_draftkings_projection_means_reconcile_to_trial_lines():
+    first = ReducedBoxScore(
+        away=TeamBoxScore(
+            team_side="away",
+            runs=1,
+            hits=1,
+        ),
+        home=TeamBoxScore(team_side="home"),
+        batters=(
+            BatterBoxScore(
+                player_id="batter",
+                team_side="away",
+                plate_appearances=1,
+                at_bats=1,
+                singles=1,
+                walks=1,
+                runs=1,
+                rbi=1,
+            ),
+        ),
+        pitchers=(
+            PitcherBoxScore(
+                player_id="pitcher",
+                team_side="home",
+                batters_faced=24,
+                outs_recorded=18,
+                hits_allowed=4,
+                walks=2,
+                hit_batters=1,
+                strikeouts=7,
+                runs_allowed=2,
+                earned_runs=2,
+                earned_run_status="reconstructed",
+            ),
+        ),
+        pitcher_attribution_complete=True,
+    )
+
+    second = ReducedBoxScore(
+        away=TeamBoxScore(
+            team_side="away",
+            runs=2,
+            hits=2,
+        ),
+        home=TeamBoxScore(team_side="home"),
+        batters=(
+            BatterBoxScore(
+                player_id="batter",
+                team_side="away",
+                plate_appearances=1,
+                at_bats=1,
+                doubles=1,
+                home_runs=1,
+                runs=1,
+                rbi=2,
+            ),
+        ),
+        pitchers=(
+            PitcherBoxScore(
+                player_id="pitcher",
+                team_side="home",
+                batters_faced=24,
+                outs_recorded=15,
+                hits_allowed=6,
+                walks=3,
+                strikeouts=5,
+                runs_allowed=4,
+                earned_runs=4,
+                earned_run_status="reconstructed",
+            ),
+        ),
+        pitcher_attribution_complete=True,
+    )
+
+    payload = aggregate_projection_payload(
+        box_scores=(first, second),
+        model_version="canonical_event_model_v1",
+        batter_dfs_rules=(
+            DRAFTKINGS_CLASSIC_BATTER_RULES
+        ),
+        pitcher_dfs_rules=(
+            DRAFTKINGS_CLASSIC_PITCHER_RULES
+        ),
+    )
+
+    batter_dfs = metric(
+        payload.batters[0],
+        "dfs_points",
+    ).summary
+    pitcher_dfs = metric(
+        payload.pitchers[0],
+        "dfs_points",
+    ).summary
+
+    assert batter_dfs.count == 2
+    assert batter_dfs.minimum == 9.0
+    assert batter_dfs.maximum == 21.0
+    assert batter_dfs.mean == 15.0
+
+    assert pitcher_dfs.count == 2
+    assert pitcher_dfs.minimum == 7.85
+    assert pitcher_dfs.maximum == 19.3
+    assert pitcher_dfs.mean == 13.575
+
+    assert (
+        payload.diagnostics.earned_run_status
+        == "reconstructed"
+    )
+    assert payload.diagnostics.warnings == ()
