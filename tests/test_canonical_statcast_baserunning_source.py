@@ -2,6 +2,7 @@ import pytest
 
 from mlb_app.simulation.shadow import (
     CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION,
+    aggregate_statcast_runner_baserunning_counts,
     decode_statcast_baserunning_outcomes,
 )
 
@@ -203,3 +204,216 @@ def test_source_version_is_explicit():
     assert outcome.source_version == (
         CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION
     )
+
+
+
+def test_aggregates_pitch_opportunities_and_outcomes():
+    counts = aggregate_statcast_runner_baserunning_counts(
+        (
+            row(
+                game_pk=1,
+                at_bat_number=1,
+                pitch_number=1,
+                on_1b=650489,
+                des="Called strike.",
+            ),
+            row(
+                game_pk=1,
+                at_bat_number=1,
+                pitch_number=2,
+                on_1b=650489,
+                des=(
+                    "Willi Castro steals (1) "
+                    "2nd base."
+                ),
+            ),
+            row(
+                game_pk=2,
+                at_bat_number=1,
+                pitch_number=1,
+                on_1b=650489,
+                des=(
+                    "Willi Castro caught stealing "
+                    "2nd."
+                ),
+            ),
+        )
+    )
+
+    assert len(counts) == 1
+    assert counts[0].runner_id == "650489"
+    assert counts[0].eligible_opportunities == 3
+    assert counts[0].stolen_bases == 1
+    assert counts[0].caught_stealing == 1
+
+
+def test_occupied_target_is_not_eligible():
+    counts = aggregate_statcast_runner_baserunning_counts(
+        (
+            row(
+                game_pk=1,
+                at_bat_number=1,
+                pitch_number=1,
+                on_1b=111,
+                on_2b=222,
+                on_3b=None,
+                des="Called strike.",
+            ),
+        )
+    )
+
+    assert tuple(
+        (
+            value.runner_id,
+            value.eligible_opportunities,
+        )
+        for value in counts
+    ) == (
+        (
+            "222",
+            1,
+        ),
+    )
+
+
+def test_double_steal_credits_both_runners():
+    counts = aggregate_statcast_runner_baserunning_counts(
+        (
+            row(
+                game_pk=1,
+                at_bat_number=1,
+                pitch_number=1,
+                on_1b=111,
+                on_2b=222,
+                on_3b=None,
+                des=(
+                    "Lead Runner steals (1) "
+                    "3rd base. Trail Runner steals "
+                    "(1) 2nd base."
+                ),
+            ),
+        )
+    )
+
+    assert tuple(
+        (
+            value.runner_id,
+            value.eligible_opportunities,
+            value.stolen_bases,
+        )
+        for value in counts
+    ) == (
+        (
+            "111",
+            1,
+            1,
+        ),
+        (
+            "222",
+            1,
+            1,
+        ),
+    )
+
+
+def test_duplicate_pitch_rows_are_ignored():
+    duplicate = row(
+        game_pk=1,
+        at_bat_number=1,
+        pitch_number=1,
+        on_1b=650489,
+        des=(
+            "Willi Castro steals (1) "
+            "2nd base."
+        ),
+    )
+
+    counts = aggregate_statcast_runner_baserunning_counts(
+        (
+            duplicate,
+            dict(duplicate),
+        )
+    )
+
+    assert counts[0].eligible_opportunities == 1
+    assert counts[0].stolen_bases == 1
+
+
+def test_home_attempt_is_not_in_supported_counts():
+    counts = aggregate_statcast_runner_baserunning_counts(
+        (
+            row(
+                game_pk=1,
+                at_bat_number=1,
+                pitch_number=1,
+                on_1b=None,
+                on_2b=None,
+                on_3b=333,
+                des=(
+                    "Runner caught stealing home."
+                ),
+            ),
+        )
+    )
+
+    assert counts == ()
+
+
+def test_aggregate_order_is_deterministic():
+    counts = aggregate_statcast_runner_baserunning_counts(
+        (
+            row(
+                game_pk=1,
+                at_bat_number=1,
+                pitch_number=1,
+                on_1b=222,
+                des="Called strike.",
+            ),
+            row(
+                game_pk=2,
+                at_bat_number=1,
+                pitch_number=1,
+                on_1b=111,
+                des="Called strike.",
+            ),
+        )
+    )
+
+    assert tuple(
+        value.runner_id
+        for value in counts
+    ) == (
+        "111",
+        "222",
+    )
+
+
+def test_aggregate_requires_stable_pitch_identity():
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Statcast row requires game_pk, "
+            "at_bat_number, and pitch_number"
+        ),
+    ):
+        aggregate_statcast_runner_baserunning_counts(
+            (
+                row(
+                    game_pk=None,
+                ),
+            )
+        )
+
+
+def test_aggregate_rejects_non_mapping_rows():
+    with pytest.raises(
+        TypeError,
+        match=(
+            "each Statcast row must be a mapping"
+        ),
+    ):
+        aggregate_statcast_runner_baserunning_counts(
+            (
+                object(),
+            )
+        )

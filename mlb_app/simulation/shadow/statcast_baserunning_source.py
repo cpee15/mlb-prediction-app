@@ -5,7 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import re
-from typing import Any, Mapping, Optional, Tuple
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    Mapping,
+    Optional,
+    Tuple,
+)
 
 
 CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION = (
@@ -231,3 +238,228 @@ def decode_statcast_baserunning_outcomes(
         )
 
     return tuple(outcomes)
+
+
+
+@dataclass(frozen=True)
+class CanonicalStatcastRunnerBaserunningCounts:
+    """Exact supported-transition counts for one runner."""
+
+    runner_id: str
+    eligible_opportunities: int
+    stolen_bases: int
+    caught_stealing: int
+    source_version: str = (
+        CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION
+    )
+
+    def __post_init__(self) -> None:
+        if not self.runner_id:
+            raise ValueError(
+                "runner_id is required"
+            )
+
+        for name, value in (
+            (
+                "eligible_opportunities",
+                self.eligible_opportunities,
+            ),
+            (
+                "stolen_bases",
+                self.stolen_bases,
+            ),
+            (
+                "caught_stealing",
+                self.caught_stealing,
+            ),
+        ):
+            if not isinstance(value, int):
+                raise TypeError(
+                    f"{name} must be an integer"
+                )
+            if value < 0:
+                raise ValueError(
+                    f"{name} must be nonnegative"
+                )
+
+        if (
+            self.stolen_bases
+            + self.caught_stealing
+            > self.eligible_opportunities
+        ):
+            raise ValueError(
+                "attempts cannot exceed eligible opportunities"
+            )
+
+        if self.source_version != (
+            CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION
+        ):
+            raise ValueError(
+                "unsupported Statcast baserunning source version"
+            )
+
+
+def _row_key(
+    row: Mapping[str, Any],
+) -> Tuple[int, int, int]:
+    values = tuple(
+        _integer(row.get(name))
+        for name in (
+            "game_pk",
+            "at_bat_number",
+            "pitch_number",
+        )
+    )
+
+    if any(value is None for value in values):
+        raise ValueError(
+            "Statcast row requires game_pk, "
+            "at_bat_number, and pitch_number"
+        )
+
+    return values
+
+
+def _runner_has_outcome(
+    *,
+    runner_id: str,
+    origin_base: str,
+    outcomes: Tuple[
+        CanonicalStatcastBaserunningOutcome,
+        ...,
+    ],
+) -> bool:
+    return any(
+        outcome.runner_id == runner_id
+        and outcome.origin_base == origin_base
+        and outcome.target_base in {
+            "second",
+            "third",
+        }
+        for outcome in outcomes
+    )
+
+
+def aggregate_statcast_runner_baserunning_counts(
+    rows: Iterable[Mapping[str, Any]],
+) -> Tuple[
+    CanonicalStatcastRunnerBaserunningCounts,
+    ...,
+]:
+    """
+    Aggregate exact pitch opportunities and SB/CS outcomes.
+
+    Only first-to-second and second-to-third transitions are included because
+    those are the currently supported canonical steal transitions. Duplicate
+    Statcast pitch rows are ignored using their stable event identity.
+    """
+
+    counts: Dict[str, Dict[str, int]] = {}
+    seen_rows = set()
+
+    for row in rows:
+        if not isinstance(row, Mapping):
+            raise TypeError(
+                "each Statcast row must be a mapping"
+            )
+
+        row_key = _row_key(row)
+
+        if row_key in seen_rows:
+            continue
+
+        seen_rows.add(row_key)
+        outcomes = decode_statcast_baserunning_outcomes(
+            row
+        )
+
+        on_first = _identifier(
+            row.get("on_1b")
+        )
+        on_second = _identifier(
+            row.get("on_2b")
+        )
+        on_third = _identifier(
+            row.get("on_3b")
+        )
+
+        eligible = []
+
+        if on_first is not None:
+            target_available = on_second is None
+            own_outcome = _runner_has_outcome(
+                runner_id=on_first,
+                origin_base="first",
+                outcomes=outcomes,
+            )
+
+            if target_available or own_outcome:
+                eligible.append(on_first)
+
+        if on_second is not None:
+            target_available = on_third is None
+            own_outcome = _runner_has_outcome(
+                runner_id=on_second,
+                origin_base="second",
+                outcomes=outcomes,
+            )
+
+            if target_available or own_outcome:
+                eligible.append(on_second)
+
+        for runner_id in eligible:
+            runner_counts = counts.setdefault(
+                runner_id,
+                {
+                    "eligible_opportunities": 0,
+                    "stolen_bases": 0,
+                    "caught_stealing": 0,
+                },
+            )
+            runner_counts[
+                "eligible_opportunities"
+            ] += 1
+
+        for outcome in outcomes:
+            if outcome.target_base not in {
+                "second",
+                "third",
+            }:
+                continue
+
+            runner_counts = counts.setdefault(
+                outcome.runner_id,
+                {
+                    "eligible_opportunities": 0,
+                    "stolen_bases": 0,
+                    "caught_stealing": 0,
+                },
+            )
+
+            if outcome.runner_id not in eligible:
+                runner_counts[
+                    "eligible_opportunities"
+                ] += 1
+
+            if outcome.event_type == "stolen_base":
+                runner_counts["stolen_bases"] += 1
+            else:
+                runner_counts[
+                    "caught_stealing"
+                ] += 1
+
+    return tuple(
+        CanonicalStatcastRunnerBaserunningCounts(
+            runner_id=runner_id,
+            eligible_opportunities=(
+                values["eligible_opportunities"]
+            ),
+            stolen_bases=values["stolen_bases"],
+            caught_stealing=(
+                values["caught_stealing"]
+            ),
+        )
+        for runner_id, values in sorted(
+            counts.items()
+        )
+    )
