@@ -178,6 +178,43 @@ class _CanonicalPlateAppearanceResolver:
         ...,
     ] = ()
 
+    def active_pitcher_id(
+        self,
+        state: GameState,
+    ) -> str:
+        """
+        Return the current fielding pitcher without making a hook decision.
+
+        This read-only identity bridge allows non-plate-appearance
+        resolvers to consume the same trial-owned pitching lifecycle.
+        """
+
+        if not isinstance(state, GameState):
+            raise TypeError(
+                "state must be a GameState"
+            )
+
+        if self.pitching_manager is None:
+            return _fixed_pitcher_for_state(
+                matchup_input=self.matchup_input,
+                state=state,
+            )
+
+        if state.half == "top":
+            team_side = "home"
+        elif state.half == "bottom":
+            team_side = "away"
+        else:
+            raise ValueError(
+                "state half must be 'top' or 'bottom'"
+            )
+
+        return (
+            self.pitching_manager
+            .active_lifecycle(team_side)
+            .pitcher_id
+        )
+
     def earned_run_reconstruction_complete(
         self,
     ) -> bool:

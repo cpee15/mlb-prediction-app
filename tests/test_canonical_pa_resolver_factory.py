@@ -186,6 +186,36 @@ def test_bottom_half_uses_away_starter():
     assert event.pitcher_id == "away_starter"
 
 
+def test_resolver_exposes_fixed_active_pitcher_identity():
+    matchup_input = matchup()
+    context = (
+        build_canonical_trial_resolver_context(
+            factory_input=factory_input(),
+            trial_index=0,
+            matchup_input=matchup_input,
+        )
+    )
+    resolver = (
+        build_canonical_pa_resolver_factory(
+            all_out_provider([])
+        )(context)
+    )
+
+    assert resolver.active_pitcher_id(
+        GameState(
+            inning=1,
+            half="top",
+        )
+    ) == "home_starter"
+
+    assert resolver.active_pitcher_id(
+        GameState(
+            inning=1,
+            half="bottom",
+        )
+    ) == "away_starter"
+
+
 def test_resolver_propagates_trial_identity():
     observed = []
     matchup_input = matchup()
@@ -435,6 +465,12 @@ def test_resolver_factory_can_change_pitchers_with_manager():
         "home_starter",
         "home_reliever",
     )
+    assert resolver.active_pitcher_id(
+        GameState(
+            inning=4,
+            half="top",
+        )
+    ) == "home_reliever"
 
 def test_resolver_registers_extra_inning_automatic_runner():
     queries = []
