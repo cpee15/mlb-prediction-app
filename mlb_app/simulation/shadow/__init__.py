@@ -281,3 +281,10 @@ __all__ = [
     "probability_resolution_diagnostics_to_dict",
     "shadow_diagnostics_to_dict",
 ]
+
+from .pitcher_hold_evidence import (
+    CANONICAL_PITCHER_HOLD_EVIDENCE_VERSION,
+    CANONICAL_PITCHER_HOLD_NORMALIZATION_VERSION,
+    CanonicalPitcherHoldObservation,
+    adapt_statcast_pitcher_hold_evidence,
+)
