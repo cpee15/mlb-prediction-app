@@ -75,6 +75,15 @@ from .pitcher_baserunning_evidence import (
     CanonicalPitcherBaserunningObservation,
     adapt_observed_pitcher_baserunning_evidence,
 )
+from .pitcher_delivery_time_evidence import (
+    CANONICAL_PITCHER_DELIVERY_TIME_NORMALIZATION_VERSION,
+    CANONICAL_PITCHER_DELIVERY_TIME_SOURCE_VERSION,
+    FAST_DELIVERY_TIME_SECONDS,
+    SLOW_DELIVERY_TIME_SECONDS,
+    CanonicalPitcherDeliveryTimeObservation,
+    decode_pitcher_delivery_time_rows,
+    normalize_pitcher_delivery_time,
+)
 from .observed_baserunning_evidence import (
     CANONICAL_OBSERVED_BASERUNNING_DIGEST_VERSION,
     discover_composed_canonical_baserunning_evidence,
@@ -195,6 +204,13 @@ __all__ = [
     "CANONICAL_PITCHER_BASERUNNING_EVIDENCE_VERSION",
     "CanonicalPitcherBaserunningObservation",
     "adapt_observed_pitcher_baserunning_evidence",
+    "CANONICAL_PITCHER_DELIVERY_TIME_NORMALIZATION_VERSION",
+    "CANONICAL_PITCHER_DELIVERY_TIME_SOURCE_VERSION",
+    "FAST_DELIVERY_TIME_SECONDS",
+    "SLOW_DELIVERY_TIME_SECONDS",
+    "CanonicalPitcherDeliveryTimeObservation",
+    "decode_pitcher_delivery_time_rows",
+    "normalize_pitcher_delivery_time",
     "CANONICAL_OBSERVED_BASERUNNING_DIGEST_VERSION",
     "discover_composed_canonical_baserunning_evidence",
     "discover_observed_canonical_baserunning_evidence",
