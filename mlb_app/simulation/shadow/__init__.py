@@ -323,3 +323,8 @@ from .baserunning_evidence_assembly import (
     CANONICAL_BASERUNNING_EVIDENCE_ASSEMBLY_VERSION,
     assemble_complete_canonical_baserunning_evidence,
 )
+
+from .baserunning_production_execution import (
+    CANONICAL_BASERUNNING_PRODUCTION_ADAPTER_VERSION,
+    run_canonical_production_shadow_with_baserunning_discovery,
+)

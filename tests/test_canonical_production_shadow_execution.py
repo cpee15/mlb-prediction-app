@@ -24,9 +24,11 @@ from mlb_app.simulation.shadow import (
     CanonicalShadowBullpenSideDiscovery,
     CanonicalShadowExactArtifactDiscovery,
     CanonicalShadowFallbackCatalogDiscovery,
+    CanonicalShadowBaserunningEvidenceDiscovery,
     CanonicalShadowLineupDiscovery,
     CanonicalShadowProbabilityProviderDiscovery,
     run_canonical_production_shadow,
+    run_canonical_production_shadow_with_baserunning_discovery,
 )
 
 
@@ -546,3 +548,164 @@ def test_invalid_production_baserunning_catalog_fails_open():
     assert result.executed is False
     assert result.material is None
     assert result.error_type == "TypeError"
+
+
+
+def baserunning_discovery(
+    *,
+    status="ready",
+    error_message=None,
+):
+    source = (
+        baserunning_catalog()
+        if status == "ready"
+        else None
+    )
+
+    return CanonicalShadowBaserunningEvidenceDiscovery(
+        catalog=source,
+        requested_runner_count=(
+            18
+            if status == "ready"
+            else 0
+        ),
+        available_runner_count=(
+            18
+            if status == "ready"
+            else 0
+        ),
+        requested_pitcher_count=(
+            4
+            if status == "ready"
+            else 0
+        ),
+        available_pitcher_count=(
+            4
+            if status == "ready"
+            else 0
+        ),
+        status=status,
+        error_message=error_message,
+    )
+
+
+def run_with_discovery(
+    discovery=None,
+    **overrides,
+):
+    kwargs = {
+        "game_pk": 123,
+        "lineups": lineups(),
+        "bullpens": bullpens(),
+        "provider_discovery": provider_discovery(),
+        "exact_artifact_discovery": (
+            exact_discovery()
+        ),
+        "fallback_catalog_discovery": (
+            fallback_discovery()
+        ),
+        "bootstrap_ready": True,
+        "simulation_count": 2,
+    }
+    kwargs.update(overrides)
+
+    return (
+        run_canonical_production_shadow_with_baserunning_discovery(
+            baserunning_evidence_discovery=(
+                baserunning_discovery()
+                if discovery is None
+                else discovery
+            ),
+            **kwargs,
+        )
+    )
+
+
+def test_ready_discovery_injects_catalog():
+    discovery = baserunning_discovery()
+    result = run_with_discovery(
+        discovery=discovery,
+    )
+
+    assert result.status == "executed"
+    assert result.executed is True
+    assert result.execution_inputs is not None
+    assert (
+        result.execution_inputs
+        .baserunning_evidence_catalog
+        is discovery.catalog
+    )
+    assert (
+        result.to_diagnostics()[
+            "baserunning_evidence_catalog_digest"
+        ]
+        == discovery.catalog.digest
+    )
+
+
+def test_unavailable_discovery_blocks_execution():
+    result = run_with_discovery(
+        discovery=baserunning_discovery(
+            status="unavailable",
+        ),
+    )
+
+    assert result.status == "blocked"
+    assert result.executed is False
+    assert result.material is None
+    assert result.error_type == (
+        "BaserunningEvidenceUnavailable"
+    )
+
+
+def test_error_discovery_fails_open():
+    result = run_with_discovery(
+        discovery=baserunning_discovery(
+            status="error",
+            error_message="source unavailable",
+        ),
+    )
+
+    assert result.status == "error"
+    assert result.executed is False
+    assert result.material is None
+    assert result.error_type == (
+        "BaserunningEvidenceDiscoveryError"
+    )
+    assert result.error_message == "source unavailable"
+
+
+def test_invalid_discovery_contract_fails_open():
+    result = run_with_discovery(
+        discovery=object(),
+    )
+
+    assert result.status == "error"
+    assert result.executed is False
+    assert result.error_type == "TypeError"
+
+
+def test_direct_catalog_and_discovery_are_rejected():
+    result = run_with_discovery(
+        baserunning_evidence_catalog=(
+            baserunning_catalog()
+        ),
+    )
+
+    assert result.status == "error"
+    assert result.executed is False
+    assert result.error_type == "ValueError"
+    assert result.error_message == (
+        "baserunning_evidence_catalog must be "
+        "supplied through discovery"
+    )
+
+
+def test_discovered_execution_preserves_shadow_authority():
+    diagnostics = run_with_discovery().to_diagnostics()
+
+    assert diagnostics["activation_permitted"] is False
+    assert diagnostics[
+        "production_authority_changed"
+    ] is False
+    assert diagnostics["authoritative_source"] == "legacy"
