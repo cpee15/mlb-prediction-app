@@ -5,6 +5,13 @@ from .baserunning_outcome_resolution import (
     CanonicalBaserunningResolution,
     resolve_canonical_sampled_baserunning,
 )
+from .baserunning_resolver import (
+    CANONICAL_BASERUNNING_RESOLVER_VERSION,
+    CanonicalBaserunningEvidence,
+    CanonicalBaserunningEvidenceProvider,
+    CanonicalBaserunningEvidenceQuery,
+    CanonicalBaserunningResolverAdapterFactory,
+)
 from .baserunning_sampling import (
     CANONICAL_BASERUNNING_SAMPLING_VERSION,
     CanonicalBaserunningOutcome,
@@ -179,10 +186,15 @@ from .validation import (
 
 __all__ = [
     "CANONICAL_BASERUNNING_RESOLUTION_VERSION",
+    "CANONICAL_BASERUNNING_RESOLVER_VERSION",
     "CANONICAL_BASERUNNING_SAMPLING_VERSION",
     "CanonicalBaserunningResolution",
+    "CanonicalBaserunningResolverAdapterFactory",
     "CanonicalBaserunningResolverFactory",
     "BaserunningResolver",
+    "CanonicalBaserunningEvidence",
+    "CanonicalBaserunningEvidenceProvider",
+    "CanonicalBaserunningEvidenceQuery",
     "CanonicalBaserunningOutcome",
     "CanonicalBaserunningProbabilities",
     "CanonicalBaserunningSamplingQuery",
