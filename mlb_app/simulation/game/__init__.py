@@ -1,5 +1,11 @@
 """Canonical full-game orchestration."""
 
+from .baserunning_evidence_adapter import (
+    CANONICAL_BASERUNNING_EVIDENCE_ADAPTER_VERSION,
+    CanonicalBaserunningEvaluatorEvidenceAdapter,
+    CanonicalBaserunningStateProvider,
+    build_canonical_baserunning_evidence_provider,
+)
 from .baserunning_outcome_resolution import (
     CANONICAL_BASERUNNING_RESOLUTION_VERSION,
     CanonicalBaserunningResolution,
@@ -185,6 +191,7 @@ from .validation import (
 )
 
 __all__ = [
+    "CANONICAL_BASERUNNING_EVIDENCE_ADAPTER_VERSION",
     "CANONICAL_BASERUNNING_RESOLUTION_VERSION",
     "CANONICAL_BASERUNNING_RESOLVER_VERSION",
     "CANONICAL_BASERUNNING_SAMPLING_VERSION",
@@ -193,13 +200,16 @@ __all__ = [
     "CanonicalBaserunningResolverFactory",
     "BaserunningResolver",
     "CanonicalBaserunningEvidence",
+    "CanonicalBaserunningEvaluatorEvidenceAdapter",
     "CanonicalBaserunningEvidenceProvider",
+    "CanonicalBaserunningStateProvider",
     "CanonicalBaserunningEvidenceQuery",
     "CanonicalBaserunningOutcome",
     "CanonicalBaserunningProbabilities",
     "CanonicalBaserunningSamplingQuery",
     "CanonicalSampledBaserunning",
     "CanonicalBattedBallResolution",
+    "build_canonical_baserunning_evidence_provider",
     "build_canonical_bullpen_selector",
     "CanonicalBullpenSelector",
     "CanonicalBullpenSelectionContext",
