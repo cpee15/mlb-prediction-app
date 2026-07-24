@@ -131,10 +131,10 @@ function ObjectPanel({ data }) {
             <Metric label="Population contract" value={object.population} />
             <Metric label="Relationships" value={object.relationships} />
             <Metric label="Freshness" value={object.freshness} />
-            <Metric label="Filtering" value={object.filtering?.supported} detail={`${object.filtering?.field_count || 0} fields`} />
+            <Metric label="Filtering" value={object.filtering?.supported} detail={`${object.filtering?.field_count || 0} fields · ${(object.filtering?.logic || []).map(titleCase).join(' / ') || 'No logic'}`} />
             <Metric label="Sorting" value={object.sorting?.supported} detail={`${object.sorting?.field_count || 0} fields`} />
           </div>
-          <div style={s.tableWrap}><table style={s.table}><thead><tr><th style={s.th}>Field</th><th style={s.th}>API name</th><th style={s.th}>Type</th><th style={s.th}>Operators</th><th style={s.th}>Freshness</th><th style={s.th}>Filter</th><th style={s.th}>Sort</th></tr></thead><tbody>{(object.fields || []).map(field => <tr key={field.name}><td style={s.td}>{field.label}</td><td style={s.codeCell}>{field.name}</td><td style={s.td}>{field.data_type}</td><td style={s.td}>{formatValue(field.supported_operators)}</td><td style={s.td}>{titleCase(field.freshness)}</td><td style={s.td}>{field.filterable ? 'Yes' : 'No'}</td><td style={s.td}>{field.sortable ? 'Yes' : 'No'}</td></tr>)}</tbody></table>{!object.fields?.length ? <div style={s.empty}>No queryable field catalog is registered for this object.</div> : null}</div>
+          <div style={s.tableWrap}><table style={s.table}><thead><tr><th style={s.th}>Field</th><th style={s.th}>API name</th><th style={s.th}>Type</th><th style={s.th}>Operators</th><th style={s.th}>Freshness</th><th style={s.th}>Report</th><th style={s.th}>Filter</th><th style={s.th}>Sort</th></tr></thead><tbody>{(object.fields || []).map(field => <tr key={field.name}><td style={s.td}>{field.label}</td><td style={s.codeCell}>{field.name}</td><td style={s.td}>{field.data_type}</td><td style={s.td}>{formatValue(field.supported_operators)}</td><td style={s.td}>{titleCase(field.freshness)}</td><td style={s.td}>{field.selectable !== false ? 'Yes' : 'No'}</td><td style={s.td}>{field.filterable ? 'Yes' : 'No'}</td><td style={s.td}>{field.sortable ? 'Yes' : 'No'}</td></tr>)}</tbody></table>{!object.fields?.length ? <div style={s.empty}>No queryable field catalog is registered for this object.</div> : null}</div>
         </div>}
       </article>
     })}</div>
