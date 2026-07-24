@@ -4,10 +4,13 @@ import pytest
 
 from mlb_app.simulation.game import (
     CANONICAL_PA_OUTCOME_ORDER,
+    CanonicalBaserunningEvidenceCatalog,
+    CanonicalCatcherBaserunningProfile,
     CanonicalGameConfig,
     CanonicalLineup,
     CanonicalMatchupInput,
     CanonicalOutcomeProbability,
+    CanonicalPitcherBaserunningProfile,
     CanonicalPitchingPlan,
     CanonicalPlateAppearanceOutcome,
     CanonicalProbabilityArtifact,
@@ -17,6 +20,7 @@ from mlb_app.simulation.game import (
     CanonicalProbabilityFallbackRecord,
     CanonicalProbabilityFallbackTier,
     CanonicalProbabilityProviderIdentity,
+    CanonicalRunnerBaserunningProfile,
     build_canonical_trial_factory_input,
 )
 from mlb_app.simulation.shadow import (
@@ -152,12 +156,52 @@ def fallback_policy():
     )
 
 
+def baserunning_catalog(
+    *,
+    fatigue_index=0.10,
+):
+    return CanonicalBaserunningEvidenceCatalog(
+        runners=(
+            CanonicalRunnerBaserunningProfile(
+                runner_id="away_batter_0",
+                speed_score=0.85,
+                attempt_rate=0.30,
+                success_rate=0.80,
+                lead_quality=0.75,
+                fatigue_index=fatigue_index,
+            ),
+        ),
+        pitchers=(
+            CanonicalPitcherBaserunningProfile(
+                pitcher_id="home_starter",
+                hold_score=0.40,
+                delivery_time_score=0.45,
+                pickoff_attempt_rate=0.08,
+                pickoff_success_rate=0.02,
+            ),
+        ),
+        away_catcher=CanonicalCatcherBaserunningProfile(
+            catcher_id="away_catcher",
+            team_side="away",
+            throwing_score=0.45,
+            pop_time_score=0.40,
+        ),
+        home_catcher=CanonicalCatcherBaserunningProfile(
+            catcher_id="home_catcher",
+            team_side="home",
+            throwing_score=0.45,
+            pop_time_score=0.40,
+        ),
+    )
+
+
 def assembled(
     *,
     exact=None,
     catalog=None,
     policy=None,
     config=None,
+    baserunning=None,
 ):
     return assemble_canonical_shadow_execution_inputs(
         matchup_input=matchup(),
@@ -176,6 +220,7 @@ def assembled(
             if policy is not None
             else fallback_policy()
         ),
+        baserunning_evidence_catalog=baserunning,
         game_config=(
             config
             if config is not None
@@ -325,6 +370,9 @@ def test_build_factory_preserves_assembled_inputs():
     assert factory.fallback_policy is (
         value.fallback_policy
     )
+    assert factory.baserunning_evidence_catalog is (
+        value.baserunning_evidence_catalog
+    )
     assert factory.game_config is (
         value.game_config
     )
@@ -359,3 +407,63 @@ def test_assembled_factory_executes_atomic_bundle():
         .total_resolutions
         == 12
     )
+
+
+def test_optional_baserunning_catalog_provenance_is_explicit():
+    source = baserunning_catalog()
+    value = assembled(
+        baserunning=source,
+    )
+
+    assert value.baserunning_evidence_catalog is source
+    assert (
+        value.baserunning_evidence_catalog_digest
+        == source.digest
+    )
+    assert len(
+        value.baserunning_evidence_catalog_digest
+    ) == 64
+    assert (
+        value.build_factory()
+        .baserunning_evidence_catalog
+        is source
+    )
+
+
+def test_missing_baserunning_catalog_has_no_catalog_digest():
+    value = assembled()
+
+    assert value.baserunning_evidence_catalog is None
+    assert value.baserunning_evidence_catalog_digest is None
+
+
+def test_baserunning_catalog_change_changes_assembly_digest():
+    first = assembled(
+        baserunning=baserunning_catalog(
+            fatigue_index=0.10,
+        ),
+    )
+    second = assembled(
+        baserunning=baserunning_catalog(
+            fatigue_index=0.20,
+        ),
+    )
+
+    assert (
+        first.baserunning_evidence_catalog_digest
+        != second.baserunning_evidence_catalog_digest
+    )
+    assert first.assembly_digest != second.assembly_digest
+
+
+def test_assembly_rejects_invalid_baserunning_catalog_type():
+    with pytest.raises(
+        TypeError,
+        match="baserunning_evidence_catalog",
+    ):
+        CanonicalShadowExecutionInputs(
+            matchup_input=matchup(),
+            exact_artifact=exact_artifact(),
+            fallback_catalog=fallback_catalog(),
+            baserunning_evidence_catalog="invalid",
+        )

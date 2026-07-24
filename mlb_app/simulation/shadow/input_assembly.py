@@ -10,6 +10,9 @@ from mlb_app.simulation.box_score import (
     BatterDfsScoringRules,
     PitcherDfsScoringRules,
 )
+from mlb_app.simulation.game.baserunning_evidence_catalog import (
+    CanonicalBaserunningEvidenceCatalog,
+)
 from mlb_app.simulation.game.contracts import (
     CanonicalGameConfig,
 )
@@ -48,6 +51,9 @@ class CanonicalShadowExecutionInputs:
     matchup_input: CanonicalMatchupInput
     exact_artifact: CanonicalProbabilityArtifact
     fallback_catalog: CanonicalProbabilityFallbackCatalog
+    baserunning_evidence_catalog: Optional[
+        CanonicalBaserunningEvidenceCatalog
+    ] = None
     fallback_policy: CanonicalProbabilityFallbackPolicy = field(
         default_factory=CanonicalProbabilityFallbackPolicy
     )
@@ -89,6 +95,18 @@ class CanonicalShadowExecutionInputs:
             raise TypeError(
                 "fallback_catalog must be a "
                 "CanonicalProbabilityFallbackCatalog"
+            )
+
+        if (
+            self.baserunning_evidence_catalog is not None
+            and not isinstance(
+                self.baserunning_evidence_catalog,
+                CanonicalBaserunningEvidenceCatalog,
+            )
+        ):
+            raise TypeError(
+                "baserunning_evidence_catalog must be "
+                "CanonicalBaserunningEvidenceCatalog or None"
             )
 
         if not isinstance(
@@ -173,6 +191,15 @@ class CanonicalShadowExecutionInputs:
         return self.fallback_catalog.digest
 
     @property
+    def baserunning_evidence_catalog_digest(
+        self,
+    ) -> Optional[str]:
+        if self.baserunning_evidence_catalog is None:
+            return None
+
+        return self.baserunning_evidence_catalog.digest
+
+    @property
     def assembly_digest(self) -> str:
         """
         Return a deterministic digest of the complete assembled input set.
@@ -200,6 +227,10 @@ class CanonicalShadowExecutionInputs:
             *home_plan.bullpen_pitcher_ids,
             self.exact_artifact_digest,
             self.fallback_catalog_digest,
+            (
+                self.baserunning_evidence_catalog_digest
+                or "baserunning_catalog:none"
+            ),
             self.fallback_policy.policy_version,
             *(
                 tier.value
@@ -232,6 +263,9 @@ class CanonicalShadowExecutionInputs:
             matchup_input=self.matchup_input,
             exact_artifact=self.exact_artifact,
             fallback_catalog=self.fallback_catalog,
+            baserunning_evidence_catalog=(
+                self.baserunning_evidence_catalog
+            ),
             fallback_policy=self.fallback_policy,
             game_config=self.game_config,
             batter_dfs_rules=self.batter_dfs_rules,
@@ -244,6 +278,9 @@ def assemble_canonical_shadow_execution_inputs(
     matchup_input: CanonicalMatchupInput,
     exact_artifact: CanonicalProbabilityArtifact,
     fallback_catalog: CanonicalProbabilityFallbackCatalog,
+    baserunning_evidence_catalog: Optional[
+        CanonicalBaserunningEvidenceCatalog
+    ] = None,
     fallback_policy: Optional[
         CanonicalProbabilityFallbackPolicy
     ] = None,
@@ -263,6 +300,9 @@ def assemble_canonical_shadow_execution_inputs(
         matchup_input=matchup_input,
         exact_artifact=exact_artifact,
         fallback_catalog=fallback_catalog,
+        baserunning_evidence_catalog=(
+            baserunning_evidence_catalog
+        ),
         fallback_policy=(
             fallback_policy
             or CanonicalProbabilityFallbackPolicy()
