@@ -89,6 +89,15 @@ from .runner_baserunning_evidence import (
     CanonicalRunnerBaserunningObservation,
     adapt_observed_runner_baserunning_evidence,
 )
+from .runner_sprint_speed_evidence import (
+    CANONICAL_RUNNER_SPRINT_SPEED_NORMALIZATION_VERSION,
+    CANONICAL_RUNNER_SPRINT_SPEED_SOURCE_VERSION,
+    SPRINT_SPEED_ELITE_FT_PER_SECOND,
+    SPRINT_SPEED_FLOOR_FT_PER_SECOND,
+    CanonicalRunnerSprintSpeedObservation,
+    decode_baseball_savant_sprint_speed_rows,
+    normalize_runner_sprint_speed,
+)
 from .statcast_baserunning_source import (
     CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION,
     CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION,
@@ -139,6 +148,13 @@ __all__ = [
     "CANONICAL_RUNNER_BASERUNNING_EVIDENCE_VERSION",
     "CanonicalRunnerBaserunningObservation",
     "adapt_observed_runner_baserunning_evidence",
+    "CANONICAL_RUNNER_SPRINT_SPEED_NORMALIZATION_VERSION",
+    "CANONICAL_RUNNER_SPRINT_SPEED_SOURCE_VERSION",
+    "SPRINT_SPEED_ELITE_FT_PER_SECOND",
+    "SPRINT_SPEED_FLOOR_FT_PER_SECOND",
+    "CanonicalRunnerSprintSpeedObservation",
+    "decode_baseball_savant_sprint_speed_rows",
+    "normalize_runner_sprint_speed",
     "CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION",
     "CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION",
     "CanonicalRunnerBaserunningContext",
