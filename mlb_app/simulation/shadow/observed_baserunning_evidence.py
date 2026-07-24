@@ -14,6 +14,9 @@ from .catcher_baserunning_evidence import (
     CanonicalCatcherBaserunningObservation,
     adapt_observed_catcher_baserunning_evidence,
 )
+from .catcher_observation_composition import (
+    CanonicalCatcherObservationComposition,
+)
 from .pitcher_baserunning_evidence import (
     CanonicalPitcherBaserunningObservation,
     adapt_observed_pitcher_baserunning_evidence,
@@ -174,4 +177,83 @@ def discover_observed_canonical_baserunning_evidence(
     return replace(
         discovery,
         observation_digest=observation_digest,
+    )
+
+
+
+def discover_composed_canonical_baserunning_evidence(
+    *,
+    required_runner_ids: Tuple[str, ...],
+    required_pitcher_ids: Tuple[str, ...],
+    catcher_composition: (
+        CanonicalCatcherObservationComposition
+    ),
+    runner_observations: Tuple[
+        CanonicalRunnerBaserunningObservation,
+        ...,
+    ] = (),
+    pitcher_observations: Tuple[
+        CanonicalPitcherBaserunningObservation,
+        ...,
+    ] = (),
+) -> CanonicalShadowBaserunningEvidenceDiscovery:
+    """
+    Discover a catalog from one composed two-sided catcher result.
+
+    An unavailable catcher composition leaves catalog discovery unavailable.
+    An invalid or failed composition returns a fail-open error. Production
+    activation and legacy authority remain unchanged.
+    """
+
+    if not isinstance(
+        catcher_composition,
+        CanonicalCatcherObservationComposition,
+    ):
+        return CanonicalShadowBaserunningEvidenceDiscovery(
+            requested_runner_count=len(
+                required_runner_ids
+            ),
+            requested_pitcher_count=len(
+                required_pitcher_ids
+            ),
+            status="error",
+            error_message=(
+                "catcher_composition must be "
+                "CanonicalCatcherObservationComposition"
+            ),
+        )
+
+    if catcher_composition.status == "error":
+        return CanonicalShadowBaserunningEvidenceDiscovery(
+            requested_runner_count=len(
+                required_runner_ids
+            ),
+            requested_pitcher_count=len(
+                required_pitcher_ids
+            ),
+            status="error",
+            error_message=(
+                catcher_composition.error_message
+                or "catcher observation composition failed"
+            ),
+        )
+
+    away_catcher = (
+        catcher_composition.away_observation
+        if catcher_composition.ready
+        else None
+    )
+    home_catcher = (
+        catcher_composition.home_observation
+        if catcher_composition.ready
+        else None
+    )
+
+    return discover_observed_canonical_baserunning_evidence(
+        required_runner_ids=required_runner_ids,
+        required_pitcher_ids=required_pitcher_ids,
+        runner_observations=runner_observations,
+        pitcher_observations=pitcher_observations,
+        away_catcher_observation=away_catcher,
+        home_catcher_observation=home_catcher,
     )
