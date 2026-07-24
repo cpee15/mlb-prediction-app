@@ -334,3 +334,9 @@ from .baserunning_output_validation import (
     CanonicalBaserunningOutputValidation,
     validate_canonical_baserunning_shadow_outputs,
 )
+
+from .baserunning_shadow_summary import (
+    CANONICAL_BASERUNNING_SHADOW_SUMMARY_VERSION,
+    CanonicalBaserunningShadowSummary,
+    summarize_canonical_baserunning_shadow_validations,
+)
