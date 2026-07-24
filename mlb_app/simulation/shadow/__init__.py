@@ -318,3 +318,8 @@ from .runner_baserunning_context_composition import (
 from .observed_baserunning_evidence import (
     discover_materialized_runner_baserunning_evidence,
 )
+
+from .baserunning_evidence_assembly import (
+    CANONICAL_BASERUNNING_EVIDENCE_ASSEMBLY_VERSION,
+    assemble_complete_canonical_baserunning_evidence,
+)
