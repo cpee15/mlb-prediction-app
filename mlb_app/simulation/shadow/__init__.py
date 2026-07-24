@@ -328,3 +328,9 @@ from .baserunning_production_execution import (
     CANONICAL_BASERUNNING_PRODUCTION_ADAPTER_VERSION,
     run_canonical_production_shadow_with_baserunning_discovery,
 )
+
+from .baserunning_output_validation import (
+    CANONICAL_BASERUNNING_OUTPUT_VALIDATION_VERSION,
+    CanonicalBaserunningOutputValidation,
+    validate_canonical_baserunning_shadow_outputs,
+)
