@@ -51,6 +51,7 @@ from .pitcher_baserunning_evidence import (
     adapt_observed_pitcher_baserunning_evidence,
 )
 from .observed_baserunning_evidence import (
+    CANONICAL_OBSERVED_BASERUNNING_DIGEST_VERSION,
     discover_observed_canonical_baserunning_evidence,
 )
 from .probability_provider_discovery import (
@@ -119,6 +120,7 @@ __all__ = [
     "CANONICAL_PITCHER_BASERUNNING_EVIDENCE_VERSION",
     "CanonicalPitcherBaserunningObservation",
     "adapt_observed_pitcher_baserunning_evidence",
+    "CANONICAL_OBSERVED_BASERUNNING_DIGEST_VERSION",
     "discover_observed_canonical_baserunning_evidence",
     "CANONICAL_PRODUCTION_SHADOW_EXECUTION_VERSION",
     "CANONICAL_SHADOW_PROBABILITY_PROVIDER_DISCOVERY_VERSION",
