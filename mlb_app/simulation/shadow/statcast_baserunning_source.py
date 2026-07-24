@@ -1110,3 +1110,198 @@ def materialize_statcast_catcher_observations(
         )
 
     return tuple(observations)
+
+
+
+CANONICAL_STATCAST_PICKOFF_SOURCE_VERSION = (
+    "canonical_statcast_pickoff_source_v1"
+)
+
+_PICKOFF_CODES = {
+    "pickoff_1b",
+    "pickoff_2b",
+    "pickoff_3b",
+}
+
+
+@dataclass(frozen=True)
+class CanonicalStatcastPitcherPickoffCounts:
+    """Exact pickoff exposure and outcomes for one pitcher."""
+
+    pitcher_id: str
+    eligible_opportunities: int
+    pickoff_attempts: int
+    successful_pickoffs: int
+    source_version: str = (
+        CANONICAL_STATCAST_PICKOFF_SOURCE_VERSION
+    )
+
+    def __post_init__(self) -> None:
+        if not self.pitcher_id:
+            raise ValueError(
+                "pitcher_id is required"
+            )
+
+        for name, value in (
+            (
+                "eligible_opportunities",
+                self.eligible_opportunities,
+            ),
+            (
+                "pickoff_attempts",
+                self.pickoff_attempts,
+            ),
+            (
+                "successful_pickoffs",
+                self.successful_pickoffs,
+            ),
+        ):
+            if not isinstance(value, int):
+                raise TypeError(
+                    f"{name} must be an integer"
+                )
+            if value < 0:
+                raise ValueError(
+                    f"{name} must be nonnegative"
+                )
+
+        if (
+            self.pickoff_attempts
+            > self.eligible_opportunities
+        ):
+            raise ValueError(
+                "pickoff attempts cannot exceed "
+                "eligible opportunities"
+            )
+
+        if (
+            self.successful_pickoffs
+            > self.pickoff_attempts
+        ):
+            raise ValueError(
+                "successful pickoffs cannot exceed attempts"
+            )
+
+        if self.source_version != (
+            CANONICAL_STATCAST_PICKOFF_SOURCE_VERSION
+        ):
+            raise ValueError(
+                "unsupported Statcast pickoff source version"
+            )
+
+
+def _normalized_event_code(
+    value: Any,
+) -> str:
+    if value is None:
+        return ""
+
+    return (
+        str(value)
+        .strip()
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+
+
+def aggregate_statcast_pitcher_pickoff_counts(
+    rows: Iterable[Mapping[str, Any]],
+) -> Tuple[
+    CanonicalStatcastPitcherPickoffCounts,
+    ...,
+]:
+    """
+    Aggregate exact pickoff attempts and successes by pitcher.
+
+    One unique Statcast row with any runner aboard is one eligible
+    opportunity. An explicit pickoff description is an attempt. An
+    explicit pickoff event is a successful pickoff and also an attempt.
+    No steal or caught-stealing outcome is treated as pickoff evidence.
+    """
+
+    counts: Dict[str, Dict[str, int]] = {}
+    seen_rows = set()
+
+    for row in rows:
+        if not isinstance(row, Mapping):
+            raise TypeError(
+                "each Statcast row must be a mapping"
+            )
+
+        row_key = _row_key(row)
+
+        if row_key in seen_rows:
+            continue
+
+        seen_rows.add(row_key)
+
+        pitcher_id = _identifier(
+            row.get("pitcher")
+        )
+
+        if pitcher_id is None:
+            continue
+
+        runners = tuple(
+            value
+            for value in (
+                _identifier(row.get("on_1b")),
+                _identifier(row.get("on_2b")),
+                _identifier(row.get("on_3b")),
+            )
+            if value is not None
+        )
+
+        description_code = _normalized_event_code(
+            row.get("description")
+        )
+        event_code = _normalized_event_code(
+            row.get("events")
+        )
+
+        attempted = (
+            description_code in _PICKOFF_CODES
+            or event_code in _PICKOFF_CODES
+        )
+        successful = event_code in _PICKOFF_CODES
+
+        if not runners and not attempted:
+            continue
+
+        pitcher_counts = counts.setdefault(
+            pitcher_id,
+            {
+                "eligible_opportunities": 0,
+                "pickoff_attempts": 0,
+                "successful_pickoffs": 0,
+            },
+        )
+
+        pitcher_counts[
+            "eligible_opportunities"
+        ] += 1
+
+        if attempted:
+            pitcher_counts["pickoff_attempts"] += 1
+
+        if successful:
+            pitcher_counts[
+                "successful_pickoffs"
+            ] += 1
+
+    return tuple(
+        CanonicalStatcastPitcherPickoffCounts(
+            pitcher_id=pitcher_id,
+            eligible_opportunities=(
+                values["eligible_opportunities"]
+            ),
+            pickoff_attempts=(
+                values["pickoff_attempts"]
+            ),
+            successful_pickoffs=(
+                values["successful_pickoffs"]
+            ),
+        )
+        for pitcher_id, values in counts.items()
+    )
