@@ -139,6 +139,7 @@ def _object_manager_descriptors() -> List[Dict[str, Any]]:
         fields = item.get("fields") if isinstance(item.get("fields"), list) else []
         queryable = bool(item.get("queryable"))
         filterable_fields = [field for field in fields if field.get("filterable")]
+        selectable_fields = [field for field in fields if field.get("selectable", True)]
         sortable_fields = [field for field in fields if field.get("sortable")]
         item["freshness"] = sorted({
             str(field.get("freshness"))
@@ -148,6 +149,8 @@ def _object_manager_descriptors() -> List[Dict[str, Any]]:
         item["filtering"] = {
             "supported": queryable and bool(filterable_fields),
             "field_count": len(filterable_fields) if queryable else 0,
+            "selectable_field_count": len(selectable_fields) if queryable else 0,
+            "logic": ["and", "or"] if queryable else [],
         }
         item["sorting"] = {
             "supported": queryable and bool(sortable_fields),
