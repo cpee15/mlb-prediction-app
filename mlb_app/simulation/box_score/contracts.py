@@ -33,6 +33,8 @@ class BatterBoxScore:
     reached_on_error: int = 0
     sacrifice_flies: int = 0
     sacrifice_bunts: int = 0
+    stolen_bases: int = 0
+    caught_stealing: int = 0
 
     def __post_init__(self) -> None:
         if not self.player_id:
