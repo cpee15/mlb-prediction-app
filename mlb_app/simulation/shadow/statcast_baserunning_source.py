@@ -14,6 +14,9 @@ from typing import (
     Tuple,
 )
 
+from .catcher_baserunning_evidence import (
+    CanonicalCatcherBaserunningObservation,
+)
 from .runner_baserunning_evidence import (
     CanonicalRunnerBaserunningObservation,
 )
@@ -24,6 +27,9 @@ CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION = (
 )
 CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION = (
     "canonical_runner_baserunning_materialization_v1"
+)
+CANONICAL_CATCHER_BASERUNNING_MATERIALIZATION_VERSION = (
+    "canonical_catcher_baserunning_materialization_v1"
 )
 
 _OUTCOME_PATTERN = re.compile(
@@ -955,3 +961,152 @@ def aggregate_statcast_catcher_baserunning_counts(
             counts.items()
         )
     )
+
+
+@dataclass(frozen=True)
+class CanonicalCatcherBaserunningContext:
+    """Explicit non-count context required for one catcher."""
+
+    catcher_id: str
+    team_side: str
+    pop_time_score: float
+    context_source_version: str = "unavailable"
+    materialization_version: str = (
+        CANONICAL_CATCHER_BASERUNNING_MATERIALIZATION_VERSION
+    )
+
+    def __post_init__(self) -> None:
+        if not self.catcher_id:
+            raise ValueError(
+                "catcher_id is required"
+            )
+
+        if self.team_side not in {
+            "away",
+            "home",
+        }:
+            raise ValueError(
+                "team_side must be away or home"
+            )
+
+        _validate_unit_rate(
+            name="pop_time_score",
+            value=self.pop_time_score,
+        )
+
+        if (
+            not self.context_source_version
+            or self.context_source_version
+            == "unavailable"
+        ):
+            raise ValueError(
+                "context_source_version must identify "
+                "an available source"
+            )
+
+        if self.materialization_version != (
+            CANONICAL_CATCHER_BASERUNNING_MATERIALIZATION_VERSION
+        ):
+            raise ValueError(
+                "unsupported catcher baserunning "
+                "materialization version"
+            )
+
+
+def materialize_statcast_catcher_observations(
+    *,
+    counts: Tuple[
+        CanonicalStatcastCatcherBaserunningCounts,
+        ...,
+    ],
+    contexts: Tuple[
+        CanonicalCatcherBaserunningContext,
+        ...,
+    ],
+) -> Tuple[
+    CanonicalCatcherBaserunningObservation,
+    ...,
+]:
+    """
+    Join exact Statcast catcher outcomes to complete context.
+
+    Missing team-side or pop-time context yields no observation. Neither
+    identity, team assignment, nor pop-time evidence is fabricated.
+    """
+
+    count_ids = [
+        value.catcher_id
+        for value in counts
+    ]
+    context_ids = [
+        value.catcher_id
+        for value in contexts
+    ]
+
+    if len(count_ids) != len(set(count_ids)):
+        raise ValueError(
+            "catcher count identifiers must be unique"
+        )
+
+    if len(context_ids) != len(set(context_ids)):
+        raise ValueError(
+            "catcher context identifiers must be unique"
+        )
+
+    for value in counts:
+        if not isinstance(
+            value,
+            CanonicalStatcastCatcherBaserunningCounts,
+        ):
+            raise TypeError(
+                "counts must contain "
+                "CanonicalStatcastCatcherBaserunningCounts"
+            )
+
+    for value in contexts:
+        if not isinstance(
+            value,
+            CanonicalCatcherBaserunningContext,
+        ):
+            raise TypeError(
+                "contexts must contain "
+                "CanonicalCatcherBaserunningContext"
+            )
+
+    contexts_by_id = {
+        value.catcher_id: value
+        for value in contexts
+    }
+
+    observations = []
+
+    for value in counts:
+        context = contexts_by_id.get(
+            value.catcher_id
+        )
+
+        if context is None:
+            continue
+
+        observations.append(
+            CanonicalCatcherBaserunningObservation(
+                catcher_id=value.catcher_id,
+                team_side=context.team_side,
+                steal_attempts_against=(
+                    value.stolen_bases_allowed
+                    + value.caught_stealing
+                ),
+                caught_stealing=(
+                    value.caught_stealing
+                ),
+                pop_time_score=float(
+                    context.pop_time_score
+                ),
+                source_version=(
+                    f"{value.source_version}+"
+                    f"{context.context_source_version}"
+                ),
+            )
+        )
+
+    return tuple(observations)

@@ -99,8 +99,10 @@ from .runner_sprint_speed_evidence import (
     normalize_runner_sprint_speed,
 )
 from .statcast_baserunning_source import (
+    CANONICAL_CATCHER_BASERUNNING_MATERIALIZATION_VERSION,
     CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION,
     CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION,
+    CanonicalCatcherBaserunningContext,
     CanonicalRunnerBaserunningContext,
     CanonicalStatcastBaserunningOutcome,
     CanonicalStatcastRunnerBaserunningCounts,
@@ -110,6 +112,7 @@ from .statcast_baserunning_source import (
     aggregate_statcast_pitcher_baserunning_counts,
     aggregate_statcast_catcher_baserunning_counts,
     decode_statcast_baserunning_outcomes,
+    materialize_statcast_catcher_observations,
     materialize_statcast_runner_observations,
 )
 from .integration import attach_canonical_shadow
@@ -159,8 +162,10 @@ __all__ = [
     "CanonicalRunnerSprintSpeedObservation",
     "decode_baseball_savant_sprint_speed_rows",
     "normalize_runner_sprint_speed",
+    "CANONICAL_CATCHER_BASERUNNING_MATERIALIZATION_VERSION",
     "CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION",
     "CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION",
+    "CanonicalCatcherBaserunningContext",
     "CanonicalRunnerBaserunningContext",
     "CanonicalStatcastBaserunningOutcome",
     "CanonicalStatcastRunnerBaserunningCounts",
@@ -170,6 +175,7 @@ __all__ = [
     "aggregate_statcast_pitcher_baserunning_counts",
     "aggregate_statcast_catcher_baserunning_counts",
     "decode_statcast_baserunning_outcomes",
+    "materialize_statcast_catcher_observations",
     "materialize_statcast_runner_observations",
     "CanonicalShadowDiagnostics",
     "CanonicalShadowBullpenDiscovery",
