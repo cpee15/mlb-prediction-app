@@ -662,3 +662,296 @@ def materialize_statcast_runner_observations(
         )
 
     return tuple(observations)
+
+
+@dataclass(frozen=True)
+class CanonicalStatcastPitcherBaserunningCounts:
+    """Exact supported-transition exposure against one pitcher."""
+
+    pitcher_id: str
+    eligible_opportunities: int
+    stolen_bases_allowed: int
+    caught_stealing: int
+    source_version: str = (
+        CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION
+    )
+
+    def __post_init__(self) -> None:
+        if not self.pitcher_id:
+            raise ValueError(
+                "pitcher_id is required"
+            )
+
+        _validate_defender_counts(
+            eligible_opportunities=(
+                self.eligible_opportunities
+            ),
+            stolen_bases_allowed=(
+                self.stolen_bases_allowed
+            ),
+            caught_stealing=self.caught_stealing,
+        )
+
+        if self.source_version != (
+            CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION
+        ):
+            raise ValueError(
+                "unsupported Statcast baserunning source version"
+            )
+
+
+@dataclass(frozen=True)
+class CanonicalStatcastCatcherBaserunningCounts:
+    """Exact supported-transition exposure against one catcher."""
+
+    catcher_id: str
+    eligible_opportunities: int
+    stolen_bases_allowed: int
+    caught_stealing: int
+    source_version: str = (
+        CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION
+    )
+
+    def __post_init__(self) -> None:
+        if not self.catcher_id:
+            raise ValueError(
+                "catcher_id is required"
+            )
+
+        _validate_defender_counts(
+            eligible_opportunities=(
+                self.eligible_opportunities
+            ),
+            stolen_bases_allowed=(
+                self.stolen_bases_allowed
+            ),
+            caught_stealing=self.caught_stealing,
+        )
+
+        if self.source_version != (
+            CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION
+        ):
+            raise ValueError(
+                "unsupported Statcast baserunning source version"
+            )
+
+
+def _validate_defender_counts(
+    *,
+    eligible_opportunities: int,
+    stolen_bases_allowed: int,
+    caught_stealing: int,
+) -> None:
+    for name, value in (
+        (
+            "eligible_opportunities",
+            eligible_opportunities,
+        ),
+        (
+            "stolen_bases_allowed",
+            stolen_bases_allowed,
+        ),
+        (
+            "caught_stealing",
+            caught_stealing,
+        ),
+    ):
+        if not isinstance(value, int):
+            raise TypeError(
+                f"{name} must be an integer"
+            )
+        if value < 0:
+            raise ValueError(
+                f"{name} must be nonnegative"
+            )
+
+    if (
+        stolen_bases_allowed
+        + caught_stealing
+        > eligible_opportunities
+    ):
+        raise ValueError(
+            "attempts cannot exceed eligible opportunities"
+        )
+
+
+def _eligible_statcast_runner_ids(
+    *,
+    row: Mapping[str, Any],
+    outcomes: Tuple[
+        CanonicalStatcastBaserunningOutcome,
+        ...,
+    ],
+) -> Tuple[str, ...]:
+    """Return exact runners eligible for supported transitions."""
+
+    on_first = _identifier(
+        row.get("on_1b")
+    )
+    on_second = _identifier(
+        row.get("on_2b")
+    )
+    on_third = _identifier(
+        row.get("on_3b")
+    )
+
+    eligible = []
+
+    if on_first is not None:
+        target_available = on_second is None
+        own_outcome = _runner_has_outcome(
+            runner_id=on_first,
+            origin_base="first",
+            outcomes=outcomes,
+        )
+
+        if target_available or own_outcome:
+            eligible.append(on_first)
+
+    if on_second is not None:
+        target_available = on_third is None
+        own_outcome = _runner_has_outcome(
+            runner_id=on_second,
+            origin_base="second",
+            outcomes=outcomes,
+        )
+
+        if target_available or own_outcome:
+            eligible.append(on_second)
+
+    return tuple(eligible)
+
+
+def _aggregate_statcast_defender_counts(
+    *,
+    rows: Iterable[Mapping[str, Any]],
+    identity_field: str,
+) -> Dict[str, Dict[str, int]]:
+    counts: Dict[str, Dict[str, int]] = {}
+    seen_rows = set()
+
+    for row in rows:
+        if not isinstance(row, Mapping):
+            raise TypeError(
+                "each Statcast row must be a mapping"
+            )
+
+        row_key = _row_key(row)
+
+        if row_key in seen_rows:
+            continue
+
+        seen_rows.add(row_key)
+        defender_id = _identifier(
+            row.get(identity_field)
+        )
+
+        if defender_id is None:
+            continue
+
+        outcomes = decode_statcast_baserunning_outcomes(
+            row
+        )
+        eligible = _eligible_statcast_runner_ids(
+            row=row,
+            outcomes=outcomes,
+        )
+
+        defender_counts = counts.setdefault(
+            defender_id,
+            {
+                "eligible_opportunities": 0,
+                "stolen_bases_allowed": 0,
+                "caught_stealing": 0,
+            },
+        )
+        defender_counts[
+            "eligible_opportunities"
+        ] += len(eligible)
+
+        for outcome in outcomes:
+            if outcome.target_base not in {
+                "second",
+                "third",
+            }:
+                continue
+
+            if outcome.runner_id not in eligible:
+                defender_counts[
+                    "eligible_opportunities"
+                ] += 1
+
+            if outcome.event_type == "stolen_base":
+                defender_counts[
+                    "stolen_bases_allowed"
+                ] += 1
+            else:
+                defender_counts[
+                    "caught_stealing"
+                ] += 1
+
+    return counts
+
+
+def aggregate_statcast_pitcher_baserunning_counts(
+    rows: Iterable[Mapping[str, Any]],
+) -> Tuple[
+    CanonicalStatcastPitcherBaserunningCounts,
+    ...,
+]:
+    """Aggregate exact steal exposure and outcomes by pitcher."""
+
+    counts = _aggregate_statcast_defender_counts(
+        rows=rows,
+        identity_field="pitcher",
+    )
+
+    return tuple(
+        CanonicalStatcastPitcherBaserunningCounts(
+            pitcher_id=pitcher_id,
+            eligible_opportunities=(
+                values["eligible_opportunities"]
+            ),
+            stolen_bases_allowed=(
+                values["stolen_bases_allowed"]
+            ),
+            caught_stealing=(
+                values["caught_stealing"]
+            ),
+        )
+        for pitcher_id, values in sorted(
+            counts.items()
+        )
+    )
+
+
+def aggregate_statcast_catcher_baserunning_counts(
+    rows: Iterable[Mapping[str, Any]],
+) -> Tuple[
+    CanonicalStatcastCatcherBaserunningCounts,
+    ...,
+]:
+    """Aggregate exact steal exposure and outcomes by catcher."""
+
+    counts = _aggregate_statcast_defender_counts(
+        rows=rows,
+        identity_field="fielder_2",
+    )
+
+    return tuple(
+        CanonicalStatcastCatcherBaserunningCounts(
+            catcher_id=catcher_id,
+            eligible_opportunities=(
+                values["eligible_opportunities"]
+            ),
+            stolen_bases_allowed=(
+                values["stolen_bases_allowed"]
+            ),
+            caught_stealing=(
+                values["caught_stealing"]
+            ),
+        )
+        for catcher_id, values in sorted(
+            counts.items()
+        )
+    )

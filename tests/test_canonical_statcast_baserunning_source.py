@@ -5,7 +5,11 @@ from mlb_app.simulation.shadow import (
     CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION,
     CanonicalRunnerBaserunningContext,
     CanonicalStatcastRunnerBaserunningCounts,
+    CanonicalStatcastPitcherBaserunningCounts,
+    CanonicalStatcastCatcherBaserunningCounts,
     aggregate_statcast_runner_baserunning_counts,
+    aggregate_statcast_pitcher_baserunning_counts,
+    aggregate_statcast_catcher_baserunning_counts,
     decode_statcast_baserunning_outcomes,
     materialize_statcast_runner_observations,
 )
@@ -590,3 +594,261 @@ def test_materialization_version_is_explicit():
         runner_context().materialization_version
         == CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION
     )
+
+
+def defender_rows():
+    return (
+        row(
+            game_pk=1,
+            at_bat_number=1,
+            pitch_number=1,
+            pitcher=900,
+            fielder_2=800,
+            on_1b=111,
+            on_2b=None,
+            des="Called strike.",
+        ),
+        row(
+            game_pk=1,
+            at_bat_number=1,
+            pitch_number=2,
+            pitcher=900,
+            fielder_2=800,
+            on_1b=111,
+            on_2b=None,
+            des="Runner steals (1) 2nd base.",
+        ),
+        row(
+            game_pk=2,
+            at_bat_number=1,
+            pitch_number=1,
+            pitcher=900,
+            fielder_2=800,
+            on_1b=111,
+            on_2b=None,
+            des="Runner caught stealing 2nd.",
+        ),
+    )
+
+
+def test_aggregates_exact_pitcher_exposure():
+    counts = (
+        aggregate_statcast_pitcher_baserunning_counts(
+            defender_rows()
+        )
+    )
+
+    assert counts == (
+        CanonicalStatcastPitcherBaserunningCounts(
+            pitcher_id="900",
+            eligible_opportunities=3,
+            stolen_bases_allowed=1,
+            caught_stealing=1,
+        ),
+    )
+
+
+def test_aggregates_exact_catcher_exposure():
+    counts = (
+        aggregate_statcast_catcher_baserunning_counts(
+            defender_rows()
+        )
+    )
+
+    assert counts == (
+        CanonicalStatcastCatcherBaserunningCounts(
+            catcher_id="800",
+            eligible_opportunities=3,
+            stolen_bases_allowed=1,
+            caught_stealing=1,
+        ),
+    )
+
+
+def test_double_steal_counts_two_defender_opportunities():
+    value = row(
+        game_pk=1,
+        at_bat_number=1,
+        pitch_number=1,
+        pitcher=900,
+        fielder_2=800,
+        on_1b=111,
+        on_2b=222,
+        on_3b=None,
+        des=(
+            "Lead Runner steals (1) 3rd base. "
+            "Trail Runner steals (1) 2nd base."
+        ),
+    )
+
+    pitcher = (
+        aggregate_statcast_pitcher_baserunning_counts(
+            (value,)
+        )[0]
+    )
+    catcher = (
+        aggregate_statcast_catcher_baserunning_counts(
+            (value,)
+        )[0]
+    )
+
+    assert pitcher.eligible_opportunities == 2
+    assert pitcher.stolen_bases_allowed == 2
+    assert catcher.eligible_opportunities == 2
+    assert catcher.stolen_bases_allowed == 2
+
+
+def test_occupied_target_is_not_defender_opportunity():
+    value = row(
+        game_pk=1,
+        at_bat_number=1,
+        pitch_number=1,
+        pitcher=900,
+        fielder_2=800,
+        on_1b=111,
+        on_2b=222,
+        on_3b=333,
+        des="Called strike.",
+    )
+
+    assert (
+        aggregate_statcast_pitcher_baserunning_counts(
+            (value,)
+        )[0].eligible_opportunities
+        == 0
+    )
+    assert (
+        aggregate_statcast_catcher_baserunning_counts(
+            (value,)
+        )[0].eligible_opportunities
+        == 0
+    )
+
+
+def test_missing_pitcher_identity_is_not_fabricated():
+    assert (
+        aggregate_statcast_pitcher_baserunning_counts(
+            (
+                row(
+                    pitcher=None,
+                    fielder_2=800,
+                ),
+            )
+        )
+        == ()
+    )
+
+
+def test_missing_catcher_identity_is_not_fabricated():
+    assert (
+        aggregate_statcast_catcher_baserunning_counts(
+            (
+                row(
+                    pitcher=900,
+                    fielder_2=None,
+                ),
+            )
+        )
+        == ()
+    )
+
+
+def test_duplicate_defender_pitch_rows_are_ignored():
+    value = row(
+        game_pk=1,
+        at_bat_number=1,
+        pitch_number=1,
+        pitcher=900,
+        fielder_2=800,
+        on_1b=111,
+        des="Runner steals (1) 2nd base.",
+    )
+
+    pitcher = (
+        aggregate_statcast_pitcher_baserunning_counts(
+            (
+                value,
+                dict(value),
+            )
+        )[0]
+    )
+    catcher = (
+        aggregate_statcast_catcher_baserunning_counts(
+            (
+                value,
+                dict(value),
+            )
+        )[0]
+    )
+
+    assert pitcher.eligible_opportunities == 1
+    assert pitcher.stolen_bases_allowed == 1
+    assert catcher.eligible_opportunities == 1
+    assert catcher.stolen_bases_allowed == 1
+
+
+def test_defender_aggregate_order_is_deterministic():
+    values = (
+        row(
+            game_pk=1,
+            pitcher=999,
+            fielder_2=777,
+        ),
+        row(
+            game_pk=2,
+            pitcher=111,
+            fielder_2=222,
+        ),
+    )
+
+    assert tuple(
+        value.pitcher_id
+        for value in (
+            aggregate_statcast_pitcher_baserunning_counts(
+                values
+            )
+        )
+    ) == (
+        "111",
+        "999",
+    )
+
+    assert tuple(
+        value.catcher_id
+        for value in (
+            aggregate_statcast_catcher_baserunning_counts(
+                values
+            )
+        )
+    ) == (
+        "222",
+        "777",
+    )
+
+
+def test_defender_counts_reject_impossible_attempts():
+    with pytest.raises(
+        ValueError,
+        match=(
+            "attempts cannot exceed eligible opportunities"
+        ),
+    ):
+        CanonicalStatcastPitcherBaserunningCounts(
+            pitcher_id="pitcher",
+            eligible_opportunities=1,
+            stolen_bases_allowed=1,
+            caught_stealing=1,
+        )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "attempts cannot exceed eligible opportunities"
+        ),
+    ):
+        CanonicalStatcastCatcherBaserunningCounts(
+            catcher_id="catcher",
+            eligible_opportunities=1,
+            stolen_bases_allowed=1,
+            caught_stealing=1,
+        )
