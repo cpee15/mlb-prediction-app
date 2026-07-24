@@ -1,5 +1,15 @@
 """Canonical full-game orchestration."""
 
+from .baserunning_evidence_catalog import (
+    CANONICAL_BASERUNNING_EVIDENCE_CATALOG_VERSION,
+    CanonicalActivePitcherProvider,
+    CanonicalBaserunningCatalogStateProvider,
+    CanonicalBaserunningEvidenceCatalog,
+    CanonicalCatcherBaserunningProfile,
+    CanonicalPitcherBaserunningProfile,
+    CanonicalRunnerBaserunningProfile,
+    build_canonical_baserunning_state_provider,
+)
 from .baserunning_evidence_adapter import (
     CANONICAL_BASERUNNING_EVIDENCE_ADAPTER_VERSION,
     CanonicalBaserunningEvaluatorEvidenceAdapter,
@@ -192,6 +202,7 @@ from .validation import (
 
 __all__ = [
     "CANONICAL_BASERUNNING_EVIDENCE_ADAPTER_VERSION",
+    "CANONICAL_BASERUNNING_EVIDENCE_CATALOG_VERSION",
     "CANONICAL_BASERUNNING_RESOLUTION_VERSION",
     "CANONICAL_BASERUNNING_RESOLVER_VERSION",
     "CANONICAL_BASERUNNING_SAMPLING_VERSION",
@@ -199,7 +210,10 @@ __all__ = [
     "CanonicalBaserunningResolverAdapterFactory",
     "CanonicalBaserunningResolverFactory",
     "BaserunningResolver",
+    "CanonicalActivePitcherProvider",
+    "CanonicalBaserunningCatalogStateProvider",
     "CanonicalBaserunningEvidence",
+    "CanonicalBaserunningEvidenceCatalog",
     "CanonicalBaserunningEvaluatorEvidenceAdapter",
     "CanonicalBaserunningEvidenceProvider",
     "CanonicalBaserunningStateProvider",
@@ -207,9 +221,13 @@ __all__ = [
     "CanonicalBaserunningOutcome",
     "CanonicalBaserunningProbabilities",
     "CanonicalBaserunningSamplingQuery",
+    "CanonicalCatcherBaserunningProfile",
+    "CanonicalPitcherBaserunningProfile",
+    "CanonicalRunnerBaserunningProfile",
     "CanonicalSampledBaserunning",
     "CanonicalBattedBallResolution",
     "build_canonical_baserunning_evidence_provider",
+    "build_canonical_baserunning_state_provider",
     "build_canonical_bullpen_selector",
     "CanonicalBullpenSelector",
     "CanonicalBullpenSelectionContext",
