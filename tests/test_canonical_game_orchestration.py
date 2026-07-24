@@ -4,10 +4,12 @@ import pytest
 
 from mlb_app.simulation.events import (
     Base,
+    DeterministicPlayResolver,
     GameState,
     OutRecord,
     PlayEvent,
     RunnerMovement,
+    build_baserunning_event,
 )
 from mlb_app.simulation.game import (
     CanonicalGameConfig,
@@ -361,5 +363,117 @@ def test_runaway_half_is_safely_bounded():
                 regulation_innings=1,
                 max_extra_innings=0,
                 max_plate_appearances_per_half=5,
+            ),
+        )
+
+
+def test_optional_baserunning_event_precedes_same_batter_pa():
+    def plate_appearance(state, batter_id, sequence):
+        if (
+            state.outs == 0
+            and state.bases == (None, None, None)
+        ):
+            return DeterministicPlayResolver().resolve(
+                state=state,
+                event_type="bb",
+                batter_id=batter_id,
+                sequence=sequence,
+            )
+
+        return out_event(
+            state,
+            batter_id,
+            sequence,
+        )
+
+    def baserunning(state, batter_id, sequence):
+        if (
+            state.first is None
+            or state.second is not None
+        ):
+            return None
+
+        return build_baserunning_event(
+            sequence=sequence,
+            event_type="stolen_base",
+            batter_id=batter_id,
+            runner_id=state.first,
+            state_before=state,
+            origin_base=Base.FIRST,
+            target_base=Base.SECOND,
+        )
+
+    result = simulate_canonical_game(
+        away_lineup=lineup("away"),
+        home_lineup=lineup("home"),
+        resolve_plate_appearance=plate_appearance,
+        resolve_baserunning=baserunning,
+        config=CanonicalGameConfig(
+            regulation_innings=1,
+            max_extra_innings=0,
+            automatic_runner_enabled=False,
+        ),
+    )
+
+    top = result.halves[0]
+
+    assert tuple(
+        event.event_type
+        for event in top.events
+    ) == (
+        "bb",
+        "stolen_base",
+        "out",
+        "out",
+        "out",
+    )
+    assert top.events[1].batter_id == "away_1"
+    assert top.events[2].batter_id == "away_1"
+    assert (
+        top.events[1].state_after
+        == top.events[2].state_before
+    )
+    assert top.events[1].is_plate_appearance is False
+    assert top.events[2].is_plate_appearance is True
+    assert (
+        top.final_state.plate_appearance_number
+        - top.initial_state.plate_appearance_number
+        == 4
+    )
+    assert tuple(
+        event.sequence
+        for event in result.events
+    ) == tuple(range(len(result.events)))
+    assert validate_canonical_game(result).passed is True
+
+
+def test_baserunning_resolver_rejects_plate_appearance_event():
+    def invalid_baserunning(
+        state,
+        batter_id,
+        sequence,
+    ):
+        return out_event(
+            state,
+            batter_id,
+            sequence,
+        )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "baserunning resolver must return "
+            "non-plate-appearance event"
+        ),
+    ):
+        simulate_canonical_game(
+            away_lineup=lineup("away"),
+            home_lineup=lineup("home"),
+            resolve_plate_appearance=out_event,
+            resolve_baserunning=invalid_baserunning,
+            config=CanonicalGameConfig(
+                regulation_innings=1,
+                max_extra_innings=0,
+                automatic_runner_enabled=False,
             ),
         )
