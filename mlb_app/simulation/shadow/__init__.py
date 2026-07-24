@@ -354,3 +354,9 @@ from .baserunning_calibration_gate import (
     CanonicalBaserunningCalibrationPolicy,
     evaluate_baserunning_calibration_gate,
 )
+
+from .baserunning_calibration_report import (
+    CANONICAL_BASERUNNING_CALIBRATION_REPORT_VERSION,
+    CanonicalBaserunningCalibrationReport,
+    assemble_baserunning_calibration_report,
+)
