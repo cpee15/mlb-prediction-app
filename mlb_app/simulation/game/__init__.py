@@ -1,5 +1,10 @@
 """Canonical full-game orchestration."""
 
+from .baserunning_composition import (
+    CANONICAL_BASERUNNING_COMPOSITION_VERSION,
+    CanonicalCatalogBaserunningResolverFactory,
+    build_canonical_catalog_baserunning_resolver_factory,
+)
 from .baserunning_evidence_catalog import (
     CANONICAL_BASERUNNING_EVIDENCE_CATALOG_VERSION,
     CanonicalActivePitcherProvider,
@@ -202,6 +207,9 @@ from .validation import (
 )
 
 __all__ = [
+    "CANONICAL_BASERUNNING_COMPOSITION_VERSION",
+    "CanonicalCatalogBaserunningResolverFactory",
+    "build_canonical_catalog_baserunning_resolver_factory",
     "CANONICAL_BASERUNNING_EVIDENCE_ADAPTER_VERSION",
     "CANONICAL_BASERUNNING_EVIDENCE_CATALOG_VERSION",
     "CANONICAL_BASERUNNING_RESOLUTION_VERSION",
