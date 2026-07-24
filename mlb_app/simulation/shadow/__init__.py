@@ -1,5 +1,10 @@
 """Canonical production-shadow comparison integration."""
 
+from .catcher_baserunning_evidence import (
+    CANONICAL_CATCHER_BASERUNNING_EVIDENCE_VERSION,
+    CanonicalCatcherBaserunningObservation,
+    adapt_observed_catcher_baserunning_evidence,
+)
 from .comparator import compare_shadow_payloads
 from .bullpen_discovery import (
     CANONICAL_SHADOW_BULLPEN_DISCOVERY_VERSION,
@@ -91,6 +96,9 @@ from .probability_serialization import (
 )
 
 __all__ = [
+    "CANONICAL_CATCHER_BASERUNNING_EVIDENCE_VERSION",
+    "CanonicalCatcherBaserunningObservation",
+    "adapt_observed_catcher_baserunning_evidence",
     "SHADOW_SCHEMA_VERSION",
     "CANONICAL_SHADOW_BASERUNNING_DISCOVERY_VERSION",
     "CanonicalShadowBaserunningEvidenceDiscovery",
