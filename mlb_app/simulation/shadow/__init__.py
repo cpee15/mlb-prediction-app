@@ -89,6 +89,11 @@ from .runner_baserunning_evidence import (
     CanonicalRunnerBaserunningObservation,
     adapt_observed_runner_baserunning_evidence,
 )
+from .statcast_baserunning_source import (
+    CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION,
+    CanonicalStatcastBaserunningOutcome,
+    decode_statcast_baserunning_outcomes,
+)
 from .integration import attach_canonical_shadow
 from .trial_adapter import canonical_trial_batch_to_shadow_payload
 from .serialization import (
@@ -129,6 +134,9 @@ __all__ = [
     "CANONICAL_RUNNER_BASERUNNING_EVIDENCE_VERSION",
     "CanonicalRunnerBaserunningObservation",
     "adapt_observed_runner_baserunning_evidence",
+    "CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION",
+    "CanonicalStatcastBaserunningOutcome",
+    "decode_statcast_baserunning_outcomes",
     "CanonicalShadowDiagnostics",
     "CanonicalShadowBullpenDiscovery",
     "CanonicalShadowBullpenSideDiscovery",
