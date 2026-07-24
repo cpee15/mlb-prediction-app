@@ -500,3 +500,55 @@ def test_draftkings_projection_means_reconcile_to_trial_lines():
         == "reconstructed"
     )
     assert payload.diagnostics.warnings == ()
+
+
+
+def test_baserunning_metrics_are_aggregated_and_zero_filled():
+    first = ReducedBoxScore(
+        away=TeamBoxScore(team_side="away"),
+        home=TeamBoxScore(team_side="home"),
+        batters=(
+            BatterBoxScore(
+                player_id="runner",
+                team_side="away",
+                stolen_bases=2,
+                caught_stealing=1,
+            ),
+        ),
+    )
+    second = ReducedBoxScore(
+        away=TeamBoxScore(team_side="away"),
+        home=TeamBoxScore(team_side="home"),
+    )
+
+    payload = aggregate_projection_payload(
+        box_scores=(first, second),
+        model_version="canonical_event_model_v1",
+    )
+
+    runner = next(
+        player
+        for player in payload.batters
+        if (
+            player.team_side == "away"
+            and player.player_id == "runner"
+        )
+    )
+    stolen_bases = metric(
+        runner,
+        "stolen_bases",
+    ).summary
+    caught_stealing = metric(
+        runner,
+        "caught_stealing",
+    ).summary
+
+    assert stolen_bases.count == 2
+    assert stolen_bases.minimum == 0.0
+    assert stolen_bases.maximum == 2.0
+    assert stolen_bases.mean == 1.0
+
+    assert caught_stealing.count == 2
+    assert caught_stealing.minimum == 0.0
+    assert caught_stealing.maximum == 1.0
+    assert caught_stealing.mean == 0.5

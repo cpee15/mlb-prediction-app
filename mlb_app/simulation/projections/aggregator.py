@@ -44,6 +44,7 @@ TEAM_METRICS = (
 
 BATTER_METRICS = (
     "at_bats",
+    "caught_stealing",
     "doubles",
     "hit_by_pitch",
     "home_runs",
@@ -54,6 +55,7 @@ BATTER_METRICS = (
     "sacrifice_bunts",
     "sacrifice_flies",
     "singles",
+    "stolen_bases",
     "strikeouts",
     "triples",
     "walks",
