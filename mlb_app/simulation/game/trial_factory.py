@@ -129,6 +129,13 @@ CanonicalBaserunningResolverFactory = Callable[
     [CanonicalTrialResolverContext],
     BaserunningResolver,
 ]
+CanonicalCoupledBaserunningResolverFactory = Callable[
+    [
+        CanonicalTrialResolverContext,
+        PlateAppearanceResolver,
+    ],
+    BaserunningResolver,
+]
 
 
 @dataclass(frozen=True)
@@ -147,6 +154,9 @@ class CanonicalTrialExecutionPlan:
     resolver_factory: CanonicalTrialResolverFactory
     baserunning_resolver_factory: Optional[
         CanonicalBaserunningResolverFactory
+    ] = None
+    coupled_baserunning_resolver_factory: Optional[
+        CanonicalCoupledBaserunningResolverFactory
     ] = None
     game_config: CanonicalGameConfig = field(
         default_factory=CanonicalGameConfig
@@ -220,6 +230,28 @@ class CanonicalTrialExecutionPlan:
             raise TypeError(
                 "baserunning_resolver_factory "
                 "must be callable"
+            )
+
+        if (
+            self.coupled_baserunning_resolver_factory
+            is not None
+            and not callable(
+                self.coupled_baserunning_resolver_factory
+            )
+        ):
+            raise TypeError(
+                "coupled_baserunning_resolver_factory "
+                "must be callable"
+            )
+
+        if (
+            self.baserunning_resolver_factory is not None
+            and self.coupled_baserunning_resolver_factory
+            is not None
+        ):
+            raise ValueError(
+                "only one baserunning resolver factory "
+                "may be configured"
             )
 
         if self.matchup_input is not None:
@@ -323,6 +355,22 @@ def run_canonical_trial_execution_plan(
 
         baserunning_resolver = None
         if (
+            plan.coupled_baserunning_resolver_factory
+            is not None
+        ):
+            baserunning_resolver = (
+                plan.coupled_baserunning_resolver_factory(
+                    context,
+                    resolver,
+                )
+            )
+
+            if not callable(baserunning_resolver):
+                raise TypeError(
+                    "coupled_baserunning_resolver_factory "
+                    "must return a baserunning resolver"
+                )
+        elif (
             plan.baserunning_resolver_factory
             is not None
         ):
