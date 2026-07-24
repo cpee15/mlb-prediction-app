@@ -5,6 +5,15 @@ from .catcher_baserunning_evidence import (
     CanonicalCatcherBaserunningObservation,
     adapt_observed_catcher_baserunning_evidence,
 )
+from .catcher_pop_time_evidence import (
+    CANONICAL_CATCHER_POP_TIME_NORMALIZATION_VERSION,
+    CANONICAL_CATCHER_POP_TIME_SOURCE_VERSION,
+    ELITE_POP_TIME_SECONDS,
+    SLOW_POP_TIME_SECONDS,
+    CanonicalCatcherPopTimeObservation,
+    decode_baseball_savant_catcher_pop_time_rows,
+    normalize_catcher_pop_time,
+)
 from .comparator import compare_shadow_payloads
 from .bullpen_discovery import (
     CANONICAL_SHADOW_BULLPEN_DISCOVERY_VERSION,
@@ -129,6 +138,13 @@ __all__ = [
     "CANONICAL_CATCHER_BASERUNNING_EVIDENCE_VERSION",
     "CanonicalCatcherBaserunningObservation",
     "adapt_observed_catcher_baserunning_evidence",
+    "CANONICAL_CATCHER_POP_TIME_NORMALIZATION_VERSION",
+    "CANONICAL_CATCHER_POP_TIME_SOURCE_VERSION",
+    "ELITE_POP_TIME_SECONDS",
+    "SLOW_POP_TIME_SECONDS",
+    "CanonicalCatcherPopTimeObservation",
+    "decode_baseball_savant_catcher_pop_time_rows",
+    "normalize_catcher_pop_time",
     "SHADOW_SCHEMA_VERSION",
     "CANONICAL_SHADOW_BASERUNNING_DISCOVERY_VERSION",
     "CanonicalShadowBaserunningEvidenceDiscovery",
