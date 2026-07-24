@@ -442,3 +442,18 @@ __all__ += [
     "CanonicalHistoricalShadowReplayInputEvidence",
     "audit_historical_shadow_replay_input_coverage",
 ]
+
+
+from .historical_lineup_bullpen_source import (
+    CANONICAL_HISTORICAL_LINEUP_BULLPEN_SOURCE_VERSION,
+    CanonicalHistoricalLineupBullpenGameSnapshot,
+    CanonicalHistoricalLineupBullpenWindow,
+    source_historical_lineup_bullpen_snapshots,
+)
+
+__all__ += [
+    "CANONICAL_HISTORICAL_LINEUP_BULLPEN_SOURCE_VERSION",
+    "CanonicalHistoricalLineupBullpenGameSnapshot",
+    "CanonicalHistoricalLineupBullpenWindow",
+    "source_historical_lineup_bullpen_snapshots",
+]
