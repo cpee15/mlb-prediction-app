@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from typing import Callable, Optional, Tuple
 
 from mlb_app.simulation.events import Base
@@ -197,6 +198,64 @@ class CanonicalBaserunningEvidenceCatalog:
             raise ValueError(
                 "unsupported baserunning evidence catalog version"
             )
+
+    @property
+    def digest(self) -> str:
+        """Return deterministic provenance for the complete catalog."""
+
+        parts = [
+            self.catalog_version,
+        ]
+
+        for profile in sorted(
+            self.runners,
+            key=lambda value: value.runner_id,
+        ):
+            parts.extend(
+                (
+                    "runner",
+                    profile.runner_id,
+                    repr(profile.speed_score),
+                    repr(profile.attempt_rate),
+                    repr(profile.success_rate),
+                    repr(profile.lead_quality),
+                    repr(profile.fatigue_index),
+                    repr(profile.injury_limit_flag),
+                )
+            )
+
+        for profile in sorted(
+            self.pitchers,
+            key=lambda value: value.pitcher_id,
+        ):
+            parts.extend(
+                (
+                    "pitcher",
+                    profile.pitcher_id,
+                    repr(profile.hold_score),
+                    repr(profile.delivery_time_score),
+                    repr(profile.pickoff_attempt_rate),
+                    repr(profile.pickoff_success_rate),
+                )
+            )
+
+        for profile in (
+            self.away_catcher,
+            self.home_catcher,
+        ):
+            parts.extend(
+                (
+                    "catcher",
+                    profile.team_side,
+                    profile.catcher_id,
+                    repr(profile.throwing_score),
+                    repr(profile.pop_time_score),
+                )
+            )
+
+        return hashlib.sha256(
+            "\x1f".join(parts).encode("utf-8")
+        ).hexdigest()
 
     def runner_profile(
         self,
