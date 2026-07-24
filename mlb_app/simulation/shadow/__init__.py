@@ -7,6 +7,11 @@ from .bullpen_discovery import (
     CanonicalShadowBullpenSideDiscovery,
     discover_canonical_shadow_bullpens,
 )
+from .baserunning_evidence_discovery import (
+    CANONICAL_SHADOW_BASERUNNING_DISCOVERY_VERSION,
+    CanonicalShadowBaserunningEvidenceDiscovery,
+    discover_canonical_shadow_baserunning_evidence,
+)
 from .bootstrap_readiness import (
     CANONICAL_SHADOW_BOOTSTRAP_READINESS_VERSION,
     build_canonical_shadow_bootstrap_readiness,
@@ -77,6 +82,9 @@ from .probability_serialization import (
 
 __all__ = [
     "SHADOW_SCHEMA_VERSION",
+    "CANONICAL_SHADOW_BASERUNNING_DISCOVERY_VERSION",
+    "CanonicalShadowBaserunningEvidenceDiscovery",
+    "discover_canonical_shadow_baserunning_evidence",
     "CANONICAL_SHADOW_BOOTSTRAP_READINESS_VERSION",
     "CANONICAL_SHADOW_BULLPEN_DISCOVERY_VERSION",
     "CANONICAL_SHADOW_EXECUTION_BUNDLE_VERSION",
