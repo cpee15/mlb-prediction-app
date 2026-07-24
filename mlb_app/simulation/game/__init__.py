@@ -1,5 +1,14 @@
 """Canonical full-game orchestration."""
 
+from .baserunning_sampling import (
+    CANONICAL_BASERUNNING_SAMPLING_VERSION,
+    CanonicalBaserunningOutcome,
+    CanonicalBaserunningProbabilities,
+    CanonicalBaserunningSamplingQuery,
+    CanonicalSampledBaserunning,
+    derive_canonical_baserunning_seed,
+    sample_canonical_baserunning,
+)
 from .box_score import (
     CanonicalGameBoxScore,
     GameBoxScoreReconciliation,
@@ -162,6 +171,11 @@ from .validation import (
 )
 
 __all__ = [
+    "CANONICAL_BASERUNNING_SAMPLING_VERSION",
+    "CanonicalBaserunningOutcome",
+    "CanonicalBaserunningProbabilities",
+    "CanonicalBaserunningSamplingQuery",
+    "CanonicalSampledBaserunning",
     "CanonicalBattedBallResolution",
     "build_canonical_bullpen_selector",
     "CanonicalBullpenSelector",
@@ -257,6 +271,7 @@ __all__ = [
     "HalfInningRecord",
     "PlateAppearanceResolver",
     "simulate_canonical_game",
+    "sample_canonical_baserunning",
     "sample_canonical_plate_appearance",
     "aggregate_game_outcomes",
     "build_canonical_pa_resolver_factory",
@@ -266,6 +281,7 @@ __all__ = [
     "build_canonical_trial_factory_input",
     "build_canonical_trial_resolver_context",
     "derive_canonical_base_seed",
+    "derive_canonical_baserunning_seed",
     "derive_canonical_trial_seed",
     "derive_canonical_batted_ball_seed",
     "derive_canonical_pa_sampling_seed",
