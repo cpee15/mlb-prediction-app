@@ -155,6 +155,7 @@ from .probability_fallback import (
     build_canonical_probability_fallback_provider,
 )
 from .trial_factory import (
+    CanonicalBaserunningResolverFactory,
     CanonicalTrialExecutionPlan,
     CanonicalTrialResolverContext,
     CanonicalTrialResolverFactory,
@@ -180,6 +181,7 @@ __all__ = [
     "CANONICAL_BASERUNNING_RESOLUTION_VERSION",
     "CANONICAL_BASERUNNING_SAMPLING_VERSION",
     "CanonicalBaserunningResolution",
+    "CanonicalBaserunningResolverFactory",
     "BaserunningResolver",
     "CanonicalBaserunningOutcome",
     "CanonicalBaserunningProbabilities",
