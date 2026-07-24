@@ -288,3 +288,8 @@ from .pitcher_hold_evidence import (
     CanonicalPitcherHoldObservation,
     adapt_statcast_pitcher_hold_evidence,
 )
+
+from .pitcher_baserunning_context_composition import (
+    CANONICAL_PITCHER_CONTEXT_COMPOSITION_VERSION,
+    compose_pitcher_baserunning_contexts,
+)
