@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Callable, Tuple
+from typing import Callable, Optional, Tuple
 
 from mlb_app.simulation.events import (
     GameState,
@@ -23,6 +23,10 @@ PlateAppearanceResolver = Callable[
     [GameState, str, int],
     PlayEvent,
 ]
+BaserunningResolver = Callable[
+    [GameState, str, int],
+    Optional[PlayEvent],
+]
 
 
 def simulate_canonical_game(
@@ -31,6 +35,7 @@ def simulate_canonical_game(
     home_lineup: CanonicalLineup,
     resolve_plate_appearance: PlateAppearanceResolver,
     config: CanonicalGameConfig | None = None,
+    resolve_baserunning: BaserunningResolver | None = None,
 ) -> CanonicalGameResult:
     """
     Orchestrate one canonical game using an injected PA resolver.
@@ -54,6 +59,13 @@ def simulate_canonical_game(
     if not callable(resolve_plate_appearance):
         raise TypeError(
             "resolve_plate_appearance must be callable"
+        )
+    if (
+        resolve_baserunning is not None
+        and not callable(resolve_baserunning)
+    ):
+        raise TypeError(
+            "resolve_baserunning must be callable"
         )
 
     halves = []
@@ -89,6 +101,7 @@ def simulate_canonical_game(
             resolve_plate_appearance=(
                 resolve_plate_appearance
             ),
+            resolve_baserunning=resolve_baserunning,
         )
         halves.append(top.record)
 
@@ -126,6 +139,7 @@ def simulate_canonical_game(
             resolve_plate_appearance=(
                 resolve_plate_appearance
             ),
+            resolve_baserunning=resolve_baserunning,
             walk_off_eligible=(
                 inning >= rules.regulation_innings
             ),
@@ -206,6 +220,7 @@ def _simulate_half(
     sequence: int,
     config: CanonicalGameConfig,
     resolve_plate_appearance: PlateAppearanceResolver,
+    resolve_baserunning: BaserunningResolver | None = None,
     walk_off_eligible: bool = False,
 ) -> _HalfSimulation:
     bases = (None, None, None)
@@ -254,6 +269,29 @@ def _simulate_half(
             state.batting_order_index
         )
 
+        if resolve_baserunning is not None:
+            baserunning_event = resolve_baserunning(
+                state,
+                batter_id,
+                current_sequence,
+            )
+
+            if baserunning_event is not None:
+                _validate_resolved_event(
+                    event=baserunning_event,
+                    expected_state=state,
+                    expected_batter_id=batter_id,
+                    expected_sequence=current_sequence,
+                    expected_plate_appearance=False,
+                )
+
+                events.append(baserunning_event)
+                state = baserunning_event.state_after
+                current_sequence += 1
+
+                if state.outs >= 3:
+                    break
+
         event = resolve_plate_appearance(
             state,
             batter_id,
@@ -265,6 +303,7 @@ def _simulate_half(
             expected_state=state,
             expected_batter_id=batter_id,
             expected_sequence=current_sequence,
+            expected_plate_appearance=True,
         )
 
         events.append(event)
@@ -316,6 +355,7 @@ def _validate_resolved_event(
     expected_state: GameState,
     expected_batter_id: str,
     expected_sequence: int,
+    expected_plate_appearance: bool,
 ) -> None:
     if not isinstance(event, PlayEvent):
         raise TypeError(
@@ -334,4 +374,22 @@ def _validate_resolved_event(
         raise ValueError(
             "resolver event state_before does not "
             "match current game state"
+        )
+    if (
+        event.is_plate_appearance
+        is not expected_plate_appearance
+    ):
+        resolver_name = (
+            "plate appearance"
+            if expected_plate_appearance
+            else "baserunning"
+        )
+        expected_kind = (
+            "plate-appearance"
+            if expected_plate_appearance
+            else "non-plate-appearance"
+        )
+        raise ValueError(
+            f"{resolver_name} resolver must return "
+            f"{expected_kind} event"
         )

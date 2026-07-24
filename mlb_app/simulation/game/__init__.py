@@ -65,6 +65,7 @@ from .matchup_input import (
     CanonicalProbabilityProviderIdentity,
 )
 from .orchestrator import (
+    BaserunningResolver,
     PlateAppearanceResolver,
     simulate_canonical_game,
 )
@@ -179,6 +180,7 @@ __all__ = [
     "CANONICAL_BASERUNNING_RESOLUTION_VERSION",
     "CANONICAL_BASERUNNING_SAMPLING_VERSION",
     "CanonicalBaserunningResolution",
+    "BaserunningResolver",
     "CanonicalBaserunningOutcome",
     "CanonicalBaserunningProbabilities",
     "CanonicalBaserunningSamplingQuery",
