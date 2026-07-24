@@ -25,6 +25,7 @@ from .matchup_input import (
     CanonicalMatchupInput,
 )
 from .orchestrator import (
+    BaserunningResolver,
     PlateAppearanceResolver,
     simulate_canonical_game,
 )
@@ -124,6 +125,10 @@ CanonicalTrialResolverFactory = Callable[
     [CanonicalTrialResolverContext],
     PlateAppearanceResolver,
 ]
+CanonicalBaserunningResolverFactory = Callable[
+    [CanonicalTrialResolverContext],
+    BaserunningResolver,
+]
 
 
 @dataclass(frozen=True)
@@ -140,6 +145,9 @@ class CanonicalTrialExecutionPlan:
     away_lineup: CanonicalLineup
     home_lineup: CanonicalLineup
     resolver_factory: CanonicalTrialResolverFactory
+    baserunning_resolver_factory: Optional[
+        CanonicalBaserunningResolverFactory
+    ] = None
     game_config: CanonicalGameConfig = field(
         default_factory=CanonicalGameConfig
     )
@@ -201,6 +209,17 @@ class CanonicalTrialExecutionPlan:
         if not callable(self.resolver_factory):
             raise TypeError(
                 "resolver_factory must be callable"
+            )
+
+        if (
+            self.baserunning_resolver_factory is not None
+            and not callable(
+                self.baserunning_resolver_factory
+            )
+        ):
+            raise TypeError(
+                "baserunning_resolver_factory "
+                "must be callable"
             )
 
         if self.matchup_input is not None:
@@ -302,11 +321,29 @@ def run_canonical_trial_execution_plan(
                 "plate-appearance resolver"
             )
 
+        baserunning_resolver = None
+        if (
+            plan.baserunning_resolver_factory
+            is not None
+        ):
+            baserunning_resolver = (
+                plan.baserunning_resolver_factory(
+                    context
+                )
+            )
+
+            if not callable(baserunning_resolver):
+                raise TypeError(
+                    "baserunning_resolver_factory "
+                    "must return a baserunning resolver"
+                )
+
         game = simulate_canonical_game(
             away_lineup=plan.away_lineup,
             home_lineup=plan.home_lineup,
             resolve_plate_appearance=resolver,
             config=plan.game_config,
+            resolve_baserunning=baserunning_resolver,
         )
 
         reconstructed_lines = (

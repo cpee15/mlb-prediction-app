@@ -251,3 +251,111 @@ def test_resolver_context_rejects_invalid_regulation_innings():
             trial_index=0,
             regulation_innings=0,
         )
+
+
+def test_execution_plan_builds_baserunning_resolver_per_trial():
+    inputs = factory_input(simulations=2)
+    factory_calls = []
+    resolver_calls = []
+
+    def baserunning_resolver_factory(context):
+        factory_calls.append(
+            (
+                context.trial_index,
+                context.trial_seed,
+            )
+        )
+
+        def resolver(state, batter_id, sequence):
+            resolver_calls.append(
+                (
+                    context.trial_index,
+                    state.half,
+                    batter_id,
+                    sequence,
+                )
+            )
+            return None
+
+        return resolver
+
+    plan = CanonicalTrialExecutionPlan(
+        factory_input=inputs,
+        away_lineup=lineup("away"),
+        home_lineup=lineup("home"),
+        resolver_factory=lambda context: out_event,
+        baserunning_resolver_factory=(
+            baserunning_resolver_factory
+        ),
+        game_config=CanonicalGameConfig(
+            regulation_innings=1,
+            max_extra_innings=0,
+            automatic_runner_enabled=False,
+        ),
+    )
+
+    batch = run_canonical_trial_execution_plan(plan)
+
+    assert len(batch.games) == 2
+    assert factory_calls == [
+        (
+            index,
+            inputs.seed_for_trial(index),
+        )
+        for index in range(2)
+    ]
+    assert resolver_calls
+    assert {
+        trial_index
+        for (
+            trial_index,
+            _,
+            _,
+            _,
+        ) in resolver_calls
+    } == {0, 1}
+
+
+def test_non_callable_baserunning_resolver_is_rejected():
+    plan = CanonicalTrialExecutionPlan(
+        factory_input=factory_input(
+            simulations=1
+        ),
+        away_lineup=lineup("away"),
+        home_lineup=lineup("home"),
+        resolver_factory=lambda context: out_event,
+        baserunning_resolver_factory=(
+            lambda context: None
+        ),
+        game_config=CanonicalGameConfig(
+            regulation_innings=1,
+            max_extra_innings=0,
+            automatic_runner_enabled=False,
+        ),
+    )
+
+    with pytest.raises(
+        TypeError,
+        match=(
+            "baserunning_resolver_factory must "
+            "return a baserunning resolver"
+        ),
+    ):
+        run_canonical_trial_execution_plan(plan)
+
+
+def test_plan_rejects_non_callable_baserunning_factory():
+    with pytest.raises(
+        TypeError,
+        match=(
+            "baserunning_resolver_factory "
+            "must be callable"
+        ),
+    ):
+        CanonicalTrialExecutionPlan(
+            factory_input=factory_input(),
+            away_lineup=lineup("away"),
+            home_lineup=lineup("home"),
+            resolver_factory=lambda context: out_event,
+            baserunning_resolver_factory="invalid",
+        )
