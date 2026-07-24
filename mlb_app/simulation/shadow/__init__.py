@@ -92,6 +92,8 @@ from .runner_baserunning_evidence import (
 from .statcast_baserunning_source import (
     CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION,
     CanonicalStatcastBaserunningOutcome,
+    CanonicalStatcastRunnerBaserunningCounts,
+    aggregate_statcast_runner_baserunning_counts,
     decode_statcast_baserunning_outcomes,
 )
 from .integration import attach_canonical_shadow
@@ -136,6 +138,8 @@ __all__ = [
     "adapt_observed_runner_baserunning_evidence",
     "CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION",
     "CanonicalStatcastBaserunningOutcome",
+    "CanonicalStatcastRunnerBaserunningCounts",
+    "aggregate_statcast_runner_baserunning_counts",
     "decode_statcast_baserunning_outcomes",
     "CanonicalShadowDiagnostics",
     "CanonicalShadowBullpenDiscovery",
