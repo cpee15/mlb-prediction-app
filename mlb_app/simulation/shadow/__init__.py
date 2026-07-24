@@ -303,3 +303,9 @@ from .runner_lead_quality_evidence import (
     CanonicalRunnerLeadQualityObservation,
     decode_runner_lead_quality_rows,
 )
+
+from .runner_availability_evidence import (
+    CANONICAL_RUNNER_AVAILABILITY_EVIDENCE_VERSION,
+    CanonicalRunnerAvailabilityObservation,
+    decode_runner_availability_rows,
+)
