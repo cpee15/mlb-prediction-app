@@ -293,3 +293,7 @@ from .pitcher_baserunning_context_composition import (
     CANONICAL_PITCHER_CONTEXT_COMPOSITION_VERSION,
     compose_pitcher_baserunning_contexts,
 )
+
+from .observed_baserunning_evidence import (
+    discover_materialized_pitcher_baserunning_evidence,
+)

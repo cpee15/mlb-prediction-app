@@ -21,6 +21,11 @@ from .pitcher_baserunning_evidence import (
     CanonicalPitcherBaserunningObservation,
     adapt_observed_pitcher_baserunning_evidence,
 )
+from .statcast_baserunning_source import (
+    CanonicalPitcherBaserunningContext,
+    CanonicalStatcastPitcherPickoffCounts,
+    materialize_statcast_pitcher_observations,
+)
 from .runner_baserunning_evidence import (
     CanonicalRunnerBaserunningObservation,
     adapt_observed_runner_baserunning_evidence,
@@ -256,4 +261,60 @@ def discover_composed_canonical_baserunning_evidence(
         pitcher_observations=pitcher_observations,
         away_catcher_observation=away_catcher,
         home_catcher_observation=home_catcher,
+    )
+
+
+def discover_materialized_pitcher_baserunning_evidence(
+    *,
+    required_runner_ids: Tuple[str, ...],
+    required_pitcher_ids: Tuple[str, ...],
+    catcher_composition: (
+        CanonicalCatcherObservationComposition
+    ),
+    pitcher_pickoff_counts: Tuple[
+        CanonicalStatcastPitcherPickoffCounts,
+        ...,
+    ] = (),
+    pitcher_contexts: Tuple[
+        CanonicalPitcherBaserunningContext,
+        ...,
+    ] = (),
+    runner_observations: Tuple[
+        CanonicalRunnerBaserunningObservation,
+        ...,
+    ] = (),
+) -> CanonicalShadowBaserunningEvidenceDiscovery:
+    """
+    Materialize pitcher evidence and attach it to catalog discovery.
+
+    Invalid materialization inputs fail open. Missing pitcher context omits
+    that pitcher observation and leaves complete catalog discovery
+    unavailable. Legacy production authority remains unchanged.
+    """
+
+    try:
+        pitcher_observations = (
+            materialize_statcast_pitcher_observations(
+                counts=pitcher_pickoff_counts,
+                contexts=pitcher_contexts,
+            )
+        )
+    except Exception as exc:
+        return CanonicalShadowBaserunningEvidenceDiscovery(
+            requested_runner_count=len(
+                required_runner_ids
+            ),
+            requested_pitcher_count=len(
+                required_pitcher_ids
+            ),
+            status="error",
+            error_message=str(exc),
+        )
+
+    return discover_composed_canonical_baserunning_evidence(
+        required_runner_ids=required_runner_ids,
+        required_pitcher_ids=required_pitcher_ids,
+        runner_observations=runner_observations,
+        pitcher_observations=pitcher_observations,
+        catcher_composition=catcher_composition,
     )
