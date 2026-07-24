@@ -111,7 +111,10 @@ function batterRow(row) {
       homeRuns,
     ]),
     runs: metricValue(row, 'runs'),
-    rbis: metricValue(row, 'rbis'),
+    rbis: (
+      metricValue(row, 'rbi') ??
+      metricValue(row, 'rbis')
+    ),
     singles,
     doubles,
     triples,
@@ -139,7 +142,10 @@ function batterRow(row) {
 }
 
 function pitcherRow(row) {
-  const outs = metricValue(row, 'outs')
+  const outs = (
+    metricValue(row, 'outs_recorded') ??
+    metricValue(row, 'outs')
+  )
 
   return {
     playerId: row?.player_id ?? null,
