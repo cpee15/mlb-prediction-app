@@ -20,6 +20,9 @@ from .catcher_baserunning_evidence import (
 from .runner_baserunning_evidence import (
     CanonicalRunnerBaserunningObservation,
 )
+from .pitcher_baserunning_evidence import (
+    CanonicalPitcherBaserunningObservation,
+)
 
 
 CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION = (
@@ -1305,3 +1308,162 @@ def aggregate_statcast_pitcher_pickoff_counts(
         )
         for pitcher_id, values in counts.items()
     )
+
+
+
+CANONICAL_PITCHER_BASERUNNING_MATERIALIZATION_VERSION = (
+    "canonical_pitcher_baserunning_materialization_v1"
+)
+
+
+@dataclass(frozen=True)
+class CanonicalPitcherBaserunningContext:
+    """Explicit non-count baserunning context for one pitcher."""
+
+    pitcher_id: str
+    hold_score: float
+    delivery_time_score: float
+    context_source_version: str = "unavailable"
+    materialization_version: str = (
+        CANONICAL_PITCHER_BASERUNNING_MATERIALIZATION_VERSION
+    )
+
+    def __post_init__(self) -> None:
+        if not self.pitcher_id:
+            raise ValueError(
+                "pitcher_id is required"
+            )
+
+        for name, value in (
+            ("hold_score", self.hold_score),
+            (
+                "delivery_time_score",
+                self.delivery_time_score,
+            ),
+        ):
+            _validate_unit_rate(
+                name=name,
+                value=value,
+            )
+
+        if (
+            not self.context_source_version
+            or self.context_source_version
+            == "unavailable"
+        ):
+            raise ValueError(
+                "context_source_version must identify "
+                "an available source"
+            )
+
+        if self.materialization_version != (
+            CANONICAL_PITCHER_BASERUNNING_MATERIALIZATION_VERSION
+        ):
+            raise ValueError(
+                "unsupported pitcher baserunning "
+                "materialization version"
+            )
+
+
+def materialize_statcast_pitcher_observations(
+    *,
+    counts: Tuple[
+        CanonicalStatcastPitcherPickoffCounts,
+        ...,
+    ],
+    contexts: Tuple[
+        CanonicalPitcherBaserunningContext,
+        ...,
+    ],
+) -> Tuple[
+    CanonicalPitcherBaserunningObservation,
+    ...,
+]:
+    """
+    Join exact Statcast pickoff counts to complete pitcher context.
+
+    Missing hold or delivery-time context yields no observation. Neither
+    a neutral score nor another pitcher-level statistic is substituted.
+    """
+
+    for value in counts:
+        if not isinstance(
+            value,
+            CanonicalStatcastPitcherPickoffCounts,
+        ):
+            raise TypeError(
+                "counts must contain "
+                "CanonicalStatcastPitcherPickoffCounts"
+            )
+
+    for value in contexts:
+        if not isinstance(
+            value,
+            CanonicalPitcherBaserunningContext,
+        ):
+            raise TypeError(
+                "contexts must contain "
+                "CanonicalPitcherBaserunningContext"
+            )
+
+    count_ids = [
+        value.pitcher_id
+        for value in counts
+    ]
+    context_ids = [
+        value.pitcher_id
+        for value in contexts
+    ]
+
+    if len(count_ids) != len(set(count_ids)):
+        raise ValueError(
+            "pitcher pickoff count identifiers "
+            "must be unique"
+        )
+
+    if len(context_ids) != len(set(context_ids)):
+        raise ValueError(
+            "pitcher context identifiers must be unique"
+        )
+
+    contexts_by_id = {
+        value.pitcher_id: value
+        for value in contexts
+    }
+
+    observations = []
+
+    for value in counts:
+        context = contexts_by_id.get(
+            value.pitcher_id
+        )
+
+        if context is None:
+            continue
+
+        observations.append(
+            CanonicalPitcherBaserunningObservation(
+                pitcher_id=value.pitcher_id,
+                eligible_pickoff_opportunities=(
+                    value.eligible_opportunities
+                ),
+                pickoff_attempts=(
+                    value.pickoff_attempts
+                ),
+                successful_pickoffs=(
+                    value.successful_pickoffs
+                ),
+                hold_score=float(
+                    context.hold_score
+                ),
+                delivery_time_score=float(
+                    context.delivery_time_score
+                ),
+                source_version=(
+                    f"{value.source_version}+"
+                    f"{context.context_source_version}"
+                ),
+            )
+        )
+
+    return tuple(observations)
