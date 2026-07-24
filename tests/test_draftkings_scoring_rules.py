@@ -3,6 +3,7 @@ from mlb_app.simulation.box_score import (
     DRAFTKINGS_CLASSIC_PITCHER_RULES,
     DRAFTKINGS_CLASSIC_UNSUPPORTED_CATEGORIES,
     BatterBoxScore,
+    BatterDfsScoringRules,
     PitcherBoxScore,
     score_batter,
     score_pitcher,
@@ -21,12 +22,13 @@ def test_draftkings_classic_batter_supported_scoring():
         hit_by_pitch=1,
         runs=1,
         rbi=1,
+        stolen_bases=1,
     )
 
     assert score_batter(
         line,
         DRAFTKINGS_CLASSIC_BATTER_RULES,
-    ) == 34.0
+    ) == 39.0
 
 
 def test_draftkings_classic_pitcher_supported_scoring():
@@ -51,9 +53,25 @@ def test_draftkings_classic_pitcher_supported_scoring():
 
 def test_unsupported_categories_are_explicit():
     assert DRAFTKINGS_CLASSIC_UNSUPPORTED_CATEGORIES == (
-        "batter_stolen_base",
         "pitcher_win",
         "pitcher_complete_game",
         "pitcher_complete_game_shutout",
         "pitcher_no_hitter",
     )
+
+
+
+def test_stolen_base_scoring_is_configurable():
+    line = BatterBoxScore(
+        player_id="runner",
+        team_side="away",
+        stolen_bases=2,
+        caught_stealing=1,
+    )
+
+    assert score_batter(
+        line,
+        BatterDfsScoringRules(
+            stolen_base=4.5,
+        ),
+    ) == 9.0

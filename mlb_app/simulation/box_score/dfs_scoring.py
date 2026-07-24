@@ -18,6 +18,7 @@ class BatterDfsScoringRules:
     hit_by_pitch: float = 0.0
     run: float = 0.0
     rbi: float = 0.0
+    stolen_base: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ DRAFTKINGS_CLASSIC_BATTER_RULES = (
         hit_by_pitch=2.0,
         run=2.0,
         rbi=2.0,
+        stolen_base=5.0,
     )
 )
 
@@ -56,7 +58,6 @@ DRAFTKINGS_CLASSIC_PITCHER_RULES = (
 )
 
 DRAFTKINGS_CLASSIC_UNSUPPORTED_CATEGORIES = (
-    "batter_stolen_base",
     "pitcher_win",
     "pitcher_complete_game",
     "pitcher_complete_game_shutout",
@@ -77,6 +78,7 @@ def score_batter(
         + line.hit_by_pitch * rules.hit_by_pitch
         + line.runs * rules.run
         + line.rbi * rules.rbi
+        + line.stolen_bases * rules.stolen_base
     )
 
 
