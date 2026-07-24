@@ -67,6 +67,22 @@ def _fielding_side(event: PlayEvent) -> str:
     return "home" if _batting_side(event) == "away" else "away"
 
 
+def _baserunning_runner_id(
+    event: PlayEvent,
+) -> str:
+    for movement in event.runner_movements:
+        if (
+            movement.is_out
+            or movement.start_base
+            != movement.end_base
+        ):
+            return movement.runner_id
+
+    raise ValueError(
+        "baserunning event requires a moving runner"
+    )
+
+
 def reduce_box_score(
     *,
     initial_state,
@@ -104,44 +120,73 @@ def reduce_box_score(
         fielding_side = _fielding_side(event)
         outcome = event.event_type.strip().lower()
 
-        batter_key = (event.batter_id, batting_side)
-        batter = batter_rows.setdefault(
-            batter_key,
-            _empty_batter(
+        hit_field = None
+
+        if event.is_plate_appearance:
+            batter_key = (
                 event.batter_id,
                 batting_side,
-            ),
-        )
+            )
+            batter = batter_rows.setdefault(
+                batter_key,
+                _empty_batter(
+                    event.batter_id,
+                    batting_side,
+                ),
+            )
 
-        batter["plate_appearances"] += 1
+            batter["plate_appearances"] += 1
 
-        if outcome not in NON_AT_BAT_EVENTS:
-            batter["at_bats"] += 1
+            if outcome not in NON_AT_BAT_EVENTS:
+                batter["at_bats"] += 1
 
-        hit_field = HIT_EVENTS.get(outcome)
-        if hit_field is not None:
-            batter[hit_field] += 1
-            teams[batting_side]["hits"] += 1
+            hit_field = HIT_EVENTS.get(outcome)
+            if hit_field is not None:
+                batter[hit_field] += 1
+                teams[batting_side]["hits"] += 1
 
-        if outcome == "bb":
-            batter["walks"] += 1
-        elif outcome == "hbp":
-            batter["hit_by_pitch"] += 1
-        elif outcome in {"k", "strikeout"}:
-            batter["strikeouts"] += 1
-        elif outcome == "reached_on_error":
-            batter["reached_on_error"] += 1
+            if outcome == "bb":
+                batter["walks"] += 1
+            elif outcome == "hbp":
+                batter["hit_by_pitch"] += 1
+            elif outcome in {"k", "strikeout"}:
+                batter["strikeouts"] += 1
+            elif outcome == "reached_on_error":
+                batter["reached_on_error"] += 1
 
-        if (
-            event.attribution.sacrifice_type
-            is SacrificeType.FLY
-        ):
-            batter["sacrifice_flies"] += 1
-        elif (
-            event.attribution.sacrifice_type
-            is SacrificeType.BUNT
-        ):
-            batter["sacrifice_bunts"] += 1
+            if (
+                event.attribution.sacrifice_type
+                is SacrificeType.FLY
+            ):
+                batter["sacrifice_flies"] += 1
+            elif (
+                event.attribution.sacrifice_type
+                is SacrificeType.BUNT
+            ):
+                batter["sacrifice_bunts"] += 1
+        elif outcome in {
+            "stolen_base",
+            "caught_stealing",
+        }:
+            runner_id = _baserunning_runner_id(
+                event
+            )
+            runner_key = (
+                runner_id,
+                batting_side,
+            )
+            runner = batter_rows.setdefault(
+                runner_key,
+                _empty_batter(
+                    runner_id,
+                    batting_side,
+                ),
+            )
+
+            if outcome == "stolen_base":
+                runner["stolen_bases"] += 1
+            else:
+                runner["caught_stealing"] += 1
 
         if event.attribution.rbi_count:
             rbi_player_id = (
@@ -187,7 +232,9 @@ def reduce_box_score(
                 ),
             )
 
-            pitcher["batters_faced"] += 1
+            if event.is_plate_appearance:
+                pitcher["batters_faced"] += 1
+
             pitcher["outs_recorded"] += len(
                 event.outs_recorded
             )

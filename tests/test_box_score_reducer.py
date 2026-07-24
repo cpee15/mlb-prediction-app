@@ -11,9 +11,11 @@ from mlb_app.simulation.box_score import (
     validate_box_score_reconstruction,
 )
 from mlb_app.simulation.events import (
+    Base,
     DeterministicPlayResolver,
     GameState,
     MultiOutPlayResolver,
+    build_baserunning_event,
 )
 
 
@@ -246,3 +248,82 @@ def test_reducer_is_deterministic():
     )
 
     assert first == second
+
+
+def test_stolen_base_credits_runner_without_plate_appearance():
+    initial = GameState(
+        bases=("runner", None, None),
+        batting_order_index=4,
+        plate_appearance_number=25,
+    )
+    event = build_baserunning_event(
+        sequence=0,
+        event_type="stolen_base",
+        batter_id="current_batter",
+        runner_id="runner",
+        state_before=initial,
+        origin_base=Base.FIRST,
+        target_base=Base.SECOND,
+        pitcher_id="pitcher",
+    )
+
+    box = reduce_box_score(
+        initial_state=initial,
+        events=(event,),
+    )
+
+    runner = box.batter("runner")
+    pitcher = box.pitcher("pitcher")
+
+    assert runner.stolen_bases == 1
+    assert runner.caught_stealing == 0
+    assert runner.plate_appearances == 0
+    assert runner.at_bats == 0
+    assert pitcher.batters_faced == 0
+    assert pitcher.outs_recorded == 0
+
+    with pytest.raises(KeyError):
+        box.batter("current_batter")
+
+
+def test_caught_stealing_credits_runner_and_non_pa_out():
+    initial = GameState(
+        outs=1,
+        bases=("runner", None, None),
+        batting_order_index=4,
+        plate_appearance_number=25,
+    )
+    event = build_baserunning_event(
+        sequence=0,
+        event_type="caught_stealing",
+        batter_id="current_batter",
+        runner_id="runner",
+        state_before=initial,
+        origin_base=Base.FIRST,
+        target_base=Base.SECOND,
+        pitcher_id="pitcher",
+    )
+
+    box = reduce_box_score(
+        initial_state=initial,
+        events=(event,),
+    )
+
+    runner = box.batter("runner")
+    pitcher = box.pitcher("pitcher")
+
+    assert runner.stolen_bases == 0
+    assert runner.caught_stealing == 1
+    assert runner.plate_appearances == 0
+    assert runner.at_bats == 0
+    assert pitcher.batters_faced == 0
+    assert pitcher.outs_recorded == 1
+    assert pitcher.innings_pitched == "0.1"
+
+    validation = validate_box_score_reconstruction(
+        initial_state=initial,
+        events=(event,),
+        box_score=box,
+    )
+
+    assert validation.passed is True
