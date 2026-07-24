@@ -1,5 +1,10 @@
 """Canonical full-game orchestration."""
 
+from .baserunning_outcome_resolution import (
+    CANONICAL_BASERUNNING_RESOLUTION_VERSION,
+    CanonicalBaserunningResolution,
+    resolve_canonical_sampled_baserunning,
+)
 from .baserunning_sampling import (
     CANONICAL_BASERUNNING_SAMPLING_VERSION,
     CanonicalBaserunningOutcome,
@@ -171,7 +176,9 @@ from .validation import (
 )
 
 __all__ = [
+    "CANONICAL_BASERUNNING_RESOLUTION_VERSION",
     "CANONICAL_BASERUNNING_SAMPLING_VERSION",
+    "CanonicalBaserunningResolution",
     "CanonicalBaserunningOutcome",
     "CanonicalBaserunningProbabilities",
     "CanonicalBaserunningSamplingQuery",
@@ -288,6 +295,7 @@ __all__ = [
     "run_canonical_trials",
     "run_canonical_trial_execution_plan",
     "resolve_canonical_batted_ball_outcome",
+    "resolve_canonical_sampled_baserunning",
     "resolve_canonical_sampled_plate_appearance",
     "reduce_canonical_game_box_score",
     "validate_game_box_score_reconciliation",
