@@ -360,3 +360,10 @@ from .baserunning_calibration_report import (
     CanonicalBaserunningCalibrationReport,
     assemble_baserunning_calibration_report,
 )
+
+from .baserunning_calibration_artifact import (
+    CANONICAL_BASERUNNING_CALIBRATION_ARTIFACT_VERSION,
+    CANONICAL_BASERUNNING_CALIBRATION_INPUT_VERSION,
+    CanonicalBaserunningCalibrationArtifact,
+    execute_baserunning_calibration_artifact,
+)
