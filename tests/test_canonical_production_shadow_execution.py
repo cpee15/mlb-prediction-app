@@ -29,6 +29,7 @@ from mlb_app.simulation.shadow import (
     CanonicalShadowProbabilityProviderDiscovery,
     run_canonical_production_shadow,
     run_canonical_production_shadow_with_baserunning_discovery,
+    validate_canonical_baserunning_shadow_outputs,
 )
 
 
@@ -703,6 +704,111 @@ def test_direct_catalog_and_discovery_are_rejected():
 
 def test_discovered_execution_preserves_shadow_authority():
     diagnostics = run_with_discovery().to_diagnostics()
+
+    assert diagnostics["activation_permitted"] is False
+    assert diagnostics[
+        "production_authority_changed"
+    ] is False
+    assert diagnostics["authoritative_source"] == "legacy"
+
+
+
+def test_injected_catalog_exposes_baserunning_metrics():
+    execution = run(
+        baserunning_evidence_catalog=(
+            baserunning_catalog()
+        ),
+    )
+    validation = (
+        validate_canonical_baserunning_shadow_outputs(
+            execution
+        )
+    )
+
+    assert validation.status == "ready"
+    assert validation.ready is True
+    assert validation.catalog_digest == (
+        baserunning_catalog().digest
+    )
+    assert validation.runner_projection_count == 18
+    assert validation.simulation_count == 2
+
+
+def test_observed_activity_is_reported():
+    execution = run(
+        baserunning_evidence_catalog=(
+            baserunning_catalog()
+        ),
+    )
+    validation = (
+        validate_canonical_baserunning_shadow_outputs(
+            execution
+        )
+    )
+
+    assert validation.observed_activity is True
+    assert (
+        validation.stolen_base_mean_total
+        + validation.caught_stealing_mean_total
+        > 0.0
+    )
+    assert validation.warnings == ()
+
+
+def test_execution_without_catalog_is_unavailable():
+    validation = (
+        validate_canonical_baserunning_shadow_outputs(
+            run()
+        )
+    )
+
+    assert validation.status == "unavailable"
+    assert validation.ready is False
+    assert validation.catalog_digest is None
+    assert validation.error_message == (
+        "baserunning evidence catalog was not injected"
+    )
+
+
+def test_blocked_execution_is_unavailable():
+    validation = (
+        validate_canonical_baserunning_shadow_outputs(
+            run(
+                bootstrap_ready=False,
+            )
+        )
+    )
+
+    assert validation.status == "unavailable"
+    assert validation.ready is False
+
+
+def test_invalid_execution_contract_fails_open():
+    validation = (
+        validate_canonical_baserunning_shadow_outputs(
+            object()
+        )
+    )
+
+    assert validation.status == "error"
+    assert validation.ready is False
+    assert validation.error_message == (
+        "execution must be "
+        "CanonicalProductionShadowExecution"
+    )
+
+
+def test_output_validation_preserves_shadow_authority():
+    execution = run(
+        baserunning_evidence_catalog=(
+            baserunning_catalog()
+        ),
+    )
+    diagnostics = (
+        validate_canonical_baserunning_shadow_outputs(
+            execution
+        ).to_diagnostics()
+    )
 
     assert diagnostics["activation_permitted"] is False
     assert diagnostics[
