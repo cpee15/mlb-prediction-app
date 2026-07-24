@@ -19,6 +19,12 @@ from .catcher_context_composition import (
     CanonicalCatcherTeamAssignment,
     compose_catcher_baserunning_contexts,
 )
+from .catcher_assignment_discovery import (
+    CANONICAL_CATCHER_ASSIGNMENT_DISCOVERY_VERSION,
+    CONFIRMED_CATCHER_ASSIGNMENT_SOURCE_VERSION,
+    CanonicalCatcherAssignmentDiscovery,
+    discover_confirmed_catcher_assignments,
+)
 from .comparator import compare_shadow_payloads
 from .bullpen_discovery import (
     CANONICAL_SHADOW_BULLPEN_DISCOVERY_VERSION,
@@ -153,6 +159,10 @@ __all__ = [
     "CANONICAL_CATCHER_CONTEXT_COMPOSITION_VERSION",
     "CanonicalCatcherTeamAssignment",
     "compose_catcher_baserunning_contexts",
+    "CANONICAL_CATCHER_ASSIGNMENT_DISCOVERY_VERSION",
+    "CONFIRMED_CATCHER_ASSIGNMENT_SOURCE_VERSION",
+    "CanonicalCatcherAssignmentDiscovery",
+    "discover_confirmed_catcher_assignments",
     "SHADOW_SCHEMA_VERSION",
     "CANONICAL_SHADOW_BASERUNNING_DISCOVERY_VERSION",
     "CanonicalShadowBaserunningEvidenceDiscovery",
