@@ -340,3 +340,10 @@ from .baserunning_shadow_summary import (
     CanonicalBaserunningShadowSummary,
     summarize_canonical_baserunning_shadow_validations,
 )
+
+from .baserunning_calibration_comparison import (
+    CANONICAL_BASERUNNING_CALIBRATION_COMPARISON_VERSION,
+    CanonicalBaserunningCalibrationComparison,
+    CanonicalObservedBaserunningTotals,
+    compare_baserunning_shadow_to_observed,
+)
