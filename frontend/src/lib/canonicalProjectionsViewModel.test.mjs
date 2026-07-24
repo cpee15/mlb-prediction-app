@@ -50,7 +50,7 @@ function payload() {
                 triples: metric(0.1),
                 home_runs: metric(0.4),
                 runs: metric(0.8),
-                rbis: metric(1.1),
+                rbi: metric(1.1),
                 walks: metric(0.5),
                 stolen_bases: metric(0.2),
                 strikeouts: metric(1.2),
@@ -62,7 +62,7 @@ function payload() {
               team_side: 'home',
               metrics: {
                 batters_faced: metric(24),
-                outs: metric(18),
+                outs_recorded: metric(18),
                 hits_allowed: metric(5),
                 walks: metric(2),
                 hit_by_pitch: metric(0.3),
@@ -115,6 +115,7 @@ test('derives batter hits from component means', () => {
   assert.equal(batter.name, 'Test Batter')
   assert.equal(batter.plateAppearances, 4.4)
   assert.equal(batter.hits, 1.5)
+  assert.equal(batter.rbis, 1.1)
   assert.equal(batter.stolenBases, 0.2)
   assert.equal(batter.dfsMean, 10.5)
   assert.equal(batter.dfsFloor, 3)
@@ -122,7 +123,7 @@ test('derives batter hits from component means', () => {
   assert.equal(batter.dfsCeiling, 20)
 })
 
-test('derives pitcher innings from outs', () => {
+test('derives pitcher innings from canonical outs recorded', () => {
   const view = (
     buildCanonicalProjectionsViewModel(
       payload(),
@@ -138,6 +139,31 @@ test('derives pitcher innings from outs', () => {
   assert.equal(pitcher.dfsMedian, 17)
   assert.equal(pitcher.dfsCeiling, 27)
 })
+
+
+test('preserves legacy RBI and outs metric aliases', () => {
+  const source = payload()
+  const players = (
+    source
+      .diagnostics
+      .canonical_shadow
+      .player_projections
+      .players
+  )
+  const batterMetrics = players[0].metrics
+  const pitcherMetrics = players[1].metrics
+
+  batterMetrics.rbis = batterMetrics.rbi
+  delete batterMetrics.rbi
+  pitcherMetrics.outs = pitcherMetrics.outs_recorded
+  delete pitcherMetrics.outs_recorded
+
+  const view = buildCanonicalProjectionsViewModel(source)
+
+  assert.equal(view.batters[0].rbis, 1.1)
+  assert.equal(view.pitchers[0].inningsPitched, 6)
+})
+
 
 test('returns unavailable view without rows', () => {
   const view = (
