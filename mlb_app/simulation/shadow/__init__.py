@@ -14,6 +14,11 @@ from .catcher_pop_time_evidence import (
     decode_baseball_savant_catcher_pop_time_rows,
     normalize_catcher_pop_time,
 )
+from .catcher_context_composition import (
+    CANONICAL_CATCHER_CONTEXT_COMPOSITION_VERSION,
+    CanonicalCatcherTeamAssignment,
+    compose_catcher_baserunning_contexts,
+)
 from .comparator import compare_shadow_payloads
 from .bullpen_discovery import (
     CANONICAL_SHADOW_BULLPEN_DISCOVERY_VERSION,
@@ -145,6 +150,9 @@ __all__ = [
     "CanonicalCatcherPopTimeObservation",
     "decode_baseball_savant_catcher_pop_time_rows",
     "normalize_catcher_pop_time",
+    "CANONICAL_CATCHER_CONTEXT_COMPOSITION_VERSION",
+    "CanonicalCatcherTeamAssignment",
+    "compose_catcher_baserunning_contexts",
     "SHADOW_SCHEMA_VERSION",
     "CANONICAL_SHADOW_BASERUNNING_DISCOVERY_VERSION",
     "CanonicalShadowBaserunningEvidenceDiscovery",
