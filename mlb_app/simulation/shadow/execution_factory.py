@@ -9,6 +9,9 @@ from mlb_app.simulation.box_score import (
     BatterDfsScoringRules,
     PitcherDfsScoringRules,
 )
+from mlb_app.simulation.game.baserunning_composition import (
+    build_canonical_catalog_baserunning_resolver_factory,
+)
 from mlb_app.simulation.game.baserunning_evidence_catalog import (
     CanonicalBaserunningEvidenceCatalog,
 )
@@ -240,6 +243,16 @@ class CanonicalShadowExecutionBundleFactory:
             )
         )
 
+        coupled_baserunning_resolver_factory = None
+        if self.baserunning_evidence_catalog is not None:
+            coupled_baserunning_resolver_factory = (
+                build_canonical_catalog_baserunning_resolver_factory(
+                    catalog=(
+                        self.baserunning_evidence_catalog
+                    ),
+                )
+            )
+
         plan = CanonicalTrialExecutionPlan(
             factory_input=factory_input,
             away_lineup=(
@@ -249,6 +262,9 @@ class CanonicalShadowExecutionBundleFactory:
                 self.matchup_input.home_lineup
             ),
             resolver_factory=resolver_factory,
+            coupled_baserunning_resolver_factory=(
+                coupled_baserunning_resolver_factory
+            ),
             game_config=self.game_config,
             batter_dfs_rules=self.batter_dfs_rules,
             pitcher_dfs_rules=self.pitcher_dfs_rules,

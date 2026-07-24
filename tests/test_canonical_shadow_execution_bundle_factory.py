@@ -3,13 +3,17 @@ from __future__ import annotations
 import pytest
 
 import mlb_app.simulation.game_simulation_builder as builder
+import mlb_app.simulation.shadow.execution_factory as execution_module
 from mlb_app.simulation.events import GameState
 from mlb_app.simulation.game import (
     CANONICAL_PA_OUTCOME_ORDER,
+    CanonicalBaserunningEvidenceCatalog,
+    CanonicalCatcherBaserunningProfile,
     CanonicalGameConfig,
     CanonicalLineup,
     CanonicalMatchupInput,
     CanonicalOutcomeProbability,
+    CanonicalPitcherBaserunningProfile,
     CanonicalPitchingPlan,
     CanonicalPlateAppearanceOutcome,
     CanonicalPlateAppearanceQuery,
@@ -20,6 +24,7 @@ from mlb_app.simulation.game import (
     CanonicalProbabilityFallbackRecord,
     CanonicalProbabilityFallbackTier,
     CanonicalProbabilityProviderIdentity,
+    CanonicalRunnerBaserunningProfile,
     build_canonical_trial_factory_input,
 )
 from mlb_app.simulation.shadow import (
@@ -143,15 +148,70 @@ def factory_input(
     )
 
 
+def baserunning_catalog():
+    runner_ids = tuple(
+        (
+            f"away_batter_{index}",
+            f"home_batter_{index}",
+        )
+        for index in range(9)
+    )
+
+    return CanonicalBaserunningEvidenceCatalog(
+        runners=tuple(
+            CanonicalRunnerBaserunningProfile(
+                runner_id=runner_id,
+                speed_score=0.85,
+                attempt_rate=0.30,
+                success_rate=0.80,
+                lead_quality=0.75,
+                fatigue_index=0.10,
+            )
+            for pair in runner_ids
+            for runner_id in pair
+        ),
+        pitchers=(
+            CanonicalPitcherBaserunningProfile(
+                pitcher_id="away_starter",
+                hold_score=0.40,
+                delivery_time_score=0.45,
+                pickoff_attempt_rate=0.08,
+                pickoff_success_rate=0.02,
+            ),
+            CanonicalPitcherBaserunningProfile(
+                pitcher_id="home_starter",
+                hold_score=0.40,
+                delivery_time_score=0.45,
+                pickoff_attempt_rate=0.08,
+                pickoff_success_rate=0.02,
+            ),
+        ),
+        away_catcher=CanonicalCatcherBaserunningProfile(
+            catcher_id="away_catcher",
+            team_side="away",
+            throwing_score=0.45,
+            pop_time_score=0.40,
+        ),
+        home_catcher=CanonicalCatcherBaserunningProfile(
+            catcher_id="home_catcher",
+            team_side="home",
+            throwing_score=0.45,
+            pop_time_score=0.40,
+        ),
+    )
+
+
 def execution_factory(
     *,
     records=(),
+    baserunning=None,
 ):
     return (
         build_canonical_shadow_execution_bundle_factory(
             matchup_input=matchup(),
             exact_artifact=exact_artifact(records),
             fallback_catalog=fallback_catalog(),
+            baserunning_evidence_catalog=baserunning,
             fallback_policy=fallback_policy(),
             game_config=CanonicalGameConfig(
                 regulation_innings=1,
@@ -349,3 +409,84 @@ def test_builder_accepts_first_class_factory():
         == 12
     )
     assert output["away_expected_runs"] == 0.0
+
+
+def test_injected_catalog_attaches_coupled_resolver_per_trial(
+    monkeypatch,
+):
+    source = baserunning_catalog()
+    build_calls = []
+    coupled_calls = []
+
+    def build_factory(*, catalog):
+        build_calls.append(catalog)
+
+        def coupled_factory(
+            context,
+            plate_appearance_resolver,
+        ):
+            coupled_calls.append(
+                (
+                    context.trial_index,
+                    plate_appearance_resolver,
+                )
+            )
+
+            return lambda state, batter_id, sequence: None
+
+        return coupled_factory
+
+    monkeypatch.setattr(
+        execution_module,
+        "build_canonical_catalog_baserunning_resolver_factory",
+        build_factory,
+    )
+
+    bundle = execution_factory(
+        baserunning=source,
+    )(
+        factory_input=factory_input()
+    )
+
+    assert len(bundle.trial_batch.games) == 2
+    assert build_calls == [source]
+    assert [
+        trial_index
+        for trial_index, _ in coupled_calls
+    ] == [0, 1]
+    assert all(
+        callable(plate_appearance_resolver)
+        for _, plate_appearance_resolver
+        in coupled_calls
+    )
+    assert (
+        bundle.canonical_shadow_execution_inputs
+        .baserunning_evidence_catalog
+        is source
+    )
+
+
+def test_missing_catalog_does_not_build_baserunning_resolver(
+    monkeypatch,
+):
+    def unexpected_build(*, catalog):
+        raise AssertionError(
+            "missing catalog must not activate baserunning"
+        )
+
+    monkeypatch.setattr(
+        execution_module,
+        "build_canonical_catalog_baserunning_resolver_factory",
+        unexpected_build,
+    )
+
+    bundle = execution_factory()(
+        factory_input=factory_input()
+    )
+
+    assert len(bundle.trial_batch.games) == 2
+    assert (
+        bundle.canonical_shadow_execution_inputs
+        .baserunning_evidence_catalog
+        is None
+    )
