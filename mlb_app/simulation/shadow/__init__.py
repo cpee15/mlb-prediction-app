@@ -414,3 +414,10 @@ from .historical_baserunning_shadow_validation import (
     CanonicalHistoricalBaserunningExecutionGame,
     collect_historical_baserunning_shadow_validations,
 )
+
+from .historical_shadow_replay_discovery import (
+    CANONICAL_HISTORICAL_SHADOW_REPLAY_DISCOVERY_VERSION,
+    CanonicalHistoricalShadowReplayDiscovery,
+    CanonicalHistoricalShadowReplayInputGame,
+    discover_historical_shadow_replay_inputs,
+)
