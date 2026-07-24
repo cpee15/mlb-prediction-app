@@ -1,8 +1,10 @@
 import pytest
 
 from mlb_app.simulation.shadow import (
+    CANONICAL_CATCHER_BASERUNNING_MATERIALIZATION_VERSION,
     CANONICAL_RUNNER_BASERUNNING_MATERIALIZATION_VERSION,
     CANONICAL_STATCAST_BASERUNNING_SOURCE_VERSION,
+    CanonicalCatcherBaserunningContext,
     CanonicalRunnerBaserunningContext,
     CanonicalStatcastRunnerBaserunningCounts,
     CanonicalStatcastPitcherBaserunningCounts,
@@ -11,6 +13,7 @@ from mlb_app.simulation.shadow import (
     aggregate_statcast_pitcher_baserunning_counts,
     aggregate_statcast_catcher_baserunning_counts,
     decode_statcast_baserunning_outcomes,
+    materialize_statcast_catcher_observations,
     materialize_statcast_runner_observations,
 )
 
@@ -852,3 +855,176 @@ def test_defender_counts_reject_impossible_attempts():
             stolen_bases_allowed=1,
             caught_stealing=1,
         )
+
+
+def catcher_counts(
+    catcher_id="800",
+):
+    return CanonicalStatcastCatcherBaserunningCounts(
+        catcher_id=catcher_id,
+        eligible_opportunities=20,
+        stolen_bases_allowed=6,
+        caught_stealing=2,
+    )
+
+
+def catcher_context(
+    catcher_id="800",
+):
+    return CanonicalCatcherBaserunningContext(
+        catcher_id=catcher_id,
+        team_side="home",
+        pop_time_score=0.75,
+        context_source_version=(
+            "baseball_savant_pop_time_v1"
+        ),
+    )
+
+
+def test_materializes_complete_catcher_observation():
+    observations = (
+        materialize_statcast_catcher_observations(
+            counts=(catcher_counts(),),
+            contexts=(catcher_context(),),
+        )
+    )
+
+    assert len(observations) == 1
+
+    observation = observations[0]
+
+    assert observation.catcher_id == "800"
+    assert observation.team_side == "home"
+    assert observation.steal_attempts_against == 8
+    assert observation.caught_stealing == 2
+    assert observation.throwing_score == 0.25
+    assert observation.pop_time_score == 0.75
+    assert observation.source_version == (
+        "canonical_statcast_baserunning_source_v1+"
+        "baseball_savant_pop_time_v1"
+    )
+
+
+def test_missing_catcher_context_is_not_fabricated():
+    assert (
+        materialize_statcast_catcher_observations(
+            counts=(catcher_counts(),),
+            contexts=(),
+        )
+        == ()
+    )
+
+
+def test_context_without_catcher_counts_is_ignored():
+    assert (
+        materialize_statcast_catcher_observations(
+            counts=(),
+            contexts=(catcher_context(),),
+        )
+        == ()
+    )
+
+
+def test_catcher_materialization_preserves_count_order():
+    observations = (
+        materialize_statcast_catcher_observations(
+            counts=(
+                catcher_counts("catcher-2"),
+                catcher_counts("catcher-1"),
+            ),
+            contexts=(
+                catcher_context("catcher-1"),
+                catcher_context("catcher-2"),
+            ),
+        )
+    )
+
+    assert tuple(
+        value.catcher_id
+        for value in observations
+    ) == (
+        "catcher-2",
+        "catcher-1",
+    )
+
+
+def test_duplicate_catcher_count_identity_is_rejected():
+    with pytest.raises(
+        ValueError,
+        match=(
+            "catcher count identifiers must be unique"
+        ),
+    ):
+        materialize_statcast_catcher_observations(
+            counts=(
+                catcher_counts(),
+                catcher_counts(),
+            ),
+            contexts=(catcher_context(),),
+        )
+
+
+def test_duplicate_catcher_context_identity_is_rejected():
+    with pytest.raises(
+        ValueError,
+        match=(
+            "catcher context identifiers must be unique"
+        ),
+    ):
+        materialize_statcast_catcher_observations(
+            counts=(catcher_counts(),),
+            contexts=(
+                catcher_context(),
+                catcher_context(),
+            ),
+        )
+
+
+def test_unavailable_catcher_context_is_rejected():
+    with pytest.raises(
+        ValueError,
+        match=(
+            "context_source_version must identify "
+            "an available source"
+        ),
+    ):
+        CanonicalCatcherBaserunningContext(
+            catcher_id="catcher",
+            team_side="away",
+            pop_time_score=0.50,
+        )
+
+
+def test_invalid_catcher_team_side_is_rejected():
+    with pytest.raises(
+        ValueError,
+        match="team_side must be away or home",
+    ):
+        CanonicalCatcherBaserunningContext(
+            catcher_id="catcher",
+            team_side="invalid",
+            pop_time_score=0.50,
+            context_source_version="test-v1",
+        )
+
+
+def test_catcher_pop_time_score_is_validated():
+    with pytest.raises(
+        ValueError,
+        match=(
+            "pop_time_score must be between 0 and 1"
+        ),
+    ):
+        CanonicalCatcherBaserunningContext(
+            catcher_id="catcher",
+            team_side="away",
+            pop_time_score=1.01,
+            context_source_version="test-v1",
+        )
+
+
+def test_catcher_materialization_version_is_explicit():
+    assert (
+        catcher_context().materialization_version
+        == CANONICAL_CATCHER_BASERUNNING_MATERIALIZATION_VERSION
+    )
