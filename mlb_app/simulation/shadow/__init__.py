@@ -25,6 +25,11 @@ from .catcher_assignment_discovery import (
     CanonicalCatcherAssignmentDiscovery,
     discover_confirmed_catcher_assignments,
 )
+from .catcher_observation_composition import (
+    CANONICAL_CATCHER_OBSERVATION_COMPOSITION_VERSION,
+    CanonicalCatcherObservationComposition,
+    compose_confirmed_catcher_observations,
+)
 from .comparator import compare_shadow_payloads
 from .bullpen_discovery import (
     CANONICAL_SHADOW_BULLPEN_DISCOVERY_VERSION,
@@ -163,6 +168,9 @@ __all__ = [
     "CONFIRMED_CATCHER_ASSIGNMENT_SOURCE_VERSION",
     "CanonicalCatcherAssignmentDiscovery",
     "discover_confirmed_catcher_assignments",
+    "CANONICAL_CATCHER_OBSERVATION_COMPOSITION_VERSION",
+    "CanonicalCatcherObservationComposition",
+    "compose_confirmed_catcher_observations",
     "SHADOW_SCHEMA_VERSION",
     "CANONICAL_SHADOW_BASERUNNING_DISCOVERY_VERSION",
     "CanonicalShadowBaserunningEvidenceDiscovery",
