@@ -44,10 +44,14 @@ export function serverFields(result, fallback = []) {
     accessor: field.name,
     label: field.label || field.name,
     group: field.group || 'Other',
-    type: field.type || 'string',
+    type: field.data_type || field.type || 'string',
+    dataType: field.data_type || field.type || 'string',
     sortable: field.sortable !== false,
     filterable: field.filterable !== false,
+    selectable: field.selectable !== false,
     nillable: field.nillable !== false,
+    supportedOperators: Array.isArray(field.supported_operators) ? field.supported_operators : [],
+    description: field.description || '',
   }))
 }
 

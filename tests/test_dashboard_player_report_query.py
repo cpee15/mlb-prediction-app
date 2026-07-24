@@ -65,6 +65,74 @@ def test_validated_filters_are_applied_in_sql_before_count_and_page():
     assert confidence["totalSize"] == 2
 
 
+def test_match_all_and_match_any_logic_apply_before_count_sort_and_page():
+    session = make_session()
+    match_all = query_player_report(
+        session,
+        "all_active_hitters",
+        filters={
+            "logic": "and",
+            "conditions": [
+                {"field": "team_name", "operator": "eq", "value": "AAA"},
+                {"field": "model_score", "operator": "gt", "value": "0.65"},
+            ],
+        },
+        page_size=1,
+    )
+    assert match_all["filter_logic"] == "and"
+    assert match_all["totalSize"] == 1
+    assert [row["full_name"] for row in match_all["records"]] == ["Zeta Tie"]
+
+    match_any = query_player_report(
+        session,
+        "all_active_hitters",
+        filters={
+            "logic": "or",
+            "conditions": [
+                {"field": "team_name", "operator": "eq", "value": "BBB"},
+                {"field": "model_score", "operator": "lt", "value": 0.65},
+            ],
+        },
+        page_size=1,
+        page_number=1,
+    )
+    assert match_any["filter_logic"] == "or"
+    assert match_any["totalSize"] == 2
+    assert match_any["page_info"]["has_next_page"] is True
+    assert match_any["records"][0]["full_name"] == "Alpha Tie"
+
+
+def test_filter_values_are_typed_and_in_requires_a_bounded_value_list():
+    session = make_session()
+    result = query_player_report(
+        session,
+        "all_active_pitchers",
+        filters={
+            "logic": "and",
+            "conditions": [
+                {"field": "mlb_player_id", "operator": "in", "value": ["5", 6]},
+                {"field": "updated_at", "operator": "gte", "value": "2026-07-15T12:05:00"},
+            ],
+        },
+    )
+    assert [row["mlb_player_id"] for row in result["records"]] == [5, 6]
+    with pytest.raises(ValueError, match="requires a list"):
+        query_player_report(
+            session,
+            "all_active_pitchers",
+            filters=[{"field": "mlb_player_id", "operator": "in", "value": "5,6"}],
+        )
+
+
+def test_invalid_filter_logic_is_rejected():
+    with pytest.raises(ValueError, match="filters.logic"):
+        query_player_report(
+            make_session(),
+            "all_active_hitters",
+            filters={"logic": "xor", "conditions": []},
+        )
+
+
 def test_confirmed_population_is_constrained_before_filters_count_and_pagination():
     session = make_session()
     result = query_player_report(
@@ -153,6 +221,20 @@ def test_field_metadata_selection_and_provenance_are_authoritative():
     assert result["provenance"]["updated_at"] == (NOW + dt.timedelta(minutes=3)).isoformat()
     with pytest.raises(ValueError, match="Unsupported selected field"):
         query_player_report(session, "all_active_hitters", selected_fields=["not_a_field"])
+    with pytest.raises(ValueError, match="Unsupported selected field"):
+        query_player_report(session, "all_active_hitters", selected_fields=["metrics"])
+
+
+@pytest.mark.parametrize("report_type", ["all_active_hitters", "all_active_pitchers"])
+def test_every_selectable_player_field_has_a_server_filter_contract(report_type):
+    info = describe_report_type(report_type)
+    selectable = [field for field in info["fields"] if field.get("selectable", True)]
+    assert selectable
+    assert all(field["filterable"] for field in selectable)
+    assert all(field["supported_operators"] for field in selectable)
+    metrics = next(field for field in info["fields"] if field["name"] == "metrics")
+    assert metrics["selectable"] is False
+    assert metrics["filterable"] is False
 
 
 def test_sort_validation_and_ascending_sort_cover_the_full_result_set():

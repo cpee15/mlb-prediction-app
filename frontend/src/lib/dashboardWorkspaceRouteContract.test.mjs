@@ -5,6 +5,7 @@ import test from 'node:test'
 const appSource = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8')
 const workspaceSource = readFileSync(new URL('../pages/MyDashboardReportBuilderPage.jsx', import.meta.url), 'utf8')
 const studioSource = readFileSync(new URL('../components/QueryStudioPanel.jsx', import.meta.url), 'utf8')
+const adminSource = readFileSync(new URL('../pages/AdminControlCenterPage.jsx', import.meta.url), 'utf8')
 
 test('/my-dashboard resolves to the current Report Builder workspace', () => {
   assert.match(appSource, /path="\/my-dashboard" element={<MyDashboardReportBuilderPage\s*\/>}/)
@@ -16,6 +17,15 @@ test('the routed page owns both the signed-out landing and authenticated workspa
   assert.match(workspaceSource, /Sign in to MyDashboard/)
   assert.match(workspaceSource, /Private report workspace/)
   assert.match(workspaceSource, /Build your report\./)
+})
+
+test('hitter and pitcher filters use the server catalog and persist match-all or match-any logic', () => {
+  assert.match(workspaceSource, /FILTER_LOGIC_OPTIONS/)
+  assert.match(workspaceSource, /filterableReportFields\(fields\)/)
+  assert.match(workspaceSource, /normalizeSavedFilters\(definition\.filters/)
+  assert.match(workspaceSource, /schema_version: 4/)
+  assert.match(adminSource, />Report</)
+  assert.match(adminSource, /object\.filtering\?\.logic/)
 })
 
 test('Query Studio visibility is capability-derived and the server remains the execution boundary', () => {

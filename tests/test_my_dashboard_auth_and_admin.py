@@ -570,9 +570,14 @@ def test_object_manager_response_is_derived_from_server_registry(monkeypatch):
         expected_sort_count = sum(
             bool(field.get("sortable")) for field in item["fields"]
         ) if item["queryable"] else 0
+        expected_selectable_count = sum(
+            bool(field.get("selectable", True)) for field in item["fields"]
+        ) if item["queryable"] else 0
         assert item["filtering"] == {
             "supported": bool(expected_filter_count),
             "field_count": expected_filter_count,
+            "selectable_field_count": expected_selectable_count,
+            "logic": ["and", "or"] if item["queryable"] else [],
         }
         assert item["sorting"] == {
             "supported": bool(expected_sort_count),

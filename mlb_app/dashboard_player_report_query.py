@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import case, func
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session
 
 from .dashboard_object_models import DashboardPlayerCurrent
@@ -46,13 +46,16 @@ def _validate_report_type(report_type: str) -> Dict[str, Any]:
     return REPORT_TYPES[report_type]
 
 
-def _conditions(filters: Any) -> List[Dict[str, Any]]:
+def _filter_contract(filters: Any) -> Tuple[str, List[Dict[str, Any]]]:
     if filters is None:
-        return []
+        return "and", []
     if isinstance(filters, list):
-        return filters
+        return "and", filters
     if not isinstance(filters, dict):
         raise ValueError("filters must be an object or a list of conditions")
+    logic = str(filters.get("logic") or "and").strip().lower()
+    if logic not in {"and", "or"}:
+        raise ValueError("filters.logic must be 'and' or 'or'")
     result = list(filters.get("conditions") or [])
     if filters.get("search_text") not in (None, ""):
         result.append({"field": "full_name", "operator": "contains", "value": filters["search_text"]})
@@ -76,7 +79,7 @@ def _conditions(filters: Any) -> List[Dict[str, Any]]:
         for key, operator in (("min", "gte"), ("max", "lte")):
             if bounds.get(key) is not None:
                 result.append({"field": field, "operator": operator, "value": bounds[key]})
-    return result
+    return logic, result
 
 
 def _confidence_expression():
@@ -88,9 +91,32 @@ def _confidence_expression():
     )
 
 
-def _apply_filters(query, report_type: str, filters: Any) -> Tuple[Any, List[Dict[str, Any]]]:
+def _coerce_scalar(field: Dict[str, Any], value: Any) -> Any:
+    data_type = field.get("data_type")
+    if data_type in {"id", "integer"}:
+        try:
+            return int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid integer value for field '{field['name']}'") from exc
+    if data_type in {"double", "number", "float"}:
+        try:
+            return float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid numeric value for field '{field['name']}'") from exc
+    if data_type == "datetime":
+        if isinstance(value, dt.datetime):
+            return value
+        try:
+            return dt.datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid datetime value for field '{field['name']}'") from exc
+    return str(value)
+
+
+def _apply_filters(query, report_type: str, filters: Any) -> Tuple[Any, str, List[Dict[str, Any]]]:
     fields = _field_map(report_type)
-    applied = _conditions(filters)
+    logic, applied = _filter_contract(filters)
+    expressions = []
     for condition in applied:
         if not isinstance(condition, dict):
             raise ValueError("Each filter condition must be an object")
@@ -110,12 +136,14 @@ def _apply_filters(query, report_type: str, filters: Any) -> Tuple[Any, List[Dic
                 value = ordinal[str(value).lower()]
             except KeyError as exc:
                 raise ValueError("min_confidence must be low, medium, or high") from exc
+        elif operator not in {"is_null", "is_not_null", "in"}:
+            value = _coerce_scalar(field, value)
         if operator == "eq": expression = column == value
         elif operator == "neq": expression = column != value
         elif operator == "in":
             if not isinstance(value, (list, tuple, set)):
                 raise ValueError(f"Operator 'in' for field '{field_name}' requires a list")
-            expression = column.in_(list(value))
+            expression = column.in_([_coerce_scalar(field, item) for item in value])
         elif operator == "contains": expression = func.lower(column).contains(str(value).lower())
         elif operator == "gt": expression = comparison > value
         elif operator == "gte": expression = comparison >= value
@@ -125,8 +153,10 @@ def _apply_filters(query, report_type: str, filters: Any) -> Tuple[Any, List[Dic
         elif operator == "is_not_null": expression = column.is_not(None)
         else:  # guarded by field metadata
             raise ValueError(f"Unsupported operator: {operator}")
-        query = query.filter(expression)
-    return query, applied
+        expressions.append(expression)
+    if expressions:
+        query = query.filter(or_(*expressions) if logic == "or" else and_(*expressions))
+    return query, logic, applied
 
 
 def _normalize_weights(report_type: str, weights: Any) -> Tuple[Dict[str, float], Dict[str, str]]:
@@ -223,8 +253,13 @@ def query_player_report(
         raise ValueError("sort_direction must be 'asc' or 'desc'")
 
     field_map = _field_map(report_type)
-    requested_fields = list(selected_fields or [field["name"] for field in FIELD_CATALOG[report_type]])
-    invalid_fields = [name for name in requested_fields if name not in field_map]
+    requested_fields = list(selected_fields or [
+        field["name"] for field in FIELD_CATALOG[report_type] if field.get("selectable", True)
+    ])
+    invalid_fields = [
+        name for name in requested_fields
+        if name not in field_map or not field_map[name].get("selectable", True)
+    ]
     if invalid_fields:
         raise ValueError(f"Unsupported selected field(s): {', '.join(invalid_fields)}")
 
@@ -245,7 +280,7 @@ def query_player_report(
             else False
         )
     population_count = query.count()
-    query, applied_filters = _apply_filters(query, report_type, filters)
+    query, filter_logic, applied_filters = _apply_filters(query, report_type, filters)
     total_count = query.count()
     normalized_weights, weight_labels = _normalize_weights(report_type, weights)
     score_expression = _weighted_score(normalized_weights, weight_labels)
@@ -287,7 +322,8 @@ def query_player_report(
             "matched_current_count": population_count,
             "filtered_count": total_count,
         },
-        "filters_applied": applied_filters, "weights": normalized_weights,
+        "filters_applied": applied_filters, "filter_logic": filter_logic,
+        "weights": normalized_weights,
         "weight_explanation": explanations, "query_source": "dashboard_player_current",
         "provenance": {
             "source_object": "dashboard_player_current",
