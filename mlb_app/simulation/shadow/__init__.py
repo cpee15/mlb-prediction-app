@@ -457,3 +457,16 @@ __all__ += [
     "CanonicalHistoricalLineupBullpenWindow",
     "source_historical_lineup_bullpen_snapshots",
 ]
+
+
+from .historical_lineup_bullpen_coverage_report import (
+    CANONICAL_HISTORICAL_LINEUP_BULLPEN_COVERAGE_REPORT_VERSION,
+    CanonicalHistoricalLineupBullpenCoverageReport,
+    report_historical_lineup_bullpen_coverage,
+)
+
+__all__ += [
+    "CANONICAL_HISTORICAL_LINEUP_BULLPEN_COVERAGE_REPORT_VERSION",
+    "CanonicalHistoricalLineupBullpenCoverageReport",
+    "report_historical_lineup_bullpen_coverage",
+]
