@@ -297,3 +297,9 @@ from .pitcher_baserunning_context_composition import (
 from .observed_baserunning_evidence import (
     discover_materialized_pitcher_baserunning_evidence,
 )
+
+from .runner_lead_quality_evidence import (
+    CANONICAL_RUNNER_LEAD_QUALITY_EVIDENCE_VERSION,
+    CanonicalRunnerLeadQualityObservation,
+    decode_runner_lead_quality_rows,
+)
