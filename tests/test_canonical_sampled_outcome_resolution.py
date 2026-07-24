@@ -245,6 +245,10 @@ def test_occupied_base_triple_advances_runner():
     assert event.runs_scored == (
         "away_batter_1",
     )
+    assert event.attribution.rbi_credited_to == (
+        "away_batter_0"
+    )
+    assert event.attribution.rbi_count == 1
 
 
 def test_home_run_scores_all_runners_and_batter():
@@ -281,6 +285,22 @@ def test_home_run_scores_all_runners_and_batter():
         "away_batter_0",
     )
     assert event.state_after.away_score == 4
+    assert event.attribution.rbi_credited_to == (
+        "away_batter_0"
+    )
+    assert event.attribution.rbi_count == 4
+
+
+def test_non_scoring_hit_does_not_credit_rbi():
+    event = resolve_canonical_sampled_plate_appearance(
+        sampled(
+            CanonicalPlateAppearanceOutcome.SINGLE,
+        )
+    )
+
+    assert event.runs_scored == ()
+    assert event.attribution.rbi_credited_to is None
+    assert event.attribution.rbi_count == 0
 
 
 def test_resolution_rejects_non_sample_contract():

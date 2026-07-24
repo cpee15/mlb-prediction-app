@@ -67,10 +67,18 @@ def resolve_canonical_sampled_plate_appearance(
             sequence=query.sequence,
         )
 
-        return replace(
+        event = replace(
             event,
             pitcher_id=query.pitcher_id,
         )
+
+        if (
+            outcome
+            is CanonicalPlateAppearanceOutcome.HOME_RUN
+        ):
+            return _credit_batter_rbi(event)
+
+        return event
 
     if outcome in {
         CanonicalPlateAppearanceOutcome.OUT,
@@ -78,9 +86,18 @@ def resolve_canonical_sampled_plate_appearance(
         CanonicalPlateAppearanceOutcome.DOUBLE,
         CanonicalPlateAppearanceOutcome.TRIPLE,
     }:
-        return resolve_canonical_batted_ball_outcome(
+        event = resolve_canonical_batted_ball_outcome(
             sampled
         ).event
+
+        if outcome in {
+            CanonicalPlateAppearanceOutcome.SINGLE,
+            CanonicalPlateAppearanceOutcome.DOUBLE,
+            CanonicalPlateAppearanceOutcome.TRIPLE,
+        }:
+            return _credit_batter_rbi(event)
+
+        return event
 
     if (
         outcome
@@ -90,6 +107,26 @@ def resolve_canonical_sampled_plate_appearance(
 
     raise ValueError(
         f"unsupported sampled outcome: {outcome}"
+    )
+
+
+def _credit_batter_rbi(
+    event: PlayEvent,
+) -> PlayEvent:
+    """Credit the batter for runs produced by an ordinary hit."""
+
+    run_count = len(event.runs_scored)
+
+    if run_count == 0:
+        return event
+
+    return replace(
+        event,
+        attribution=replace(
+            event.attribution,
+            rbi_credited_to=event.batter_id,
+            rbi_count=run_count,
+        ),
     )
 
 
