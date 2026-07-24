@@ -280,3 +280,53 @@ def test_duplicate_batter_runner_assignment_fails():
         match="already has active",
     ):
         ledger.apply_event(first)
+
+
+
+def test_retired_stranded_runner_can_reach_again():
+    ledger = CanonicalPitcherResponsibilityLedger()
+
+    reach = event(
+        sequence=0,
+        pitcher_id="starter",
+        event_type="single",
+        movements=(
+            RunnerMovement(
+                runner_id="runner_a",
+                start_base=0,
+                end_base=1,
+            ),
+        ),
+    )
+
+    ledger.apply_event(reach)
+    ledger.retire_runner("runner_a")
+
+    assert (
+        ledger.responsibility_for_runner("runner_a")
+        is None
+    )
+
+    ledger.apply_event(
+        event(
+            sequence=6,
+            pitcher_id="reliever",
+            event_type="single",
+            movements=(
+                RunnerMovement(
+                    runner_id="runner_a",
+                    start_base=0,
+                    end_base=1,
+                ),
+            ),
+        )
+    )
+
+    responsibility = (
+        ledger.responsibility_for_runner("runner_a")
+    )
+
+    assert responsibility is not None
+    assert responsibility.responsible_pitcher_id == (
+        "reliever"
+    )

@@ -308,6 +308,24 @@ class CanonicalPitchingManager:
                     event=event,
                 )
 
+        for responsibility in scored:
+            if (
+                responsibility.runner_id not in before
+                and responsibility.runner_id not in after
+            ):
+                transient_reach = CanonicalRunnerResponsibility(
+                    runner_id=responsibility.runner_id,
+                    responsible_pitcher_id=(
+                        responsibility.responsible_pitcher_id
+                    ),
+                    reached_on_event_sequence=event.sequence,
+                    reached_on_event_type=event.event_type,
+                )
+                self._earned_run_reconstructor.record_runner_reach(
+                    responsibility=transient_reach,
+                    event=event,
+                )
+
         for movement in event.runner_movements:
             if movement.is_out:
                 self._earned_run_reconstructor.retire_runner(
@@ -319,6 +337,20 @@ class CanonicalPitchingManager:
                 self._earned_run_reconstructor
                 .classify_scored_run(responsibility)
             )
+
+        if event.state_after.outs == 3:
+            stranded = (
+                self._responsibility_ledger
+                .active_responsibilities()
+            )
+
+            for responsibility in stranded:
+                self._responsibility_ledger.retire_runner(
+                    responsibility.runner_id
+                )
+                self._earned_run_reconstructor.retire_runner(
+                    responsibility.runner_id
+                )
 
         self._active[team_side] = updated
         return updated

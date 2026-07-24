@@ -335,17 +335,24 @@ def _aggregate_pitchers(
             for metric in PITCHER_METRICS
         }
 
+        earned_runs_available = (
+            _player_earned_runs_available(
+                runs=runs,
+                team_side=team_side,
+                player_id=player_id,
+            )
+        )
+
         include_dfs = (
             dfs_rules is not None
             and (
                 dfs_rules.earned_run == 0.0
-                or _player_earned_runs_available(
-                    runs=runs,
-                    team_side=team_side,
-                    player_id=player_id,
-                )
+                or earned_runs_available
             )
         )
+
+        if earned_runs_available:
+            metric_values["earned_runs"] = []
 
         if include_dfs:
             metric_values["dfs_points"] = []
@@ -361,6 +368,15 @@ def _aggregate_pitchers(
                 metric_values[metric].append(
                     float(
                         getattr(line, metric)
+                        if line is not None
+                        else 0
+                    )
+                )
+
+            if earned_runs_available:
+                metric_values["earned_runs"].append(
+                    float(
+                        line.earned_runs
                         if line is not None
                         else 0
                     )

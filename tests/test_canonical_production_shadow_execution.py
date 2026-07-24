@@ -427,3 +427,33 @@ def test_production_shadow_activates_draftkings_scoring_rules():
             "pitcher_dfs_earned_runs_unavailable"
             in payload["diagnostics"]["warnings"]
         )
+
+
+
+def test_production_shadow_exposes_reconstructed_earned_runs():
+    result = run()
+
+    assert result.status == "executed"
+    assert result.material is not None
+
+    payload = result.material.canonical_payload
+    diagnostics = payload["diagnostics"]
+    pitcher_metric_names = {
+        metric["name"]
+        for row in payload["pitchers"]
+        for metric in row["metrics"]
+    }
+
+    assert diagnostics["earned_run_status"] == (
+        "reconstructed"
+    )
+    assert (
+        "earned_runs_not_fully_reconstructed"
+        not in diagnostics["warnings"]
+    )
+    assert (
+        "pitcher_dfs_earned_runs_unavailable"
+        not in diagnostics["warnings"]
+    )
+    assert "earned_runs" in pitcher_metric_names
+    assert "dfs_points" in pitcher_metric_names
