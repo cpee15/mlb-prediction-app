@@ -421,3 +421,24 @@ from .historical_shadow_replay_discovery import (
     CanonicalHistoricalShadowReplayInputGame,
     discover_historical_shadow_replay_inputs,
 )
+
+
+from .historical_shadow_replay_input_audit import (
+    CANONICAL_HISTORICAL_SHADOW_REPLAY_INPUT_AUDIT_VERSION,
+    CURRENT_ACTIVE_ROSTER_SOURCE,
+    HISTORICAL_BULLPEN_SOURCE,
+    HISTORICAL_LINEUP_SOURCE,
+    CanonicalHistoricalShadowReplayInputAudit,
+    CanonicalHistoricalShadowReplayInputEvidence,
+    audit_historical_shadow_replay_input_coverage,
+)
+
+__all__ += [
+    "CANONICAL_HISTORICAL_SHADOW_REPLAY_INPUT_AUDIT_VERSION",
+    "CURRENT_ACTIVE_ROSTER_SOURCE",
+    "HISTORICAL_BULLPEN_SOURCE",
+    "HISTORICAL_LINEUP_SOURCE",
+    "CanonicalHistoricalShadowReplayInputAudit",
+    "CanonicalHistoricalShadowReplayInputEvidence",
+    "audit_historical_shadow_replay_input_coverage",
+]
