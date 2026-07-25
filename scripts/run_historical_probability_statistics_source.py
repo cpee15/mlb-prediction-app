@@ -12,7 +12,9 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from mlb_app.simulation.shadow import (
+    build_historical_baserunning_replay_review_policy,
     define_historical_probability_reconstruction_inputs,
+    evaluate_historical_baserunning_shadow_replays,
     execute_historical_baserunning_shadow_replays,
     materialize_historical_probability_artifacts,
     reconstruct_historical_pa_probability_workspaces,
@@ -375,6 +377,16 @@ def main():
         )
     )
 
+    historical_evaluation = (
+        evaluate_historical_baserunning_shadow_replays(
+            replays=historical_replays,
+            observed=observed,
+            policy=(
+                build_historical_baserunning_replay_review_policy()
+            ),
+        )
+    )
+
     diagnostics = {
         "statistics": statistics.to_diagnostics(),
         "reconstruction": (
@@ -384,6 +396,9 @@ def main():
         "artifacts": artifacts.to_diagnostics(),
         "historical_baserunning_replays": (
             historical_replays.to_diagnostics()
+        ),
+        "historical_baserunning_evaluation": (
+            historical_evaluation.to_diagnostics()
         ),
         "baserunning_feed_evidence": (
             feed_evidence.to_diagnostics()

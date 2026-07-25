@@ -564,3 +564,12 @@ from .historical_baserunning_shadow_replay_execution import (
     CanonicalHistoricalBaserunningShadowReplayWindow,
     execute_historical_baserunning_shadow_replays,
 )
+
+
+from .historical_baserunning_replay_evaluation import (
+    CANONICAL_HISTORICAL_BASERUNNING_REPLAY_EVALUATION_VERSION,
+    HISTORICAL_BASERUNNING_REPLAY_REVIEW_POLICY_VERSION,
+    CanonicalHistoricalBaserunningReplayEvaluation,
+    build_historical_baserunning_replay_review_policy,
+    evaluate_historical_baserunning_shadow_replays,
+)

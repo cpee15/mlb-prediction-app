@@ -17,11 +17,18 @@ from mlb_app.simulation.game import (
     CanonicalRunnerBaserunningProfile,
 )
 from mlb_app.simulation.shadow import (
+    CANONICAL_HISTORICAL_BASERUNNING_REPLAY_EVALUATION_VERSION,
     CANONICAL_HISTORICAL_BASERUNNING_SHADOW_REPLAY_VERSION,
+    HISTORICAL_BASERUNNING_REPLAY_REVIEW_POLICY_VERSION,
+    CanonicalBaserunningCalibrationPolicy,
+    CanonicalMlbPlayByPlayBaserunningGame,
+    CanonicalMlbPlayByPlayBaserunningSnapshot,
     CanonicalHistoricalLineupBullpenGameSnapshot,
     CanonicalHistoricalLineupBullpenWindow,
     CanonicalHistoricalProbabilityArtifactGame,
     CanonicalHistoricalProbabilityArtifactWindow,
+    build_historical_baserunning_replay_review_policy,
+    evaluate_historical_baserunning_shadow_replays,
     execute_historical_baserunning_shadow_replays,
     source_historical_baserunning_replay_evidence,
 )
@@ -315,4 +322,125 @@ def test_version_is_explicit():
     assert (
         CANONICAL_HISTORICAL_BASERUNNING_SHADOW_REPLAY_VERSION
         == "canonical_historical_baserunning_shadow_replay_v1"
+    )
+
+
+def observed_snapshot(
+    *,
+    game_pk=123,
+    game_date="2026-04-20",
+):
+    return CanonicalMlbPlayByPlayBaserunningSnapshot(
+        window_start="2026-04-20",
+        window_end="2026-04-20",
+        games=(
+            CanonicalMlbPlayByPlayBaserunningGame(
+                game_pk=game_pk,
+                game_date=game_date,
+                stolen_bases=1,
+                caught_stealing=1,
+            ),
+        ),
+        event_count=2,
+        stolen_bases=1,
+        caught_stealing=1,
+        duplicate_event_record_count=0,
+        digest=DIGEST,
+    )
+
+
+def evaluation_policy():
+    return CanonicalBaserunningCalibrationPolicy(
+        minimum_game_count=1,
+        maximum_stolen_base_error_per_game=10.0,
+        maximum_caught_stealing_error_per_game=10.0,
+        maximum_attempt_error_per_game=20.0,
+        maximum_success_rate_absolute_error=1.0,
+        policy_version=(
+            "historical_baserunning_replay_test_policy_v1"
+        ),
+    )
+
+
+def evaluate():
+    return evaluate_historical_baserunning_shadow_replays(
+        replays=execute(),
+        observed=observed_snapshot(),
+        policy=evaluation_policy(),
+    )
+
+
+def test_evaluates_replay_against_observed_outcomes():
+    result = evaluate()
+    diagnostics = result.to_diagnostics()
+
+    assert result.ready is True
+    assert result.game_count == 1
+    assert result.observed_stolen_bases == 1
+    assert result.observed_caught_stealing == 1
+    assert result.artifact.ready is True
+
+    assert diagnostics["observed_attempts"] == 2
+    assert diagnostics["report"]["ready"] is True
+    assert diagnostics["activation_permitted"] is False
+    assert diagnostics["production_activation"] is False
+    assert diagnostics[
+        "production_authority_changed"
+    ] is False
+    assert diagnostics[
+        "authoritative_source"
+    ] == "legacy"
+
+
+def test_evaluation_requires_exact_observed_coverage():
+    with pytest.raises(
+        ValueError,
+        match=(
+            "replay games must exactly match "
+            "observed games"
+        ),
+    ):
+        evaluate_historical_baserunning_shadow_replays(
+            replays=execute(),
+            observed=observed_snapshot(
+                game_pk=999,
+            ),
+            policy=evaluation_policy(),
+        )
+
+
+def test_evaluation_is_deterministic():
+    first = evaluate()
+    second = evaluate()
+
+    assert first.digest == second.digest
+    assert (
+        first.to_diagnostics()
+        == second.to_diagnostics()
+    )
+
+
+def test_evaluation_version_is_explicit():
+    assert (
+        CANONICAL_HISTORICAL_BASERUNNING_REPLAY_EVALUATION_VERSION
+        == (
+            "canonical_historical_baserunning_"
+            "replay_evaluation_v1"
+        )
+    )
+
+
+def test_review_policy_is_explicit_and_non_authoritative():
+    policy = (
+        build_historical_baserunning_replay_review_policy()
+    )
+
+    assert policy.minimum_game_count == 150
+    assert (
+        policy.policy_version
+        == HISTORICAL_BASERUNNING_REPLAY_REVIEW_POLICY_VERSION
+    )
+    assert (
+        HISTORICAL_BASERUNNING_REPLAY_REVIEW_POLICY_VERSION
+        == "historical_baserunning_replay_review_policy_v1"
     )
