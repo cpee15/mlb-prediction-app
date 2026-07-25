@@ -190,7 +190,11 @@ def test_query_studio_auth_boundary_returns_401_403_and_owner_metadata(tmp_path,
         session.add_all([
             AppSession(user_id=owner.id, session_token="owner-token", created_at=now, last_seen_at=now, expires_at=now + dt.timedelta(hours=6)),
             AppSession(user_id=user.id, session_token="user-token", created_at=now, last_seen_at=now, expires_at=now + dt.timedelta(hours=6)),
-            AppFeatureFlag(flag_key="workbench_query_enabled", enabled=True, target_profiles_json=["owner_administrator"]),
+            AppFeatureFlag(
+                flag_key="workbench_query_enabled",
+                enabled=True,
+                target_profiles_json=["owner_administrator", "standard_user"],
+            ),
         ])
         session.commit()
 
@@ -201,9 +205,9 @@ def test_query_studio_auth_boundary_returns_401_403_and_owner_metadata(tmp_path,
     assert anonymous.value.status_code == 401
 
     standard = admin_access.current_dashboard_principal(None, "user-token")
-    with pytest.raises(HTTPException) as denied:
-        admin_access.require_capability("workbench.advanced")(standard)
-    assert denied.value.status_code == 403
+    assert admin_access.require_capability("workbench.advanced")(standard) == standard
+    standard_metadata = my_dashboard_routes.my_dashboard_query_studio_metadata(standard)
+    assert standard_metadata["enabled"] is True
 
     owner_principal = admin_access.current_dashboard_principal(None, "owner-token")
     metadata = my_dashboard_routes.my_dashboard_query_studio_metadata(owner_principal)
