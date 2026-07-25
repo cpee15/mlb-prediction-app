@@ -4,6 +4,7 @@ from mlb_app.simulation.events import (
     Base,
     GameState,
     RunnerMovement,
+    build_baserunning_event,
     build_play_event,
 )
 from mlb_app.simulation.game import (
@@ -744,3 +745,93 @@ def test_manager_reconstructs_same_play_home_run_batter():
     assert lines[0].pitcher_id == "home_starter"
     assert lines[0].runs_allowed == 1
     assert lines[0].earned_runs == 1
+
+
+def test_manager_applies_caught_stealing_to_responsibility():
+    value = manager()
+    state = GameState(
+        inning=4,
+        half="top",
+    )
+
+    reach = replace(
+        build_play_event(
+            sequence=0,
+            event_type="single",
+            batter_id="away_batter_0",
+            state_before=state,
+            runner_movements=(
+                RunnerMovement(
+                    runner_id="away_batter_0",
+                    start_base=Base.HOME,
+                    end_base=Base.FIRST,
+                ),
+            ),
+        ),
+        pitcher_id="home_starter",
+    )
+    value.record_plate_appearance(reach)
+
+    assert (
+        value.responsibility_for_runner(
+            "away_batter_0"
+        )
+        is not None
+    )
+
+    caught = build_baserunning_event(
+        sequence=1,
+        event_type="caught_stealing",
+        batter_id="away_batter_1",
+        pitcher_id="home_starter",
+        runner_id="away_batter_0",
+        state_before=reach.state_after,
+        origin_base=Base.FIRST,
+        target_base=Base.SECOND,
+    )
+    value.record_baserunning_event(caught)
+
+    assert (
+        value.responsibility_for_runner(
+            "away_batter_0"
+        )
+        is None
+    )
+
+
+def test_manager_preserves_runner_on_successful_steal():
+    value = manager()
+    state = GameState(
+        inning=10,
+        half="top",
+        bases=(None, "away_batter_8", None),
+    )
+
+    value.register_automatic_runner(
+        state=state,
+        runner_id="away_batter_8",
+    )
+
+    steal = build_baserunning_event(
+        sequence=1,
+        event_type="stolen_base",
+        batter_id="away_batter_0",
+        pitcher_id="home_starter",
+        runner_id="away_batter_8",
+        state_before=state,
+        origin_base=Base.SECOND,
+        target_base=Base.THIRD,
+    )
+    value.record_baserunning_event(steal)
+
+    responsibility = (
+        value.responsibility_for_runner(
+            "away_batter_8"
+        )
+    )
+
+    assert responsibility is not None
+    assert (
+        responsibility.responsible_pitcher_id
+        == "home_starter"
+    )

@@ -90,10 +90,14 @@ def opportunity_state():
 class PlateAppearanceResolver:
     def __init__(self):
         self.identity_states = []
+        self.baserunning_events = []
 
     def active_pitcher_id(self, state):
         self.identity_states.append(state)
         return "active-pitcher"
+
+    def record_baserunning_event(self, event):
+        self.baserunning_events.append(event)
 
     def __call__(self, state, batter_id, sequence):
         next_out = state.outs + 1
@@ -151,6 +155,17 @@ def test_composition_uses_trial_active_pitcher_identity():
         assert event.pitcher_id == "active-pitcher"
         assert event.state_before == state
         assert event.is_plate_appearance is False
+        assert (
+            plate_appearance_resolver
+            .baserunning_events
+            == [event]
+        )
+    else:
+        assert (
+            plate_appearance_resolver
+            .baserunning_events
+            == []
+        )
 
 
 def test_composed_resolver_replays_identically():
