@@ -106,6 +106,21 @@ def test_metadata_is_derived_and_excludes_physical_schema_details():
     }
     assert all("base_object" not in item for item in objects)
     assert all("source_object" not in field for item in objects for field in item["fields"])
+    pitcher = next(item for item in objects if item["api_name"] == "all_active_pitchers")
+    pitcher_fields = {field["name"] for field in pitcher["fields"]}
+    assert {"average_velocity", "average_spin_rate", "xwoba"}.issubset(pitcher_fields)
+    assert {"exit_velocity", "launch_angle", "barrel_rate", "iso", "obp", "slg"}.isdisjoint(pitcher_fields)
+    assert all(field["selectable"] for item in objects for field in item["fields"])
+    assert all(field["filterable"] for item in objects for field in item["fields"])
+    pitcher_plan = workbench_query.parse_workbench_statement(
+        "SELECT full_name, average_velocity, average_spin_rate "
+        "FROM all_active_pitchers WHERE average_velocity >= 95 "
+        "ORDER BY average_spin_rate DESC LIMIT 25"
+    )
+    assert pitcher_plan.logical_object == "all_active_pitchers"
+    assert pitcher_plan.filters == [
+        {"field": "average_velocity", "operator": "gte", "value": 95.0}
+    ]
     with pytest.raises(ValueError, match="Unsupported queryable logical object"):
         workbench_query.parse_workbench_statement(
             "SELECT game_pk FROM model_projection_games LIMIT 10"

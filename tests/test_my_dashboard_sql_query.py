@@ -275,7 +275,7 @@ def test_team_report_match_all_and_match_any_use_the_server_catalog_before_pagin
                 "logic": "and",
                 "conditions": [
                     {"field": "confidence", "operator": "eq", "value": "high"},
-                    {"field": "metrics.Edge Score", "operator": "gte", "value": "0.85"},
+                    {"field": "edge_score", "operator": "gte", "value": "0.85"},
                 ],
             },
             page_size=1,
@@ -283,6 +283,7 @@ def test_team_report_match_all_and_match_any_use_the_server_catalog_before_pagin
         assert match_all["filter_logic"] == "and"
         assert match_all["totalSize"] == 1
         assert match_all["records"][0]["entity_id"] == "LAD"
+        assert match_all["records"][0]["edge_score"] == pytest.approx(0.9)
 
         match_any = query_dashboard_dataset(
             session=session,
@@ -293,7 +294,7 @@ def test_team_report_match_all_and_match_any_use_the_server_catalog_before_pagin
                 "logic": "or",
                 "conditions": [
                     {"field": "team", "operator": "eq", "value": "MIL"},
-                    {"field": "metrics.Win Edge", "operator": "gt", "value": 0.1},
+                    {"field": "win_edge", "operator": "gt", "value": 0.1},
                 ],
             },
             page_size=2,
@@ -302,6 +303,15 @@ def test_team_report_match_all_and_match_any_use_the_server_catalog_before_pagin
         assert match_any["totalSize"] == 3
         assert match_any["page_info"]["has_next"] is True
         assert match_any["object_info"]["api_name"] == "teams_daily_analysis"
+        assert {
+            field["name"]
+            for field in match_any["object_info"]["fields"]
+            if field.get("selectable", True)
+        } == {
+            field["name"]
+            for field in match_any["object_info"]["fields"]
+            if field.get("filterable")
+        }
 
 
 def test_dataset_catalog_rejects_unknown_conditions_and_logic():

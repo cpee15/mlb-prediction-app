@@ -46,6 +46,15 @@ export function reportFieldsForMode({ objectKey, activeLineupsOnly, selectedFiel
     : defaultFieldsForObject(objectKey)
 }
 
+export function selectableRequestFields(selectedFields = [], availableFields = []) {
+  const allowed = new Set(
+    availableFields
+      .filter(field => field?.accessor && field.selectable !== false)
+      .map(field => field.accessor),
+  )
+  return selectedFields.filter(field => allowed.has(field))
+}
+
 export function canonicalSortField(field, objectKey) {
   if (field === 'score') {
     if (objectKey === 'model_projections') return 'home_win_probability'
@@ -62,7 +71,14 @@ export function canonicalSortField(field, objectKey) {
   })[field] || field
 }
 
-export function buildReportRequest({ objectKey, activeLineupsOnly, date, cleanedFilters, query }) {
+export function buildReportRequest({
+  objectKey,
+  activeLineupsOnly,
+  date,
+  cleanedFilters,
+  query,
+  selectedFields,
+}) {
   const reportType = CANONICAL_REPORT_TYPES[objectKey]
   const confirmedCanonicalHitters = Boolean(
     activeLineupsOnly && objectKey === 'hitters' && reportType,
@@ -81,6 +97,7 @@ export function buildReportRequest({ objectKey, activeLineupsOnly, date, cleaned
         page_number: query.page_number,
         sort_by: canonicalSortField(query.sort_by, objectKey),
         sort_direction: query.sort_direction,
+        selected_fields: Array.isArray(selectedFields) ? selectedFields : undefined,
         include_metadata: true,
         confirmed_lineups_only: Boolean(
           activeLineupsOnly && (

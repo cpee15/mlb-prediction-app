@@ -204,12 +204,19 @@ def build_player_snapshot_rows(
             )
             metrics.update({
                 "AVG": aggregate.batting_avg,
+                "batting_average": aggregate.batting_avg,
                 "EV": aggregate.avg_exit_velocity,
+                "average_exit_velocity": aggregate.avg_exit_velocity,
                 "LA": aggregate.avg_launch_angle,
+                "average_launch_angle": aggregate.avg_launch_angle,
                 "HardHit": aggregate.hard_hit_pct,
+                "hard_hit_rate": aggregate.hard_hit_pct,
                 "Barrel": aggregate.barrel_pct,
+                "barrel_rate": aggregate.barrel_pct,
                 "K%": aggregate.k_pct,
+                "strikeout_rate": aggregate.k_pct,
                 "BB%": aggregate.bb_pct,
+                "walk_rate": aggregate.bb_pct,
             })
             sources.append("batter_aggregates")
         elif isinstance(aggregate, PitcherAggregate):
@@ -222,12 +229,24 @@ def build_player_snapshot_rows(
             )
             metrics.update({
                 "Velocity": aggregate.avg_velocity,
+                "average_velocity": aggregate.avg_velocity,
                 "Spin Rate": aggregate.avg_spin_rate,
+                "average_spin_rate": aggregate.avg_spin_rate,
                 "xwOBA Allowed": aggregate.xwoba,
+                "xwoba_allowed": aggregate.xwoba,
                 "xBA Allowed": aggregate.xba,
+                "xba_allowed": aggregate.xba,
                 "HardHit Allowed": aggregate.hard_hit_pct,
+                "hard_hit_rate_allowed": aggregate.hard_hit_pct,
                 "K%": aggregate.k_pct,
+                "strikeout_rate": aggregate.k_pct,
                 "BB%": aggregate.bb_pct,
+                "walk_rate": aggregate.bb_pct,
+                "horizontal_break": aggregate.avg_horiz_break,
+                "vertical_break": aggregate.avg_vert_break,
+                "release_position_x": aggregate.avg_release_pos_x,
+                "release_position_z": aggregate.avg_release_pos_z,
+                "release_extension": aggregate.avg_release_extension,
             })
             sources.append("pitcher_aggregates")
         if aggregate is not None:

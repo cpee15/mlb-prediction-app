@@ -52,6 +52,8 @@ export function serverFields(result, fallback = []) {
     nillable: field.nillable !== false,
     supportedOperators: Array.isArray(field.supported_operators) ? field.supported_operators : [],
     description: field.description || '',
+    sourceMetric: field.metric_key || null,
+    payloadPath: field.payload_path || null,
   }))
 }
 

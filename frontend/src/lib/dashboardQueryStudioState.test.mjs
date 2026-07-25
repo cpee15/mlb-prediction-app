@@ -5,6 +5,7 @@ import {
   canOpenQueryStudio,
   QUERY_STUDIO_EXAMPLE,
   queryStudioColumns,
+  queryStudioExampleForObject,
   queryStudioObjects,
   queryStudioRows,
   queryStudioSavePayload,
@@ -24,12 +25,30 @@ test('Query Studio metadata tolerates missing and malformed object fields', () =
       null,
       { label: 'Missing API name', fields: [] },
       { api_name: 'hitters', label: 'Hitters' },
-      { api_name: 'pitchers', fields: [null, {}, { name: 'full_name', label: 'Name' }] },
+      { api_name: 'pitchers', fields: [null, {}, { name: 'metrics', selectable: false }, { name: 'full_name', label: 'Name' }] },
     ],
   }), [
     { api_name: 'hitters', label: 'Hitters', fields: [] },
     { api_name: 'pitchers', fields: [{ name: 'full_name', label: 'Name' }] },
   ])
+})
+
+test('Query Studio builds a pitcher statement from pitcher fields only', () => {
+  const statement = queryStudioExampleForObject({
+    api_name: 'all_active_pitchers',
+    fields: [
+      { name: 'full_name', sortable: true },
+      { name: 'team_name', sortable: true },
+      { name: 'model_score', sortable: true },
+      { name: 'average_velocity', sortable: true },
+      { name: 'average_spin_rate', sortable: true },
+      { name: 'metrics', selectable: false },
+    ],
+  })
+  assert.match(statement, /FROM all_active_pitchers/)
+  assert.match(statement, /SELECT full_name, team_name, model_score, average_velocity/)
+  assert.match(statement, /ORDER BY model_score DESC/)
+  assert.doesNotMatch(statement, /xwoba|exit_velocity|barrel_rate/)
 })
 
 test('Query Studio initial render accepts a null result before execution', () => {

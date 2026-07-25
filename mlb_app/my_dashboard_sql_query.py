@@ -54,6 +54,8 @@ SORT_COLUMNS = {
     "lineup_verified": MyDashboardRecord.lineup_verified,
     "lineup_source": MyDashboardRecord.lineup_source,
     "confirmed_lineup_date": MyDashboardRecord.confirmed_lineup_date,
+    "lineup_revision": MyDashboardRecord.lineup_revision,
+    "model_state": MyDashboardRecord.model_state,
 }
 DATASET_REPORT_TYPES = {
     "teams": "teams_daily_analysis",
@@ -129,6 +131,18 @@ def _metric_expression(metric: str):
     return cast(MyDashboardRecord.metrics_json[metric].as_string(), Float)
 
 
+def _dataset_catalog_field(report_type: str, field_name: str) -> Optional[Dict[str, Any]]:
+    return next(
+        (
+            field
+            for field in FIELD_CATALOG[report_type]
+            if field["name"] == field_name
+            or field.get("payload_path") == field_name
+        ),
+        None,
+    )
+
+
 def _confidence_expression():
     return case(
         (func.lower(MyDashboardRecord.confidence) == "high", 3),
@@ -143,14 +157,14 @@ def _condition_expression(component: str, report_type: str, condition: Dict[str,
         raise ValueError("Each filter condition must be an object")
     field_name = str(condition.get("field") or "")
     operator = str(condition.get("operator") or "eq").lower()
-    field = {item["name"]: item for item in FIELD_CATALOG[report_type]}.get(field_name)
+    field = _dataset_catalog_field(report_type, field_name)
     if not field or not field.get("filterable"):
         raise ValueError(f"Unsupported filter field: {field_name}")
     if operator not in field.get("supported_operators", []):
         raise ValueError(f"Unsupported operator '{operator}' for field '{field_name}'")
 
-    if field_name.startswith("metrics."):
-        metric = field_name[8:]
+    if field.get("metric_key"):
+        metric = field["metric_key"]
         if metric not in _metric_registry(component):
             raise ValueError(f"Unsupported metric filter: {metric}")
         column = _metric_expression(metric)
@@ -178,6 +192,18 @@ def _condition_expression(component: str, report_type: str, condition: Dict[str,
                 value = float(value)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"Invalid numeric value for field '{field_name}'") from exc
+        elif field.get("data_type") == "boolean":
+            if isinstance(value, bool):
+                pass
+            elif str(value).strip().lower() in {"true", "false"}:
+                value = str(value).strip().lower() == "true"
+            else:
+                raise ValueError(f"Invalid boolean value for field '{field_name}'")
+        elif field.get("data_type") == "date":
+            try:
+                value = dt.date.fromisoformat(str(value))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Invalid date value for field '{field_name}'") from exc
         else:
             value = str(value)
 
@@ -192,6 +218,18 @@ def _condition_expression(component: str, report_type: str, condition: Dict[str,
                 values = [int(item) for item in values]
             elif field.get("data_type") in {"double", "number", "float"}:
                 values = [float(item) for item in values]
+            elif field.get("data_type") == "boolean":
+                normalized = []
+                for item in values:
+                    if isinstance(item, bool):
+                        normalized.append(item)
+                    elif str(item).strip().lower() in {"true", "false"}:
+                        normalized.append(str(item).strip().lower() == "true")
+                    else:
+                        raise ValueError
+                values = normalized
+            elif field.get("data_type") == "date":
+                values = [dt.date.fromisoformat(str(item)) for item in values]
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Invalid list value for field '{field_name}'") from exc
         return column.in_(values)
@@ -278,12 +316,23 @@ def _apply_filters(
     return query, warnings, filter_logic, applied_conditions
 
 
-def _sort_expression(component: str, sort_by: str, weighted_expression=None):
+def _sort_expression(
+    component: str,
+    report_type: Optional[str],
+    sort_by: str,
+    weighted_expression=None,
+):
     if weighted_expression is not None and sort_by in {"rank", "score", "adjusted_score"}:
         return weighted_expression
     if sort_by == "rank":
         return MyDashboardRecord.score
-    if sort_by.startswith("metrics."):
+    field = _dataset_catalog_field(report_type, sort_by) if report_type else None
+    if field and field.get("metric_key"):
+        metric = field["metric_key"]
+        if metric not in _metric_registry(component):
+            raise ValueError(f"Unsupported metric sort field: {metric}")
+        return _metric_expression(metric)
+    if not report_type and sort_by.startswith("metrics."):
         metric = sort_by[8:]
         if metric not in _metric_registry(component):
             raise ValueError(f"Unsupported metric sort field: {metric}")
@@ -300,6 +349,7 @@ def _record_to_dict(
     row: MyDashboardRecord,
     rank: int,
     *,
+    report_type: Optional[str] = None,
     adjusted_score: Optional[float] = None,
     explanations: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
@@ -334,6 +384,11 @@ def _record_to_dict(
         "lineup_revision": row.lineup_revision,
         "model_state": row.model_state,
     })
+    if report_type:
+        for field in FIELD_CATALOG[report_type]:
+            metric_key = field.get("metric_key")
+            if metric_key:
+                record[field["name"]] = (row.metrics_json or {}).get(metric_key)
     if adjusted_score is not None:
         record["weight_explanation"] = list(explanations or [])
     return record
@@ -362,10 +417,12 @@ def query_dashboard_dataset(
     normalized_filters = normalize_dataset_filters(filters)
     resolved_report_type = report_type or DATASET_REPORT_TYPES.get(normalized_component)
     if selected_fields is not None and resolved_report_type:
-        catalog = {field["name"]: field for field in FIELD_CATALOG[resolved_report_type]}
         invalid = [
             name for name in selected_fields
-            if name not in catalog or not catalog[name].get("selectable", True)
+            if not (
+                (field := _dataset_catalog_field(resolved_report_type, name))
+                and field.get("selectable", True)
+            )
         ]
         if invalid:
             raise ValueError(f"Unsupported selected field(s): {', '.join(invalid)}")
@@ -392,7 +449,12 @@ def query_dashboard_dataset(
     warnings.extend(weight_warnings)
     total_size = filtered_query.order_by(None).count()
     weighted_expression = weighted_score_expression(weights) if weights else None
-    sort_expression = _sort_expression(normalized_component, query_contract["sort_by"], weighted_expression)
+    sort_expression = _sort_expression(
+        normalized_component,
+        resolved_report_type,
+        query_contract["sort_by"],
+        weighted_expression,
+    )
     primary_order = sort_expression.asc().nullslast() if query_contract["sort_direction"] == "asc" else sort_expression.desc().nullslast()
     ordered_query = filtered_query.order_by(primary_order, MyDashboardRecord.entity_key.asc(), MyDashboardRecord.id.asc())
     if weighted_expression is not None:
@@ -404,12 +466,25 @@ def query_dashboard_dataset(
         )
         explanations = weight_explanations(weights)
         records = [
-            _record_to_dict(row, query_contract["offset"] + index, adjusted_score=adjusted, explanations=explanations)
+            _record_to_dict(
+                row,
+                query_contract["offset"] + index,
+                report_type=resolved_report_type,
+                adjusted_score=adjusted,
+                explanations=explanations,
+            )
             for index, (row, adjusted) in enumerate(raw_rows, start=1)
         ]
     else:
         rows = ordered_query.offset(query_contract["offset"]).limit(query_contract["page_size"]).all()
-        records = [_record_to_dict(row, query_contract["offset"] + index) for index, row in enumerate(rows, start=1)]
+        records = [
+            _record_to_dict(
+                row,
+                query_contract["offset"] + index,
+                report_type=resolved_report_type,
+            )
+            for index, row in enumerate(rows, start=1)
+        ]
     page_count = math.ceil(total_size / query_contract["page_size"]) if total_size else 0
     end = query_contract["offset"] + len(records)
     has_next = end < total_size

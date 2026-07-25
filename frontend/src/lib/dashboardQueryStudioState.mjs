@@ -15,9 +15,40 @@ export function queryStudioObjects(metadata = {}) {
     .map(object => ({
       ...object,
       fields: Array.isArray(object.fields)
-        ? object.fields.filter(field => field && typeof field === 'object' && field.name)
+        ? object.fields.filter(field => (
+          field
+          && typeof field === 'object'
+          && field.name
+          && field.selectable !== false
+        ))
         : [],
     }))
+}
+
+export function queryStudioExampleForObject(object = {}) {
+  const fields = (Array.isArray(object.fields) ? object.fields : [])
+    .filter(field => field?.name && field.selectable !== false)
+  const preferred = [
+    'full_name',
+    'team_name',
+    'model_score',
+    'confidence',
+  ]
+  const available = new Set(fields.map(field => field.name))
+  const selected = [
+    ...preferred.filter(name => available.has(name)),
+    ...fields.map(field => field.name).filter(name => !preferred.includes(name)),
+  ].slice(0, 4)
+  const sortable = fields.find(field => field.sortable && field.name === 'model_score')
+    || fields.find(field => field.sortable && !sortablePresentationField(field.name))
+  return `SELECT ${selected.join(', ')}
+FROM ${object.api_name}${sortable ? `
+ORDER BY ${sortable.name} DESC` : ''}
+LIMIT 50`
+}
+
+function sortablePresentationField(name) {
+  return ['full_name', 'team_name', 'player_type'].includes(name)
 }
 
 export function queryStudioRows(result = {}) {

@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from mlb_app.dashboard_object_models import DashboardPlayer, DashboardPlayerCurrent, DashboardPlayerSnapshot
-from mlb_app.dashboard_report_types import REPORT_TYPES, describe_report_type
+from mlb_app.dashboard_report_types import FIELD_CATALOG, REPORT_TYPES, describe_report_type
 from mlb_app.database import Base, create_tables
 
 
@@ -74,3 +74,47 @@ def test_report_type_registry_is_explicit_and_describable():
     assert hitters["population"] == {"is_active": True, "player_type": "hitter"}
     assert hitters["fields"][0]["name"] == "mlb_player_id"
     assert hitters["fields"][0]["supported_operators"] == ["eq", "in"]
+
+
+def test_report_field_api_names_are_unique_normalized_and_filterable():
+    for report_type, fields in FIELD_CATALOG.items():
+        names = [field["name"] for field in fields]
+        assert len(names) == len(set(names)), report_type
+        assert all(name == name.strip() and " " not in name for name in names), report_type
+        selectable = [field for field in fields if field.get("selectable", True)]
+        assert all(field.get("filterable") is True for field in selectable), report_type
+        assert all(field.get("supported_operators") for field in selectable), report_type
+
+
+def test_daily_dataset_catalogs_expose_only_object_related_base_fields():
+    teams = {field["name"] for field in FIELD_CATALOG["teams_daily_analysis"]}
+    totals = {field["name"] for field in FIELD_CATALOG["games_totals_analysis"]}
+    overall = {
+        field["name"]
+        for field in FIELD_CATALOG["overall_players_daily_analysis"]
+    }
+    assert "player_type" not in teams
+    assert "player_type" not in totals
+    assert "player_type" in overall
+    assert {
+        "edge_score",
+        "win_edge",
+        "run_differential",
+        "iso",
+        "obp",
+        "slg",
+    }.issubset(teams)
+    assert {"projected_total", "raw_total", "run_index"}.issubset(totals)
+    assert {
+        "xwoba",
+        "exit_velocity",
+        "strikeout_rate",
+        "xwoba_allowed",
+        "pitch_type",
+        "pitch_name",
+        "lineup_verified",
+        "lineup_source",
+        "confirmed_lineup_date",
+        "lineup_revision",
+        "model_state",
+    }.issubset(overall)
