@@ -101,6 +101,7 @@ def test_metadata_is_derived_and_excludes_physical_schema_details():
     assert {item["api_name"] for item in objects} == {
         "all_active_hitters",
         "all_active_pitchers",
+        "competitive_batter_arsenal",
         "hitters_arsenal_splits",
         "players_lineup_history",
     }
@@ -125,6 +126,20 @@ def test_metadata_is_derived_and_excludes_physical_schema_details():
         workbench_query.parse_workbench_statement(
             "SELECT game_pk FROM model_projection_games LIMIT 10"
         )
+
+
+def test_competitive_batter_arsenal_query_supports_pitcher_usage_and_hitter_sample():
+    plan = workbench_query.parse_workbench_statement(
+        "SELECT batter_name, pitcher_pitch_name, pitcher_usage_pct, pitches_seen, hard_hit_pct "
+        "FROM competitive_batter_arsenal "
+        "WHERE pitcher_usage_pct > 0.25 AND pitches_seen > 100 "
+        "ORDER BY hard_hit_pct DESC LIMIT 250"
+    )
+    assert plan.logical_object == "competitive_batter_arsenal"
+    assert plan.filters == [
+        {"field": "pitcher_usage_pct", "operator": "gt", "value": 0.25},
+        {"field": "pitches_seen", "operator": "gt", "value": 100},
+    ]
 
 
 def test_request_contract_rejects_submitted_authorization_fields():

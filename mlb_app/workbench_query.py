@@ -17,7 +17,11 @@ from .dashboard_report_types import FIELD_CATALOG, REPORT_TYPES
 
 
 MAX_WORKBENCH_ROWS = 250
-RELATED_REPORT_TYPES = frozenset({"players_lineup_history", "hitters_arsenal_splits"})
+RELATED_REPORT_TYPES = frozenset({
+    "players_lineup_history",
+    "hitters_arsenal_splits",
+    "competitive_batter_arsenal",
+})
 
 _STATEMENT = re.compile(
     r"^\s*SELECT\s+(?P<fields>.+?)\s+FROM\s+(?P<object>[A-Za-z_][A-Za-z0-9_]*)"

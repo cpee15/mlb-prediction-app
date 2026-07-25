@@ -18,7 +18,7 @@ REPORT_TYPES: Dict[str, Dict[str, Any]] = {
     "model_projection_games": {"label": "Model Projections", "ui_object": "model_projections", "base_object": "model_projection_date_artifact", "population": {"row_type": "game"}, "relationships": ["model_projection_players"], "queryable": True, "workbench_queryable": False},
     "model_projection_players": {"label": "Model Projection Players", "ui_object": "model_projection_players", "base_object": "model_projection_date_artifact", "population": {"row_type": "player"}, "relationships": ["model_projection_games", "dashboard_player_current"], "queryable": True, "workbench_queryable": False},
     "model_tracker_snapshots": {"label": "Model Tracker", "ui_object": "model_tracker", "base_object": "model_tracker_snapshots", "population": {}, "relationships": ["games", "dashboard_player_current"], "queryable": True, "workbench_queryable": False},
-    "competitive_batter_arsenal": {"label": "Batter vs Arsenal", "ui_object": "batter_arsenal", "base_object": "batter_pitch_type_matchups", "population": {}, "relationships": ["dashboard_players", "pitch_arsenal"], "queryable": True, "workbench_queryable": False},
+    "competitive_batter_arsenal": {"label": "Batter vs Arsenal", "ui_object": "batter_arsenal", "base_object": "batter_pitch_type_matchups", "population": {}, "relationships": ["dashboard_players", "pitch_arsenal"], "queryable": True, "workbench_queryable": True},
 }
 
 
