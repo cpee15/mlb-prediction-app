@@ -19,13 +19,18 @@ test('the routed page owns both the signed-out landing and authenticated workspa
   assert.match(workspaceSource, /Build your report\./)
 })
 
-test('hitter and pitcher filters use the server catalog and persist match-all or match-any logic', () => {
+test('registered report objects use the server catalog and persist match-all or match-any logic', () => {
   assert.match(workspaceSource, /FILTER_LOGIC_OPTIONS/)
   assert.match(workspaceSource, /filterableReportFields\(fields\)/)
   assert.match(workspaceSource, /normalizeSavedFilters\(definition\.filters/)
   assert.match(workspaceSource, /schema_version: 4/)
   assert.match(adminSource, />Report</)
   assert.match(adminSource, /object\.filtering\?\.logic/)
+  assert.match(workspaceSource, /key: 'model_projections'/)
+  assert.match(workspaceSource, /key: 'model_projection_players'/)
+  assert.match(workspaceSource, /key: 'model_tracker'/)
+  assert.match(workspaceSource, /key: 'batter_arsenal'/)
+  assert.match(workspaceSource, /WEIGHTED_OBJECTS\.has\(objectKey\)/)
 })
 
 test('Query Studio visibility is capability-derived and the server remains the execution boundary', () => {

@@ -184,6 +184,15 @@ def warm_model_projection_payload(target_date: str) -> Dict[str, Any]:
     }
 
 
+def get_model_projection_payload(target_date: str) -> Dict[str, Any]:
+    """Resolve the shared cached projection artifact for product and report readers."""
+    return get_or_set(
+        _projection_cache_key(target_date),
+        env_ttl("MODEL_PROJECTION_CACHE_TTL_SECONDS"),
+        lambda: _build_uncached_projection_payload(target_date),
+    )
+
+
 @router.get("/models/projections")
 def model_projections(date: Optional[str] = None) -> Dict[str, Any]:
     target_date = date or datetime.date.today().isoformat()
@@ -196,11 +205,7 @@ def model_projections(date: Optional[str] = None) -> Dict[str, Any]:
             date=target_date,
             probability_source="model_projections",
         ):
-            payload = get_or_set(
-                cache_key,
-                env_ttl("MODEL_PROJECTION_CACHE_TTL_SECONDS"),
-                lambda: _build_uncached_projection_payload(target_date),
-            )
+            payload = get_model_projection_payload(target_date)
         record_probability_source("model_projections")
         record_span(
             "route.models.projections.payload_bytes",

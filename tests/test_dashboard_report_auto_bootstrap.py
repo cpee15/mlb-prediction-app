@@ -70,6 +70,46 @@ def test_noncanonical_related_report_does_not_auto_bootstrap(monkeypatch):
     assert "population_bootstrap" not in result
 
 
+def test_expanded_report_types_dispatch_to_existing_authoritative_services(monkeypatch):
+    monkeypatch.setattr(routes, "session_factory", lambda: lambda: SessionContext())
+    captured = {}
+
+    def dataset(**kwargs):
+        captured["dataset"] = kwargs
+        return {"report_type": kwargs["report_type"], "records": [], "totalSize": 0}
+
+    def projection(report_type, **kwargs):
+        captured["projection"] = {"report_type": report_type, **kwargs}
+        return {"report_type": report_type, "records": [], "totalSize": 0}
+
+    monkeypatch.setattr(routes, "run_dataset_query", dataset)
+    monkeypatch.setattr(routes, "query_projection_report", projection)
+
+    overall = routes.my_dashboard_player_report_query(
+        routes.DashboardPlayerReportRequest(
+            report_type="overall_players_daily_analysis",
+            as_of_date=dt.date(2026, 7, 23),
+            filters={"logic": "or", "conditions": [{"field": "team", "operator": "eq", "value": "CHC"}]},
+            confirmed_lineups_only=True,
+        )
+    )
+    assert overall["report_type"] == "overall_players_daily_analysis"
+    assert captured["dataset"]["component"] == "overall_players"
+    assert captured["dataset"]["active_lineups"] is True
+    assert captured["dataset"]["filters"]["logic"] == "or"
+
+    games = routes.my_dashboard_player_report_query(
+        routes.DashboardPlayerReportRequest(
+            report_type="model_projection_games",
+            as_of_date=dt.date(2026, 7, 23),
+            sort_by="home_win_probability",
+        )
+    )
+    assert games["report_type"] == "model_projection_games"
+    assert captured["projection"]["date"] == "2026-07-23"
+    assert captured["projection"]["sort_by"] == "home_win_probability"
+
+
 def test_confirmed_hitters_query_full_canonical_id_population(monkeypatch):
     calls = {}
     monkeypatch.setattr(routes, "session_factory", lambda: lambda: SessionContext())

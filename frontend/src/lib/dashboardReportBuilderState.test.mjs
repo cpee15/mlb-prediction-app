@@ -37,13 +37,18 @@ test('weights rerank canonical players without becoming filter criteria', () => 
   assert.deepEqual(request.payload.weights, { 'K%': 1.6 })
 })
 
-test('confirmed hitters use the canonical report population while noncanonical objects preserve legacy routes', () => {
-  assert.equal(buildReportRequest({ objectKey: 'teams', activeLineupsOnly: false, date: '2026-07-16', cleanedFilters: {}, query }).path, '/my-dashboard/solver')
+test('confirmed and expanded objects use registered report populations', () => {
+  const teams = buildReportRequest({ objectKey: 'teams', activeLineupsOnly: false, date: '2026-07-16', cleanedFilters: {}, query })
+  assert.equal(teams.path, '/my-dashboard/reports/query')
+  assert.equal(teams.payload.report_type, 'teams_daily_analysis')
   const hitters = buildReportRequest({ objectKey: 'hitters', activeLineupsOnly: true, date: '2026-07-16', cleanedFilters: {}, query })
   assert.equal(hitters.path, '/my-dashboard/reports/query')
   assert.equal(hitters.payload.report_type, 'all_active_hitters')
   assert.equal(hitters.payload.confirmed_lineups_only, true)
-  assert.equal(buildReportRequest({ objectKey: 'overall_players', activeLineupsOnly: true, date: '2026-07-16', cleanedFilters: {}, query }).path, '/my-dashboard/solver/active-lineups')
+  const overall = buildReportRequest({ objectKey: 'overall_players', activeLineupsOnly: true, date: '2026-07-16', cleanedFilters: {}, query })
+  assert.equal(overall.path, '/my-dashboard/reports/query')
+  assert.equal(overall.payload.report_type, 'overall_players_daily_analysis')
+  assert.equal(overall.payload.confirmed_lineups_only, true)
 })
 
 test('confirmed hitter reports preserve canonical fields', () => {
@@ -95,6 +100,18 @@ test('primary objects own independent default column selections', () => {
   assert.deepEqual(fields.pitchers, ['rank', 'full_name', 'team_name', 'model_score', 'confidence'])
   fields.hitters.push('xwoba')
   assert.equal(fields.pitchers.includes('xwoba'), false)
+})
+
+test('projection, tracker, and competitive objects use safe registered sort defaults', () => {
+  const projection = buildReportRequest({ objectKey: 'model_projections', activeLineupsOnly: false, date: '2026-07-16', cleanedFilters: {}, query })
+  const players = buildReportRequest({ objectKey: 'model_projection_players', activeLineupsOnly: false, date: '2026-07-16', cleanedFilters: {}, query })
+  const tracker = buildReportRequest({ objectKey: 'model_tracker', activeLineupsOnly: false, date: '2026-07-16', cleanedFilters: {}, query })
+  const arsenal = buildReportRequest({ objectKey: 'batter_arsenal', activeLineupsOnly: false, date: '2026-07-16', cleanedFilters: {}, query })
+  assert.equal(projection.payload.report_type, 'model_projection_games')
+  assert.equal(projection.payload.sort_by, 'home_win_probability')
+  assert.equal(players.payload.sort_by, 'projected_dfs_points')
+  assert.equal(tracker.payload.sort_by, 'score')
+  assert.equal(arsenal.payload.sort_by, 'pitches_seen')
 })
 
 test('canonical pagination is adapted to the Report Workspace contract', () => {

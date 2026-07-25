@@ -543,10 +543,10 @@ def test_object_manager_response_is_derived_from_server_registry(monkeypatch):
     objects = list_report_types()
     monkeypatch.setattr(admin_routes, "list_report_types", lambda: objects)
     payload = admin_routes.admin_objects(_principal())
-    assert payload["totalSize"] == len(objects) == 7
+    assert payload["totalSize"] == len(objects) == 12
     assert payload["queryableSize"] == sum(
         bool(item.get("queryable")) for item in objects
-    ) == 4
+    ) == 11
     assert all(
         {
             "api_name",

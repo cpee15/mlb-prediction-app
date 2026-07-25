@@ -41,7 +41,11 @@ def _field_map(report_type: str) -> Dict[str, Dict[str, Any]]:
 
 
 def _validate_report_type(report_type: str) -> Dict[str, Any]:
-    if report_type not in REPORT_TYPES or not REPORT_TYPES[report_type].get("queryable"):
+    if (
+        report_type not in REPORT_TYPES
+        or not REPORT_TYPES[report_type].get("queryable")
+        or REPORT_TYPES[report_type].get("base_object") != "dashboard_player_current"
+    ):
         raise ValueError(f"Unsupported queryable report type: {report_type}")
     return REPORT_TYPES[report_type]
 

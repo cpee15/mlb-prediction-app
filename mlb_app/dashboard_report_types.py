@@ -12,8 +12,13 @@ REPORT_TYPES: Dict[str, Dict[str, Any]] = {
     "hitters_current_matchup": {"label": "Hitters with Current Matchup Metrics", "ui_object": "hitters", "base_object": "dashboard_players", "population": {"is_active": True, "player_type": "hitter"}, "relationships": ["current_matchup_snapshot"]},
     "hitters_arsenal_splits": {"label": "Hitters with Arsenal Splits", "ui_object": "hitters", "base_object": "batter_pitch_type_matchups", "population": {"is_active": True, "player_type": "hitter"}, "relationships": ["dashboard_players"], "queryable": True},
     "players_lineup_history": {"label": "Players with Lineup History", "ui_object": "overall_players", "base_object": "dashboard_players", "population": {"lineup_appearance_count": {"gt": 0}}, "relationships": ["lineup_appearances"], "queryable": True},
-    "teams_daily_analysis": {"label": "Teams with Daily Analysis", "ui_object": "teams", "base_object": "teams", "population": {}, "relationships": ["daily_analytical_snapshot"]},
-    "games_totals_analysis": {"label": "Games with Totals Analysis", "ui_object": "totals", "base_object": "games", "population": {}, "relationships": ["totals_projection", "run_environment_snapshot"]},
+    "teams_daily_analysis": {"label": "Teams with Daily Analysis", "ui_object": "teams", "base_object": "my_dashboard_records", "population": {"component": "teams", "is_current": True}, "relationships": ["daily_analytical_snapshot"], "queryable": True, "workbench_queryable": False},
+    "games_totals_analysis": {"label": "Games with Totals Analysis", "ui_object": "totals", "base_object": "my_dashboard_records", "population": {"component": "totals", "is_current": True}, "relationships": ["totals_projection", "run_environment_snapshot"], "queryable": True, "workbench_queryable": False},
+    "overall_players_daily_analysis": {"label": "Overall Players", "ui_object": "overall_players", "base_object": "my_dashboard_records", "population": {"component": "overall_players", "is_current": True}, "relationships": ["dashboard_player_current"], "queryable": True, "workbench_queryable": False},
+    "model_projection_games": {"label": "Model Projections", "ui_object": "model_projections", "base_object": "model_projection_date_artifact", "population": {"row_type": "game"}, "relationships": ["model_projection_players"], "queryable": True, "workbench_queryable": False},
+    "model_projection_players": {"label": "Model Projection Players", "ui_object": "model_projection_players", "base_object": "model_projection_date_artifact", "population": {"row_type": "player"}, "relationships": ["model_projection_games", "dashboard_player_current"], "queryable": True, "workbench_queryable": False},
+    "model_tracker_snapshots": {"label": "Model Tracker", "ui_object": "model_tracker", "base_object": "model_tracker_snapshots", "population": {}, "relationships": ["games", "dashboard_player_current"], "queryable": True, "workbench_queryable": False},
+    "competitive_batter_arsenal": {"label": "Batter vs Arsenal", "ui_object": "batter_arsenal", "base_object": "batter_pitch_type_matchups", "population": {}, "relationships": ["dashboard_players", "pitch_arsenal"], "queryable": True, "workbench_queryable": False},
 }
 
 
@@ -31,6 +36,7 @@ def _field(
     description: str,
     freshness: str = "current_projection",
     weight_aliases: Optional[List[str]] = None,
+    source_object: str = "dashboard_player_current",
 ) -> Dict[str, Any]:
     return {
         "name": name,
@@ -41,14 +47,14 @@ def _field(
         "filterable": filterable,
         "selectable": selectable,
         "nillable": nillable,
-        "source_object": "dashboard_player_current",
+        "source_object": source_object,
         "relationship_path": None,
         "description": description,
         "supported_operators": operators or (
             ["eq", "in"]
             if data_type == "id"
             else (
-                ["eq", "neq", "in"]
+                ["eq", "neq", "contains", "in"]
                 if data_type == "string"
                 else ["eq", "gt", "gte", "lt", "lte", "is_null", "is_not_null"]
             )
@@ -127,6 +133,257 @@ ARSENAL_SPLIT_FIELDS: List[Dict[str, Any]] = [
 for field in ARSENAL_SPLIT_FIELDS:
     field["source_object"] = "batter_pitch_type_matchups"
 
+
+def _dataset_field(
+    name: str,
+    label: str,
+    data_type: str,
+    group: str,
+    *,
+    sortable: bool = True,
+    filterable: bool = True,
+    description: str,
+) -> Dict[str, Any]:
+    return _field(
+        name,
+        label,
+        data_type,
+        group,
+        sortable=sortable,
+        filterable=filterable,
+        description=description,
+        source_object="my_dashboard_records",
+        freshness="daily_dashboard_dataset",
+    )
+
+
+DATASET_FIELDS: List[Dict[str, Any]] = [
+    _dataset_field("entity_id", "Entity ID", "string", "Identity", description="Stable report entity identifier."),
+    _dataset_field("entity_name", "Name", "string", "Identity", description="Display name for the report row."),
+    _dataset_field("entity_type", "Entity Type", "string", "Identity", description="Server-owned row classification."),
+    _dataset_field("player_type", "Player Type", "string", "Identity", description="Hitter or pitcher classification when applicable."),
+    _dataset_field("team", "Team", "string", "Matchup", description="Team associated with the row."),
+    _dataset_field("opponent", "Opponent", "string", "Matchup", description="Opponent associated with the row."),
+    _dataset_field("game_pk", "Game PK", "id", "Matchup", description="Canonical MLB game identifier."),
+    _dataset_field("category", "Category", "string", "Classification", description="Server-owned report category."),
+    _dataset_field("score", "Score", "double", "Scoring", description="Current report score."),
+    _dataset_field("base_score", "Base Score", "double", "Scoring", description="Score before request-scoped weights."),
+    _dataset_field("adjusted_score", "Adjusted Score", "double", "Scoring", description="Score after request-scoped weights."),
+    _dataset_field("confidence", "Confidence", "string", "Scoring", description="Current confidence label."),
+    _dataset_field("source", "Source", "string", "Audit", description="Registered source contract."),
+    _dataset_field("primary_reason", "Primary Reason", "string", "Audit", sortable=False, description="Primary explanation attached to the row."),
+]
+
+DATASET_METRICS: Dict[str, List[tuple[str, str]]] = {
+    "teams_daily_analysis": [
+        ("Edge Score", "Edge Score"), ("Win Edge", "Win Edge"), ("Run Diff", "Run Differential"),
+        ("ISO", "ISO"), ("OBP", "OBP"), ("SLG", "SLG"),
+    ],
+    "games_totals_analysis": [
+        ("Projected Total", "Projected Total"), ("Raw Total", "Raw Total"),
+        ("Run Index", "Run Index"), ("Score", "Model Score"),
+    ],
+    "overall_players_daily_analysis": [
+        ("Score", "Model Score"), ("xwOBA", "xwOBA"), ("EV", "Exit Velocity"),
+        ("K%", "Strikeout Rate"), ("xwOBA Allowed", "xwOBA Allowed"),
+    ],
+}
+
+
+def _runtime_field(
+    name: str,
+    label: str,
+    data_type: str,
+    group: str,
+    source_object: str,
+    description: str,
+    *,
+    sortable: bool = True,
+    filterable: bool = True,
+    freshness: str,
+) -> Dict[str, Any]:
+    return _field(
+        name,
+        label,
+        data_type,
+        group,
+        sortable=sortable,
+        filterable=filterable,
+        description=description,
+        source_object=source_object,
+        freshness=freshness,
+    )
+
+
+MODEL_PROJECTION_GAME_FIELDS = [
+    _runtime_field("game_pk", "Game PK", "id", "Identity", "model_projection_date_artifact", "Canonical MLB game identifier.", freshness="projection_artifact"),
+    _runtime_field("game_date", "Game Date", "date", "Identity", "model_projection_date_artifact", "Projection game date.", freshness="projection_artifact"),
+    _runtime_field("game_time", "Game Time", "string", "Identity", "model_projection_date_artifact", "Scheduled game time.", freshness="projection_artifact"),
+    _runtime_field("status", "Game Status", "string", "Identity", "model_projection_date_artifact", "Game status captured by the projection.", freshness="projection_artifact"),
+    _runtime_field("venue", "Venue", "string", "Environment", "model_projection_date_artifact", "Scheduled venue.", freshness="projection_artifact"),
+    _runtime_field("away_team_id", "Away Team ID", "id", "Teams", "model_projection_date_artifact", "Away team identifier.", freshness="projection_artifact"),
+    _runtime_field("away_team_name", "Away Team", "string", "Teams", "model_projection_date_artifact", "Away team name.", freshness="projection_artifact"),
+    _runtime_field("home_team_id", "Home Team ID", "id", "Teams", "model_projection_date_artifact", "Home team identifier.", freshness="projection_artifact"),
+    _runtime_field("home_team_name", "Home Team", "string", "Teams", "model_projection_date_artifact", "Home team name.", freshness="projection_artifact"),
+    _runtime_field("away_pitcher_id", "Away Pitcher ID", "id", "Starters", "model_projection_date_artifact", "Away probable pitcher identifier.", freshness="projection_artifact"),
+    _runtime_field("away_pitcher_name", "Away Pitcher", "string", "Starters", "model_projection_date_artifact", "Away probable pitcher name.", freshness="projection_artifact"),
+    _runtime_field("home_pitcher_id", "Home Pitcher ID", "id", "Starters", "model_projection_date_artifact", "Home probable pitcher identifier.", freshness="projection_artifact"),
+    _runtime_field("home_pitcher_name", "Home Pitcher", "string", "Starters", "model_projection_date_artifact", "Home probable pitcher name.", freshness="projection_artifact"),
+    _runtime_field("away_win_probability", "Away Win Probability", "double", "Probability", "model_projection_date_artifact", "Displayed Model Projections away win probability.", freshness="projection_artifact"),
+    _runtime_field("home_win_probability", "Home Win Probability", "double", "Probability", "model_projection_date_artifact", "Displayed Model Projections home win probability.", freshness="projection_artifact"),
+    _runtime_field("projected_away_runs", "Projected Away Runs", "double", "Runs", "model_projection_date_artifact", "Projected away runs from the shared projection output.", freshness="projection_artifact"),
+    _runtime_field("projected_home_runs", "Projected Home Runs", "double", "Runs", "model_projection_date_artifact", "Projected home runs from the shared projection output.", freshness="projection_artifact"),
+    _runtime_field("projected_total", "Projected Total", "double", "Runs", "model_projection_date_artifact", "Projected combined runs.", freshness="projection_artifact"),
+    _runtime_field("model_version", "Model Version", "string", "Audit", "model_projection_date_artifact", "Displayed projection model version.", freshness="projection_artifact"),
+    _runtime_field("probability_source", "Probability Source", "string", "Audit", "model_projection_date_artifact", "Registered displayed probability source.", freshness="projection_artifact"),
+    _runtime_field("probability_is_fallback", "Fallback Probability", "boolean", "Audit", "model_projection_date_artifact", "Whether the displayed probability used a fallback.", freshness="projection_artifact"),
+    _runtime_field("lineup_status", "Lineup Status", "string", "Freshness", "model_projection_date_artifact", "Lineup readiness captured by the projection.", freshness="projection_artifact"),
+    _runtime_field("data_confidence", "Data Confidence", "string", "Freshness", "model_projection_date_artifact", "Projection data-confidence label.", freshness="projection_artifact"),
+]
+MODEL_PROJECTION_GAME_FIELDS.extend([
+    _runtime_field(name, label, data_type, group, "model_projection_date_artifact", description, freshness="projection_artifact")
+    for name, label, data_type, group, description in [
+        ("away_starter_k_rate", "Away Starter K Rate", "double", "Starting Pitchers", "Away starter strikeout rate."),
+        ("away_starter_bb_rate", "Away Starter Walk Rate", "double", "Starting Pitchers", "Away starter walk rate."),
+        ("away_starter_xwoba_allowed", "Away Starter xwOBA Allowed", "double", "Starting Pitchers", "Away starter expected weighted on-base average allowed."),
+        ("away_starter_hard_hit_rate_allowed", "Away Starter Hard-Hit Rate Allowed", "double", "Starting Pitchers", "Away starter hard-hit rate allowed."),
+        ("home_starter_k_rate", "Home Starter K Rate", "double", "Starting Pitchers", "Home starter strikeout rate."),
+        ("home_starter_bb_rate", "Home Starter Walk Rate", "double", "Starting Pitchers", "Home starter walk rate."),
+        ("home_starter_xwoba_allowed", "Home Starter xwOBA Allowed", "double", "Starting Pitchers", "Home starter expected weighted on-base average allowed."),
+        ("home_starter_hard_hit_rate_allowed", "Home Starter Hard-Hit Rate Allowed", "double", "Starting Pitchers", "Home starter hard-hit rate allowed."),
+        ("away_offense_k_rate", "Away Offense K Rate", "double", "Offense", "Away offense strikeout rate."),
+        ("away_offense_bb_rate", "Away Offense Walk Rate", "double", "Offense", "Away offense walk rate."),
+        ("away_offense_obp", "Away Offense OBP", "double", "Offense", "Away offense on-base percentage."),
+        ("away_offense_iso", "Away Offense ISO", "double", "Offense", "Away offense isolated power."),
+        ("away_offense_slg", "Away Offense SLG", "double", "Offense", "Away offense slugging percentage."),
+        ("home_offense_k_rate", "Home Offense K Rate", "double", "Offense", "Home offense strikeout rate."),
+        ("home_offense_bb_rate", "Home Offense Walk Rate", "double", "Offense", "Home offense walk rate."),
+        ("home_offense_obp", "Home Offense OBP", "double", "Offense", "Home offense on-base percentage."),
+        ("home_offense_iso", "Home Offense ISO", "double", "Offense", "Home offense isolated power."),
+        ("home_offense_slg", "Home Offense SLG", "double", "Offense", "Home offense slugging percentage."),
+        ("away_bullpen_k_rate", "Away Bullpen K Rate", "double", "Bullpens", "Away bullpen strikeout rate."),
+        ("away_bullpen_bb_rate", "Away Bullpen Walk Rate", "double", "Bullpens", "Away bullpen walk rate."),
+        ("away_bullpen_xwoba_allowed", "Away Bullpen xwOBA Allowed", "double", "Bullpens", "Away bullpen expected weighted on-base average allowed."),
+        ("home_bullpen_k_rate", "Home Bullpen K Rate", "double", "Bullpens", "Home bullpen strikeout rate."),
+        ("home_bullpen_bb_rate", "Home Bullpen Walk Rate", "double", "Bullpens", "Home bullpen walk rate."),
+        ("home_bullpen_xwoba_allowed", "Home Bullpen xwOBA Allowed", "double", "Bullpens", "Home bullpen expected weighted on-base average allowed."),
+        ("run_scoring_index", "Run Scoring Index", "double", "Environment", "Run-scoring environment index."),
+        ("hr_boost_index", "Home Run Boost Index", "double", "Environment", "Home-run environment index."),
+        ("hit_boost_index", "Hit Boost Index", "double", "Environment", "Hit environment index."),
+        ("temperature_f", "Temperature", "double", "Environment", "Game-time temperature in Fahrenheit."),
+        ("weather_condition", "Weather Condition", "string", "Environment", "Game-time weather condition."),
+        ("wind_speed_mph", "Wind Speed", "double", "Environment", "Game-time wind speed in miles per hour."),
+        ("wind_direction", "Wind Direction", "string", "Environment", "Game-time wind direction."),
+        ("away_matchup_biggest_edge", "Away Matchup Biggest Edge", "string", "Matchup", "Strongest pitch-type edge for the away offense."),
+        ("away_matchup_confidence", "Away Matchup Confidence", "double", "Matchup", "Away matchup-analysis confidence."),
+        ("home_matchup_biggest_edge", "Home Matchup Biggest Edge", "string", "Matchup", "Strongest pitch-type edge for the home offense."),
+        ("home_matchup_confidence", "Home Matchup Confidence", "double", "Matchup", "Home matchup-analysis confidence."),
+        ("simulation_count", "Simulation Count", "integer", "Simulation", "Trials in the shared game simulation."),
+        ("tie_after_regulation_probability", "Tie After Regulation", "double", "Simulation", "Probability of a tie after regulation."),
+        ("over_8_5_probability", "Over 8.5 Probability", "double", "Simulation", "Projected probability of more than 8.5 runs."),
+        ("under_8_5_probability", "Under 8.5 Probability", "double", "Simulation", "Projected probability of fewer than 8.5 runs."),
+    ]
+])
+
+MODEL_PROJECTION_PLAYER_FIELDS = [
+    _runtime_field("game_pk", "Game PK", "id", "Identity", "model_projection_date_artifact", "Parent projection game identifier.", freshness="projection_artifact"),
+    _runtime_field("game_date", "Game Date", "date", "Identity", "model_projection_date_artifact", "Parent projection game date.", freshness="projection_artifact"),
+    _runtime_field("mlb_player_id", "MLB Player ID", "id", "Identity", "model_projection_date_artifact", "Resolved MLBAM player identifier.", freshness="projection_artifact"),
+    _runtime_field("full_name", "Player Name", "string", "Identity", "model_projection_date_artifact", "Resolved player name.", freshness="projection_artifact"),
+    _runtime_field("player_type", "Player Type", "string", "Identity", "model_projection_date_artifact", "Batter or pitcher projection row.", freshness="projection_artifact"),
+    _runtime_field("team_side", "Team Side", "string", "Team", "model_projection_date_artifact", "Away or home side.", freshness="projection_artifact"),
+    _runtime_field("team_id", "Team ID", "id", "Team", "model_projection_date_artifact", "Resolved current team identifier.", freshness="projection_artifact"),
+    _runtime_field("team_name", "Team", "string", "Team", "model_projection_date_artifact", "Resolved current team name.", freshness="projection_artifact"),
+    _runtime_field("primary_position", "Primary Position", "string", "Identity", "model_projection_date_artifact", "Resolved primary position.", freshness="projection_artifact"),
+    _runtime_field("projected_dfs_points", "Projected DFS Points", "double", "Projection", "model_projection_date_artifact", "Mean projected fantasy points.", freshness="projection_artifact"),
+    _runtime_field("dfs_floor", "DFS Floor", "double", "Projection", "model_projection_date_artifact", "Tenth-percentile projected fantasy points.", freshness="projection_artifact"),
+    _runtime_field("dfs_median", "DFS Median", "double", "Projection", "model_projection_date_artifact", "Median projected fantasy points.", freshness="projection_artifact"),
+    _runtime_field("dfs_ceiling", "DFS Ceiling", "double", "Projection", "model_projection_date_artifact", "Ninetieth-percentile projected fantasy points.", freshness="projection_artifact"),
+    _runtime_field("simulation_count", "Simulation Count", "integer", "Audit", "model_projection_date_artifact", "Trials backing the player projection.", freshness="projection_artifact"),
+]
+MODEL_PROJECTION_PLAYER_FIELDS.extend([
+    _runtime_field(name, label, "double", group, "model_projection_date_artifact", description, freshness="projection_artifact")
+    for name, label, group, description in [
+        ("plate_appearances", "Plate Appearances", "Batter Projection", "Mean projected plate appearances."),
+        ("singles", "Singles", "Batter Projection", "Mean projected singles."),
+        ("doubles", "Doubles", "Batter Projection", "Mean projected doubles."),
+        ("triples", "Triples", "Batter Projection", "Mean projected triples."),
+        ("home_runs", "Home Runs", "Batter Projection", "Mean projected home runs."),
+        ("runs", "Runs", "Player Projection", "Mean projected runs."),
+        ("rbi", "RBI", "Batter Projection", "Mean projected runs batted in."),
+        ("walks", "Walks", "Player Projection", "Mean projected walks."),
+        ("stolen_bases", "Stolen Bases", "Batter Projection", "Mean projected stolen bases."),
+        ("strikeouts", "Strikeouts", "Player Projection", "Mean projected strikeouts."),
+        ("batters_faced", "Batters Faced", "Pitcher Projection", "Mean projected batters faced."),
+        ("outs_recorded", "Outs Recorded", "Pitcher Projection", "Mean projected outs recorded."),
+        ("hits_allowed", "Hits Allowed", "Pitcher Projection", "Mean projected hits allowed."),
+        ("hit_by_pitch", "Hit By Pitch", "Pitcher Projection", "Mean projected hit batters."),
+        ("runs_allowed", "Runs Allowed", "Pitcher Projection", "Mean projected runs allowed."),
+        ("earned_runs", "Earned Runs", "Pitcher Projection", "Mean projected earned runs."),
+    ]
+])
+
+MODEL_TRACKER_FIELDS = [
+    _runtime_field(name, label, data_type, group, "model_tracker_snapshots", description, freshness="tracker_snapshot")
+    for name, label, data_type, group, description in [
+        ("id", "Tracker Row ID", "id", "Identity", "Persistent tracker row identifier."),
+        ("snapshot_date", "Snapshot Date", "date", "Identity", "Date captured by the tracker."),
+        ("source", "Source", "string", "Source", "Registered product source."),
+        ("source_component", "Source Component", "string", "Source", "Registered source component."),
+        ("game_pk", "Game PK", "id", "Game", "Canonical MLB game identifier."),
+        ("player_id", "Player ID", "id", "Identity", "Canonical player identifier when applicable."),
+        ("player_name", "Player", "string", "Identity", "Player display name."),
+        ("team_name", "Team", "string", "Game", "Team associated with the tracked row."),
+        ("opponent_name", "Opponent", "string", "Game", "Opponent associated with the tracked row."),
+        ("away_team", "Away Team", "string", "Game", "Away team name."),
+        ("home_team", "Home Team", "string", "Game", "Home team name."),
+        ("market_type", "Market Type", "string", "Pick", "Tracked market classification."),
+        ("pick_type", "Pick Type", "string", "Pick", "Tracked pick classification."),
+        ("pick_label", "Pick", "string", "Pick", "Tracked pick label."),
+        ("model_name", "Model", "string", "Model", "Registered model name."),
+        ("model_version", "Model Version", "string", "Model", "Registered model version."),
+        ("model_probability", "Model Probability", "double", "Model", "Model probability at snapshot time."),
+        ("market_implied_probability", "Market Implied Probability", "double", "Model", "Market implied probability at snapshot time."),
+        ("edge", "Edge", "double", "Model", "Tracked model edge."),
+        ("score", "Score", "double", "Model", "Tracked score."),
+        ("confidence", "Confidence", "double", "Model", "Tracked numeric confidence."),
+        ("line", "Line", "double", "Market", "Tracked market line."),
+        ("price", "Price", "double", "Market", "Tracked market price."),
+        ("expected_value", "Expected Value", "double", "Market", "Tracked expected value."),
+        ("projected_total", "Projected Total", "double", "Projection", "Tracked projected total."),
+        ("projected_home_runs", "Projected Home Runs", "double", "Projection", "Tracked projected home runs."),
+        ("projected_away_runs", "Projected Away Runs", "double", "Projection", "Tracked projected away runs."),
+        ("home_win_probability", "Home Win Probability", "double", "Projection", "Tracked home win probability."),
+        ("away_win_probability", "Away Win Probability", "double", "Projection", "Tracked away win probability."),
+        ("primary_reason", "Primary Reason", "string", "Audit", "Primary tracked reasoning summary."),
+        ("game_status_at_snapshot", "Game Status", "string", "Result", "Game status at snapshot time."),
+        ("result_status", "Result Status", "string", "Result", "Result comparison status."),
+        ("grade", "Grade", "string", "Result", "Current tracker grade."),
+        ("grade_reason", "Grade Reason", "string", "Result", "Reason for the current grade."),
+        ("created_at", "Created At", "datetime", "Audit", "Snapshot creation time."),
+        ("updated_at", "Updated At", "datetime", "Audit", "Snapshot update time."),
+        ("last_compared_at", "Last Compared At", "datetime", "Audit", "Most recent result comparison time."),
+    ]
+]
+
+COMPETITIVE_ARSENAL_FIELDS = deepcopy(ARSENAL_SPLIT_FIELDS)
+for field in COMPETITIVE_ARSENAL_FIELDS:
+    field["freshness"] = "competitive_matchup_snapshot"
+COMPETITIVE_ARSENAL_FIELDS.extend([
+    _runtime_field(name, label, data_type, group, "pitch_arsenal", description, freshness="competitive_matchup_snapshot")
+    for name, label, data_type, group, description in [
+        ("pitcher_pitch_name", "Pitch Name", "string", "Pitcher Arsenal", "Opposing pitcher pitch name."),
+        ("pitcher_pitch_count", "Pitcher Pitch Count", "integer", "Pitcher Arsenal", "Opposing pitcher pitch count."),
+        ("pitcher_usage_pct", "Pitcher Usage", "double", "Pitcher Arsenal", "Opposing pitcher usage rate for the pitch type."),
+        ("pitcher_whiff_pct", "Pitcher Whiff Rate", "double", "Pitcher Arsenal", "Opposing pitcher whiff rate for the pitch type."),
+        ("pitcher_strikeout_pct", "Pitcher Strikeout Rate", "double", "Pitcher Arsenal", "Opposing pitcher strikeout rate for the pitch type."),
+        ("pitcher_xwoba", "Pitcher xwOBA", "double", "Pitcher Arsenal", "Opposing pitcher xwOBA allowed for the pitch type."),
+        ("pitcher_hard_hit_pct", "Pitcher Hard-Hit Rate", "double", "Pitcher Arsenal", "Opposing pitcher hard-hit rate allowed for the pitch type."),
+        ("edge_score", "Edge Score", "double", "Competitive Analysis", "Existing competitive edge formula over batter quality, pitcher quality, and pitch usage."),
+        ("matchup_confidence", "Matchup Confidence", "double", "Competitive Analysis", "Existing competitive sample-and-usage confidence."),
+    ]
+])
+
 FIELD_CATALOG: Dict[str, List[Dict[str, Any]]] = {}
 for key, config in REPORT_TYPES.items():
     if config["base_object"] == "dashboard_player_current":
@@ -135,6 +392,26 @@ for key, config in REPORT_TYPES.items():
         FIELD_CATALOG[key] = deepcopy(LINEUP_HISTORY_FIELDS)
     elif key == "hitters_arsenal_splits":
         FIELD_CATALOG[key] = deepcopy(ARSENAL_SPLIT_FIELDS)
+    elif key in DATASET_METRICS:
+        FIELD_CATALOG[key] = deepcopy(DATASET_FIELDS)
+        FIELD_CATALOG[key].extend([
+            _dataset_field(
+                f"metrics.{metric}",
+                label,
+                "double",
+                "Metrics",
+                description=f"Registered {label.lower()} value from the daily report snapshot.",
+            )
+            for metric, label in DATASET_METRICS[key]
+        ])
+    elif key == "model_projection_games":
+        FIELD_CATALOG[key] = deepcopy(MODEL_PROJECTION_GAME_FIELDS)
+    elif key == "model_projection_players":
+        FIELD_CATALOG[key] = deepcopy(MODEL_PROJECTION_PLAYER_FIELDS)
+    elif key == "model_tracker_snapshots":
+        FIELD_CATALOG[key] = deepcopy(MODEL_TRACKER_FIELDS)
+    elif key == "competitive_batter_arsenal":
+        FIELD_CATALOG[key] = deepcopy(COMPETITIVE_ARSENAL_FIELDS)
     elif config["base_object"] == "dashboard_players":
         FIELD_CATALOG[key] = deepcopy(CURRENT_PLAYER_FIELDS[:6])
         for field in FIELD_CATALOG[key]:
