@@ -32,6 +32,8 @@ USER_CAPABILITIES: Tuple[str, ...] = tuple(sorted({
     "dashboard.reports.paginate",
     "dashboard.reports.run",
     "dashboard.reports.sort",
+    "workbench.advanced",
+    "workbench.execute",
 }))
 
 ADMIN_CAPABILITIES: Tuple[str, ...] = tuple(sorted({
