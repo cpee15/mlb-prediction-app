@@ -470,3 +470,20 @@ __all__ += [
     "CanonicalHistoricalLineupBullpenCoverageReport",
     "report_historical_lineup_bullpen_coverage",
 ]
+
+
+from .historical_probability_artifact_inventory import (
+    CANONICAL_HISTORICAL_PROBABILITY_ARTIFACT_INVENTORY_VERSION,
+    HISTORICAL_PROBABILITY_ARTIFACT_SOURCE,
+    CanonicalHistoricalProbabilityArtifactInventory,
+    CanonicalHistoricalProbabilityArtifactRecord,
+    inventory_historical_probability_artifacts,
+)
+
+__all__ += [
+    "CANONICAL_HISTORICAL_PROBABILITY_ARTIFACT_INVENTORY_VERSION",
+    "HISTORICAL_PROBABILITY_ARTIFACT_SOURCE",
+    "CanonicalHistoricalProbabilityArtifactInventory",
+    "CanonicalHistoricalProbabilityArtifactRecord",
+    "inventory_historical_probability_artifacts",
+]
