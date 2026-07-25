@@ -496,3 +496,13 @@ from .historical_probability_reconstruction_input import (
     CanonicalHistoricalProbabilityStatisticsSnapshot,
     define_historical_probability_reconstruction_inputs,
 )
+
+from .historical_probability_statistics_source import (
+    CANONICAL_HISTORICAL_PROBABILITY_STATISTICS_SOURCE_VERSION,
+    HITTING_STAT_KEYS,
+    PITCHING_STAT_KEYS,
+    CanonicalHistoricalProbabilityGameStatistics,
+    CanonicalHistoricalProbabilityPlayerStatistics,
+    CanonicalHistoricalProbabilityStatisticsWindow,
+    source_historical_probability_statistics,
+)
