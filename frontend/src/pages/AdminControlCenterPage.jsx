@@ -200,6 +200,7 @@ function UsersPanel({ data, currentUserId, onRefresh }) {
 function SettingsPanel({ data, onRefresh, isMobile }) {
   const [values, setValues] = useState({})
   const [flagTargets, setFlagTargets] = useState({})
+  const [flagEnabled, setFlagEnabled] = useState({})
   const [message, setMessage] = useState('')
 
   async function saveSetting(setting) {
@@ -215,13 +216,17 @@ function SettingsPanel({ data, onRefresh, isMobile }) {
     } catch (error) { setMessage(error.message || 'Setting could not be saved.') }
   }
 
-  async function saveFlag(flag, enabled) {
+  async function saveFlag(flag) {
     setMessage('')
     try {
       await dashboardApi('/admin/feature-flags', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(featureFlagUpdatePayload(flag, enabled, flagTargets[flag.key] ?? flag.target_profiles)),
+        body: JSON.stringify(featureFlagUpdatePayload(
+          flag,
+          flagEnabled[flag.key] ?? flag.enabled,
+          flagTargets[flag.key] ?? flag.target_profiles,
+        )),
       })
       setMessage(`${flag.label} saved.`)
       await onRefresh()
@@ -234,11 +239,16 @@ function SettingsPanel({ data, onRefresh, isMobile }) {
     setFlagTargets(values => ({ ...values, [flag.key]: next }))
   }
 
+  function toggleFlagEnabled(flag) {
+    const current = flagEnabled[flag.key] ?? flag.enabled
+    setFlagEnabled(values => ({ ...values, [flag.key]: !current }))
+  }
+
   return <div style={s.stack}>
     <section style={s.sectionHeader}><div><div style={s.eyebrow}>Validated Configuration</div><h2 style={s.sectionTitle}>Settings</h2><p style={s.copy}>Only code-registered keys and values are accepted. These controls cannot grant capabilities, store secrets, or bypass server authorization.</p></div><Badge tone="green">Audited</Badge></section>
     {message ? <div style={message.includes('could not') ? s.error : s.success}>{message}</div> : null}
     <section style={s.card}><div style={s.eyebrow}>Global defaults</div><div style={s.settingList}>{(data?.settings || []).map(setting => { const id = `${setting.namespace}.${setting.key}`; const allowed = setting.validation?.allowed || []; return <div style={{ ...s.settingRow, ...(isMobile ? s.settingRowMobile : {}) }} key={id}><div><strong>{titleCase(setting.key)}</strong><small style={s.muted}>{setting.description}</small><small style={s.apiName}>{id}</small></div>{allowed.length ? <select style={s.input} value={values[id] ?? setting.value} onChange={event => setValues(current => ({ ...current, [id]: event.target.value }))}>{allowed.map(value => <option key={value}>{value}</option>)}</select> : <input style={s.input} value={values[id] ?? setting.value} onChange={event => setValues(current => ({ ...current, [id]: event.target.value }))} />}<button style={s.inlineButton} onClick={() => saveSetting(setting)}>Save</button></div> })}</div></section>
-    <section style={s.card}><div style={s.eyebrow}>Feature flags</div><p style={s.copy}>All flags default off. They are foundation records only and are not wired into public behavior in this phase.</p><div style={s.settingList}>{(data?.feature_flags || []).map(flag => <div style={{ ...s.settingRow, ...(isMobile ? s.settingRowMobile : {}) }} key={flag.key}><div><strong>{flag.label}</strong><small style={s.muted}>{flag.description}</small><small style={s.apiName}>{flag.key}</small><div style={s.checkRow}>{(data?.profiles || []).map(profile => <label key={profile.key}><input type="checkbox" checked={(flagTargets[flag.key] ?? flag.target_profiles).includes(profile.key)} onChange={() => toggleTarget(flag, profile.key)} /> {profile.label}</label>)}</div></div><Badge tone={flag.enabled ? 'green' : 'amber'}>{flag.enabled ? 'Enabled' : 'Disabled'}</Badge><button style={s.inlineButton} onClick={() => saveFlag(flag, !flag.enabled)}>{flag.enabled ? 'Disable' : 'Enable'}</button></div>)}</div></section>
+    <section style={s.card}><div style={s.eyebrow}>Feature flags</div><p style={s.copy}>All flags default off. They are foundation records only and are not wired into public behavior in this phase.</p><div style={s.settingList}>{(data?.feature_flags || []).map(flag => { const enabled = flagEnabled[flag.key] ?? flag.enabled; return <div style={{ ...s.settingRow, ...(isMobile ? s.settingRowMobile : {}) }} key={flag.key}><div><strong>{flag.label}</strong><small style={s.muted}>{flag.description}</small><small style={s.apiName}>{flag.key}</small><div style={s.checkRow}><label><input type="checkbox" checked={enabled} onChange={() => toggleFlagEnabled(flag)} /> Enabled</label>{(data?.profiles || []).map(profile => <label key={profile.key}><input type="checkbox" checked={(flagTargets[flag.key] ?? flag.target_profiles).includes(profile.key)} onChange={() => toggleTarget(flag, profile.key)} /> {profile.label}</label>)}</div></div><Badge tone={enabled ? 'green' : 'amber'}>{enabled ? 'Enabled' : 'Disabled'}</Badge><button style={s.inlineButton} onClick={() => saveFlag(flag)}>Save Flag</button></div> })}</div></section>
   </div>
 }
 
