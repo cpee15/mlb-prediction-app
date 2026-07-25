@@ -25,6 +25,7 @@ SUBSTANTIVE_FILTER_KEYS = {
     "min_confidence",
     "metrics",
     "weights",
+    "conditions",
 }
 
 
@@ -52,6 +53,10 @@ def has_substantive_filters(filters: Optional[Dict[str, Any]]) -> bool:
             if isinstance(value, dict) and any(
                 weight not in (None, "", 1, 1.0, "1", "1.0") for weight in value.values()
             ):
+                return True
+            continue
+        if key == "conditions":
+            if isinstance(value, list) and value:
                 return True
             continue
         if value not in (None, "", {}, []):
@@ -96,6 +101,8 @@ def run_dataset_query(
     include_metadata: bool,
     payload_builder: Callable[[], Dict[str, Any]],
     active_lineups: bool = False,
+    report_type: Optional[str] = None,
+    selected_fields: Optional[list[str]] = None,
 ) -> Dict[str, Any]:
     status = dashboard_dataset_status(
         session=session,
@@ -140,6 +147,8 @@ def run_dataset_query(
         sort_direction=sort_direction,
         include_metadata=include_metadata,
         active_lineups=active_lineups,
+        report_type=report_type,
+        selected_fields=selected_fields,
     )
     result.update({
         "execution_path": "my_dashboard_dataset_sql_query",

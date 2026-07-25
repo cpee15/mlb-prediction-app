@@ -17,8 +17,13 @@ const OBJECTS = [
   { key: 'teams', label: 'Teams', description: 'Team offense, projected runs, side edge, and matchup fields.' },
   { key: 'totals', label: 'Totals', description: 'Projected game totals, run environment, and simulation fields.' },
   { key: 'overall_players', label: 'Overall Players', description: 'Combined hitter and pitcher report.' },
+  { key: 'model_projections', label: 'Model Projections', description: 'Game-level projection probabilities, runs, teams, starters, and freshness.' },
+  { key: 'model_projection_players', label: 'Projection Players', description: 'Player-level projection rows related to each Model Projections game.' },
+  { key: 'model_tracker', label: 'Model Tracker', description: 'Read-only model snapshots, picks, outcomes, grades, and audit fields.' },
+  { key: 'batter_arsenal', label: 'Batter vs Arsenal', description: 'Pitch-type matchup history used by the competitive matchup overview.' },
 ]
 const ACTIVE_LINEUP_OBJECTS = new Set(['hitters', 'overall_players'])
+const WEIGHTED_OBJECTS = new Set(['hitters', 'pitchers', 'teams', 'totals', 'overall_players'])
 const DEFAULT_FIELDS = ['rank', 'entity_name', 'team', 'opponent', 'score', 'confidence']
 const BASE_FIELDS = [
   ['rank', 'Rank', 'Identity'], ['entity_name', 'Name', 'Identity'], ['entity_id', 'Entity ID', 'Identity'],
@@ -162,7 +167,9 @@ function CanonicalFilterPanel({ objectKey, filters, fields, setBasic, setWeight 
   const available = filterableReportFields(fields)
   const grouped = available.reduce((map, field) => ({ ...map, [field.group]: [...(map[field.group] || []), field] }), {})
   const conditions = Array.isArray(filters.conditions) ? filters.conditions : []
-  const metrics = fields.filter(field => field.group && !['Identity', 'Team', 'Audit'].includes(field.group) && field.dataType === 'double').slice(0, 6)
+  const metrics = WEIGHTED_OBJECTS.has(objectKey)
+    ? fields.filter(field => field.group && !['Identity', 'Team', 'Audit'].includes(field.group) && field.dataType === 'double').slice(0, 6)
+    : []
   function replaceConditions(next) { setBasic(objectKey, 'conditions', next) }
   function updateCondition(index, patch) { replaceConditions(conditions.map((condition, conditionIndex) => conditionIndex === index ? { ...condition, ...patch } : condition)) }
   return <section style={s.card}>
@@ -173,7 +180,7 @@ function CanonicalFilterPanel({ objectKey, filters, fields, setBasic, setWeight 
       const operators = field?.supportedOperators?.length ? field.supportedOperators : ['eq']
       const operator = operators.includes(condition.operator) ? condition.operator : defaultOperator(field)
       const needsValue = operatorNeedsValue(operator)
-      const confidenceValues = field?.accessor === 'confidence'
+      const confidenceValues = field?.accessor === 'confidence' && field?.dataType === 'string'
       return <div style={s.conditionCard} key={`${condition.field}-${index}`}>
         <span style={s.conditionNumber}>{index + 1}</span>
         <label style={s.filterControl}><span>Field</span><select style={s.input} value={field?.accessor || ''} onChange={event => {
@@ -186,7 +193,7 @@ function CanonicalFilterPanel({ objectKey, filters, fields, setBasic, setWeight 
       </div>
     })}</div>
     <button type="button" style={s.addCondition} disabled={!available.length} onClick={() => replaceConditions([...conditions, newFilterCondition(fields)])}>+ Add filter</button>
-    <div style={s.sectionLabel}>Scoring weights</div><div style={s.metricGrid}>{metrics.map(field => { const value = Number(filters.weights?.[field.accessor] ?? 1); return <label style={s.metricCard} key={`weight-${field.accessor}`}><span>{field.label}</span><input type="range" min="0" max="2" step="0.1" value={value} onChange={event => setWeight(objectKey, field.accessor, event.target.value)} /><b>{value.toFixed(1)}</b></label> })}</div>
+    {metrics.length ? <><div style={s.sectionLabel}>Scoring weights</div><div style={s.metricGrid}>{metrics.map(field => { const weightKey = field.accessor.startsWith('metrics.') ? field.accessor.slice(8) : field.accessor; const value = Number(filters.weights?.[weightKey] ?? 1); return <label style={s.metricCard} key={`weight-${field.accessor}`}><span>{field.label}</span><input type="range" min="0" max="2" step="0.1" value={value} onChange={event => setWeight(objectKey, weightKey, event.target.value)} /><b>{value.toFixed(1)}</b></label> })}</div></> : null}
   </section>
 }
 function FilterPanel({ objectKey, filters, fields, setBasic, setMetric, setWeight }) {

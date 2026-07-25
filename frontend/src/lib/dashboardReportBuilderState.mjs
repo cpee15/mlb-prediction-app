@@ -3,13 +3,16 @@ import { queryPayload } from './dashboardQueryState.mjs'
 export const CANONICAL_REPORT_TYPES = {
   hitters: 'all_active_hitters',
   pitchers: 'all_active_pitchers',
+  teams: 'teams_daily_analysis',
+  totals: 'games_totals_analysis',
+  overall_players: 'overall_players_daily_analysis',
+  model_projections: 'model_projection_games',
+  model_projection_players: 'model_projection_players',
+  model_tracker: 'model_tracker_snapshots',
+  batter_arsenal: 'competitive_batter_arsenal',
 }
 
 const LEGACY_DEFAULT_FIELDS = ['rank', 'entity_name', 'team', 'opponent', 'score', 'confidence']
-
-function usesLegacyLineupDataset(objectKey, activeLineupsOnly) {
-  return Boolean(activeLineupsOnly && objectKey === 'overall_players')
-}
 
 export const DEFAULT_FIELDS_BY_OBJECT = {
   hitters: ['rank', 'full_name', 'team_name', 'model_score', 'confidence'],
@@ -17,6 +20,10 @@ export const DEFAULT_FIELDS_BY_OBJECT = {
   teams: LEGACY_DEFAULT_FIELDS,
   totals: ['rank', 'entity_name', 'score', 'confidence'],
   overall_players: LEGACY_DEFAULT_FIELDS,
+  model_projections: ['game_pk', 'away_team_name', 'home_team_name', 'away_win_probability', 'home_win_probability', 'projected_total'],
+  model_projection_players: ['full_name', 'player_type', 'team_name', 'projected_dfs_points', 'dfs_floor', 'dfs_ceiling'],
+  model_tracker: ['snapshot_date', 'pick_label', 'model_name', 'score', 'grade', 'result_status'],
+  batter_arsenal: ['batter_name', 'pitcher_pitch_name', 'pitcher_usage_pct', 'pitches_seen', 'xwoba', 'edge_score', 'matchup_confidence'],
 }
 
 export function defaultFieldsForObject(objectKey) {
@@ -34,13 +41,19 @@ export function initialFieldsByObject(objects, persisted = {}) {
 }
 
 export function reportFieldsForMode({ objectKey, activeLineupsOnly, selectedFields }) {
-  if (usesLegacyLineupDataset(objectKey, activeLineupsOnly)) return [...LEGACY_DEFAULT_FIELDS]
   return Array.isArray(selectedFields) && selectedFields.length
     ? [...selectedFields]
     : defaultFieldsForObject(objectKey)
 }
 
-export function canonicalSortField(field) {
+export function canonicalSortField(field, objectKey) {
+  if (field === 'score') {
+    if (objectKey === 'model_projections') return 'home_win_probability'
+    if (objectKey === 'model_projection_players') return 'projected_dfs_points'
+    if (objectKey === 'batter_arsenal') return 'pitches_seen'
+    if (objectKey === 'model_tracker') return 'score'
+  }
+  if (!['hitters', 'pitchers'].includes(objectKey)) return field
   return ({
     entity_name: 'full_name',
     team: 'team_name',
@@ -50,8 +63,7 @@ export function canonicalSortField(field) {
 }
 
 export function buildReportRequest({ objectKey, activeLineupsOnly, date, cleanedFilters, query }) {
-  const useLineups = usesLegacyLineupDataset(objectKey, activeLineupsOnly)
-  const reportType = useLineups ? null : CANONICAL_REPORT_TYPES[objectKey]
+  const reportType = CANONICAL_REPORT_TYPES[objectKey]
   const confirmedCanonicalHitters = Boolean(
     activeLineupsOnly && objectKey === 'hitters' && reportType,
   )
@@ -67,15 +79,20 @@ export function buildReportRequest({ objectKey, activeLineupsOnly, date, cleaned
         weights,
         page_size: query.page_size,
         page_number: query.page_number,
-        sort_by: canonicalSortField(query.sort_by),
+        sort_by: canonicalSortField(query.sort_by, objectKey),
         sort_direction: query.sort_direction,
         include_metadata: true,
-        confirmed_lineups_only: confirmedCanonicalHitters,
+        confirmed_lineups_only: Boolean(
+          activeLineupsOnly && (
+            confirmedCanonicalHitters ||
+            objectKey === 'overall_players'
+          )
+        ),
       },
     }
   }
   return {
-    path: useLineups ? '/my-dashboard/solver/active-lineups' : '/my-dashboard/solver',
+    path: '/my-dashboard/solver',
     reportType: null,
     payload: queryPayload({ date, component: objectKey, filters: cleanedFilters, query }),
   }
@@ -108,10 +125,10 @@ export function normalizeCanonicalPage(json, query) {
   const total = Number(json?.totalSize || 0)
   const records = Array.isArray(json?.records) ? json.records : []
   const pageCount = total ? Math.ceil(total / query.page_size) : 0
-  const hasNext = Boolean(json?.page_info?.has_next_page)
+  const hasNext = Boolean(json?.page_info?.has_next_page ?? json?.page_info?.has_next)
   return {
     ...json,
-    execution_path: 'dashboard_player_current_sql_query',
+    execution_path: json?.execution_path || 'catalog_report_query',
     page_info: {
       ...json?.page_info,
       page_number: query.page_number,
@@ -135,7 +152,9 @@ export function reportExecutionFacts(result) {
     ? 'Confirmed 1–9'
     : population.mode === 'all_active'
       ? 'All active players'
-      : 'Legacy report population'
+      : population.mode === 'daily_dataset'
+        ? 'Daily report population'
+        : 'Legacy report population'
   return {
     mode,
     lineupStatus: lineup.lineup_status || null,

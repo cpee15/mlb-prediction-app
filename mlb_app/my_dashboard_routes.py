@@ -14,6 +14,7 @@ from .admin_configuration import profile_key_for_role
 from .dashboard_canonical_status import canonical_dashboard_status
 from .dashboard_player_report_query import query_player_report
 from .dashboard_projection_operator import ensure_canonical_projection
+from .dashboard_projection_report_query import query_projection_report
 from .dashboard_related_report_query import query_related_report
 from .dashboard_report_types import list_report_types
 from .database import AppFeatureFlag, create_tables, get_engine, get_session
@@ -225,13 +226,79 @@ def my_dashboard_player_report_query(payload: DashboardPlayerReportRequest) -> D
     try:
         factory = session_factory()
         with factory() as session:
-            if payload.report_type in {"players_lineup_history", "hitters_arsenal_splits"}:
+            if payload.report_type in {
+                "players_lineup_history",
+                "hitters_arsenal_splits",
+                "competitive_batter_arsenal",
+                "model_tracker_snapshots",
+            }:
                 return query_related_report(
                     session, payload.report_type, filters=payload.filters, weights=payload.weights,
                     page_size=payload.page_size, page_number=payload.page_number,
                     sort_by=None if payload.sort_by == "model_score" else payload.sort_by,
                     sort_direction=payload.sort_direction,
                     selected_fields=payload.selected_fields, include_metadata=payload.include_metadata,
+                    as_of_date=payload.as_of_date,
+                )
+            if payload.report_type in {"model_projection_games", "model_projection_players"}:
+                return query_projection_report(
+                    payload.report_type,
+                    date=(payload.as_of_date or mlb_business_date()).isoformat(),
+                    filters=payload.filters,
+                    weights=payload.weights,
+                    page_size=payload.page_size,
+                    page_number=payload.page_number,
+                    sort_by=None if payload.sort_by == "model_score" else payload.sort_by,
+                    sort_direction=payload.sort_direction,
+                    selected_fields=payload.selected_fields,
+                    include_metadata=payload.include_metadata,
+                )
+            dataset_reports = {
+                "teams_daily_analysis": "teams",
+                "games_totals_analysis": "totals",
+                "overall_players_daily_analysis": "overall_players",
+            }
+            if payload.report_type in dataset_reports:
+                target_date = (payload.as_of_date or mlb_business_date()).isoformat()
+                filters = payload.filters
+                if isinstance(filters, list):
+                    filters = {"logic": "and", "conditions": filters}
+                filters = dict(filters or {})
+                if payload.weights:
+                    filters["weights"] = dict(payload.weights)
+                component = dataset_reports[payload.report_type]
+                active_lineups = bool(
+                    payload.confirmed_lineups_only
+                    and payload.report_type == "overall_players_daily_analysis"
+                )
+                if active_lineups:
+                    payload_builder = lambda: build_active_lineup_solver_payload(
+                        session=session,
+                        date=target_date,
+                        component=component,
+                        filters={},
+                    )
+                else:
+                    payload_builder = lambda: dashboard_solver.build_dashboard_solver_payload(
+                        session=session,
+                        date=target_date,
+                        component=component,
+                        filters={},
+                    )
+                return run_dataset_query(
+                    session=session,
+                    date=target_date,
+                    component=component,
+                    filters=filters,
+                    page_size=payload.page_size,
+                    page_number=payload.page_number,
+                    sort_by="score" if payload.sort_by == "model_score" else payload.sort_by,
+                    sort_direction=payload.sort_direction,
+                    include_metadata=payload.include_metadata,
+                    payload_builder=payload_builder,
+                    active_lineups=active_lineups,
+                    report_type=payload.report_type,
+                    selected_fields=payload.selected_fields,
                 )
             bootstrap = None
             lineup_index = None

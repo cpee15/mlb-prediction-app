@@ -106,6 +106,10 @@ def test_metadata_is_derived_and_excludes_physical_schema_details():
     }
     assert all("base_object" not in item for item in objects)
     assert all("source_object" not in field for item in objects for field in item["fields"])
+    with pytest.raises(ValueError, match="Unsupported queryable logical object"):
+        workbench_query.parse_workbench_statement(
+            "SELECT game_pk FROM model_projection_games LIMIT 10"
+        )
 
 
 def test_request_contract_rejects_submitted_authorization_fields():

@@ -93,7 +93,7 @@ def queryable_objects() -> List[Dict[str, Any]]:
 
     objects: List[Dict[str, Any]] = []
     for api_name, definition in REPORT_TYPES.items():
-        if not definition.get("queryable"):
+        if not definition.get("queryable") or definition.get("workbench_queryable") is False:
             continue
         fields = []
         for field in FIELD_CATALOG[api_name]:
@@ -197,7 +197,11 @@ def parse_workbench_statement(statement: str) -> WorkbenchPlan:
 
     logical_object = match.group("object").lower()
     definition = REPORT_TYPES.get(logical_object)
-    if not definition or not definition.get("queryable"):
+    if (
+        not definition
+        or not definition.get("queryable")
+        or definition.get("workbench_queryable") is False
+    ):
         raise ValueError(f"Unsupported queryable logical object: {logical_object}")
     fields = _field_map(logical_object)
 

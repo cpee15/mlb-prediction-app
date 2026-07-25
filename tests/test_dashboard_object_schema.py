@@ -63,7 +63,13 @@ def test_current_projection_has_one_row_per_canonical_player():
 
 
 def test_report_type_registry_is_explicit_and_describable():
-    assert set(REPORT_TYPES) == {"all_active_hitters", "all_active_pitchers", "hitters_current_matchup", "hitters_arsenal_splits", "players_lineup_history", "teams_daily_analysis", "games_totals_analysis"}
+    assert set(REPORT_TYPES) == {
+        "all_active_hitters", "all_active_pitchers", "hitters_current_matchup",
+        "hitters_arsenal_splits", "players_lineup_history", "teams_daily_analysis",
+        "games_totals_analysis", "overall_players_daily_analysis",
+        "model_projection_games", "model_projection_players",
+        "model_tracker_snapshots", "competitive_batter_arsenal",
+    }
     hitters = describe_report_type("all_active_hitters")
     assert hitters["population"] == {"is_active": True, "player_type": "hitter"}
     assert hitters["fields"][0]["name"] == "mlb_player_id"

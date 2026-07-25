@@ -238,3 +238,94 @@ def test_standard_and_active_lineup_modes_are_isolated():
         assert active["totalSize"] == 1
         assert active["lineup_revision"] == "rev-1"
         assert active["model_state"] == "confirmed"
+
+
+def test_team_report_match_all_and_match_any_use_the_server_catalog_before_pagination():
+    Session = session_factory()
+    team_rows = [
+        {
+            "entity_id": "CHC", "entity_name": "Chicago Cubs", "entity_type": "team",
+            "team": "CHC", "opponent": "STL", "score": 0.91, "base_score": 0.91,
+            "confidence": "high", "metrics": {"Edge Score": 0.8, "Win Edge": 0.12},
+        },
+        {
+            "entity_id": "MIL", "entity_name": "Milwaukee Brewers", "entity_type": "team",
+            "team": "MIL", "opponent": "CIN", "score": 0.72, "base_score": 0.72,
+            "confidence": "medium", "metrics": {"Edge Score": 0.4, "Win Edge": 0.05},
+        },
+        {
+            "entity_id": "LAD", "entity_name": "Los Angeles Dodgers", "entity_type": "team",
+            "team": "LAD", "opponent": "SD", "score": 0.95, "base_score": 0.95,
+            "confidence": "high", "metrics": {"Edge Score": 0.9, "Win Edge": 0.14},
+        },
+    ]
+    with Session() as session:
+        hydrate_dashboard_dataset(
+            session=session,
+            date=DATE,
+            component="teams",
+            payload_builder=lambda: {"items": team_rows},
+        )
+        match_all = query_dashboard_dataset(
+            session=session,
+            date=DATE,
+            component="teams",
+            report_type="teams_daily_analysis",
+            filters={
+                "logic": "and",
+                "conditions": [
+                    {"field": "confidence", "operator": "eq", "value": "high"},
+                    {"field": "metrics.Edge Score", "operator": "gte", "value": "0.85"},
+                ],
+            },
+            page_size=1,
+        )
+        assert match_all["filter_logic"] == "and"
+        assert match_all["totalSize"] == 1
+        assert match_all["records"][0]["entity_id"] == "LAD"
+
+        match_any = query_dashboard_dataset(
+            session=session,
+            date=DATE,
+            component="teams",
+            report_type="teams_daily_analysis",
+            filters={
+                "logic": "or",
+                "conditions": [
+                    {"field": "team", "operator": "eq", "value": "MIL"},
+                    {"field": "metrics.Win Edge", "operator": "gt", "value": 0.1},
+                ],
+            },
+            page_size=2,
+        )
+        assert match_any["filter_logic"] == "or"
+        assert match_any["totalSize"] == 3
+        assert match_any["page_info"]["has_next"] is True
+        assert match_any["object_info"]["api_name"] == "teams_daily_analysis"
+
+
+def test_dataset_catalog_rejects_unknown_conditions_and_logic():
+    Session = session_factory()
+    with Session() as session:
+        hydrate_dashboard_dataset(
+            session=session,
+            date=DATE,
+            component="totals",
+            payload_builder=lambda: {"items": [{"entity_id": "10", "entity_name": "CHC @ STL", "score": 8.5, "metrics": {"Projected Total": 8.5}}]},
+        )
+        with pytest.raises(ValueError, match="Unsupported filter field"):
+            query_dashboard_dataset(
+                session=session,
+                date=DATE,
+                component="totals",
+                report_type="games_totals_analysis",
+                filters={"logic": "and", "conditions": [{"field": "physical_table", "operator": "eq", "value": "x"}]},
+            )
+        with pytest.raises(ValueError, match="filters.logic"):
+            query_dashboard_dataset(
+                session=session,
+                date=DATE,
+                component="totals",
+                report_type="games_totals_analysis",
+                filters={"logic": "xor", "conditions": []},
+            )
