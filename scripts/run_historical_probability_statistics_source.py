@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 
 from mlb_app.simulation.shadow import (
     define_historical_probability_reconstruction_inputs,
+    materialize_historical_probability_artifacts,
     reconstruct_historical_pa_probability_workspaces,
     source_historical_lineup_bullpen_snapshots,
     source_historical_probability_statistics,
@@ -237,12 +238,22 @@ def main():
         )
     )
 
+    artifacts = (
+        materialize_historical_probability_artifacts(
+            lineup_bullpen=roster_window,
+            statistics=statistics,
+            workspaces=workspaces,
+            starting_pitcher_ids=_starters(feeds),
+        )
+    )
+
     diagnostics = {
         "statistics": statistics.to_diagnostics(),
         "reconstruction": (
             reconstruction.to_diagnostics()
         ),
         "workspaces": workspaces.to_diagnostics(),
+        "artifacts": artifacts.to_diagnostics(),
         "cutoff_count": len(cutoffs),
         "request_count": len(requests),
         "historical_replay_executed": False,
