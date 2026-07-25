@@ -19,6 +19,11 @@ test('the routed page owns both the signed-out landing and authenticated workspa
   assert.match(workspaceSource, /Build your report\./)
 })
 
+test('the authenticated saved-report shelf receives the declared selection setter', () => {
+  assert.match(workspaceSource, /setSelectedEntryKey={setSelectedShelfEntryKey}/)
+  assert.doesNotMatch(workspaceSource, /setSelectedEntryKey={setSelectedEntryKey}/)
+})
+
 test('registered report objects use the server catalog and persist match-all or match-any logic', () => {
   assert.match(workspaceSource, /FILTER_LOGIC_OPTIONS/)
   assert.match(workspaceSource, /filterableReportFields\(fields\)/)
