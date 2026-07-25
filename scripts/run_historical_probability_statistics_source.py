@@ -5,6 +5,9 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 import json
+import sys
+import time
+from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -12,6 +15,8 @@ from mlb_app.simulation.shadow import (
     define_historical_probability_reconstruction_inputs,
     materialize_historical_probability_artifacts,
     reconstruct_historical_pa_probability_workspaces,
+    source_historical_mlb_baserunning_counts,
+    source_historical_mlb_baserunning_feed_evidence,
     source_historical_lineup_bullpen_snapshots,
     source_historical_probability_statistics,
     source_mlb_play_by_play_baserunning_window,
@@ -53,11 +58,46 @@ def _json(url, params=None):
         },
     )
 
-    with urlopen(
-        request,
-        timeout=120,
-    ) as response:
-        return json.load(response)
+    maximum_attempts = 6
+
+    for attempt in range(
+        1,
+        maximum_attempts + 1,
+    ):
+        try:
+            with urlopen(
+                request,
+                timeout=120,
+            ) as response:
+                return json.load(response)
+        except (
+            URLError,
+            TimeoutError,
+            ConnectionError,
+            json.JSONDecodeError,
+        ) as error:
+            if attempt == maximum_attempts:
+                raise
+
+            delay_seconds = min(
+                2 ** (attempt - 1),
+                16,
+            )
+            print(
+                (
+                    "historical_source_retry "
+                    f"attempt={attempt} "
+                    f"delay_seconds={delay_seconds} "
+                    f"error={type(error).__name__}"
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+            time.sleep(delay_seconds)
+
+    raise RuntimeError(
+        "historical source retry loop exhausted"
+    )
 
 
 def _completed_game_ids(schedule):
@@ -88,6 +128,16 @@ def _feed(game_pk):
                 game_pk=game_pk
             )
         ),
+    )
+
+
+def _feed_official_date(feed):
+    return (
+        (
+            (feed.get("gameData") or {})
+            .get("datetime")
+            or {}
+        ).get("officialDate")
     )
 
 
@@ -215,10 +265,78 @@ def main():
         ):
             payloads[cutoff][group] = payload
 
+    history_schedule = _json(
+        _SCHEDULE_URL,
+        {
+            "sportId": 1,
+            "gameType": "R",
+            "startDate": "2026-03-01",
+            "endDate": max(cutoffs),
+        },
+    )
+    history_game_ids = _completed_game_ids(
+        history_schedule
+    )
+
+    with ThreadPoolExecutor(
+        max_workers=8
+    ) as executor:
+        history_feeds = dict(
+            executor.map(
+                _feed,
+                history_game_ids,
+            )
+        )
+
+    prior_game_feeds_by_cutoff = {
+        cutoff: {
+            game_pk: feed
+            for game_pk, feed in history_feeds.items()
+            if (
+                _feed_official_date(feed)
+                and _feed_official_date(feed)
+                <= cutoff
+            )
+        }
+        for cutoff in cutoffs
+    }
+
+    starting_pitchers = _starters(feeds)
+
+    feed_evidence = (
+        source_historical_mlb_baserunning_feed_evidence(
+            lineup_bullpen=roster_window,
+            starting_pitcher_ids=starting_pitchers,
+            target_game_feeds=feeds,
+            prior_game_feeds_by_cutoff=(
+                prior_game_feeds_by_cutoff
+            ),
+        )
+    )
+
+    baserunning_evidence = (
+        source_historical_mlb_baserunning_counts(
+            lineup_bullpen=roster_window,
+            starting_pitcher_ids=starting_pitchers,
+            starting_catcher_ids=(
+                feed_evidence.starting_catcher_ids
+            ),
+            statistics_payloads=payloads,
+            pitcher_pickoffs_by_cutoff=(
+                feed_evidence
+                .pitcher_pickoffs_by_cutoff
+            ),
+            catcher_outcomes_by_cutoff=(
+                feed_evidence
+                .catcher_outcomes_by_cutoff
+            ),
+        )
+    )
+
     statistics = (
         source_historical_probability_statistics(
             lineup_bullpen=roster_window,
-            starting_pitcher_ids=_starters(feeds),
+            starting_pitcher_ids=starting_pitchers,
             statistics_payloads=payloads,
         )
     )
@@ -254,6 +372,13 @@ def main():
         ),
         "workspaces": workspaces.to_diagnostics(),
         "artifacts": artifacts.to_diagnostics(),
+        "baserunning_feed_evidence": (
+            feed_evidence.to_diagnostics()
+        ),
+        "baserunning_replay_evidence": (
+            baserunning_evidence.to_diagnostics()
+        ),
+        "history_feed_count": len(history_feeds),
         "cutoff_count": len(cutoffs),
         "request_count": len(requests),
         "historical_replay_executed": False,

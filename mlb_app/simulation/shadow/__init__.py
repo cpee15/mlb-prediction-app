@@ -542,3 +542,16 @@ from .historical_baserunning_profile_materialization import (
     CanonicalHistoricalRunnerBaserunningCounts,
     materialize_historical_baserunning_profiles,
 )
+
+
+from .historical_mlb_baserunning_count_source import (
+    CANONICAL_HISTORICAL_MLB_BASERUNNING_COUNT_SOURCE_VERSION,
+    source_historical_mlb_baserunning_counts,
+)
+
+
+from .historical_mlb_baserunning_feed_source import (
+    CANONICAL_HISTORICAL_MLB_BASERUNNING_FEED_SOURCE_VERSION,
+    CanonicalHistoricalMlbBaserunningFeedEvidence,
+    source_historical_mlb_baserunning_feed_evidence,
+)
