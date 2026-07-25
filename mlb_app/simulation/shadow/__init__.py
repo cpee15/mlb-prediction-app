@@ -506,3 +506,12 @@ from .historical_probability_statistics_source import (
     CanonicalHistoricalProbabilityStatisticsWindow,
     source_historical_probability_statistics,
 )
+
+from .historical_probability_workspace_reconstruction import (
+    CANONICAL_HISTORICAL_PA_WORKSPACE_RECONSTRUCTION_VERSION,
+    HISTORICAL_PA_WORKSPACE_ENVIRONMENT_POLICY,
+    REQUIRED_WORKSPACE_MODELS,
+    CanonicalHistoricalPaProbabilityWorkspaceGame,
+    CanonicalHistoricalPaProbabilityWorkspaceWindow,
+    reconstruct_historical_pa_probability_workspaces,
+)
