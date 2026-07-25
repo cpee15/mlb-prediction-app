@@ -515,3 +515,10 @@ from .historical_probability_workspace_reconstruction import (
     CanonicalHistoricalPaProbabilityWorkspaceWindow,
     reconstruct_historical_pa_probability_workspaces,
 )
+
+from .historical_probability_artifact_materialization import (
+    CANONICAL_HISTORICAL_PROBABILITY_ARTIFACT_MATERIALIZATION_VERSION,
+    CanonicalHistoricalProbabilityArtifactGame,
+    CanonicalHistoricalProbabilityArtifactWindow,
+    materialize_historical_probability_artifacts,
+)
