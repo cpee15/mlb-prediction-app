@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import Float, and_, case, cast, func, or_
 from sqlalchemy.orm import Session
 
 from .dashboard_object_models import DashboardPlayerCurrent
@@ -24,6 +24,34 @@ FIELD_COLUMNS = {
         "strikeout_rate", "walk_rate", "iso", "obp", "slg",
         "plate_appearances", "projection_version", "promoted_at", "updated_at",
     )
+}
+
+JSON_METRIC_SOURCES = {
+    "batting_average": ("batting_average", "AVG"),
+    "average_velocity": ("average_velocity", "Velocity"),
+    "average_spin_rate": ("average_spin_rate", "Spin Rate"),
+    "horizontal_break": ("horizontal_break",),
+    "vertical_break": ("vertical_break",),
+    "release_position_x": ("release_position_x",),
+    "release_position_z": ("release_position_z",),
+    "release_extension": ("release_extension",),
+}
+
+
+def _json_metric_expression(*keys: str):
+    expressions = [
+        cast(DashboardPlayerCurrent.metrics_json[key].as_string(), Float)
+        for key in keys
+    ]
+    return func.coalesce(*expressions) if len(expressions) > 1 else expressions[0]
+
+
+FIELD_EXPRESSIONS = {
+    **FIELD_COLUMNS,
+    **{
+        name: _json_metric_expression(*keys)
+        for name, keys in JSON_METRIC_SOURCES.items()
+    },
 }
 
 METRIC_ALIASES = {
@@ -127,11 +155,11 @@ def _apply_filters(query, report_type: str, filters: Any) -> Tuple[Any, str, Lis
         field_name = str(condition.get("field") or "")
         operator = str(condition.get("operator") or "eq").lower()
         field = fields.get(field_name)
-        if not field or not field.get("filterable") or field_name not in FIELD_COLUMNS:
+        if not field or not field.get("filterable") or field_name not in FIELD_EXPRESSIONS:
             raise ValueError(f"Unsupported filter field: {field_name}")
         if operator not in field["supported_operators"]:
             raise ValueError(f"Unsupported operator '{operator}' for field '{field_name}'")
-        column = FIELD_COLUMNS[field_name]
+        column = FIELD_EXPRESSIONS[field_name]
         value = condition.get("value")
         comparison = _confidence_expression() if field_name == "confidence" and operator in {"gt", "gte", "lt", "lte"} else column
         if comparison is not column:
@@ -170,7 +198,7 @@ def _normalize_weights(report_type: str, weights: Any) -> Tuple[Dict[str, float]
         raise ValueError("weights must be an object")
     aliases: Dict[str, str] = {}
     for field in FIELD_CATALOG[report_type]:
-        if field["name"] in FIELD_COLUMNS and field.get("weight_aliases"):
+        if field["name"] in FIELD_EXPRESSIONS and field.get("weight_aliases"):
             aliases[field["name"].lower()] = field["name"]
             for alias in field["weight_aliases"]:
                 aliases[alias.lower()] = field["name"]
@@ -196,7 +224,7 @@ def _clamp(expression):
 
 
 def _normalized_metric(field_name: str, label: str):
-    value = FIELD_COLUMNS[field_name]
+    value = FIELD_EXPRESSIONS[field_name]
     name = label.lower()
     if "ev" in name or "velocity" in name: normalized = (value - 88.0) / 12.0
     elif "la" in name or "launch angle" in name: normalized = 1.0 - func.abs(value - 16.0) / 25.0
@@ -222,8 +250,14 @@ def _iso(value: Any) -> Any:
 
 def _record(row: DashboardPlayerCurrent, effective_score: float, rank: int, explanations: List[str]) -> Dict[str, Any]:
     values = {name: _iso(getattr(row, name)) for name in FIELD_COLUMNS}
+    metrics = row.metrics_json or {}
+    for name, keys in JSON_METRIC_SOURCES.items():
+        values[name] = next(
+            (metrics.get(key) for key in keys if metrics.get(key) is not None),
+            None,
+        )
     values.update({
-        "metrics": row.metrics_json or {}, "entity_id": str(row.mlb_player_id),
+        "metrics": metrics, "entity_id": str(row.mlb_player_id),
         "entity_name": row.full_name, "entity_type": row.player_type,
         "team": row.team_name, "base_score": row.model_score or 0.0,
         "adjusted_score": float(effective_score), "score": float(effective_score),
@@ -293,9 +327,9 @@ def query_player_report(
     if sort_alias == "adjusted_score": sort_expression = score_expression
     else:
         field = field_map.get(sort_alias)
-        if not field or not field.get("sortable") or sort_alias not in FIELD_COLUMNS:
+        if not field or not field.get("sortable") or sort_alias not in FIELD_EXPRESSIONS:
             raise ValueError(f"Unsupported sort field: {sort_by}")
-        sort_expression = FIELD_COLUMNS[sort_alias]
+        sort_expression = FIELD_EXPRESSIONS[sort_alias]
     ordered = query.add_columns(score_expression.label("effective_score"))
     ordered = ordered.order_by(
         case((sort_expression.is_(None), 1), else_=0),

@@ -47,13 +47,36 @@ def test_default_builder_returns_every_active_resolved_player_and_aggregate_metr
         player(2, "Pitcher", "pitcher"),
         player(3, "Inactive", active=False),
         BatterAggregate(batter_id=1, window="90d", end_date=DATE, avg_exit_velocity=92.1, avg_launch_angle=14.2, hard_hit_pct=0.46),
-        PitcherAggregate(pitcher_id=2, window="90d", end_date=DATE, xwoba=0.301, xba=0.229, k_pct=0.28),
+        PitcherAggregate(
+            pitcher_id=2,
+            window="90d",
+            end_date=DATE,
+            avg_velocity=96.8,
+            avg_spin_rate=2480.0,
+            xwoba=0.301,
+            xba=0.229,
+            hard_hit_pct=0.35,
+            k_pct=0.28,
+            bb_pct=0.071,
+            avg_horiz_break=12.4,
+            avg_vert_break=16.1,
+            avg_release_pos_x=-1.9,
+            avg_release_pos_z=5.8,
+            avg_release_extension=6.6,
+        ),
     ])
     session.commit()
     rows = build_player_snapshot_rows(session, DATE)
     assert [item["mlb_player_id"] for item in rows] == [1, 2]
     assert rows[0]["exit_velocity"] == pytest.approx(92.1)
     assert rows[1]["xwoba"] == pytest.approx(0.301)
+    assert rows[1]["metrics"]["average_velocity"] == pytest.approx(96.8)
+    assert rows[1]["metrics"]["average_spin_rate"] == pytest.approx(2480.0)
+    assert rows[1]["metrics"]["horizontal_break"] == pytest.approx(12.4)
+    assert rows[1]["metrics"]["vertical_break"] == pytest.approx(16.1)
+    assert rows[1]["metrics"]["release_position_x"] == pytest.approx(-1.9)
+    assert rows[1]["metrics"]["release_position_z"] == pytest.approx(5.8)
+    assert rows[1]["metrics"]["release_extension"] == pytest.approx(6.6)
 
 
 def test_date_partitioned_records_overlay_metrics_but_do_not_define_population():

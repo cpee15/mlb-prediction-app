@@ -56,7 +56,11 @@ def _field(
             else (
                 ["eq", "neq", "contains", "in"]
                 if data_type == "string"
-                else ["eq", "gt", "gte", "lt", "lte", "is_null", "is_not_null"]
+                else (
+                    ["eq", "neq", "is_null", "is_not_null"]
+                    if data_type == "boolean"
+                    else ["eq", "gt", "gte", "lt", "lte", "is_null", "is_not_null"]
+                )
             )
         ),
         "freshness": freshness,
@@ -89,6 +93,170 @@ CURRENT_PLAYER_FIELDS: List[Dict[str, Any]] = [
     _field("promoted_at", "Promoted At", "datetime", "Audit", description="Timestamp when this current row was promoted."),
     _field("updated_at", "Updated At", "datetime", "Audit", description="Timestamp when this current row last changed."),
     _field("metrics", "Extended Metrics", "json", "Audit", sortable=False, filterable=False, selectable=False, description="Server-owned extended metrics container. Registered scalar metrics are exposed as dedicated fields before they become selectable."),
+]
+
+
+def _current_player_fields(
+    names: List[str],
+    *,
+    overrides: Optional[Dict[str, Dict[str, str]]] = None,
+) -> List[Dict[str, Any]]:
+    """Build a role-specific current-player catalog without sharing field state."""
+
+    source = {field["name"]: field for field in CURRENT_PLAYER_FIELDS}
+    fields: List[Dict[str, Any]] = []
+    for name in names:
+        field = deepcopy(source[name])
+        field.update((overrides or {}).get(name, {}))
+        fields.append(field)
+    return fields
+
+
+_CURRENT_PLAYER_IDENTITY_FIELDS = [
+    "mlb_player_id",
+    "full_name",
+    "player_type",
+    "team_id",
+    "team_name",
+    "primary_position",
+    "model_score",
+    "confidence",
+]
+_CURRENT_PLAYER_AUDIT_FIELDS = [
+    "projection_version",
+    "promoted_at",
+    "updated_at",
+    "metrics",
+]
+
+HITTER_CURRENT_FIELDS = _current_player_fields(
+    _CURRENT_PLAYER_IDENTITY_FIELDS
+    + [
+        "xwoba",
+        "xba",
+        "exit_velocity",
+        "launch_angle",
+        "hard_hit_rate",
+        "barrel_rate",
+        "strikeout_rate",
+        "walk_rate",
+        "iso",
+        "obp",
+        "slg",
+        "plate_appearances",
+    ]
+    + _CURRENT_PLAYER_AUDIT_FIELDS,
+)
+HITTER_CURRENT_FIELDS.insert(
+    -4,
+    _field(
+        "batting_average",
+        "Batting Average",
+        "double",
+        "Production",
+        description="Current batting average from the approved hitter aggregate.",
+        source_object="dashboard_player_current",
+        weight_aliases=["AVG"],
+    ),
+)
+
+PITCHER_CURRENT_FIELDS = _current_player_fields(
+    _CURRENT_PLAYER_IDENTITY_FIELDS
+    + [
+        "xwoba",
+        "xba",
+        "hard_hit_rate",
+        "strikeout_rate",
+        "walk_rate",
+    ]
+    + _CURRENT_PLAYER_AUDIT_FIELDS,
+    overrides={
+        "xwoba": {
+            "label": "xwOBA Allowed",
+            "group": "Contact Suppression",
+            "description": "Current approved expected weighted on-base average allowed.",
+        },
+        "xba": {
+            "label": "xBA Allowed",
+            "group": "Contact Suppression",
+            "description": "Current approved expected batting average allowed.",
+        },
+        "hard_hit_rate": {
+            "label": "Hard-Hit Rate Allowed",
+            "group": "Contact Suppression",
+            "description": "Current approved hard-hit rate allowed.",
+        },
+        "strikeout_rate": {
+            "label": "Strikeout Rate",
+            "group": "Pitching Skill",
+            "description": "Current approved pitcher strikeout rate.",
+        },
+        "walk_rate": {
+            "label": "Walk Rate",
+            "group": "Pitching Skill",
+            "description": "Current approved pitcher walk rate.",
+        },
+    },
+)
+PITCHER_CURRENT_FIELDS[-4:-4] = [
+        _field(
+            "average_velocity",
+            "Average Velocity",
+            "double",
+            "Pitch Characteristics",
+            description="Average pitch velocity from the approved pitcher aggregate.",
+            source_object="dashboard_player_current",
+            weight_aliases=["Velocity"],
+        ),
+        _field(
+            "average_spin_rate",
+            "Average Spin Rate",
+            "double",
+            "Pitch Characteristics",
+            description="Average spin rate from the approved pitcher aggregate.",
+            source_object="dashboard_player_current",
+            weight_aliases=["Spin Rate"],
+        ),
+        _field(
+            "horizontal_break",
+            "Average Horizontal Break",
+            "double",
+            "Pitch Movement",
+            description="Average horizontal pitch break from the approved pitcher aggregate.",
+            source_object="dashboard_player_current",
+        ),
+        _field(
+            "vertical_break",
+            "Average Vertical Break",
+            "double",
+            "Pitch Movement",
+            description="Average vertical pitch break from the approved pitcher aggregate.",
+            source_object="dashboard_player_current",
+        ),
+        _field(
+            "release_position_x",
+            "Average Release Position X",
+            "double",
+            "Release",
+            description="Average horizontal release position from the approved pitcher aggregate.",
+            source_object="dashboard_player_current",
+        ),
+        _field(
+            "release_position_z",
+            "Average Release Position Z",
+            "double",
+            "Release",
+            description="Average vertical release position from the approved pitcher aggregate.",
+            source_object="dashboard_player_current",
+        ),
+        _field(
+            "release_extension",
+            "Average Release Extension",
+            "double",
+            "Release",
+            description="Average release extension from the approved pitcher aggregate.",
+            source_object="dashboard_player_current",
+        ),
 ]
 
 
@@ -128,7 +296,7 @@ ARSENAL_SPLIT_FIELDS: List[Dict[str, Any]] = [
     _field("whiff_pct", "Whiff Rate", "double", "Discipline", description="Whiff rate against the pitch type."),
     _field("k_pct", "Strikeout Rate", "double", "Discipline", description="Strikeout rate against the pitch type."),
     _field("source", "Source", "string", "Audit", description="Materialization source."),
-    _field("refreshed_at", "Refreshed At", "datetime", "Freshness", filterable=False, description="Last refresh timestamp."),
+    _field("refreshed_at", "Refreshed At", "datetime", "Freshness", description="Last refresh timestamp."),
 ]
 for field in ARSENAL_SPLIT_FIELDS:
     field["source_object"] = "batter_pitch_type_matchups"
@@ -142,9 +310,10 @@ def _dataset_field(
     *,
     sortable: bool = True,
     filterable: bool = True,
+    metric_key: Optional[str] = None,
     description: str,
 ) -> Dict[str, Any]:
-    return _field(
+    field = _field(
         name,
         label,
         data_type,
@@ -155,6 +324,10 @@ def _dataset_field(
         source_object="my_dashboard_records",
         freshness="daily_dashboard_dataset",
     )
+    if metric_key:
+        field["metric_key"] = metric_key
+        field["payload_path"] = f"metrics.{metric_key}"
+    return field
 
 
 DATASET_FIELDS: List[Dict[str, Any]] = [
@@ -165,6 +338,8 @@ DATASET_FIELDS: List[Dict[str, Any]] = [
     _dataset_field("team", "Team", "string", "Matchup", description="Team associated with the row."),
     _dataset_field("opponent", "Opponent", "string", "Matchup", description="Opponent associated with the row."),
     _dataset_field("game_pk", "Game PK", "id", "Matchup", description="Canonical MLB game identifier."),
+    _dataset_field("pitch_type", "Pitch Type", "string", "Matchup", description="Registered pitch-type code associated with the row."),
+    _dataset_field("pitch_name", "Pitch Name", "string", "Matchup", description="Registered pitch name associated with the row."),
     _dataset_field("category", "Category", "string", "Classification", description="Server-owned report category."),
     _dataset_field("score", "Score", "double", "Scoring", description="Current report score."),
     _dataset_field("base_score", "Base Score", "double", "Scoring", description="Score before request-scoped weights."),
@@ -172,20 +347,51 @@ DATASET_FIELDS: List[Dict[str, Any]] = [
     _dataset_field("confidence", "Confidence", "string", "Scoring", description="Current confidence label."),
     _dataset_field("source", "Source", "string", "Audit", description="Registered source contract."),
     _dataset_field("primary_reason", "Primary Reason", "string", "Audit", sortable=False, description="Primary explanation attached to the row."),
+    _dataset_field("lineup_verified", "Lineup Verified", "boolean", "Lineup", description="Whether the row belongs to a verified confirmed lineup."),
+    _dataset_field("lineup_source", "Lineup Source", "string", "Lineup", description="Registered lineup source for the row."),
+    _dataset_field("confirmed_lineup_date", "Confirmed Lineup Date", "date", "Lineup", description="MLB date of the verified lineup."),
+    _dataset_field("lineup_revision", "Lineup Revision", "string", "Lineup", description="Version of the lineup used by the row."),
+    _dataset_field("model_state", "Model State", "string", "Freshness", description="Model population state associated with the row."),
 ]
 
-DATASET_METRICS: Dict[str, List[tuple[str, str]]] = {
+DATASET_FIELD_NAMES: Dict[str, List[str]] = {
     "teams_daily_analysis": [
-        ("Edge Score", "Edge Score"), ("Win Edge", "Win Edge"), ("Run Diff", "Run Differential"),
-        ("ISO", "ISO"), ("OBP", "OBP"), ("SLG", "SLG"),
+        "entity_id", "entity_name", "entity_type", "team", "opponent", "game_pk",
+        "category", "score", "base_score", "adjusted_score", "confidence", "source",
+        "primary_reason",
     ],
     "games_totals_analysis": [
-        ("Projected Total", "Projected Total"), ("Raw Total", "Raw Total"),
-        ("Run Index", "Run Index"), ("Score", "Model Score"),
+        "entity_id", "entity_name", "entity_type", "team", "opponent", "game_pk",
+        "category", "score", "base_score", "adjusted_score", "confidence", "source",
+        "primary_reason",
     ],
     "overall_players_daily_analysis": [
-        ("Score", "Model Score"), ("xwOBA", "xwOBA"), ("EV", "Exit Velocity"),
-        ("K%", "Strikeout Rate"), ("xwOBA Allowed", "xwOBA Allowed"),
+        "entity_id", "entity_name", "entity_type", "player_type", "team", "opponent",
+        "game_pk", "pitch_type", "pitch_name", "category", "score", "base_score",
+        "adjusted_score", "confidence", "source", "primary_reason", "lineup_verified",
+        "lineup_source", "confirmed_lineup_date", "lineup_revision", "model_state",
+    ],
+}
+
+DATASET_METRICS: Dict[str, List[tuple[str, str, str]]] = {
+    "teams_daily_analysis": [
+        ("edge_score", "Edge Score", "Edge Score"),
+        ("win_edge", "Win Edge", "Win Edge"),
+        ("run_differential", "Run Diff", "Run Differential"),
+        ("iso", "ISO", "ISO"),
+        ("obp", "OBP", "OBP"),
+        ("slg", "SLG", "SLG"),
+    ],
+    "games_totals_analysis": [
+        ("projected_total", "Projected Total", "Projected Total"),
+        ("raw_total", "Raw Total", "Raw Total"),
+        ("run_index", "Run Index", "Run Index"),
+    ],
+    "overall_players_daily_analysis": [
+        ("xwoba", "xwOBA", "xwOBA"),
+        ("exit_velocity", "EV", "Exit Velocity"),
+        ("strikeout_rate", "K%", "Strikeout Rate"),
+        ("xwoba_allowed", "xwOBA Allowed", "xwOBA Allowed"),
     ],
 }
 
@@ -386,23 +592,31 @@ COMPETITIVE_ARSENAL_FIELDS.extend([
 
 FIELD_CATALOG: Dict[str, List[Dict[str, Any]]] = {}
 for key, config in REPORT_TYPES.items():
-    if config["base_object"] == "dashboard_player_current":
-        FIELD_CATALOG[key] = deepcopy(CURRENT_PLAYER_FIELDS)
+    if key == "all_active_hitters":
+        FIELD_CATALOG[key] = deepcopy(HITTER_CURRENT_FIELDS)
+    elif key == "all_active_pitchers":
+        FIELD_CATALOG[key] = deepcopy(PITCHER_CURRENT_FIELDS)
     elif key == "players_lineup_history":
         FIELD_CATALOG[key] = deepcopy(LINEUP_HISTORY_FIELDS)
     elif key == "hitters_arsenal_splits":
         FIELD_CATALOG[key] = deepcopy(ARSENAL_SPLIT_FIELDS)
     elif key in DATASET_METRICS:
-        FIELD_CATALOG[key] = deepcopy(DATASET_FIELDS)
+        allowed = set(DATASET_FIELD_NAMES[key])
+        FIELD_CATALOG[key] = [
+            deepcopy(field)
+            for field in DATASET_FIELDS
+            if field["name"] in allowed
+        ]
         FIELD_CATALOG[key].extend([
             _dataset_field(
-                f"metrics.{metric}",
+                field_name,
                 label,
                 "double",
                 "Metrics",
                 description=f"Registered {label.lower()} value from the daily report snapshot.",
+                metric_key=metric_key,
             )
-            for metric, label in DATASET_METRICS[key]
+            for field_name, metric_key, label in DATASET_METRICS[key]
         ])
     elif key == "model_projection_games":
         FIELD_CATALOG[key] = deepcopy(MODEL_PROJECTION_GAME_FIELDS)

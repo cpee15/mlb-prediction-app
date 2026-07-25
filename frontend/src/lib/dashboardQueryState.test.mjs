@@ -17,12 +17,14 @@ test('calculates visible result range from server page info', () => {
 })
 
 test('uses server-owned field metadata', () => {
-  const fields = serverFields({ object_info: { fields: [{ name: 'xwoba', label: 'xwOBA', data_type: 'double', sortable: true, filterable: true, selectable: true, supported_operators: ['eq', 'gte'], group: 'Metrics' }] } })
+  const fields = serverFields({ object_info: { fields: [{ name: 'xwoba', label: 'xwOBA', data_type: 'double', sortable: true, filterable: true, selectable: true, supported_operators: ['eq', 'gte'], group: 'Metrics', metric_key: 'xwOBA', payload_path: 'metrics.xwOBA' }] } })
   assert.equal(fields[0].accessor, 'xwoba')
   assert.equal(fields[0].sortable, true)
   assert.equal(fields[0].filterable, true)
   assert.equal(fields[0].selectable, true)
   assert.equal(fields[0].dataType, 'double')
+  assert.equal(fields[0].sourceMetric, 'xwOBA')
+  assert.equal(fields[0].payloadPath, 'metrics.xwOBA')
   assert.deepEqual(fields[0].supportedOperators, ['eq', 'gte'])
 })
 

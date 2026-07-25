@@ -22,20 +22,59 @@ def make_session():
         current(2, "Alpha Tie", "hitter", "BBB", 0.70, 0.20, confidence="medium", exit_velocity=84.0),
         current(3, "Beta Bat", "hitter", "AAA", 0.60, None, confidence="low", exit_velocity=None),
         current(4, "Inactive Bat", "hitter", "AAA", 0.99, 0.50, active=False),
-        current(5, "Gamma Arm", "pitcher", "CCC", 0.80, 0.29, confidence="high"),
-        current(6, "Delta Arm", "pitcher", "DDD", 0.50, 0.34, confidence="low"),
+        current(
+            5,
+            "Gamma Arm",
+            "pitcher",
+            "CCC",
+            0.80,
+            0.29,
+            confidence="high",
+            metrics={
+                "Velocity": 97.2,
+                "Spin Rate": 2520.0,
+                "horizontal_break": 11.4,
+                "vertical_break": 16.8,
+                "release_position_x": -1.8,
+                "release_position_z": 5.9,
+                "release_extension": 6.7,
+            },
+        ),
+        current(
+            6,
+            "Delta Arm",
+            "pitcher",
+            "DDD",
+            0.50,
+            0.34,
+            confidence="low",
+            metrics={"average_velocity": 91.4, "average_spin_rate": 2180.0},
+        ),
     ])
     session.commit()
     return session
 
 
-def current(player_id, name, player_type, team, score, xwoba, *, active=True, confidence=None, exit_velocity=None):
+def current(
+    player_id,
+    name,
+    player_type,
+    team,
+    score,
+    xwoba,
+    *,
+    active=True,
+    confidence=None,
+    exit_velocity=None,
+    metrics=None,
+):
     return DashboardPlayerCurrent(
         mlb_player_id=player_id, snapshot_id=player_id, player_type=player_type,
         full_name=name, team_id=player_id * 10, team_name=team,
         primary_position="OF" if player_type == "hitter" else "P", is_active=active,
         model_score=score, confidence=confidence, xwoba=xwoba,
-        exit_velocity=exit_velocity, metrics_json={"source_metric": player_id},
+        exit_velocity=exit_velocity,
+        metrics_json={"source_metric": player_id, **(metrics or {})},
         projection_version="projection-v2" if player_id % 2 else "projection-v1",
         source_freshness_json={"snapshot_date": "2026-07-15"},
         provenance_json={"sources": ["test"]}, promoted_at=NOW,
@@ -223,6 +262,66 @@ def test_field_metadata_selection_and_provenance_are_authoritative():
         query_player_report(session, "all_active_hitters", selected_fields=["not_a_field"])
     with pytest.raises(ValueError, match="Unsupported selected field"):
         query_player_report(session, "all_active_hitters", selected_fields=["metrics"])
+
+
+def test_pitcher_catalog_and_query_use_pitcher_aggregate_fields_only():
+    session = make_session()
+    info = describe_report_type("all_active_pitchers")
+    names = {field["name"] for field in info["fields"]}
+    assert {
+        "average_velocity",
+        "average_spin_rate",
+        "horizontal_break",
+        "vertical_break",
+        "release_position_x",
+        "release_position_z",
+        "release_extension",
+        "xwoba",
+        "xba",
+    }.issubset(names)
+    assert {
+        "exit_velocity",
+        "launch_angle",
+        "barrel_rate",
+        "iso",
+        "obp",
+        "slg",
+        "batting_average",
+    }.isdisjoint(names)
+    result = query_player_report(
+        session,
+        "all_active_pitchers",
+        selected_fields=["full_name", "average_velocity", "average_spin_rate"],
+        filters={
+            "logic": "and",
+            "conditions": [
+                {"field": "average_velocity", "operator": "gte", "value": 95},
+                {"field": "average_spin_rate", "operator": "gte", "value": 2400},
+            ],
+        },
+        sort_by="average_velocity",
+    )
+    assert result["totalSize"] == 1
+    assert result["records"][0]["full_name"] == "Gamma Arm"
+    assert result["records"][0]["average_velocity"] == pytest.approx(97.2)
+    assert result["records"][0]["average_spin_rate"] == pytest.approx(2520.0)
+
+
+def test_hitter_catalog_does_not_advertise_pitcher_only_aggregate_fields():
+    names = {
+        field["name"]
+        for field in describe_report_type("all_active_hitters")["fields"]
+    }
+    assert "batting_average" in names
+    assert {
+        "average_velocity",
+        "average_spin_rate",
+        "horizontal_break",
+        "vertical_break",
+        "release_position_x",
+        "release_position_z",
+        "release_extension",
+    }.isdisjoint(names)
 
 
 @pytest.mark.parametrize("report_type", ["all_active_hitters", "all_active_pitchers"])

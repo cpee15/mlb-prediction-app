@@ -10,6 +10,7 @@ import {
   reportExecutionFacts,
   reportFieldsForMode,
   savedReportExecutionMode,
+  selectableRequestFields,
 } from './dashboardReportBuilderState.mjs'
 
 const query = { page_number: 1, page_size: 50, sort_by: 'score', sort_direction: 'desc' }
@@ -35,6 +36,28 @@ test('weights rerank canonical players without becoming filter criteria', () => 
   })
   assert.deepEqual(request.payload.filters, { team: 'CHC' })
   assert.deepEqual(request.payload.weights, { 'K%': 1.6 })
+})
+
+test('report payload carries only fields registered for the selected object', () => {
+  const availableFields = [
+    { accessor: 'full_name', selectable: true },
+    { accessor: 'average_velocity', selectable: true },
+    { accessor: 'metrics', selectable: false },
+  ]
+  const selectedFields = selectableRequestFields(
+    ['rank', 'full_name', 'average_velocity', 'exit_velocity', 'metrics'],
+    availableFields,
+  )
+  assert.deepEqual(selectedFields, ['full_name', 'average_velocity'])
+  const request = buildReportRequest({
+    objectKey: 'pitchers',
+    activeLineupsOnly: false,
+    date: '2026-07-16',
+    cleanedFilters: {},
+    query,
+    selectedFields,
+  })
+  assert.deepEqual(request.payload.selected_fields, ['full_name', 'average_velocity'])
 })
 
 test('confirmed and expanded objects use registered report populations', () => {

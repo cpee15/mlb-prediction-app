@@ -97,7 +97,7 @@ def queryable_objects() -> List[Dict[str, Any]]:
             continue
         fields = []
         for field in FIELD_CATALOG[api_name]:
-            if field["name"] == "metrics":
+            if field["name"] == "metrics" or not field.get("selectable", True):
                 continue
             fields.append({
                 "name": field["name"],
@@ -106,6 +106,7 @@ def queryable_objects() -> List[Dict[str, Any]]:
                 "group": field["group"],
                 "filterable": bool(field.get("filterable")),
                 "sortable": bool(field.get("sortable")),
+                "selectable": True,
                 "operators": list(field.get("supported_operators") or []),
                 "freshness": field.get("freshness"),
             })
