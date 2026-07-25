@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from datetime import date
 import hashlib
 import json
-from typing import Any, Dict, Mapping, Tuple
+from typing import Any, Dict, Mapping, Optional, Tuple
+
+from mlb_app.simulation.game import (
+    CanonicalBaserunningProbabilityTransform,
+)
 
 from .bullpen_discovery import (
     CanonicalShadowBullpenDiscovery,
@@ -395,6 +399,9 @@ def execute_historical_baserunning_shadow_replays(
         int,
         Tuple[str, str],
     ],
+    baserunning_probability_transform: Optional[
+        CanonicalBaserunningProbabilityTransform
+    ] = None,
     simulation_count: int = (
         DEFAULT_HISTORICAL_BASERUNNING_SIMULATION_COUNT
     ),
@@ -438,6 +445,19 @@ def execute_historical_baserunning_shadow_replays(
     normalized_simulation_count = int(
         simulation_count
     )
+
+    if (
+        baserunning_probability_transform is not None
+        and not isinstance(
+            baserunning_probability_transform,
+            CanonicalBaserunningProbabilityTransform,
+        )
+    ):
+        raise TypeError(
+            "baserunning_probability_transform must be "
+            "CanonicalBaserunningProbabilityTransform "
+            "or None"
+        )
 
     if not (
         lineup_bullpen.observed_window_digest
@@ -618,6 +638,9 @@ def execute_historical_baserunning_shadow_replays(
             bootstrap_ready=True,
             baserunning_evidence_catalog=(
                 evidence.catalog
+            ),
+            baserunning_probability_transform=(
+                baserunning_probability_transform
             ),
             simulation_count=(
                 normalized_simulation_count

@@ -12,6 +12,7 @@ from typing import Any, Dict, Mapping, Optional, Tuple
 
 from mlb_app.simulation.game import (
     CanonicalBaserunningEvidenceCatalog,
+    CanonicalBaserunningProbabilityTransform,
     CanonicalLineup,
     CanonicalMatchupInput,
     CanonicalPitchingPlan,
@@ -341,6 +342,9 @@ def run_canonical_production_shadow(
     baserunning_evidence_catalog: Optional[
         CanonicalBaserunningEvidenceCatalog
     ] = None,
+    baserunning_probability_transform: Optional[
+        CanonicalBaserunningProbabilityTransform
+    ] = None,
     simulation_count: int = (
         DEFAULT_PRODUCTION_SHADOW_SIMULATION_COUNT
     ),
@@ -430,6 +434,9 @@ def run_canonical_production_shadow(
                 fallback_catalog=fallback_catalog,
                 baserunning_evidence_catalog=(
                     baserunning_evidence_catalog
+                ),
+                baserunning_probability_transform=(
+                    baserunning_probability_transform
                 ),
                 fallback_policy=fallback_policy,
                 batter_dfs_rules=(

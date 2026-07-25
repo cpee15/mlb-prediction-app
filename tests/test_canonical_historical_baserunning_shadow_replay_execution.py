@@ -5,6 +5,7 @@ import pytest
 from mlb_app.simulation.game import (
     CANONICAL_PA_OUTCOME_ORDER,
     CanonicalBaserunningEvidenceCatalog,
+    CanonicalBaserunningProbabilityTransform,
     CanonicalCatcherBaserunningProfile,
     CanonicalOutcomeProbability,
     CanonicalPitcherBaserunningProfile,
@@ -219,6 +220,7 @@ def execute(
     probabilities=None,
     evidence=None,
     starters=None,
+    probability_transform=None,
 ):
     return execute_historical_baserunning_shadow_replays(
         lineup_bullpen=(
@@ -234,6 +236,9 @@ def execute(
             {123: ("100", "200")}
             if starters is None
             else starters
+        ),
+        baserunning_probability_transform=(
+            probability_transform
         ),
         simulation_count=2,
     )
@@ -444,3 +449,58 @@ def test_review_policy_is_explicit_and_non_authoritative():
         HISTORICAL_BASERUNNING_REPLAY_REVIEW_POLICY_VERSION
         == "historical_baserunning_replay_review_policy_v1"
     )
+
+
+
+def test_explicit_probability_transform_changes_replay_provenance():
+    transform = CanonicalBaserunningProbabilityTransform(
+        attempt_probability_multiplier=0.52,
+        success_rate_adjustment=0.09,
+    )
+
+    baseline = execute()
+    calibrated = execute(
+        probability_transform=transform,
+    )
+    calibrated_inputs = (
+        calibrated.games[0]
+        .execution
+        .execution_inputs
+    )
+
+    assert calibrated_inputs is not None
+    assert (
+        calibrated_inputs.baserunning_probability_transform
+        == transform
+    )
+    assert (
+        calibrated_inputs.assembly_digest
+        != baseline.games[0]
+        .execution
+        .execution_inputs
+        .assembly_digest
+    )
+    assert calibrated.digest != baseline.digest
+    assert calibrated.to_diagnostics()[
+        "production_activation"
+    ] is False
+    assert calibrated.to_diagnostics()[
+        "production_authority_changed"
+    ] is False
+
+
+def test_transformed_replay_is_deterministic():
+    transform = CanonicalBaserunningProbabilityTransform(
+        attempt_probability_multiplier=0.52,
+        success_rate_adjustment=0.09,
+    )
+
+    first = execute(
+        probability_transform=transform,
+    )
+    second = execute(
+        probability_transform=transform,
+    )
+
+    assert first == second
+    assert first.digest == second.digest

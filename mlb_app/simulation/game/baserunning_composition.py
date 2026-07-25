@@ -12,6 +12,9 @@ from .baserunning_evidence_catalog import (
     CanonicalBaserunningEvidenceCatalog,
     build_canonical_baserunning_state_provider,
 )
+from .baserunning_probability_transform import (
+    CanonicalBaserunningProbabilityTransform,
+)
 from .baserunning_resolver import (
     CanonicalBaserunningEvidenceQuery,
     CanonicalBaserunningResolverAdapterFactory,
@@ -41,6 +44,9 @@ class CanonicalCatalogBaserunningResolverFactory:
     """
 
     catalog: CanonicalBaserunningEvidenceCatalog
+    probability_transform: Optional[
+        CanonicalBaserunningProbabilityTransform
+    ] = None
     composition_version: str = (
         CANONICAL_BASERUNNING_COMPOSITION_VERSION
     )
@@ -53,6 +59,19 @@ class CanonicalCatalogBaserunningResolverFactory:
             raise TypeError(
                 "catalog must be "
                 "CanonicalBaserunningEvidenceCatalog"
+            )
+
+        if (
+            self.probability_transform is not None
+            and not isinstance(
+                self.probability_transform,
+                CanonicalBaserunningProbabilityTransform,
+            )
+        ):
+            raise TypeError(
+                "probability_transform must be "
+                "CanonicalBaserunningProbabilityTransform "
+                "or None"
             )
 
         if self.composition_version != (
@@ -103,11 +122,26 @@ class CanonicalCatalogBaserunningResolverFactory:
                 ),
             )
         )
-        evidence_provider = (
+        baseline_evidence_provider = (
             build_canonical_baserunning_evidence_provider(
                 state_provider=state_provider,
             )
         )
+
+        def evidence_provider(query):
+            evidence = baseline_evidence_provider(
+                query
+            )
+
+            if (
+                evidence is None
+                or self.probability_transform is None
+            ):
+                return evidence
+
+            return self.probability_transform.apply(
+                evidence
+            )
 
         resolver = (
             CanonicalBaserunningResolverAdapterFactory(
@@ -146,9 +180,13 @@ class CanonicalCatalogBaserunningResolverFactory:
 def build_canonical_catalog_baserunning_resolver_factory(
     *,
     catalog: CanonicalBaserunningEvidenceCatalog,
+    probability_transform: Optional[
+        CanonicalBaserunningProbabilityTransform
+    ] = None,
 ) -> CanonicalCoupledBaserunningResolverFactory:
     """Build an explicit coupled catalog-backed resolver factory."""
 
     return CanonicalCatalogBaserunningResolverFactory(
         catalog=catalog,
+        probability_transform=probability_transform,
     )

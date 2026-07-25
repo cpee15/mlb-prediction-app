@@ -418,7 +418,12 @@ def test_injected_catalog_attaches_coupled_resolver_per_trial(
     build_calls = []
     coupled_calls = []
 
-    def build_factory(*, catalog):
+    def build_factory(
+        *,
+        catalog,
+        probability_transform=None,
+    ):
+        assert probability_transform is None
         build_calls.append(catalog)
 
         def coupled_factory(
