@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 from mlb_app.simulation.shadow import (
     build_historical_baserunning_replay_review_policy,
     define_historical_probability_reconstruction_inputs,
+    evaluate_historical_baserunning_calibration_candidates,
     evaluate_historical_baserunning_shadow_replays,
     execute_historical_baserunning_shadow_replays,
     materialize_historical_probability_artifacts,
@@ -377,13 +378,37 @@ def main():
         )
     )
 
+    review_policy = (
+        build_historical_baserunning_replay_review_policy()
+    )
+
     historical_evaluation = (
         evaluate_historical_baserunning_shadow_replays(
             replays=historical_replays,
             observed=observed,
-            policy=(
-                build_historical_baserunning_replay_review_policy()
+            policy=review_policy,
+        )
+    )
+
+    historical_report = (
+        historical_evaluation.artifact.report
+    )
+    if (
+        historical_report is None
+        or historical_report.comparison is None
+    ):
+        raise RuntimeError(
+            "historical evaluation requires a "
+            "calibration comparison"
+        )
+
+    historical_candidate_grid = (
+        evaluate_historical_baserunning_calibration_candidates(
+            baseline=historical_report.comparison,
+            baseline_evaluation_digest=(
+                historical_evaluation.digest
             ),
+            policy=review_policy,
         )
     )
 
@@ -399,6 +424,9 @@ def main():
         ),
         "historical_baserunning_evaluation": (
             historical_evaluation.to_diagnostics()
+        ),
+        "historical_baserunning_calibration_candidates": (
+            historical_candidate_grid.to_diagnostics()
         ),
         "baserunning_feed_evidence": (
             feed_evidence.to_diagnostics()
