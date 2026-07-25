@@ -215,6 +215,82 @@ class _CanonicalPlateAppearanceResolver:
             .pitcher_id
         )
 
+    def _register_automatic_runner(
+        self,
+        state: GameState,
+    ) -> None:
+        if self.pitching_manager is None:
+            return
+
+        automatic_runner_id = state.bases[1]
+        automatic_runner_key = (
+            state.inning,
+            state.half,
+            automatic_runner_id or "",
+        )
+
+        should_register = (
+            state.outs == 0
+            and state.plate_appearance_number >= 0
+            and automatic_runner_id is not None
+            and automatic_runner_key
+            not in self.registered_automatic_runner_keys
+            and state.inning
+            > self.context.regulation_innings
+        )
+
+        if not should_register:
+            return
+
+        self.pitching_manager.register_automatic_runner(
+            state=state,
+            runner_id=automatic_runner_id,
+        )
+
+        object.__setattr__(
+            self,
+            "registered_automatic_runner_keys",
+            (
+                self.registered_automatic_runner_keys
+                + (automatic_runner_key,)
+            ),
+        )
+
+    def record_baserunning_event(
+        self,
+        event: PlayEvent,
+    ) -> None:
+        """Synchronize a non-PA event with pitching state."""
+
+        if not isinstance(event, PlayEvent):
+            raise TypeError(
+                "event must be a PlayEvent"
+            )
+
+        if event.is_plate_appearance:
+            raise ValueError(
+                "baserunning event must not be a "
+                "plate appearance"
+            )
+
+        self._register_automatic_runner(
+            event.state_before
+        )
+
+        if self.pitching_manager is None:
+            return
+
+        self.pitching_manager.record_baserunning_event(
+            event
+        )
+
+        object.__setattr__(
+            self,
+            "scored_run_count",
+            self.scored_run_count
+            + len(event.runs_scored),
+        )
+
     def earned_run_reconstruction_complete(
         self,
     ) -> bool:
@@ -250,38 +326,7 @@ class _CanonicalPlateAppearanceResolver:
                 "state must be a GameState"
             )
 
-        if self.pitching_manager is not None:
-            automatic_runner_id = state.bases[1]
-            automatic_runner_key = (
-                state.inning,
-                state.half,
-                automatic_runner_id or "",
-            )
-
-            should_register = (
-                state.outs == 0
-                and state.plate_appearance_number >= 0
-                and automatic_runner_id is not None
-                and automatic_runner_key
-                not in self.registered_automatic_runner_keys
-                and state.inning
-                > self.context.regulation_innings
-            )
-
-            if should_register:
-                self.pitching_manager.register_automatic_runner(
-                    state=state,
-                    runner_id=automatic_runner_id,
-                )
-
-                object.__setattr__(
-                    self,
-                    "registered_automatic_runner_keys",
-                    (
-                        self.registered_automatic_runner_keys
-                        + (automatic_runner_key,)
-                    ),
-                )
+        self._register_automatic_runner(state)
 
         pitcher_id = (
             self.pitching_manager

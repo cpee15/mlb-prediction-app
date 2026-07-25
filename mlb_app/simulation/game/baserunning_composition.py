@@ -109,9 +109,38 @@ class CanonicalCatalogBaserunningResolverFactory:
             )
         )
 
-        return CanonicalBaserunningResolverAdapterFactory(
-            evidence_provider=evidence_provider,
-        )(context)
+        resolver = (
+            CanonicalBaserunningResolverAdapterFactory(
+                evidence_provider=evidence_provider,
+            )(context)
+        )
+
+        def resolve(
+            state,
+            batter_id,
+            sequence,
+        ):
+            event = resolver(
+                state,
+                batter_id,
+                sequence,
+            )
+
+            if event is None:
+                return None
+
+            event_recorder = getattr(
+                plate_appearance_resolver,
+                "record_baserunning_event",
+                None,
+            )
+
+            if callable(event_recorder):
+                event_recorder(event)
+
+            return event
+
+        return resolve
 
 
 def build_canonical_catalog_baserunning_resolver_factory(

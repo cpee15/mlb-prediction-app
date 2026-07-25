@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 
 from mlb_app.simulation.shadow import (
     define_historical_probability_reconstruction_inputs,
+    execute_historical_baserunning_shadow_replays,
     materialize_historical_probability_artifacts,
     reconstruct_historical_pa_probability_workspaces,
     source_historical_mlb_baserunning_counts,
@@ -361,7 +362,16 @@ def main():
             lineup_bullpen=roster_window,
             statistics=statistics,
             workspaces=workspaces,
-            starting_pitcher_ids=_starters(feeds),
+            starting_pitcher_ids=starting_pitchers,
+        )
+    )
+
+    historical_replays = (
+        execute_historical_baserunning_shadow_replays(
+            lineup_bullpen=roster_window,
+            probability_artifacts=artifacts,
+            baserunning_evidence=baserunning_evidence,
+            starting_pitcher_ids=starting_pitchers,
         )
     )
 
@@ -372,6 +382,9 @@ def main():
         ),
         "workspaces": workspaces.to_diagnostics(),
         "artifacts": artifacts.to_diagnostics(),
+        "historical_baserunning_replays": (
+            historical_replays.to_diagnostics()
+        ),
         "baserunning_feed_evidence": (
             feed_evidence.to_diagnostics()
         ),
@@ -381,7 +394,12 @@ def main():
         "history_feed_count": len(history_feeds),
         "cutoff_count": len(cutoffs),
         "request_count": len(requests),
-        "historical_replay_executed": False,
+        "historical_replay_executed": (
+            historical_replays.executed_game_count > 0
+        ),
+        "historical_replay_ready": (
+            historical_replays.ready
+        ),
         "production_activation": False,
         "production_authority_changed": False,
         "authoritative_source": "legacy",

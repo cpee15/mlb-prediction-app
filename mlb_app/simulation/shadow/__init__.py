@@ -555,3 +555,12 @@ from .historical_mlb_baserunning_feed_source import (
     CanonicalHistoricalMlbBaserunningFeedEvidence,
     source_historical_mlb_baserunning_feed_evidence,
 )
+
+
+from .historical_baserunning_shadow_replay_execution import (
+    CANONICAL_HISTORICAL_BASERUNNING_SHADOW_REPLAY_VERSION,
+    DEFAULT_HISTORICAL_BASERUNNING_SIMULATION_COUNT,
+    CanonicalHistoricalBaserunningShadowReplayGame,
+    CanonicalHistoricalBaserunningShadowReplayWindow,
+    execute_historical_baserunning_shadow_replays,
+)

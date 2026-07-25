@@ -280,6 +280,29 @@ class CanonicalPitchingManager:
             event,
         )
 
+        self._record_runner_event(event)
+
+        self._active[team_side] = updated
+        return updated
+
+    def record_baserunning_event(
+        self,
+        event: PlayEvent,
+    ) -> None:
+        """Apply a non-PA runner transition to the ledger."""
+
+        if event.is_plate_appearance:
+            raise ValueError(
+                "baserunning event must not be a "
+                "plate appearance"
+            )
+
+        self._record_runner_event(event)
+
+    def _record_runner_event(
+        self,
+        event: PlayEvent,
+    ) -> None:
         before = {
             value.runner_id: value
             for value in (
@@ -352,8 +375,6 @@ class CanonicalPitchingManager:
                     responsibility.runner_id
                 )
 
-        self._active[team_side] = updated
-        return updated
 
     def responsibility_for_runner(
         self,
