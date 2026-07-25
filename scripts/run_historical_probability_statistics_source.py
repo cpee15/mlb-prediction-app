@@ -11,6 +11,9 @@ from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from mlb_app.simulation.game import (
+    CanonicalBaserunningProbabilityTransform,
+)
 from mlb_app.simulation.shadow import (
     build_historical_baserunning_replay_review_policy,
     define_historical_probability_reconstruction_inputs,
@@ -412,6 +415,44 @@ def main():
         )
     )
 
+    selected_candidate = (
+        historical_candidate_grid
+        .selected_result
+        .candidate
+    )
+    selected_transform = (
+        CanonicalBaserunningProbabilityTransform(
+            attempt_probability_multiplier=(
+                selected_candidate
+                .attempt_probability_multiplier
+            ),
+            success_rate_adjustment=(
+                selected_candidate
+                .success_rate_adjustment
+            ),
+        )
+    )
+
+    calibrated_replays = (
+        execute_historical_baserunning_shadow_replays(
+            lineup_bullpen=roster_window,
+            probability_artifacts=artifacts,
+            baserunning_evidence=baserunning_evidence,
+            starting_pitcher_ids=starting_pitchers,
+            baserunning_probability_transform=(
+                selected_transform
+            ),
+        )
+    )
+
+    calibrated_evaluation = (
+        evaluate_historical_baserunning_shadow_replays(
+            replays=calibrated_replays,
+            observed=observed,
+            policy=review_policy,
+        )
+    )
+
     diagnostics = {
         "statistics": statistics.to_diagnostics(),
         "reconstruction": (
@@ -427,6 +468,15 @@ def main():
         ),
         "historical_baserunning_calibration_candidates": (
             historical_candidate_grid.to_diagnostics()
+        ),
+        "historical_baserunning_selected_transform": (
+            selected_transform.to_diagnostics()
+        ),
+        "historical_baserunning_calibrated_replays": (
+            calibrated_replays.to_diagnostics()
+        ),
+        "historical_baserunning_calibrated_evaluation": (
+            calibrated_evaluation.to_diagnostics()
         ),
         "baserunning_feed_evidence": (
             feed_evidence.to_diagnostics()

@@ -15,6 +15,9 @@ from mlb_app.simulation.game.baserunning_composition import (
 from mlb_app.simulation.game.baserunning_evidence_catalog import (
     CanonicalBaserunningEvidenceCatalog,
 )
+from mlb_app.simulation.game.baserunning_probability_transform import (
+    CanonicalBaserunningProbabilityTransform,
+)
 from mlb_app.simulation.game.contracts import (
     CanonicalGameConfig,
 )
@@ -89,6 +92,9 @@ class CanonicalShadowExecutionBundleFactory:
     baserunning_evidence_catalog: Optional[
         CanonicalBaserunningEvidenceCatalog
     ] = None
+    baserunning_probability_transform: Optional[
+        CanonicalBaserunningProbabilityTransform
+    ] = None
     fallback_policy: CanonicalProbabilityFallbackPolicy = field(
         default_factory=CanonicalProbabilityFallbackPolicy
     )
@@ -142,6 +148,19 @@ class CanonicalShadowExecutionBundleFactory:
             raise TypeError(
                 "baserunning_evidence_catalog must be "
                 "CanonicalBaserunningEvidenceCatalog or None"
+            )
+
+        if (
+            self.baserunning_probability_transform is not None
+            and not isinstance(
+                self.baserunning_probability_transform,
+                CanonicalBaserunningProbabilityTransform,
+            )
+        ):
+            raise TypeError(
+                "baserunning_probability_transform must be "
+                "CanonicalBaserunningProbabilityTransform "
+                "or None"
             )
 
         if not isinstance(
@@ -250,6 +269,9 @@ class CanonicalShadowExecutionBundleFactory:
                     catalog=(
                         self.baserunning_evidence_catalog
                     ),
+                    probability_transform=(
+                        self.baserunning_probability_transform
+                    ),
                 )
             )
 
@@ -288,6 +310,9 @@ class CanonicalShadowExecutionBundleFactory:
             baserunning_evidence_catalog=(
                 self.baserunning_evidence_catalog
             ),
+            baserunning_probability_transform=(
+                self.baserunning_probability_transform
+            ),
             fallback_policy=self.fallback_policy,
             game_config=self.game_config,
             batter_dfs_rules=self.batter_dfs_rules,
@@ -313,6 +338,9 @@ def build_canonical_shadow_execution_bundle_factory(
     baserunning_evidence_catalog: Optional[
         CanonicalBaserunningEvidenceCatalog
     ] = None,
+    baserunning_probability_transform: Optional[
+        CanonicalBaserunningProbabilityTransform
+    ] = None,
     fallback_policy: Optional[
         CanonicalProbabilityFallbackPolicy
     ] = None,
@@ -334,6 +362,9 @@ def build_canonical_shadow_execution_bundle_factory(
         fallback_catalog=fallback_catalog,
         baserunning_evidence_catalog=(
             baserunning_evidence_catalog
+        ),
+        baserunning_probability_transform=(
+            baserunning_probability_transform
         ),
         fallback_policy=(
             fallback_policy
