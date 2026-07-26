@@ -36,6 +36,7 @@ from .database import (
 )
 from .model_tracker import (
     list_tracker_rows,
+    list_tracker_range,
     refresh_tracker_results,
 )
 from .model_tracker_safe_snapshot import build_tracker_snapshot_safe
@@ -654,6 +655,22 @@ def model_tracker_list(date: Optional[str] = Query(default=None)) -> Dict[str, A
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail={"message": "Model Tracker list failed", "error": str(exc)}) from exc
+
+
+@router.get("/model-tracker/range")
+def model_tracker_range(
+    start: str = Query(..., description="Inclusive YYYY-MM-DD start date"),
+    end: str = Query(..., description="Inclusive YYYY-MM-DD end date"),
+    include_raw: bool = Query(default=False),
+) -> Dict[str, Any]:
+    try:
+        Session = _session_factory()
+        with Session() as session:
+            return list_tracker_range(session, start, end, include_raw=include_raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"message": str(exc)}) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"message": "Model Tracker range failed", "error": str(exc)}) from exc
 
 
 @router.get("/model-tracker/game/{game_pk}")

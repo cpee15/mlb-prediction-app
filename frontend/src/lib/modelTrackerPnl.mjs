@@ -25,7 +25,13 @@ export function resultToUnits(profit, stake = UNIT_SIZE_DOLLARS) {
   return p / s
 }
 
-export function isGradedDecision(row) { return ['won', 'lost', 'push'].includes(String(row?.grade || '').toLowerCase()) }
+export function isReportableOddsBacked(row) {
+  return Boolean(row?.reportable) && Boolean(row?.odds_available) && rowHasPrice(row) &&
+    String(row?.source || '').toLowerCase() === 'bet105'
+}
+export function isGradedDecision(row) {
+  return isReportableOddsBacked(row) && ['won', 'lost', 'push'].includes(String(row?.grade || '').toLowerCase())
+}
 export function isPending(row) { const grade = String(row?.grade || '').toLowerCase(); const status = String(row?.result_status || '').toLowerCase(); return grade === 'pending' || status === 'pending' || status === 'live' }
 export function normalizeStatus(value) { return String(value || '').trim().toLowerCase().replace(/\s+/g, '_') }
 function probabilityCandidate(value) { const n = toNumber(value); return n !== null && n >= 0 && n <= 1 ? n : null }
@@ -116,7 +122,7 @@ export function gradeProfit(row, unitSize = UNIT_SIZE_DOLLARS) {
 }
 
 export function summarizePnl(rows = [], unitSize = UNIT_SIZE_DOLLARS) {
-  const ledger = rows.map(row => {
+  const ledger = rows.filter(isReportableOddsBacked).map(row => {
     const stake = unitSize
     const profit = gradeProfit(row, stake)
     return { ...row, bucket: recommendationBucket(row), stake, price_for_pnl: effectivePrice(row), profit, units: resultToUnits(profit, stake), confidence_band: confidenceBand(row?.confidence ?? row?.score ?? row?.model_probability), edge_band: edgeBand(row?.edge), decision_quality: decisionQualityLabel(row), economics_coverage: economicsCoverage(row) }
