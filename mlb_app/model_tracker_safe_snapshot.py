@@ -12,6 +12,7 @@ from .best_plays_engine import build_best_plays_payload, normalize_best_play_row
 from .matchup_generator import generate_matchups_for_date
 from .model_projections import build_model_projection_payload
 from .my_dashboard_solver import build_dashboard_solver_payload
+from .model_tracker_bet105 import as_model_signals, build_bet105_decisions
 from .model_tracker import (
     AI_TRACKER_PROMPTS,
     DASHBOARD_COMPONENTS,
