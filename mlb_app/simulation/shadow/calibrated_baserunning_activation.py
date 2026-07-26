@@ -421,7 +421,11 @@ def apply_calibrated_baserunning_production_authority(
             "canonical_run_id": canonical_payload[
                 "run_id"
             ],
+            "simulation_count": int(
+                outcomes["simulation_count"]
+            ),
             "production_activation": True,
+            "production_authority_changed": True,
             "authoritative_source": (
                 "canonical_event_driven_"
                 "calibrated_baserunning"

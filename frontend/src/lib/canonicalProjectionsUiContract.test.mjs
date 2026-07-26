@@ -46,6 +46,14 @@ test('projections tab describes same-run coherence', async () => {
   )
   assert.match(
     source,
+    /view\.authoritative/,
+  )
+  assert.match(
+    source,
+    /Authoritative production/,
+  )
+  assert.match(
+    source,
     /Non-authoritative shadow/,
   )
 })

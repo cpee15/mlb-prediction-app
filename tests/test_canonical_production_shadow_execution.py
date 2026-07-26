@@ -1146,6 +1146,12 @@ def test_ready_activation_promotes_canonical_outcomes():
     assert result["meta"]["canonical_run_id"] == (
         canonical["run_id"]
     )
+    assert result["meta"]["simulation_count"] == (
+        outcomes["simulation_count"]
+    )
+    assert result["meta"][
+        "production_authority_changed"
+    ] is True
     assert result["diagnostics"][
         "calibrated_baserunning_activation"
     ]["production_activation"] is True

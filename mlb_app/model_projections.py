@@ -25,6 +25,7 @@ from mlb_app.simulation.shadow import (
     activate_calibrated_baserunning,
     apply_calibrated_baserunning_production_authority,
     attach_canonical_shadow,
+    build_canonical_production_trial_policy,
     build_canonical_shadow_bootstrap_readiness,
     discover_canonical_shadow_bullpens,
     discover_canonical_shadow_exact_artifact,
@@ -1020,6 +1021,10 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                     )
                 )
 
+            canonical_production_trial_policy = (
+                build_canonical_production_trial_policy()
+            )
+
             canonical_live_baserunning_pair = (
                 execute_live_baserunning_shadow_pair(
                     game_pk=game_pk,
@@ -1048,6 +1053,10 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                     ),
                     baserunning_evidence_discovery=(
                         canonical_baserunning_evidence_discovery
+                    ),
+                    simulation_count=(
+                        canonical_production_trial_policy
+                        .simulation_count
                     ),
                 )
             )
@@ -1100,6 +1109,13 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 "canonicalShadowExactArtifactDiscovery"
             ] = (
                 canonical_shadow_exact_artifact_discovery
+                .to_diagnostics()
+            )
+
+            workspace[
+                "canonicalProductionTrialPolicy"
+            ] = (
+                canonical_production_trial_policy
                 .to_diagnostics()
             )
 
