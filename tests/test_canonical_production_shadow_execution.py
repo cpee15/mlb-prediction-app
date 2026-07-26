@@ -967,3 +967,226 @@ def test_live_pair_rejects_external_transform():
                 CanonicalBaserunningProbabilityTransform()
             ),
         )
+
+
+from mlb_app.simulation.shadow import (
+    CALIBRATED_BASERUNNING_ENABLED_ENV,
+    CANONICAL_CALIBRATED_BASERUNNING_ACTIVATION_VERSION,
+    activate_calibrated_baserunning,
+    apply_calibrated_baserunning_production_authority,
+    calibrated_baserunning_enabled,
+)
+
+
+def test_calibrated_baserunning_is_active_by_default(
+    monkeypatch,
+):
+    monkeypatch.delenv(
+        CALIBRATED_BASERUNNING_ENABLED_ENV,
+        raising=False,
+    )
+
+    fallback = run()
+    paired = run_live_pair()
+    activation = activate_calibrated_baserunning(
+        fallback_execution=fallback,
+        paired_execution=paired,
+    )
+
+    assert calibrated_baserunning_enabled() is True
+    assert activation.calibrated_ready is True
+    assert activation.activated is True
+    assert activation.production_execution is (
+        paired.calibrated_execution
+    )
+
+    diagnostics = activation.to_diagnostics()
+
+    assert diagnostics["production_activation"] is True
+    assert diagnostics[
+        "production_authority_changed"
+    ] is True
+    assert diagnostics["authoritative_source"] == (
+        "canonical_calibrated_baserunning"
+    )
+    assert diagnostics[
+        "post_activation_monitoring_target"
+    ]["game_count"] == 100
+    assert diagnostics[
+        "probability_transform"
+    ]["frozen_during_monitoring_window"] is True
+
+
+def test_calibrated_baserunning_rollback_uses_legacy():
+    fallback = run()
+    paired = run_live_pair()
+    activation = activate_calibrated_baserunning(
+        fallback_execution=fallback,
+        paired_execution=paired,
+        enabled=False,
+    )
+
+    assert activation.activated is False
+    assert activation.production_execution is fallback
+    assert activation.fallback_reason == (
+        "rollback_flag_disabled"
+    )
+    assert (
+        activation.to_diagnostics()[
+            "authoritative_source"
+        ]
+        == "legacy"
+    )
+
+
+def test_unavailable_calibrated_evidence_falls_back():
+    fallback = run()
+    paired = execute_live_baserunning_shadow_pair(
+        game_pk=123,
+        game_date="2026-07-26",
+        lineups=lineups(),
+        bullpens=bullpens(),
+        provider_discovery=provider_discovery(),
+        exact_artifact_discovery=exact_discovery(),
+        fallback_catalog_discovery=(
+            fallback_discovery()
+        ),
+        bootstrap_ready=True,
+        simulation_count=2,
+        baserunning_evidence_discovery=(
+            baserunning_discovery(
+                status="unavailable",
+            )
+        ),
+    )
+    activation = activate_calibrated_baserunning(
+        fallback_execution=fallback,
+        paired_execution=paired,
+        enabled=True,
+    )
+
+    assert fallback.executed is True
+    assert activation.calibrated_ready is False
+    assert activation.activated is False
+    assert activation.production_execution is fallback
+    assert activation.fallback_reason == (
+        "calibrated_baserunning_unavailable"
+    )
+
+
+def test_activation_version_is_explicit():
+    assert (
+        CANONICAL_CALIBRATED_BASERUNNING_ACTIVATION_VERSION
+        == "canonical_calibrated_baserunning_activation_v1"
+    )
+
+
+
+def legacy_shared_simulation():
+    return {
+        "status": "ok",
+        "derived_outputs": {
+            "game_simulation": {
+                "away_win_probability": 0.40,
+                "home_win_probability": 0.60,
+                "model_version": "legacy-base-v1",
+            },
+            "bullpen_adjusted_game_simulation": {
+                "away_win_probability": 0.42,
+                "home_win_probability": 0.58,
+                "model_version": "legacy-bullpen-v1",
+            },
+        },
+        "diagnostics": {},
+        "meta": {
+            "model_version": "shared-simulation-v1",
+        },
+    }
+
+
+def test_ready_activation_promotes_canonical_outcomes():
+    legacy = legacy_shared_simulation()
+    paired = run_live_pair()
+    activation = activate_calibrated_baserunning(
+        fallback_execution=run(),
+        paired_execution=paired,
+        enabled=True,
+    )
+
+    result = (
+        apply_calibrated_baserunning_production_authority(
+            legacy_result=legacy,
+            activation=activation,
+        )
+    )
+
+    canonical = (
+        paired.calibrated_execution
+        .material
+        .canonical_payload
+    )
+    outcomes = canonical["outcomes"]
+    selected = result["derived_outputs"][
+        "bullpen_adjusted_game_simulation"
+    ]
+
+    assert selected["away_win_probability"] == (
+        outcomes["away_win_probability"]
+    )
+    assert selected["home_win_probability"] == (
+        outcomes["home_win_probability"]
+    )
+    assert selected["source"] == (
+        "canonical_event_driven_simulation"
+    )
+    assert selected["production_activation"] is True
+    assert selected[
+        "production_authority_changed"
+    ] is True
+    assert result["meta"]["canonical_run_id"] == (
+        canonical["run_id"]
+    )
+    assert result["diagnostics"][
+        "calibrated_baserunning_activation"
+    ]["production_activation"] is True
+
+    assert legacy["derived_outputs"][
+        "bullpen_adjusted_game_simulation"
+    ]["home_win_probability"] == 0.58
+
+
+def test_rollback_preserves_legacy_simulation_outputs():
+    legacy = legacy_shared_simulation()
+    activation = activate_calibrated_baserunning(
+        fallback_execution=run(),
+        paired_execution=run_live_pair(),
+        enabled=False,
+    )
+
+    result = (
+        apply_calibrated_baserunning_production_authority(
+            legacy_result=legacy,
+            activation=activation,
+        )
+    )
+
+    assert result["derived_outputs"] == (
+        legacy["derived_outputs"]
+    )
+    assert result["meta"] == legacy["meta"]
+    assert result["diagnostics"][
+        "calibrated_baserunning_activation"
+    ]["fallback_reason"] == (
+        "rollback_flag_disabled"
+    )
+
+
+def test_authority_adapter_rejects_invalid_activation():
+    with pytest.raises(
+        TypeError,
+        match="activation must be canonical",
+    ):
+        apply_calibrated_baserunning_production_authority(
+            legacy_result={},
+            activation=object(),
+        )

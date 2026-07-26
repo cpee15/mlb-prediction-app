@@ -619,3 +619,24 @@ from .live_baserunning_shadow_execution import (
     CanonicalLiveBaserunningShadowExecution,
     execute_live_baserunning_shadow_pair,
 )
+
+
+from .calibrated_baserunning_activation import (
+    CALIBRATED_BASERUNNING_ENABLED_ENV,
+    CANONICAL_CALIBRATED_BASERUNNING_ACTIVATION_VERSION,
+    CanonicalCalibratedBaserunningActivation,
+    activate_calibrated_baserunning,
+    apply_calibrated_baserunning_production_authority,
+    calibrated_baserunning_enabled,
+)
+
+
+from .baserunning_production_prior import (
+    CANONICAL_BASERUNNING_PRODUCTION_PRIOR_VERSION,
+    DEFAULT_BASERUNNING_PRODUCTION_PRIOR_PATH,
+    CanonicalBaserunningProductionPrior,
+    CanonicalBaserunningProductionPriorCatcher,
+    build_baserunning_production_prior,
+    decode_baserunning_production_prior,
+    load_baserunning_production_prior,
+)
