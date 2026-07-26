@@ -167,7 +167,7 @@ def build_bet105_decisions(board: Dict[str, Any], projections: Iterable[Dict[str
             "bet105", target_date,
             source_endpoint="/sportsbook/bet105",
             source_component=market["market_name"] or market["market_type"],
-            event_id=market["event_id"],
+            game_pk=projection.get("game_pk"), event_id=market["event_id"],
             away_team=market["away_team"], home_team=market["home_team"],
             market_type=market["market_type"], pick_type="reportable_decision",
             pick_label=market["selection"], model_name=projection.get("model_name") or "model_projections",
