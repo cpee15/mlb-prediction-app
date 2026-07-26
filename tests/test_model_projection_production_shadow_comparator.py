@@ -368,5 +368,10 @@ def test_realism_payload_exposes_frontend_capability_aliases():
         is True
     )
     assert realism["steals_model_status"] == (
-        "deferred_not_active"
+        "canonical_calibrated_active"
+    )
+    assert realism[
+        "steals_projection_wiring_status"
+    ] == (
+        "canonical_event_driven_production_authority"
     )

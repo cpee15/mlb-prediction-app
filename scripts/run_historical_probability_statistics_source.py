@@ -5,6 +5,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 import json
+import os
+from pathlib import Path
 import sys
 import time
 from urllib.error import URLError
@@ -15,6 +17,7 @@ from mlb_app.simulation.game import (
     CanonicalBaserunningProbabilityTransform,
 )
 from mlb_app.simulation.shadow import (
+    build_baserunning_production_prior,
     build_historical_baserunning_replay_review_policy,
     define_historical_probability_reconstruction_inputs,
     evaluate_historical_baserunning_calibration_candidates,
@@ -340,6 +343,42 @@ def main():
         )
     )
 
+    production_prior = (
+        build_baserunning_production_prior(
+            baserunning_evidence
+        )
+    )
+
+    production_prior_output = os.getenv(
+        "MLB_BASERUNNING_PRODUCTION_PRIOR_PATH",
+        "",
+    ).strip()
+    production_prior_written = False
+
+    if production_prior_output:
+        output_path = Path(
+            production_prior_output
+        ).expanduser()
+        output_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        temporary_path = output_path.with_name(
+            f".{output_path.name}.tmp"
+        )
+        temporary_path.write_text(
+            json.dumps(
+                production_prior.to_payload(),
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        temporary_path.replace(output_path)
+        production_prior_written = True
+
     statistics = (
         source_historical_probability_statistics(
             lineup_bullpen=roster_window,
@@ -483,6 +522,12 @@ def main():
         ),
         "baserunning_replay_evidence": (
             baserunning_evidence.to_diagnostics()
+        ),
+        "baserunning_production_prior": (
+            production_prior.to_diagnostics()
+        ),
+        "baserunning_production_prior_written": (
+            production_prior_written
         ),
         "history_feed_count": len(history_feeds),
         "cutoff_count": len(cutoffs),

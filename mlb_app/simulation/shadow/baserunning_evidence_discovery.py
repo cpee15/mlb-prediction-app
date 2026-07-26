@@ -38,6 +38,10 @@ class CanonicalShadowBaserunningEvidenceDiscovery:
     status: str = "unavailable"
     error_message: Optional[str] = None
     observation_digest: Optional[str] = None
+    fallback_runner_count: int = 0
+    fallback_pitcher_count: int = 0
+    fallback_catcher_count: int = 0
+    fallback_policy_version: Optional[str] = None
     discovery_version: str = (
         CANONICAL_SHADOW_BASERUNNING_DISCOVERY_VERSION
     )
@@ -64,6 +68,18 @@ class CanonicalShadowBaserunningEvidenceDiscovery:
             (
                 "available_pitcher_count",
                 self.available_pitcher_count,
+            ),
+            (
+                "fallback_runner_count",
+                self.fallback_runner_count,
+            ),
+            (
+                "fallback_pitcher_count",
+                self.fallback_pitcher_count,
+            ),
+            (
+                "fallback_catcher_count",
+                self.fallback_catcher_count,
             ),
         ):
             if value < 0:
@@ -107,6 +123,26 @@ class CanonicalShadowBaserunningEvidenceDiscovery:
                 "non-ready discovery cannot expose a catalog"
             )
 
+        fallback_count = (
+            self.fallback_runner_count
+            + self.fallback_pitcher_count
+            + self.fallback_catcher_count
+        )
+        if (
+            fallback_count > 0
+            and not self.fallback_policy_version
+        ):
+            raise ValueError(
+                "fallback evidence requires a policy version"
+            )
+        if (
+            fallback_count == 0
+            and self.fallback_policy_version is not None
+        ):
+            raise ValueError(
+                "fallback policy requires fallback evidence"
+            )
+
         if (
             self.observation_digest is not None
             and not self.observation_digest
@@ -121,6 +157,14 @@ class CanonicalShadowBaserunningEvidenceDiscovery:
             raise ValueError(
                 "unsupported baserunning discovery version"
             )
+
+    @property
+    def fallback_evidence_count(self) -> int:
+        return (
+            self.fallback_runner_count
+            + self.fallback_pitcher_count
+            + self.fallback_catcher_count
+        )
 
     @property
     def ready(self) -> bool:
@@ -153,6 +197,23 @@ class CanonicalShadowBaserunningEvidenceDiscovery:
             ),
             "observation_digest": (
                 self.observation_digest
+            ),
+            "fallback_runner_count": (
+                self.fallback_runner_count
+            ),
+            "fallback_pitcher_count": (
+                self.fallback_pitcher_count
+            ),
+            "fallback_catcher_count": (
+                self.fallback_catcher_count
+            ),
+            "fallback_evidence_count": (
+                self.fallback_runner_count
+                + self.fallback_pitcher_count
+                + self.fallback_catcher_count
+            ),
+            "fallback_policy_version": (
+                self.fallback_policy_version
             ),
             "error_message": self.error_message,
             "production_activation": False,

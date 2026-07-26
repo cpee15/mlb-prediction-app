@@ -129,6 +129,36 @@ class CanonicalCatcherAssignmentDiscovery:
             == {"away", "home"}
         )
 
+    def to_diagnostics(self):
+        return {
+            "schema_version": (
+                self.discovery_version
+            ),
+            "status": self.status,
+            "ready": self.ready,
+            "assignment_count": len(
+                self.assignments
+            ),
+            "away_candidate_count": (
+                self.away_candidate_count
+            ),
+            "home_candidate_count": (
+                self.home_candidate_count
+            ),
+            "assignment_source_versions": sorted(
+                {
+                    value.assignment_source_version
+                    for value in self.assignments
+                }
+            ),
+            "error_type": self.error_type,
+            "error_message": self.error_message,
+            "player_identifiers_exposed": False,
+            "production_activation": False,
+            "production_authority_changed": False,
+            "authoritative_source": "legacy",
+        }
+
 
 def discover_confirmed_catcher_assignments(
     *,

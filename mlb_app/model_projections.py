@@ -21,13 +21,19 @@ from mlb_app.simulation.projections import (
     enrich_canonical_player_projection_rows,
 )
 from mlb_app.simulation.shadow import (
+    CanonicalShadowBaserunningEvidenceDiscovery,
+    activate_calibrated_baserunning,
+    apply_calibrated_baserunning_production_authority,
+    attach_canonical_shadow,
     build_canonical_shadow_bootstrap_readiness,
     discover_canonical_shadow_bullpens,
     discover_canonical_shadow_exact_artifact,
     discover_canonical_shadow_fallback_catalog,
     discover_canonical_shadow_lineups,
-    attach_canonical_shadow,
     discover_canonical_shadow_probability_provider,
+    discover_confirmed_catcher_assignments,
+    execute_live_baserunning_shadow_pair,
+    load_baserunning_production_prior,
     run_canonical_production_shadow,
 )
 
@@ -73,8 +79,10 @@ def _build_game_state_realism_diagnostics() -> dict:
             "status": "diagnostic_only",
             "final_probability_replacement": False,
         },
-        "steals_model_status": "deferred_not_active",
-        "steals_projection_wiring_status": "status_only_no_behavioral_effect",
+        "steals_model_status": "canonical_calibrated_active",
+        "steals_projection_wiring_status": (
+            "canonical_event_driven_production_authority"
+        ),
     }
 
 
@@ -891,7 +899,7 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 )
             )
 
-            canonical_production_shadow_execution = (
+            canonical_legacy_fallback_execution = (
                 run_canonical_production_shadow(
                     game_pk=game_pk,
                     lineups=(
@@ -914,6 +922,150 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                         .get("ready")
                     ),
                 )
+            )
+
+            canonical_catcher_assignment_discovery = (
+                discover_confirmed_catcher_assignments(
+                    game_pk=game_pk,
+                )
+            )
+
+            try:
+                production_prior = (
+                    load_baserunning_production_prior()
+                )
+
+                if not (
+                    canonical_catcher_assignment_discovery
+                    .ready
+                ):
+                    raise ValueError(
+                        "confirmed catcher assignments "
+                        "are unavailable"
+                    )
+
+                catcher_ids = {
+                    value.team_side: value.catcher_id
+                    for value in (
+                        canonical_catcher_assignment_discovery
+                        .assignments
+                    )
+                }
+
+                required_runner_ids = tuple(
+                    dict.fromkeys(
+                        (
+                            canonical_shadow_lineup_discovery
+                            .away_player_ids
+                        )
+                        + (
+                            canonical_shadow_lineup_discovery
+                            .home_player_ids
+                        )
+                    )
+                )
+
+                required_pitcher_ids = tuple(
+                    dict.fromkeys(
+                        (
+                            canonical_shadow_bullpen_discovery
+                            .away
+                            .starter_id,
+                        )
+                        + (
+                            canonical_shadow_bullpen_discovery
+                            .away
+                            .bullpen_pitcher_ids
+                        )
+                        + (
+                            canonical_shadow_bullpen_discovery
+                            .home
+                            .starter_id,
+                        )
+                        + (
+                            canonical_shadow_bullpen_discovery
+                            .home
+                            .bullpen_pitcher_ids
+                        )
+                    )
+                )
+
+                canonical_baserunning_evidence_discovery = (
+                    production_prior.discover_matchup(
+                        required_runner_ids=(
+                            required_runner_ids
+                        ),
+                        required_pitcher_ids=(
+                            required_pitcher_ids
+                        ),
+                        away_catcher_id=(
+                            catcher_ids["away"]
+                        ),
+                        home_catcher_id=(
+                            catcher_ids["home"]
+                        ),
+                        allow_fallback_profiles=True,
+                    )
+                )
+            except Exception as baserunning_exc:
+                canonical_baserunning_evidence_discovery = (
+                    CanonicalShadowBaserunningEvidenceDiscovery(
+                        status="error",
+                        error_type=(
+                            type(baserunning_exc).__name__
+                        ),
+                        error_message=str(
+                            baserunning_exc
+                        ),
+                    )
+                )
+
+            canonical_live_baserunning_pair = (
+                execute_live_baserunning_shadow_pair(
+                    game_pk=game_pk,
+                    game_date=str(
+                        matchup.get("game_date")
+                        or target_date
+                    ),
+                    lineups=(
+                        canonical_shadow_lineup_discovery
+                    ),
+                    bullpens=(
+                        canonical_shadow_bullpen_discovery
+                    ),
+                    provider_discovery=(
+                        canonical_shadow_probability_provider_discovery
+                    ),
+                    exact_artifact_discovery=(
+                        canonical_shadow_exact_artifact_discovery
+                    ),
+                    fallback_catalog_discovery=(
+                        canonical_shadow_fallback_catalog_discovery
+                    ),
+                    bootstrap_ready=bool(
+                        canonical_shadow_bootstrap_readiness
+                        .get("ready")
+                    ),
+                    baserunning_evidence_discovery=(
+                        canonical_baserunning_evidence_discovery
+                    ),
+                )
+            )
+
+            canonical_baserunning_activation = (
+                activate_calibrated_baserunning(
+                    fallback_execution=(
+                        canonical_legacy_fallback_execution
+                    ),
+                    paired_execution=(
+                        canonical_live_baserunning_pair
+                    ),
+                )
+            )
+
+            canonical_production_shadow_execution = (
+                canonical_baserunning_activation
+                .production_execution
             )
 
             workspace[
@@ -985,6 +1137,46 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                     ),
                 )
             )
+
+            shared_simulation = (
+                apply_calibrated_baserunning_production_authority(
+                    legacy_result=shared_simulation,
+                    activation=(
+                        canonical_baserunning_activation
+                    ),
+                )
+            )
+
+            if isinstance(shared_simulation, dict):
+                baserunning_diagnostics = (
+                    shared_simulation.setdefault(
+                        "diagnostics",
+                        {},
+                    )
+                )
+
+                if isinstance(
+                    baserunning_diagnostics,
+                    dict,
+                ):
+                    baserunning_diagnostics[
+                        "canonical_catcher_assignment_discovery"
+                    ] = (
+                        canonical_catcher_assignment_discovery
+                        .to_diagnostics()
+                    )
+                    baserunning_diagnostics[
+                        "canonical_baserunning_evidence_discovery"
+                    ] = (
+                        canonical_baserunning_evidence_discovery
+                        .to_diagnostics()
+                    )
+                    baserunning_diagnostics[
+                        "canonical_live_baserunning_shadow"
+                    ] = (
+                        canonical_live_baserunning_pair
+                        .to_diagnostics()
+                    )
 
             shared_simulation = (
                 _enrich_game_workspace_player_projections(
@@ -1101,6 +1293,22 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 ),
                 "canonical_shadow_production_execution": (
                     canonical_production_shadow_execution
+                    .to_diagnostics()
+                ),
+                "canonical_catcher_assignment_discovery": (
+                    canonical_catcher_assignment_discovery
+                    .to_diagnostics()
+                ),
+                "canonical_baserunning_evidence_discovery": (
+                    canonical_baserunning_evidence_discovery
+                    .to_diagnostics()
+                ),
+                "canonical_live_baserunning_shadow": (
+                    canonical_live_baserunning_pair
+                    .to_diagnostics()
+                ),
+                "canonical_baserunning_activation": (
+                    canonical_baserunning_activation
                     .to_diagnostics()
                 ),
                 "canonical_shadow_bootstrap_readiness": (
