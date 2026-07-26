@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional
 import re
 
-from .model_tracker import _base_row, _safe_float, _team_name
+from .model_tracker import _base_row, _safe_float, _team_name, _tracker_key
 
 
 TRACKABLE_MARKETS = {"h2h", "moneyline", "spreads", "run_line", "totals", "total", "team_total"}
@@ -203,6 +203,6 @@ def as_model_signals(rows: Iterable[Dict[str, Any]], target_date: str) -> List[D
             reasoning = {"source_reasoning": reasoning}
         reasoning["tracker_contract"] = {"row_type": "model_signal", "reportable": False, "odds_available": False}
         row["reasoning_json"] = reasoning
-        row["tracker_key"] = None
+        row["tracker_key"] = _tracker_key(row)
         signals.append(row)
     return signals
