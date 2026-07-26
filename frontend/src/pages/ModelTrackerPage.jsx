@@ -83,7 +83,11 @@ function rowIdentity(row) { return row.pick_label || row.player_name || row.team
 function gradeLabel(row) { if (row.grade === 'pending') return 'Pending Result'; if (row.result_status === 'live') return 'Live Tracking'; if (row.result_status === 'final' && row.grade === 'ungraded') return 'Final Ungraded'; if (GRADED.includes(row.grade)) return 'Graded'; if (row.grade === 'watchlist_only') return 'Watchlist'; if (row.grade === 'ungraded') return 'Awaiting Result'; return row.grade || 'Untracked' }
 function topReason(row) { if (Array.isArray(row.reasoning) && row.reasoning.length) return compactValue(row.reasoning[0]); return textValue(row.primary_reason) || textValue(row.grade_reason) || '' }
 function shortReason(row) { const reason = topReason(row); return reason.length > 130 ? `${reason.slice(0, 130)}...` : reason }
-function normalizePayloadRows(payload) { return (payload?.rows || []).map(row => { const next = { ...row, reasoning: parseMaybeJson(row.reasoning) || row.reasoning, features_used: parseMaybeJson(row.features_used) || row.features_used, missing_inputs: parseMaybeJson(row.missing_inputs) || row.missing_inputs, raw_payload: parseMaybeJson(row.raw_payload) || row.raw_payload, actual_result: parseMaybeJson(row.actual_result) || row.actual_result }; next.bucket = recommendationBucket(next); return next }) }
+function normalizePayloadRows(payload) { return (payload?.rows || []).map(row => {
+  const next = { ...row, reasoning: parseMaybeJson(row.reasoning) || row.reasoning, features_used: parseMaybeJson(row.features_used) || row.features_used, missing_inputs: parseMaybeJson(row.missing_inputs) || row.missing_inputs, raw_payload: parseMaybeJson(row.raw_payload) || row.raw_payload, actual_result: parseMaybeJson(row.actual_result) || row.actual_result }
+  next.bucket = next.reportable && next.odds_available && rowHasPrice(next) && ((toNumber(next.edge) || 0) > 0 || (toNumber(next.expected_value) || 0) > 0) ? 'recommended' : (next.row_type === 'model_signal' ? 'lean' : recommendationBucket(next))
+  return next
+}) }
 function signalChip(row) { const probability = numericScore(row); if (probability !== null) return `Confidence ${fmtPct(probability)}`; const projection = projectionValue(row); if (projection !== null) return `Projection ${fmt(projection, 2)}`; return null }
 function outputTypeLabel(row) { return projectionValue(row) !== null && numericScore(row) === null ? 'Model Projection' : productionBucketLabel(row.bucket) }
 
@@ -289,7 +293,21 @@ export default function ModelTrackerPage() {
   function load(force = false) { if (!force && cacheByDate[date]) { setPayload(cacheByDate[date]); setLoading(false); setError(null); return } setLoading(true); setError(null); fetch(`${API}/model-tracker?date=${date}`).then(async r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`); return r.json() }).then(json => { storePayload(date, json); setLoading(false) }).catch(err => { setError(String(err?.message || err)); setLoading(false) }) }
   function refreshPlays() { setRefreshing(true); setError(null); fetch(`${API}/model-tracker/${['snap', 'shot'].join('')}?date=${date}`, { method: 'POST' }).then(async r => { const text = await r.text(); let json = null; try { json = text ? JSON.parse(text) : null } catch { json = { message: text } } if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${text}`); if (!json || Number(json.rows_collected || 0) === 0) throw new Error('Refresh returned no model plays for this date.'); return json }).then(() => { setRefreshing(false); load(true) }).catch(err => { setError(String(err?.message || err)); setRefreshing(false) }) }
   function refreshResults() { setResultRefreshing(true); setError(null); fetch(`${API}/model-tracker/results/refresh?date=${date}`, { method: 'POST' }).then(async r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`); return r.json() }).then(() => { setResultRefreshing(false); load(true) }).catch(err => { setError(String(err?.message || err)); setResultRefreshing(false) }) }
-  function loadPeriodDates(keys) { const missing = keys.filter(key => !cacheByDate[key]); if (!missing.length) return; setPeriodLoading(true); Promise.all(missing.map(key => fetch(`${API}/model-tracker?date=${key}`).then(async r => { if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`); return r.json().then(json => [key, json]) }))).then(entries => { setCacheByDate(prev => { const next = { ...prev }; entries.forEach(([key, json]) => { next[key] = json }); return next }); setPeriodLoading(false) }).catch(err => { setError(String(err?.message || err)); setPeriodLoading(false) }) }
+  function loadPeriodDates(keys) {
+    if (!keys.length) return
+    const start = [...keys].sort()[0]
+    const end = [...keys].sort().at(-1)
+    const cacheKey = `range:${start}:${end}`
+    if (cacheByDate[cacheKey]) return
+    setPeriodLoading(true)
+    fetch(`${API}/model-tracker/range?start=${start}&end=${end}`).then(async r => {
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}: ${await r.text()}`)
+      return r.json()
+    }).then(json => {
+      setCacheByDate(prev => ({ ...prev, [cacheKey]: json }))
+      setPeriodLoading(false)
+    }).catch(err => { setError(String(err?.message || err)); setPeriodLoading(false) })
+  }
 
   useEffect(() => { load(false) }, [date])
   useEffect(() => { if (activeTab === 'results') loadPeriodDates(periodDateKeys(resultsPeriod, date)) }, [activeTab, resultsPeriod, date])
@@ -324,13 +342,13 @@ export default function ModelTrackerPage() {
   const groupedGames = useMemo(() => groupRowsByGame(filteredRows, games), [filteredRows, games])
   const topRows = useMemo(() => topModelProjectionRows(filteredRows), [filteredRows])
   const pnl = useMemo(() => summarizePnl(filteredRows, UNIT_SIZE_DOLLARS), [filteredRows])
-  const summary = { total: filteredRows.length, recommended: filteredRows.filter(r => r.bucket === 'recommended').length, lean: filteredRows.filter(r => r.bucket === 'lean').length, low: filteredRows.filter(r => !['recommended', 'lean'].includes(r.bucket)).length, pending: filteredRows.filter(r => r.grade === 'pending').length, graded: filteredRows.filter(r => GRADED.includes(r.grade)).length, price: filteredRows.filter(rowHasPrice).length }
+  const summary = { total: filteredRows.length, recommended: filteredRows.filter(r => r.reportable && r.odds_available && r.bucket === 'recommended').length, lean: filteredRows.filter(r => r.row_type === 'model_signal').length, low: filteredRows.filter(r => !r.reportable && r.row_type !== 'model_signal').length, pending: filteredRows.filter(r => r.reportable && r.grade === 'pending').length, graded: filteredRows.filter(r => r.reportable && GRADED.includes(r.grade)).length, price: filteredRows.filter(r => r.reportable && rowHasPrice(r)).length }
   const qualityRows = filteredRows.filter(row => !['recommended', 'lean'].includes(row.bucket))
 
   const filterProps = { options: { sourceOptions, gradeOptions, gameOptions, visibleCount: filteredRows.length }, values: { sourceFilter, gradeFilter, gameFilter, bucketFilter, confidenceFilter, priceFilter, edgeFilter, search }, setters: { setSourceFilter, setGradeFilter, setGameFilter, setBucketFilter, setConfidenceFilter, setPriceFilter, setEdgeFilter, setSearch } }
 
   return <div style={s.page}>
-    <section style={s.hero}><div style={s.header}><div><p className="page-kicker">Model Accountability</p><h1 className="page-title">Model Tracker</h1><p className="page-subtitle">Sleek slate view for model projections, actionable leans, game breakdowns, and results analytics.</p></div><div style={s.controls}><input className="input-control" type="date" value={date} onChange={e => setDate(e.target.value)} /><button className="button-primary" type="button" onClick={refreshPlays} disabled={refreshing}>{refreshing ? 'Refreshing...' : 'Refresh Model Plays'}</button><button className="button-secondary" type="button" onClick={refreshResults} disabled={resultRefreshing}>{resultRefreshing ? 'Refreshing...' : 'Refresh Results'}</button></div></div><div style={s.tabs}>{TABS.map(key => <button key={key} type="button" style={s.tab(activeTab === key)} onClick={() => setActiveTab(key)}>{TAB_LABELS[key]}</button>)}</div></section>
+    <section style={s.hero}><div style={s.header}><div><p className="page-kicker">Model Accountability</p><h1 className="page-title">Model Tracker</h1><p className="page-subtitle">Bet105-backed decisions are kept separate from projection-only MyDashboard and player watchlist signals.</p></div><div style={s.controls}><input className="input-control" type="date" value={date} onChange={e => setDate(e.target.value)} /><button className="button-primary" type="button" onClick={refreshPlays} disabled={refreshing}>{refreshing ? 'Refreshing...' : 'Refresh Model Plays'}</button><button className="button-secondary" type="button" onClick={refreshResults} disabled={resultRefreshing}>{resultRefreshing ? 'Refreshing...' : 'Refresh Results'}</button></div></div><div style={s.tabs}>{TABS.map(key => <button key={key} type="button" style={s.tab(activeTab === key)} onClick={() => setActiveTab(key)}>{TAB_LABELS[key]}</button>)}</div></section>
     {error && <div className="state-panel error">{error}</div>}{loading && <div className="state-panel">Loading model plays...</div>}
     <section style={s.statsScroller}><div style={s.statRail}><StatCard label="Visible Outputs" value={summary.total} /><StatCard label="Recommendations" value={summary.recommended} /><StatCard label="Model / Lean" value={summary.lean} /><StatCard label="Low Confidence" value={summary.low} /><StatCard label="Graded" value={summary.graded} /><StatCard label="Pending" value={summary.pending} /><StatCard label="Price Available" value={summary.price} /><StatCard label="Net P&L" value={fmtMoney(pnl.profit)} /></div></section>
     <Filters {...filterProps} />
