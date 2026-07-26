@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from mlb_app.simulation.box_score import (
     DRAFTKINGS_CLASSIC_BATTER_RULES,
     DRAFTKINGS_CLASSIC_PITCHER_RULES,
@@ -815,3 +817,153 @@ def test_output_validation_preserves_shadow_authority():
         "production_authority_changed"
     ] is False
     assert diagnostics["authoritative_source"] == "legacy"
+
+
+from mlb_app.simulation.shadow import (
+    CANONICAL_LIVE_BASERUNNING_SHADOW_EXECUTION_VERSION,
+    execute_live_baserunning_shadow_pair,
+)
+
+
+def run_live_pair(**overrides):
+    kwargs = {
+        "game_pk": 123,
+        "game_date": "2026-07-26",
+        "lineups": lineups(),
+        "bullpens": bullpens(),
+        "provider_discovery": provider_discovery(),
+        "exact_artifact_discovery": (
+            exact_discovery()
+        ),
+        "fallback_catalog_discovery": (
+            fallback_discovery()
+        ),
+        "bootstrap_ready": True,
+        "simulation_count": 2,
+    }
+    kwargs.update(overrides)
+
+    return execute_live_baserunning_shadow_pair(
+        baserunning_evidence_discovery=(
+            baserunning_discovery()
+        ),
+        **kwargs,
+    )
+
+
+def test_live_pair_preserves_legacy_production_authority():
+    result = run_live_pair()
+    diagnostics = result.to_diagnostics()
+
+    assert result.production_execution is (
+        result.legacy_execution
+    )
+    assert diagnostics["production_result"] == (
+        "legacy_execution"
+    )
+    assert diagnostics["activation_permitted"] is False
+    assert diagnostics["production_activation"] is False
+    assert (
+        diagnostics["production_authority_changed"]
+        is False
+    )
+    assert diagnostics["authoritative_source"] == "legacy"
+
+
+def test_live_pair_uses_identical_inputs_and_seeds():
+    result = run_live_pair()
+
+    assert result.legacy_execution.executed is True
+    assert result.calibrated_execution.executed is True
+    assert result.observation.ready is True
+    assert (
+        result.observation.input_parity_verified
+        is True
+    )
+    assert (
+        result.observation.seed_parity_verified
+        is True
+    )
+    assert result.observation.simulation_count == 2
+    assert (
+        result.observation.calibrated_transform_digest
+        != result.observation.paired_context_digest
+    )
+
+
+def test_live_pair_is_deterministic():
+    first = run_live_pair()
+    second = run_live_pair()
+
+    assert first.observation == second.observation
+    assert (
+        first.observation.digest
+        == second.observation.digest
+    )
+    assert (
+        CANONICAL_LIVE_BASERUNNING_SHADOW_EXECUTION_VERSION
+        == "canonical_live_baserunning_shadow_execution_v1"
+    )
+
+
+
+def test_live_pair_unavailable_evidence_fails_open():
+    result = execute_live_baserunning_shadow_pair(
+        game_pk=123,
+        game_date="2026-07-26",
+        lineups=lineups(),
+        bullpens=bullpens(),
+        provider_discovery=provider_discovery(),
+        exact_artifact_discovery=exact_discovery(),
+        fallback_catalog_discovery=(
+            fallback_discovery()
+        ),
+        bootstrap_ready=True,
+        simulation_count=2,
+        baserunning_evidence_discovery=(
+            baserunning_discovery(
+                status="unavailable",
+            )
+        ),
+    )
+
+    assert result.production_execution is (
+        result.legacy_execution
+    )
+    assert result.legacy_execution.status == "blocked"
+    assert (
+        result.calibrated_execution.status
+        == "blocked"
+    )
+    assert result.observation.status == "unavailable"
+    assert result.observation.ready is False
+    assert (
+        result.observation.input_parity_verified
+        is False
+    )
+    assert (
+        result.observation.seed_parity_verified
+        is False
+    )
+    assert (
+        result.to_diagnostics()[
+            "authoritative_source"
+        ]
+        == "legacy"
+    )
+
+
+def test_live_pair_rejects_external_transform():
+    from mlb_app.simulation.game import (
+        CanonicalBaserunningProbabilityTransform,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="owns the calibrated probability transform",
+    ):
+        run_live_pair(
+            baserunning_probability_transform=(
+                CanonicalBaserunningProbabilityTransform()
+            ),
+        )
