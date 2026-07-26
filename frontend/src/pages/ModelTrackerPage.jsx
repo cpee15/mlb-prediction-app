@@ -178,15 +178,21 @@ function Filters({ options, values, setters }) {
 function PlaysTab({ groupedGames, topRows, gameFilter }) {
   const [gamesOpen, setGamesOpen] = useState(gameFilter !== 'all')
   useEffect(() => { if (gameFilter !== 'all') setGamesOpen(true) }, [gameFilter])
-  const visibleTopRows = topRows.slice(0, 12)
+  const reportableRows = topRows.filter(row => row.reportable && row.odds_available)
+  const modelOnlyRows = topRows.filter(row => row.row_type === 'model_signal')
+  const visibleTopRows = reportableRows.slice(0, 12)
   return <div style={s.page}>
     <section style={s.section}>
-      <div style={s.sectionHeader}><div><div style={s.sectionTitle}>Top Model Projections</div><div style={s.rowMeta}>Best available model outputs for the slate. Projection values are shown as projections, not confidence percentages.</div></div><span className="status-badge">{topRows.length} signals</span></div>
-      {visibleTopRows.length ? <div style={s.topGrid}>{visibleTopRows.map(row => <TopProjectionCard key={row.id || row.tracker_key || rowIdentity(row)} row={row} />)}</div> : <EmptyState>No model projections match the current filters.</EmptyState>}
+      <div style={s.sectionHeader}><div><div style={s.sectionTitle}>Bet105 Odds-Backed Plays</div><div style={s.rowMeta}>Actionable selections require a real Bet105 price and positive model economics.</div></div><span className="status-badge">{reportableRows.length} decisions</span></div>
+      {visibleTopRows.length ? <div style={s.topGrid}>{visibleTopRows.map(row => <TopProjectionCard key={row.id || row.tracker_key || rowIdentity(row)} row={row} />)}</div> : <EmptyState>No Bet105 odds-backed decisions match the current filters.</EmptyState>}
       {topRows.length > visibleTopRows.length && <div style={{ ...s.rowMeta, marginTop: 12 }}>Showing top {visibleTopRows.length}; use filters or Details for the full slate.</div>}
     </section>
     <section style={s.section}>
-      <div style={s.sectionHeader}><div><div style={s.sectionTitle}>Game Breakdown</div><div style={s.rowMeta}>Collapsed by default so the slate stays scannable.</div></div><button className="button-secondary" type="button" onClick={() => setGamesOpen(prev => !prev)}>{gamesOpen ? 'Hide Games' : `Show Games (${groupedGames.length})`}</button></div>
+      <div style={s.sectionHeader}><div><div style={s.sectionTitle}>Model-Only Signals</div><div style={s.rowMeta}>Projection only. No Bet105 odds available. Teams and totals may become decisions when a matching market arrives; player props stay on this watchlist unless Bet105 prices them.</div></div><span className="status-badge">{modelOnlyRows.length} watchlist</span></div>
+      {modelOnlyRows.length ? <div style={s.topGrid}>{modelOnlyRows.slice(0, 12).map(row => <TopProjectionCard key={row.id || row.tracker_key || rowIdentity(row)} row={row} />)}</div> : <EmptyState>No projection-only signals match the current filters.</EmptyState>}
+    </section>
+    <section style={s.section}>
+      <div style={s.sectionHeader}><div><div style={s.sectionTitle}>Teams, Totals & Player Props Watchlist</div><div style={s.rowMeta}>Collapsed by default so the slate stays scannable.</div></div><button className="button-secondary" type="button" onClick={() => setGamesOpen(prev => !prev)}>{gamesOpen ? 'Hide Games' : `Show Games (${groupedGames.length})`}</button></div>
       {gamesOpen && (groupedGames.length ? <div style={s.accordionStack}>{groupedGames.map(game => <GameAccordion key={game.key} game={game} defaultOpen={gameFilter !== 'all'} />)}</div> : <EmptyState>No model plays found for this slate.</EmptyState>)}
     </section>
   </div>
@@ -255,7 +261,7 @@ function PnlTab({ rows }) {
   const bestDay = series.slice().sort((a, b) => b.profit - a.profit)[0]
   const worstDay = series.slice().sort((a, b) => a.profit - b.profit)[0]
   return <div style={s.page}>
-    <section style={s.section}><div style={s.sectionHeader}><div><div style={s.sectionTitle}>P&L — $100 Units</div><div style={s.rowMeta}>Realized performance only includes graded plays with usable price data.</div></div><span className="status-badge">$100 fixed unit</span></div><section style={s.statsScroller}><div style={s.statRail}><StatCard label="Net P&L" value={fmtMoney(pnl.profit)} /><StatCard label="Net Units" value={fmtUnits(pnl.units)} /><StatCard label="Total Risked" value={fmtMoney(pnl.total_risked)} /><StatCard label="ROI" value={fmtPct(pnl.roi)} /><StatCard label="Win Rate" value={fmtPct(pnl.win_rate)} /><StatCard label="Best Day" value={bestDay ? fmtMoney(bestDay.profit) : 'Unavailable'} /><StatCard label="Worst Day" value={worstDay ? fmtMoney(worstDay.profit) : 'Unavailable'} /><StatCard label="Max Drawdown" value={fmtMoney(maxDrawdown(series))} /></div></section></section>
+    <section style={s.section}><div style={s.sectionHeader}><div><div style={s.sectionTitle}>P&L — $100 Units</div><div style={s.rowMeta}>Only reportable Bet105 odds-backed decisions are included; model-only watchlist rows never affect this ledger.</div></div><span className="status-badge">$100 fixed unit</span></div><section style={s.statsScroller}><div style={s.statRail}><StatCard label="Net P&L" value={fmtMoney(pnl.profit)} /><StatCard label="Net Units" value={fmtUnits(pnl.units)} /><StatCard label="Total Risked" value={fmtMoney(pnl.total_risked)} /><StatCard label="ROI" value={fmtPct(pnl.roi)} /><StatCard label="Win Rate" value={fmtPct(pnl.win_rate)} /><StatCard label="Best Day" value={bestDay ? fmtMoney(bestDay.profit) : 'Unavailable'} /><StatCard label="Worst Day" value={worstDay ? fmtMoney(worstDay.profit) : 'Unavailable'} /><StatCard label="Max Drawdown" value={fmtMoney(maxDrawdown(series))} /></div></section></section>
     <section style={s.chartGrid}><ChartBox title="Cumulative P&L"><ResponsiveContainer width="100%" height="100%"><LineChart data={series}><CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" /><XAxis dataKey="date" stroke="#94a3b8" /><YAxis stroke="#94a3b8" /><Tooltip formatter={v => fmtMoney(v)} /><Line type="monotone" dataKey="cumulative" stroke="#67e8f9" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></ChartBox><ChartBox title="Daily P&L"><ResponsiveContainer width="100%" height="100%"><BarChart data={series}><CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" /><XAxis dataKey="date" stroke="#94a3b8" /><YAxis stroke="#94a3b8" /><Tooltip formatter={v => fmtMoney(v)} /><Bar dataKey="profit" fill="#22c55e" /></BarChart></ResponsiveContainer></ChartBox></section>
     <section style={s.section}><div style={s.sectionHeader}><div><div style={s.sectionTitle}>Ledger</div><div style={s.rowMeta}>Every realized row behind the P&L cards.</div></div></div><PeriodDetailTable rows={pnl.rows.filter(row => row.profit !== null)} /></section>
   </div>
