@@ -15,6 +15,8 @@ from .admin_access import (
     capabilities_for_role,
     dashboard_session_factory,
     require_capability,
+    ROLE_ADMIN,
+    ROLE_USER,
 )
 from .admin_configuration import (
     FEATURE_FLAG_DEFINITIONS,
@@ -40,6 +42,7 @@ from .database import (
     AppUser,
     AppUserDirectoryProfile,
     AppUserPreference,
+    AppUserRole,
     FederatedIdentity,
 )
 from .my_dashboard_observability import latest_hydration_status
@@ -77,6 +80,7 @@ class AdminUserUpdateRequest(BaseModel):
     timezone: Optional[str] = Field(default=None, min_length=1, max_length=64)
     is_active: Optional[StrictBool] = None
     is_locked: Optional[StrictBool] = None
+    is_admin: Optional[StrictBool] = None
 
 
 class AdminSettingUpdate(BaseModel):
@@ -369,7 +373,7 @@ def admin_user_update(
             actor_user_id=principal.user_id,
         )
         if user.id == principal.user_id and (
-            values.get("is_active") is False or values.get("is_locked") is True
+            values.get("is_active") is False or values.get("is_locked") is True or values.get("is_admin") is False
         ):
             raise HTTPException(status_code=400, detail="The active owner cannot deactivate or lock itself")
         before = _admin_user_detail(session, user, actor_user_id=principal.user_id)
@@ -396,6 +400,32 @@ def admin_user_update(
         for field_name in ("is_active", "is_locked"):
             if field_name in values and getattr(directory, field_name) != values[field_name]:
                 setattr(directory, field_name, values[field_name])
+                security_changed = True
+        if "is_admin" in values:
+            requested_role = ROLE_ADMIN if values["is_admin"] else ROLE_USER
+            assignment = (
+                session.query(AppUserRole)
+                .filter(AppUserRole.user_id == user.id)
+                .first()
+            )
+            current_role = assignment.role if assignment and assignment.role in {ROLE_ADMIN, ROLE_USER} else ROLE_USER
+            if current_role != requested_role:
+                if assignment is None:
+                    assignment = AppUserRole(
+                        user_id=user.id,
+                        role=requested_role,
+                        assignment_source="admin_control_center",
+                        assigned_at=now,
+                        verified_at=now if requested_role == ROLE_ADMIN else None,
+                        updated_at=now,
+                    )
+                    session.add(assignment)
+                else:
+                    assignment.role = requested_role
+                    assignment.assignment_source = "admin_control_center"
+                    assignment.assigned_at = now
+                    assignment.verified_at = now if requested_role == ROLE_ADMIN else None
+                    assignment.updated_at = now
                 security_changed = True
         if security_changed:
             directory.session_version = int(directory.session_version or 0) + 1
