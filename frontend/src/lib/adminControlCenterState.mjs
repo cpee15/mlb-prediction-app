@@ -11,6 +11,7 @@ export const EDITABLE_DIRECTORY_FIELDS = Object.freeze([
   'timezone',
   'is_active',
   'is_locked',
+  'is_admin',
 ])
 
 export function editableUserPayload(values = {}) {
@@ -36,6 +37,7 @@ export function userEditorValues(user = {}) {
     timezone: directory.timezone || 'UTC',
     is_active: directory.is_active !== false,
     is_locked: Boolean(directory.is_locked),
+    is_admin: user.role === 'admin',
   })
 }
 
