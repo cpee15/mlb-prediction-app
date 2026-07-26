@@ -689,7 +689,11 @@ def _row_payload(row: ModelTrackerSnapshot) -> Dict[str, Any]:
     if isinstance(reasoning, dict):
         canonical_diagnostics = reasoning.get("canonical_probability") or reasoning.get("canonical_probability_context")
         daily_odds_diagnostics = reasoning.get("daily_odds_diagnostics") or reasoning.get("daily_odds_diagnostics_context")
+    tracker_contract = reasoning.get("tracker_contract") if isinstance(reasoning, dict) else {}
     return {
+        "row_type": tracker_contract.get("row_type") or ("reportable_decision" if row.source == "bet105" and row.pick_type == "reportable_decision" else "model_signal"),
+        "reportable": bool(tracker_contract.get("reportable")),
+        "odds_available": bool(tracker_contract.get("odds_available")),
         "id": row.id,
         "tracker_key": row.tracker_key,
         "snapshot_date": row.snapshot_date.isoformat() if row.snapshot_date else None,
@@ -775,6 +779,12 @@ def list_tracker_rows(session: Session, target_date: str, game_pk: Optional[int]
         "lost": sum(1 for r in rows if r.get("grade") == "lost"),
         "push": sum(1 for r in rows if r.get("grade") == "push"),
         "ungraded_rows": sum(1 for r in rows if r.get("grade") in {"ungraded", "watchlist_only"}),
+        "reportable_decision_count": sum(1 for r in rows if r.get("reportable")),
+        "model_signal_count": sum(1 for r in rows if r.get("row_type") == "model_signal"),
+        "odds_backed_count": sum(1 for r in rows if r.get("odds_available")),
+        "model_only_count": sum(1 for r in rows if not r.get("odds_available")),
+        "bet105_market_count": sum(1 for r in rows if r.get("source") == "bet105"),
+        "missing_odds_count": sum(1 for r in rows if r.get("row_type") == "model_signal"),
         "source_count": len({r.get("source") for r in rows if r.get("source")}),
         "sources": sorted({r.get("source") for r in rows if r.get("source")}),
         "canonical_probability_rows": len(canonical_rows),
@@ -783,6 +793,30 @@ def list_tracker_rows(session: Session, target_date: str, game_pk: Optional[int]
     }
     return {"date": parsed.isoformat(), "snapshot_count": len({r.get("created_at") for r in rows if r.get("created_at")}), "rows": rows, "games": game_payloads, "summary": summary, "errors": []}
 
+
+
+def list_tracker_range(session: Session, start_date: str, end_date: str, include_raw: bool = False) -> Dict[str, Any]:
+    start = dt.date.fromisoformat(start_date[:10])
+    end = dt.date.fromisoformat(end_date[:10])
+    if end < start:
+        raise ValueError("end date must be on or after start date")
+    records = (session.query(ModelTrackerSnapshot)
+        .filter(ModelTrackerSnapshot.snapshot_date >= start, ModelTrackerSnapshot.snapshot_date <= end)
+        .order_by(ModelTrackerSnapshot.snapshot_date, ModelTrackerSnapshot.game_pk.nullslast(), ModelTrackerSnapshot.id)
+        .all())
+    rows = []
+    for record in records:
+        payload = _row_payload(record)
+        if not payload.get("reportable"):
+            continue
+        if not include_raw:
+            payload.pop("raw_payload", None)
+        rows.append(payload)
+    return {"start": start.isoformat(), "end": end.isoformat(), "rows": rows,
+            "summary": {"reportable_decision_count": len(rows),
+                        "graded_rows": sum(1 for row in rows if row.get("grade") in {"won", "lost", "push", "partial"}),
+                        "pending_rows": sum(1 for row in rows if row.get("grade") == "pending"),
+                        "sources": sorted({row.get("source") for row in rows if row.get("source")})}}
 
 def _fetch_schedule_results(target_date: str) -> Dict[int, Dict[str, Any]]:
     response = requests.get(f"{MLB_STATS_BASE}/schedule", params={"sportId": 1, "date": target_date, "hydrate": "linescore,team"}, timeout=20)
