@@ -640,3 +640,13 @@ from .baserunning_production_prior import (
     decode_baserunning_production_prior,
     load_baserunning_production_prior,
 )
+
+from .production_trial_policy import (
+    CANONICAL_PRODUCTION_SIMULATION_COUNT_ENV,
+    CANONICAL_PRODUCTION_TRIAL_POLICY_VERSION,
+    DEFAULT_CANONICAL_PRODUCTION_SIMULATION_COUNT,
+    MAXIMUM_CANONICAL_PRODUCTION_SIMULATION_COUNT,
+    MINIMUM_CANONICAL_PRODUCTION_SIMULATION_COUNT,
+    CanonicalProductionTrialPolicy,
+    build_canonical_production_trial_policy,
+)

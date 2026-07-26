@@ -495,3 +495,33 @@ test('prefers top-level projection diagnostics when both paths exist', () => {
   assert.equal(view.available, true)
   assert.equal(view.runId, 'run-123')
 })
+
+
+
+test('recognizes activated production projections', () => {
+  const source = payload()
+  const shadow = (
+    source.diagnostics.canonical_shadow
+  )
+  const projections = shadow.player_projections
+
+  shadow.authoritative_source = (
+    'canonical_event_driven_calibrated_baserunning'
+  )
+  projections.simulation_count = 250
+  projections.authoritative = true
+  projections.authoritative_source = (
+    'canonical_event_driven_calibrated_baserunning'
+  )
+
+  const view = (
+    buildCanonicalProjectionsViewModel(source)
+  )
+
+  assert.equal(view.authoritative, true)
+  assert.equal(view.simulationCount, 250)
+  assert.equal(
+    view.authoritativeSource,
+    'canonical_event_driven_calibrated_baserunning',
+  )
+})

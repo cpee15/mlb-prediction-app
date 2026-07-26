@@ -1010,8 +1010,18 @@ function ProjectionsTab({ game }) {
           </div>
         </div>
 
-        <Tag tone="diagnostic">
-          Non-authoritative shadow
+        <Tag
+          tone={
+            view.authoritative
+              ? 'success'
+              : 'diagnostic'
+          }
+        >
+          {
+            view.authoritative
+              ? 'Authoritative production'
+              : 'Non-authoritative shadow'
+          }
         </Tag>
       </div>
 
