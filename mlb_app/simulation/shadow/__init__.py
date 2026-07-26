@@ -600,3 +600,22 @@ from .historical_baserunning_holdout_validation import (
     build_historical_baserunning_holdout_plan,
     filter_historical_baserunning_holdout_schedule,
 )
+
+
+from .live_baserunning_shadow_monitoring import (
+    CANONICAL_LIVE_BASERUNNING_SHADOW_MONITOR_VERSION,
+    CANONICAL_LIVE_BASERUNNING_SHADOW_OBSERVATION_VERSION,
+    LIVE_BASERUNNING_SHADOW_MAXIMUM_DAY_SPAN,
+    LIVE_BASERUNNING_SHADOW_MINIMUM_DAY_SPAN,
+    LIVE_BASERUNNING_SHADOW_MINIMUM_GAME_COUNT,
+    CanonicalLiveBaserunningShadowMonitor,
+    CanonicalLiveBaserunningShadowObservation,
+    summarize_live_baserunning_shadow,
+)
+
+
+from .live_baserunning_shadow_execution import (
+    CANONICAL_LIVE_BASERUNNING_SHADOW_EXECUTION_VERSION,
+    CanonicalLiveBaserunningShadowExecution,
+    execute_live_baserunning_shadow_pair,
+)
