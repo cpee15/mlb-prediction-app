@@ -146,7 +146,7 @@ function OddsBoard({ events, selectedEventId, setSelectedEventId, propsData, pro
   useEffect(() => { setMarketIndex('0'); setSelectionIndex('0') }, [activeCategory, selectedEventId])
   useEffect(() => { setSelectionIndex('0') }, [marketIndex])
 
-  if (!selectedEvent) return <section style={s.section}><div style={s.empty}>No DraftKings events returned.</div></section>
+  if (!selectedEvent) return <section style={s.section}><div style={s.empty}>No Bet105 events returned.</div></section>
 
   return <section style={s.section}>
     <div style={s.sectionHeader}>
@@ -173,7 +173,7 @@ export default function DailyOddsPage() {
   const today = new Date().toISOString().slice(0, 10)
   const [date, setDate] = useState(today)
   const initialMatchupsUrl = `${API}/matchups?date=${today}`
-  const initialEventsUrl = `${API}/odds/draftkings/events?date=${today}`
+  const initialEventsUrl = `${API}/odds/bet105/events?date=${today}`
   const initialModelsUrl = `${API}/daily-odds/models?date=${today}`
   const [matchups, setMatchups] = useState(() => {
     const cached = readCachedJson(initialMatchupsUrl, MATCHUPS_TTL_SECONDS)
@@ -201,7 +201,7 @@ export default function DailyOddsPage() {
     setModelError(null)
     setUnifiedPayload(null)
     const matchupsUrl = `${API}/matchups?date=${date}`
-    const eventsUrl = `${API}/odds/draftkings/events?date=${date}`
+    const eventsUrl = `${API}/odds/bet105/events?date=${date}`
     const modelsUrl = `${API}/daily-odds/models?date=${date}`
     Promise.all([
       fetchJson(matchupsUrl, { ttlSeconds: MATCHUPS_TTL_SECONDS, forceRefresh }),
@@ -232,7 +232,7 @@ export default function DailyOddsPage() {
     if (!selectedEventId) { setPropsData(null); return }
     setPropsLoading(true)
     setPropsError(null)
-    const propsUrl = `${API}/odds/draftkings/event/${selectedEventId}/props`
+    const propsUrl = `${API}/odds/bet105/event/${selectedEventId}/props`
     fetchJson(propsUrl, { ttlSeconds: EVENT_PROPS_TTL_SECONDS })
       .then(json => { setPropsData(json); setPropsLoading(false) })
       .catch(err => { setPropsData(null); setPropsError(String(err?.message || err)); setPropsLoading(false) })
@@ -247,12 +247,12 @@ export default function DailyOddsPage() {
   return <div style={s.page}>
     <section style={s.hero}>
       <div style={s.header}>
-        <div><div style={s.eyebrow}>DraftKings board</div><h1 style={s.title}>Daily Odds</h1><div style={s.subtitle}>Odds are organized by game, category, market, and player. The page loads fast first; heavier model recap data is pulled only when requested.</div></div>
+        <div><div style={s.eyebrow}>Bet105 board</div><h1 style={s.title}>Daily Odds</h1><div style={s.subtitle}>Odds are organized by game, category, market, and player. The page loads fast first; heavier model recap data is pulled only when requested.</div></div>
         <div style={s.controls}><input type="date" value={date} onChange={e => setDate(e.target.value)} style={s.input} /><button type="button" style={s.button} onClick={() => load(true)} disabled={loading}>{loading ? 'Refreshing...' : 'Refresh Odds'}</button></div>
       </div>
       <div style={s.stats}>
         <div style={s.statCard}><div style={s.statLabel}>MLB Games</div><div style={s.statValue}>{matchups.length}</div></div>
-        <div style={s.statCard}><div style={s.statLabel}>DK Events</div><div style={s.statValue}>{events.length}</div></div>
+        <div style={s.statCard}><div style={s.statLabel}>Bet105 Events</div><div style={s.statValue}>{events.length}</div></div>
         <div style={s.statCard}><div style={s.statLabel}>Matched</div><div style={s.statValue}>{matchedCount}</div></div>
         <div style={s.statCard}><div style={s.statLabel}>Model Rows</div><div style={s.statValue}>{modelGamesFromPayload(modelPayload).length}</div></div>
         <div style={s.statCard}><div style={s.statLabel}>Unified Recap</div><div style={{ ...s.statValue, fontSize: 15 }}>{unifiedPayload ? 'Loaded' : 'On demand'}</div></div>
@@ -263,7 +263,7 @@ export default function DailyOddsPage() {
     {error && <div style={s.error}>{error}</div>}
     {modelError && <div style={s.error}>Model panel error: {modelError}</div>}
     {loading && <div style={s.loader}>Loading daily odds...</div>}
-    {!loading && !error && events.length === 0 && <div style={s.empty}>No DraftKings events returned for {date}. Internal model rows may still exist, but no sportsbook event board can be built without events.</div>}
+    {!loading && !error && events.length === 0 && <div style={s.empty}>No Bet105 events returned for {date}. Internal model rows may still exist, but no sportsbook event board can be built without events.</div>}
 
     {!loading && !error && events.length > 0 && <OddsBoard events={events} selectedEventId={selectedEventId} setSelectedEventId={setSelectedEventId} propsData={propsData} propsLoading={propsLoading} propsError={propsError} />}
 
@@ -276,7 +276,7 @@ export default function DailyOddsPage() {
         const home = event?.home_team?.name || event?.home_team || matchup?.home_team_name || 'Home'
         return <article key={`${event.event_id || key || idx}`} style={{ ...s.card, borderColor: String(event.event_id) === String(selectedEventId) ? '#58a6ff' : '#30363d' }}>
           <div style={s.cardTop}>
-            <div><div style={s.matchup}>{away} @ {home}</div><div style={s.metaRow}><span style={s.chip}>{formatTime(matchup?.game_time || event?.start_time || event?.commence_time)}</span><span style={s.chip}>MLB: {matchup?.game_pk ? <Link to={`/matchup/${matchup.game_pk}`} style={{ color: '#58a6ff', textDecoration: 'none' }}>{matchup.game_pk}</Link> : 'Unmatched'}</span><span style={s.chip}>DK: {event.event_id || 'Unavailable'}</span><span style={s.chip}>Model: {model ? 'loaded' : 'pending'}</span></div></div>
+            <div><div style={s.matchup}>{away} @ {home}</div><div style={s.metaRow}><span style={s.chip}>{formatTime(matchup?.game_time || event?.start_time || event?.commence_time)}</span><span style={s.chip}>MLB: {matchup?.game_pk ? <Link to={`/matchup/${matchup.game_pk}`} style={{ color: '#58a6ff', textDecoration: 'none' }}>{matchup.game_pk}</Link> : 'Unmatched'}</span><span style={s.chip}>Bet105: {event.event_id || 'Unavailable'}</span><span style={s.chip}>Model: {model ? 'loaded' : 'pending'}</span></div></div>
             <span style={s.badge(matched)}>{matched ? 'MATCHED' : 'UNMATCHED'}</span>
           </div>
           <div style={s.markets}><MarketBox label="Moneyline" market={findMarket(event, 'h2h')} /><MarketBox label="Run Line" market={findMarket(event, 'spreads')} /><MarketBox label="Total" market={findMarket(event, 'totals')} /></div>
