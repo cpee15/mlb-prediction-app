@@ -1859,7 +1859,7 @@ export default function ModelProjectionsPage() {
 
       try {
         const url = `${API}/models/projections?date=${date}`
-        const res = await fetch(url)
+        const res = await fetch(url, { cache: 'no-store' })
         const contentType = res.headers.get('content-type') || ''
 
         if (!res.ok) {
@@ -1910,7 +1910,11 @@ export default function ModelProjectionsPage() {
       ) : null}
 
       {!loading && payload && !games.length ? (
-        <div style={s.card}>No games returned for this date.</div>
+        <div style={s.card}>
+          {payload?.data_status === 'not_ready'
+            ? (payload?.message || 'Model projections are being prepared for this date.')
+            : 'No games returned for this date.'}
+        </div>
       ) : null}
 
       {games.map(game => (
