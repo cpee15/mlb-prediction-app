@@ -93,6 +93,22 @@ def test_rehydration_promotes_new_version_without_duplicate_current_rows(session
     assert first["dataset_version"] != second["dataset_version"]
 
 
+def test_hydration_removes_duplicate_entity_keys_before_persistence(session):
+    duplicate_payload = payload()
+    duplicate_payload["items"].append(dict(duplicate_payload["items"][0]))
+    result = hydrate_dashboard_dataset(
+        session=session,
+        date="2026-07-15",
+        component="hitters",
+        payload_builder=lambda: duplicate_payload,
+    )
+
+    assert result["source_row_count"] == 2
+    assert result["dataset_row_count"] == 1
+    assert result["duplicate_rows_removed"] == 1
+    assert session.query(MyDashboardRecord).filter(MyDashboardRecord.is_current.is_(True)).count() == 1
+
+
 def test_standard_and_active_lineup_datasets_do_not_collide(session):
     hydrate_dashboard_dataset(
         session=session,

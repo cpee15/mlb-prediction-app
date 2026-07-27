@@ -13,7 +13,6 @@ from .admin_access import DashboardPrincipal, require_capability
 from .admin_configuration import profile_key_for_role
 from .dashboard_canonical_status import canonical_dashboard_status
 from .dashboard_player_report_query import query_player_report
-from .dashboard_projection_operator import ensure_canonical_projection
 from .dashboard_projection_report_query import query_projection_report
 from .dashboard_related_report_query import query_related_report
 from .dashboard_report_types import list_report_types
@@ -300,20 +299,9 @@ def my_dashboard_player_report_query(payload: DashboardPlayerReportRequest) -> D
                     report_type=payload.report_type,
                     selected_fields=payload.selected_fields,
                 )
-            bootstrap = None
             lineup_index = None
             population_player_ids = None
             population_mode = "all_active"
-            if payload.report_type in {"all_active_hitters", "all_active_pitchers"}:
-                bootstrap = ensure_canonical_projection(
-                    session,
-                    target_date=payload.as_of_date or mlb_business_date(),
-                    required_player_type=(
-                        "hitter"
-                        if payload.report_type == "all_active_hitters"
-                        else "pitcher"
-                    ),
-                )
             if payload.confirmed_lineups_only:
                 if payload.report_type != "all_active_hitters":
                     raise ValueError("Confirmed 1–9 is supported only for the active hitters report")
@@ -332,8 +320,21 @@ def my_dashboard_player_report_query(payload: DashboardPlayerReportRequest) -> D
                 selected_fields=payload.selected_fields, include_metadata=payload.include_metadata,
                 population_player_ids=population_player_ids, population_mode=population_mode,
             )
-            if bootstrap is not None:
-                result["population_bootstrap"] = bootstrap
+            result["population_bootstrap"] = {
+                "status": "not_run",
+                "reason": "report_requests_are_read_only",
+            }
+            current_population = int(
+                (result.get("population") or {}).get("matched_current_count") or 0
+            )
+            result["data_status"] = "ready" if current_population else "not_ready"
+            result["refreshing"] = False
+            result["stale"] = False
+            if result["data_status"] == "not_ready":
+                result["message"] = (
+                    "No current canonical player snapshot is available. "
+                    "The scheduled canonical refresh must populate this report."
+                )
             if lineup_index is not None:
                 lineup_metadata = dict(lineup_index.get("metadata") or {})
                 lineup_metadata["matched_current_count"] = result["population"]["matched_current_count"]

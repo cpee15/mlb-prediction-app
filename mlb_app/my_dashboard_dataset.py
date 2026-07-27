@@ -238,7 +238,20 @@ def hydrate_dashboard_dataset(
     current_time = now or dt.datetime.utcnow()
     mode = DATASET_MODE_ACTIVE_LINEUPS if active_lineups else DATASET_MODE_STANDARD
     payload = payload_builder() or {}
-    items = [dict(item) for item in (payload.get("items") or payload.get("records") or []) if isinstance(item, dict)]
+    source_items = [
+        dict(item)
+        for item in (payload.get("items") or payload.get("records") or [])
+        if isinstance(item, dict)
+    ]
+    items: List[Dict[str, Any]] = []
+    seen_entity_keys = set()
+    for source_index, item in enumerate(source_items):
+        key = _entity_key(normalized_component, item, source_index)
+        if key in seen_entity_keys:
+            continue
+        seen_entity_keys.add(key)
+        items.append(item)
+    duplicate_rows_removed = len(source_items) - len(items)
     dataset_version = uuid.uuid4().hex
     expires_at = current_time + dt.timedelta(seconds=int(ttl_seconds)) if ttl_seconds else None
     lineup_revision = payload.get("lineup_revision")
@@ -292,7 +305,8 @@ def hydrate_dashboard_dataset(
         "dataset_version": dataset_version,
         "dataset_schema_version": DATASET_SCHEMA_VERSION,
         "dataset_row_count": len(records),
-        "source_row_count": len(items),
+        "source_row_count": len(source_items),
+        "duplicate_rows_removed": duplicate_rows_removed,
         "hydrated": True,
         "hydrated_at": current_time.isoformat(),
         "expires_at": expires_at.isoformat() if expires_at else None,

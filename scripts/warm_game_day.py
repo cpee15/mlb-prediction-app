@@ -55,6 +55,11 @@ def warm(base_url: str, timeout: int = 60) -> Dict[str, Any]:
     for label in ("today", "tomorrow", "yesterday"):
         date_value = dates[label]
         actions.append({
+            "name": f"bet105_board_snapshot_{label}",
+            "method": "POST",
+            "url": f"{base}/odds/bet105/events/refresh?date={date_value}",
+        })
+        actions.append({
             "name": f"model_projection_snapshot_{label}",
             "method": "POST",
             "url": f"{base}/models/projections/snapshot/{date_value}",

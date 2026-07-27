@@ -11,21 +11,20 @@ class SessionContext:
         return False
 
 
-def test_canonical_report_query_bootstraps_for_requested_mlb_date(monkeypatch):
+def test_canonical_report_query_never_bootstraps_inside_request(monkeypatch):
     calls = {}
     monkeypatch.setattr(routes, "session_factory", lambda: lambda: SessionContext())
-
-    def ensure(_session, *, target_date, required_player_type):
-        calls["target_date"] = target_date
-        calls["required_player_type"] = required_player_type
-        return {"status": "populated", "current_count": 300}
 
     def query(_session, report_type, **kwargs):
         calls["report_type"] = report_type
         calls["query"] = kwargs
-        return {"report_type": report_type, "records": [], "totalSize": 300}
+        return {
+            "report_type": report_type,
+            "records": [],
+            "totalSize": 300,
+            "population": {"matched_current_count": 300},
+        }
 
-    monkeypatch.setattr(routes, "ensure_canonical_projection", ensure)
     monkeypatch.setattr(routes, "query_player_report", query)
 
     payload = routes.DashboardPlayerReportRequest(
@@ -36,23 +35,17 @@ def test_canonical_report_query_bootstraps_for_requested_mlb_date(monkeypatch):
     )
     result = routes.my_dashboard_player_report_query(payload)
 
-    assert calls["target_date"] == dt.date(2026, 7, 20)
     assert calls["report_type"] == "all_active_hitters"
-    assert calls["required_player_type"] == "hitter"
     assert result["totalSize"] == 300
     assert result["population_bootstrap"] == {
-        "status": "populated",
-        "current_count": 300,
+        "status": "not_run",
+        "reason": "report_requests_are_read_only",
     }
+    assert result["data_status"] == "ready"
 
 
 def test_noncanonical_related_report_does_not_auto_bootstrap(monkeypatch):
     monkeypatch.setattr(routes, "session_factory", lambda: lambda: SessionContext())
-    monkeypatch.setattr(
-        routes,
-        "ensure_canonical_projection",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected bootstrap")),
-    )
     monkeypatch.setattr(
         routes,
         "query_related_report",
@@ -113,11 +106,6 @@ def test_expanded_report_types_dispatch_to_existing_authoritative_services(monke
 def test_confirmed_hitters_query_full_canonical_id_population(monkeypatch):
     calls = {}
     monkeypatch.setattr(routes, "session_factory", lambda: lambda: SessionContext())
-    monkeypatch.setattr(
-        routes,
-        "ensure_canonical_projection",
-        lambda *_args, **_kwargs: {"status": "already_available", "current_count": 379},
-    )
     monkeypatch.setattr(
         routes,
         "build_confirmed_lineup_index",

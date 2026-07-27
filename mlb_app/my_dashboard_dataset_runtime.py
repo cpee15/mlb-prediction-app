@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import datetime as dt
-import os
 from typing import Any, Callable, Dict, Optional
 from zoneinfo import ZoneInfo
 
-from .my_dashboard_dataset import dashboard_dataset_status, hydrate_dashboard_dataset
+from .my_dashboard_dataset import dashboard_dataset_status
 from .my_dashboard_sql_query import query_dashboard_dataset
 
 
@@ -79,15 +78,6 @@ def should_use_dataset_query(*, date: str, filters: Optional[Dict[str, Any]]) ->
     return requested_date == mlb_business_date() and has_substantive_filters(filters)
 
 
-def _dataset_ttl_seconds(active_lineups: bool) -> int:
-    name = "DASHBOARD_ACTIVE_LINEUP_DATASET_TTL_SECONDS" if active_lineups else "DASHBOARD_DATASET_TTL_SECONDS"
-    default = 30 if active_lineups else 300
-    try:
-        return max(1, int(os.getenv(name, str(default))))
-    except (TypeError, ValueError):
-        return default
-
-
 def run_dataset_query(
     *,
     session: Any,
@@ -110,31 +100,37 @@ def run_dataset_query(
         component=component,
         active_lineups=active_lineups,
     )
-    hydration: Optional[Dict[str, Any]] = None
-    served_stale = False
-
-    if not status.get("ready") or status.get("stale"):
-        try:
-            hydration = hydrate_dashboard_dataset(
-                session=session,
-                date=date,
-                component=component,
-                payload_builder=payload_builder,
-                active_lineups=active_lineups,
-                ttl_seconds=_dataset_ttl_seconds(active_lineups),
-                solver_version="my_dashboard_solver_v1",
-            )
-        except Exception:
-            refreshed_status = dashboard_dataset_status(
-                session=session,
-                date=date,
-                component=component,
-                active_lineups=active_lineups,
-            )
-            if not refreshed_status.get("ready"):
-                raise
-            status = refreshed_status
-            served_stale = True
+    del payload_builder  # User-facing report requests are read-only.
+    if not status.get("ready"):
+        return {
+            "report_type": report_type,
+            "component": component,
+            "records": [],
+            "items": [],
+            "totalSize": 0,
+            "total_count": 0,
+            "done": True,
+            "data_status": "not_ready",
+            "refreshing": False,
+            "stale": False,
+            "message": "The scheduled dashboard snapshot is not ready for this date.",
+            "execution_path": "my_dashboard_dataset_sql_query",
+            "dataset_hydrated_for_request": False,
+            "dataset_hydration": None,
+            "served_stale_dataset": False,
+            "dataset_status": status,
+            "page_info": {
+                "page_number": page_number,
+                "page_size": page_size,
+                "page_count": 0,
+                "record_count": 0,
+                "total_count": 0,
+                "has_next": False,
+                "has_previous": False,
+                "next_page": None,
+                "previous_page": None,
+            },
+        }
 
     result = query_dashboard_dataset(
         session=session,
@@ -152,12 +148,16 @@ def run_dataset_query(
     )
     result.update({
         "execution_path": "my_dashboard_dataset_sql_query",
-        "dataset_hydrated_for_request": bool(hydration),
-        "dataset_hydration": hydration,
-        "served_stale_dataset": served_stale,
+        "dataset_hydrated_for_request": False,
+        "dataset_hydration": None,
+        "served_stale_dataset": bool(status.get("stale")),
+        "data_status": "stale" if status.get("stale") else "ready",
+        "stale": bool(status.get("stale")),
+        "refreshing": False,
+        "dataset_status": status,
     })
-    if served_stale:
+    if status.get("stale"):
         warnings = list(result.get("filter_warnings") or [])
-        warnings.append("Dataset refresh failed; previous current dataset was served")
+        warnings.append("The last successful dataset is stale; scheduled refresh is required")
         result["filter_warnings"] = warnings
     return result

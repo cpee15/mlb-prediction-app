@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from .sportsbook_bet105_runtime_v10 import fetch_event_board as fetch_kibl_bet105_event_odds
 from .sportsbook_bet105_runtime_v10 import fetch_board as fetch_kibl_bet105_events
 from .odds_provider import fetch_draftkings_events
-from .database import create_tables, get_engine, get_session
+from .database import SharedReportArtifact, create_tables, get_engine, get_session
 from .model_tracker_price_snapshots import capture_bet105_price_snapshots, list_price_snapshots
 
 router = APIRouter()
@@ -53,6 +53,77 @@ def _target_date(value: Optional[str]) -> str:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid date: {value}") from exc
     return target
+
+
+def _bet105_artifact_key(target_date: str) -> str:
+    return f"bet105_board:{target_date}"
+
+
+def _read_bet105_artifact(target_date: str) -> Optional[Dict[str, Any]]:
+    factory = _session_factory()
+    with factory() as session:
+        artifact = (
+            session.query(SharedReportArtifact)
+            .filter(SharedReportArtifact.artifact_key == _bet105_artifact_key(target_date))
+            .first()
+        )
+        if artifact is None or not isinstance(artifact.payload_json, dict):
+            return None
+        payload = dict(artifact.payload_json)
+        payload.update({
+            "durable_artifact_hit": True,
+            "data_status": "ready",
+            "last_successful_at": artifact.updated_at.isoformat() if artifact.updated_at else None,
+        })
+        return payload
+
+
+def _persist_bet105_artifact(target_date: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    factory = _session_factory()
+    with factory() as session:
+        key = _bet105_artifact_key(target_date)
+        artifact = (
+            session.query(SharedReportArtifact)
+            .filter(SharedReportArtifact.artifact_key == key)
+            .first()
+        )
+        if artifact is None:
+            artifact = SharedReportArtifact(
+                artifact_key=key,
+                artifact_type="bet105_board",
+                target_date=dt.date.fromisoformat(target_date),
+                payload_json=payload,
+            )
+            session.add(artifact)
+        else:
+            artifact.payload_json = payload
+        artifact.row_count = len(payload.get("events") or [])
+        artifact.generated_at = dt.datetime.utcnow()
+        artifact.updated_at = dt.datetime.utcnow()
+        session.commit()
+    return payload
+
+
+def _refresh_bet105_artifact(target_date: str) -> Dict[str, Any]:
+    payload = _normalize_bet105_route_status(
+        fetch_kibl_bet105_events(date=target_date, raw=False, live_only=False)
+    )
+    if payload.get("events"):
+        return _persist_bet105_artifact(target_date, payload)
+    previous = _read_bet105_artifact(target_date)
+    if previous is not None:
+        previous.update({
+            "data_status": "stale",
+            "stale": True,
+            "refresh_error": payload.get("message") or "Bet105 refresh returned no events.",
+        })
+        return previous
+    return {
+        **payload,
+        "data_status": "not_ready",
+        "stale": False,
+        "message": payload.get("message") or "Bet105 board is not ready for this date.",
+    }
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -261,8 +332,19 @@ def _comparison_payload(date: Optional[str], books: List[str], payloads: Dict[st
 
 @router.get("/odds/bet105/events")
 def bet105_events(date: Optional[str] = None, live: bool = False, raw: bool = False) -> Dict[str, Any]:
+    target_date = _target_date(date)
+    if not live and not raw:
+        artifact = _read_bet105_artifact(target_date)
+        if artifact is not None:
+            return artifact
+        return _refresh_bet105_artifact(target_date)
     payload = fetch_kibl_bet105_events(date=date, raw=raw, live_only=live)
     return _normalize_bet105_route_status(payload)
+
+
+@router.post("/odds/bet105/events/refresh")
+def refresh_bet105_events(date: Optional[str] = None) -> Dict[str, Any]:
+    return _refresh_bet105_artifact(_target_date(date))
 
 
 @router.get("/odds/bet105/event/{event_id}/markets")
