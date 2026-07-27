@@ -4,6 +4,6 @@
     "builder": "DOCKERFILE"
   },
   "deploy": {
-    "startCommand": "python scripts/run_canonical_baserunning_production_settlement.py"
+    "startCommand": "python -m scripts.run_canonical_baserunning_production_settlement"
   }
 }

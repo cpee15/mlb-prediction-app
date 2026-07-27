@@ -25,7 +25,7 @@ The service must share the production `DATABASE_URL`. Do not set
 `MLB_CANONICAL_SETTLEMENT_ALLOW_SQLITE` in production.
 
 The start command is
-`python scripts/run_canonical_baserunning_production_settlement.py`.
+`python -m scripts.run_canonical_baserunning_production_settlement`.
 
 The runner is idempotent. It processes only pending observations whose MLB
 schedule state is Final and stores at most one settlement per game.
