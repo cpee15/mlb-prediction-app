@@ -481,6 +481,25 @@ class AppGlobalSetting(Base):
     )
 
 
+class SharedReportArtifact(Base):
+    """Durable cross-worker payload for warmed report and projection reads."""
+
+    __tablename__ = "shared_report_artifacts"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    artifact_key: str = Column(String(255), nullable=False, unique=True, index=True)
+    artifact_type: str = Column(String(80), nullable=False, index=True)
+    target_date: date = Column(Date, nullable=False, index=True)
+    payload_json = Column(JSON, nullable=False)
+    row_count: int = Column(Integer, nullable=False, default=0)
+    generated_at: datetime = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: datetime = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_shared_report_artifact_type_date", "artifact_type", "target_date"),
+    )
+
+
 class AppUserSetting(Base):
     __tablename__ = "app_user_settings"
 
