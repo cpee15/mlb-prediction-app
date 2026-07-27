@@ -189,7 +189,7 @@ function OddsMarket({ label, market }) {
 }
 
 function PropPreview({ eventId, isMobile }) {
-  const cacheUrl = `${API}/odds/draftkings/event/${eventId}/props`
+  const cacheUrl = `${API}/odds/bet105/event/${eventId}/props`
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [propsData, setPropsData] = useState(() => readCachedJson(cacheUrl, PROPS_TTL_SECONDS))
@@ -225,7 +225,7 @@ function PropPreview({ eventId, isMobile }) {
       </button>
       {open && (
         <div style={s.propsPanel}>
-          {loading && <div style={s.oddsSubtle}>Loading DraftKings props…</div>}
+          {loading && <div style={s.oddsSubtle}>Loading Bet105 props…</div>}
           {error && <div className="state-panel error" style={{ padding: 12, textAlign: 'left' }}>Props unavailable: {error}</div>}
           {!loading && !error && propsData && cards.length === 0 && (
             <div style={s.oddsSubtle}>No player props returned for this event.</div>
@@ -254,7 +254,7 @@ function OddsSnapshot({ event, isMobile }) {
     <div style={s.oddsBox} onClick={e => e.stopPropagation()}>
       <div style={{ ...s.oddsHeader, ...(isMobile ? s.oddsHeaderMobile : {}) }}>
         <div style={{ minWidth: 0 }}>
-          <div style={s.oddsTitle}>DraftKings Market Snapshot</div>
+          <div style={s.oddsTitle}>Bet105 Market Snapshot</div>
           <div style={s.oddsSubtle}>Moneyline, run line, totals, and available props</div>
         </div>
         <div className="status-badge">Market Context</div>
@@ -303,7 +303,7 @@ export default function HomePage() {
   const today = getMlbLiveDate()
   const [date, setDate] = useState(today)
   const initialMatchupsUrl = `${API}/matchups?date=${today}`
-  const initialOddsUrl = `${API}/odds/draftkings/events?date=${today}`
+  const initialOddsUrl = `${API}/odds/bet105/events?date=${today}`
   const [matchups, setMatchups] = useState(() => {
     const cached = readCachedJson(initialMatchupsUrl, MATCHUPS_TTL_SECONDS)
     return Array.isArray(cached) ? cached : []
@@ -354,7 +354,7 @@ export default function HomePage() {
 
   useEffect(() => {
     let cancelled = false
-    const url = `${API}/odds/draftkings/events?date=${date}`
+    const url = `${API}/odds/bet105/events?date=${date}`
     const cached = readCachedJson(url, ODDS_EVENTS_TTL_SECONDS)
     if (Array.isArray(cached?.events)) {
       setOddsEvents(cached.events)
@@ -393,7 +393,7 @@ export default function HomePage() {
         <div>
           <p className="page-kicker">Live Slate</p>
           <h1 className="page-title">Daily Matchups</h1>
-          <p className="page-subtitle">Validated MLB schedule, probable starters, model win probabilities, weather context, and DraftKings market snapshots in one production slate.</p>
+          <p className="page-subtitle">Validated MLB schedule, probable starters, model win probabilities, weather context, and Bet105 market snapshots in one production slate.</p>
         </div>
         <div className="control-row">
           <span className="status-badge success">Live Data</span>
@@ -409,7 +409,7 @@ export default function HomePage() {
       )}
       {error && <div className="state-panel error">Matchup data unavailable: {error}</div>}
       {!loading && !error && oddsError && <div className="state-panel error" style={{ marginBottom: 16 }}>Odds data unavailable: {oddsError}</div>}
-      {!loading && !error && !oddsError && oddsLoading && <div className="card-meta" style={{ marginBottom: 14 }}>Loading DraftKings market context…</div>}
+      {!loading && !error && !oddsError && oddsLoading && <div className="card-meta" style={{ marginBottom: 14 }}>Loading Bet105 market context…</div>}
       {!loading && !error && matchups.length === 0 && (
         <div className="state-panel">No games are scheduled for {date}.</div>
       )}
