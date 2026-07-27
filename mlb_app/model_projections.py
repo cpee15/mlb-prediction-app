@@ -47,6 +47,49 @@ from mlb_app.simulation.shadow import (
 )
 
 
+def _load_production_settlement_diagnostics(
+    session: Session,
+) -> Dict[str, Any]:
+    # Optional settlement storage must never suppress projection games.
+
+    try:
+        with session.begin_nested():
+            rows = (
+                load_canonical_baserunning_production_settlements(
+                    session
+                )
+            )
+        summary = (
+            summarize_canonical_baserunning_production_settlements(
+                rows
+            )
+        )
+        summary.update(
+            {
+                "status": "ready",
+                "storage_available": True,
+                "error_type": None,
+                "error_message": None,
+            }
+        )
+        return summary
+    except Exception as exc:
+        summary = (
+            summarize_canonical_baserunning_production_settlements(
+                ()
+            )
+        )
+        summary.update(
+            {
+                "status": "unavailable",
+                "storage_available": False,
+                "error_type": exc.__class__.__name__,
+                "error_message": str(exc),
+            }
+        )
+        return summary
+
+
 def _build_game_state_realism_diagnostics() -> dict:
     """Layer 6OF guarded diagnostic payload.
 
@@ -1337,10 +1380,8 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 )
             )
             settlement_summary = (
-                summarize_canonical_baserunning_production_settlements(
-                    load_canonical_baserunning_production_settlements(
-                        session
-                    )
+                _load_production_settlement_diagnostics(
+                    session
                 )
             )
             production_monitoring[
