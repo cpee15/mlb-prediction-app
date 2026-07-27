@@ -680,6 +680,63 @@ function buildProvenance(shadow) {
   }
 }
 
+
+function buildProductionMonitoring(sharedSimulation) {
+  const diagnostics = objectValue(
+    sharedSimulation.diagnostics
+  )
+  const report = objectValue(
+    diagnostics
+      .canonical_baserunning_production_monitoring
+  )
+  const summary = objectValue(report.summary)
+  const eligibility = objectValue(
+    report.eligibility
+  )
+
+  return {
+    available: Object.keys(report).length > 0,
+    schemaVersion:
+      report.schema_version || null,
+    recorded: report.recorded === true,
+    recordCreated:
+      report.record_created === true,
+    observationDigest:
+      report.observation_digest || null,
+    eligible: eligibility.eligible === true,
+    eligibilityFailures: arrayValue(
+      eligibility.failures
+    ).map(String),
+    targetGameCount: finiteNumber(
+      summary.target_game_count
+    ),
+    readyGameCount: finiteNumber(
+      summary.ready_game_count
+    ),
+    remainingGameCount: finiteNumber(
+      summary.remaining_game_count
+    ),
+    storedObservationCount: finiteNumber(
+      summary.stored_observation_count
+    ),
+    uniqueGameCount: finiteNumber(
+      summary.unique_game_count
+    ),
+    progressRate: finiteNumber(
+      summary.progress_rate
+    ),
+    monitoringComplete:
+      summary.monitoring_complete === true,
+    transformFrozen:
+      summary.transform_frozen === true,
+    transformDigests: arrayValue(
+      summary.transform_digests
+    ).map(String),
+    parameterReselectionPermitted:
+      summary.parameter_reselection_permitted === true,
+  }
+}
+
 function buildWarnings(shadow) {
   const probabilityResolution = objectValue(
     shadow.probability_resolution
@@ -728,6 +785,9 @@ export function buildCanonicalDiagnosticsViewModel(
 
   const productionExecution = (
     buildProductionExecution(shared)
+  )
+  const productionMonitoring = (
+    buildProductionMonitoring(shared)
   )
 
   const canonicalAvailable = Boolean(
@@ -811,6 +871,12 @@ export function buildCanonicalDiagnosticsViewModel(
       canonicalAvailable,
       authoritativeSource:
         shadow.authoritative_source || 'legacy',
+      productionActive: (
+        metadata.production_activation === true ||
+        shadow.production_activation === true ||
+        shadow.authoritative_source ===
+          'canonical_event_driven_calibrated_baserunning'
+      ),
       legacySimulationCount: finiteNumber(
         shadow.legacy_simulation_count
       ),
@@ -834,6 +900,7 @@ export function buildCanonicalDiagnosticsViewModel(
 
     bootstrapReadiness,
     productionExecution,
+    productionMonitoring,
     realism: buildRealism(shared, shadow),
     coverage: buildCoverage(shadow),
     integrity: buildIntegrity(shadow),

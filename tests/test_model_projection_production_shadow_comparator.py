@@ -367,6 +367,8 @@ def test_realism_payload_exposes_frontend_capability_aliases():
         realism["sacrifice_fly_scoring"]
         is True
     )
+    assert realism["stolen_bases"] is True
+    assert realism["stolen_base_model"] is True
     assert realism["steals_model_status"] == (
         "canonical_calibrated_active"
     )

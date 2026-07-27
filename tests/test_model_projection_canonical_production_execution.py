@@ -28,3 +28,32 @@ def test_initial_execution_does_not_replace_legacy():
     assert expected_contract[
         "authoritative_source"
     ] == "legacy"
+
+
+def test_baserunning_fail_open_constructor_matches_contract():
+    import inspect
+
+    from mlb_app.simulation.shadow import (
+        CanonicalShadowBaserunningEvidenceDiscovery,
+    )
+
+    parameters = inspect.signature(
+        CanonicalShadowBaserunningEvidenceDiscovery
+    ).parameters
+
+    assert "error_message" in parameters
+    assert "error_type" not in parameters
+
+    failure = (
+        CanonicalShadowBaserunningEvidenceDiscovery(
+            status="error",
+            error_message="production prior unavailable",
+        )
+    )
+
+    assert failure.status == "error"
+    assert (
+        failure.error_message
+        == "production prior unavailable"
+    )
+    assert failure.ready is False
