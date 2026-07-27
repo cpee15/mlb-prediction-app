@@ -13,7 +13,7 @@ def test_settlement_cron_uses_dedicated_runner():
 
     assert payload["build"]["builder"] == "DOCKERFILE"
     assert payload["deploy"]["startCommand"] == (
-        "python scripts/run_canonical_baserunning_production_settlement.py"
+        "python -m scripts.run_canonical_baserunning_production_settlement"
     )
     assert RUNNER_PATH.is_file()
 
