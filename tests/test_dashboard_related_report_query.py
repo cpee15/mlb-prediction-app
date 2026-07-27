@@ -63,6 +63,27 @@ def test_arsenal_splits_only_include_active_canonical_hitters_and_filter_in_sql(
     assert result["query_source"] == "batter_pitch_type_matchups"
 
 
+def test_arsenal_reports_select_latest_row_at_the_natural_junction_grain():
+    session = make_session()
+    session.add(player(1, "Alpha", 3))
+    session.add_all([
+        BatterPitchTypeMatchup(
+            batter_id=1, batter_name="Alpha", opposing_pitcher_id=9,
+            pitch_type="FF", target_date=DATE, game_pk=77, pitches_seen=40, xwoba=0.31,
+        ),
+        BatterPitchTypeMatchup(
+            batter_id=1, batter_name="Alpha", opposing_pitcher_id=9,
+            pitch_type="FF", target_date=DATE, game_pk=77, pitches_seen=80, xwoba=0.41,
+        ),
+    ])
+    session.commit()
+
+    result = query_related_report(session, "hitters_arsenal_splits", as_of_date=DATE)
+
+    assert result["totalSize"] == 1
+    assert result["records"][0]["pitches_seen"] == 80
+
+
 def test_related_reports_reject_unsupported_fields_weights_and_filters():
     session = make_session()
     with pytest.raises(ValueError, match="Weights are not supported"):
