@@ -278,6 +278,54 @@ function formatTime(iso) {
   catch { return null }
 }
 
+function normalizeTeamName(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^the/, '')
+}
+
+function matchupKey(away, home) {
+  return `${normalizeTeamName(away)}@${normalizeTeamName(home)}`
+}
+
+function eventTeamName(event, side) {
+  const value = event?.[`${side}_team`]
+  return value?.name || value || ''
+}
+
+function marketKey(market) {
+  return String(market?.market_key || market?.market_type || market?.market_name || '').toLowerCase()
+}
+
+function findOddsMarket(event, key) {
+  return (event?.markets || []).find(market => marketKey(market) === key)
+}
+
+function americanOdds(value) {
+  if (value == null || value === '') return '—'
+  const parsed = Number(value)
+  if (Number.isNaN(parsed)) return String(value)
+  return parsed > 0 ? `+${parsed}` : String(parsed)
+}
+
+function Bet105Market({ label, market }) {
+  const selections = market?.selections || []
+  return (
+    <div style={t.pitcherCard}>
+      <div style={t.dataSource}>{label}</div>
+      {selections.length === 0
+        ? <div style={t.noData}>Unavailable</div>
+        : selections.slice(0, 3).map((selection, index) => (
+          <div style={t.statRow} key={`${label}-${selection.selection_id || index}`}>
+            <span style={t.statKey}>
+              {selection.name || selection.description || 'Selection'}
+              {selection.line != null ? ` ${selection.line}` : ''}
+            </span>
+            <strong style={t.statVal}>{americanOdds(selection.price)}</strong>
+          </div>
+        ))}
+    </div>
+  )
+}
+
 function weatherLabel(weather) {
   if (!weather) return null
   const bits = []
@@ -660,6 +708,9 @@ export default function MatchupDetailPage() {
   const [competitive, setCompetitive] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [expandedBatters, setExpandedBatters] = useState({})
+  const [bet105Event, setBet105Event] = useState(null)
+  const [oddsLoading, setOddsLoading] = useState(false)
+  const [oddsError, setOddsError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -674,6 +725,25 @@ export default function MatchupDetailPage() {
         setMatchup(detail)
         setCompetitive(comp)
         setLoading(false)
+        const gameDate = String(detail?.game_date || detail?.game_time || '').slice(0, 10)
+        const awayName = detail?.away_team?.name || detail?.away_team_name
+        const homeName = detail?.home_team?.name || detail?.home_team_name
+        if (!gameDate || !awayName || !homeName) return
+        setOddsLoading(true)
+        fetch(`${API}/odds/bet105/events?date=${gameDate}`)
+          .then(response => response.ok ? response.json() : response.json().then(body => Promise.reject(body.detail || response.statusText)))
+          .then(board => {
+            const wanted = matchupKey(awayName, homeName)
+            const event = (board?.events || []).find(candidate => (
+              matchupKey(eventTeamName(candidate, 'away'), eventTeamName(candidate, 'home')) === wanted
+            ))
+            setBet105Event(event || null)
+            setOddsLoading(false)
+          })
+          .catch(oddsFailure => {
+            setOddsError(String(oddsFailure))
+            setOddsLoading(false)
+          })
       })
       .catch(e => {
         setError(String(e))
@@ -758,6 +828,20 @@ export default function MatchupDetailPage() {
           </div>
         </div>
       )}
+
+      <div style={t.section}>
+        <div style={t.sectionTitle}>Bet105 Market Snapshot</div>
+        {oddsLoading && <div style={t.noData}>Loading Bet105 odds…</div>}
+        {!oddsLoading && oddsError && <div style={t.error}>Bet105 odds unavailable: {oddsError}</div>}
+        {!oddsLoading && !oddsError && !bet105Event && <div style={t.noData}>No matching Bet105 event is currently available.</div>}
+        {!oddsLoading && !oddsError && bet105Event && (
+          <div style={t.pitcherGrid}>
+            <Bet105Market label="Moneyline" market={findOddsMarket(bet105Event, 'h2h')} />
+            <Bet105Market label="Run Line" market={findOddsMarket(bet105Event, 'spreads')} />
+            <Bet105Market label="Total" market={findOddsMarket(bet105Event, 'totals')} />
+          </div>
+        )}
+      </div>
 
       <div style={t.compTabs}>
         <button style={t.compTab(activeTab === 'overview')} onClick={() => setActiveTab('overview')}>Overview</button>
