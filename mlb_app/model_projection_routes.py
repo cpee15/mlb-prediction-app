@@ -147,6 +147,7 @@ def _build_uncached_projection_payload(target_date: str) -> Dict[str, Any]:
             probability_source="model_projections",
         ):
             payload = build_model_projection_payload(session, target_date)
+            session.commit()
     payload = _apply_projection_probability_contract(payload, target_date)
     payload = _attach_projection_artifact_metadata(payload, target_date)
     record_probability_source("model_projections")

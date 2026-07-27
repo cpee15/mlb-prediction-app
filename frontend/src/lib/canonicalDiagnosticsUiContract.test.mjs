@@ -113,3 +113,29 @@ test('not-run state renders bootstrap readiness blockers', async () => {
     /Diagnostic only\. Readiness does not permit/,
   )
 })
+
+
+test('diagnostics distinguishes production monitoring', async () => {
+  const source = await readFile(
+    new URL(
+      '../pages/ModelProjectionsPage.jsx',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+
+  assert.match(
+    source,
+    /Production Baserunning Monitoring/,
+  )
+  assert.match(
+    source,
+    /Frozen 100-game evidence window/,
+  )
+  assert.match(source, /status\.productionActive/)
+  assert.match(
+    source,
+    /Global Profile Fallback Rate/,
+  )
+  assert.match(source, /Parameter Reselection/)
+})

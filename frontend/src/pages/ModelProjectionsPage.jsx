@@ -1242,6 +1242,7 @@ function DiagnosticsTab({ game }) {
   const status = view.status
   const bootstrap = view.bootstrapReadiness
   const coverage = view.coverage
+  const monitoring = view.productionMonitoring
   const integrity = view.integrity
   const provenance = view.provenance
 
@@ -1266,8 +1267,8 @@ function DiagnosticsTab({ game }) {
               marginTop: '5px',
             }}
           >
-            Coverage, integrity, realism, and provenance for the
-            event-driven shadow simulation.
+            Coverage, integrity, realism, provenance, and
+            production monitoring for the event-driven simulation.
           </div>
         </div>
 
@@ -1418,8 +1419,16 @@ function DiagnosticsTab({ game }) {
               status.modelVersion ||
               'Canonical shadow simulation'
             }
-            tag="Shadow"
-            tagTone="diagnostic"
+            tag={
+              status.productionActive
+                ? 'Production'
+                : 'Shadow'
+            }
+            tagTone={
+              status.productionActive
+                ? 'success'
+                : 'diagnostic'
+            }
           >
             <StatRow
               k="Status"
@@ -1469,7 +1478,7 @@ function DiagnosticsTab({ game }) {
             format="pct"
           />
           <StatRow
-            k="Fallback Rate"
+            k="Global Profile Fallback Rate"
             v={coverage.fallbackRate}
             format="pct"
           />
@@ -1479,7 +1488,7 @@ function DiagnosticsTab({ game }) {
             format="num"
           />
           <StatRow
-            k="Fallback Resolutions"
+            k="Global Profile Resolutions"
             v={coverage.fallbackResolutions}
             format="num"
           />
@@ -1503,6 +1512,70 @@ function DiagnosticsTab({ game }) {
           </GenericPanel>
         </div>
       )}
+
+
+      {monitoring.available ? (
+        <div style={{ marginTop: '18px' }}>
+          <GenericPanel
+            title="Production Baserunning Monitoring"
+            subtitle="Frozen 100-game evidence window"
+            tag={
+              monitoring.monitoringComplete
+                ? 'Review ready'
+                : 'Collecting'
+            }
+            tagTone={
+              monitoring.monitoringComplete
+                ? 'success'
+                : 'diagnostic'
+            }
+          >
+            <StatRow
+              k="Progress"
+              v={monitoring.progressRate}
+              format="pct"
+            />
+            <StatRow
+              k="Ready Games"
+              v={monitoring.readyGameCount}
+              format="num"
+            />
+            <StatRow
+              k="Target Games"
+              v={monitoring.targetGameCount}
+              format="num"
+            />
+            <StatRow
+              k="Games Remaining"
+              v={monitoring.remainingGameCount}
+              format="num"
+            />
+            <StatRow
+              k="Current Snapshot Recorded"
+              v={monitoring.recorded ? 'Yes' : 'No'}
+              format="text"
+            />
+            <StatRow
+              k="Transform Frozen"
+              v={
+                monitoring.transformFrozen
+                  ? 'Yes'
+                  : 'No'
+              }
+              format="text"
+            />
+            <StatRow
+              k="Parameter Reselection"
+              v={
+                monitoring.parameterReselectionPermitted
+                  ? 'Permitted'
+                  : 'Locked'
+              }
+              format="text"
+            />
+          </GenericPanel>
+        </div>
+      ) : null}
 
       <h3 style={s.sectionTitle}>
         Game-State Realism

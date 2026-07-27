@@ -603,3 +603,75 @@ test('preserves blocked readiness presentation', () => {
     /7 missing production requirements/,
   )
 })
+
+
+test('exposes canonical production monitoring progress', () => {
+  const source = sharedSimulation()
+
+  source.meta = {
+    ...(source.meta || {}),
+    production_activation: true,
+  }
+  source.diagnostics.canonical_shadow = {
+    ...source.diagnostics.canonical_shadow,
+    production_activation: true,
+    authoritative_source:
+      'canonical_event_driven_calibrated_baserunning',
+  }
+  source.diagnostics[
+    'canonical_baserunning_production_monitoring'
+  ] = {
+    schema_version:
+      'canonical_baserunning_production_monitoring_v1',
+    recorded: true,
+    record_created: true,
+    observation_digest: 'digest-1',
+    eligibility: {
+      eligible: true,
+      failures: [],
+    },
+    summary: {
+      target_game_count: 100,
+      ready_game_count: 1,
+      remaining_game_count: 99,
+      stored_observation_count: 1,
+      unique_game_count: 1,
+      progress_rate: 0.01,
+      monitoring_complete: false,
+      transform_frozen: true,
+      transform_digests: ['transform-1'],
+      parameter_reselection_permitted: false,
+    },
+  }
+
+  const view = (
+    buildCanonicalDiagnosticsViewModel(source)
+  )
+
+  assert.equal(view.status.productionActive, true)
+  assert.equal(
+    view.productionMonitoring.available,
+    true,
+  )
+  assert.equal(
+    view.productionMonitoring.readyGameCount,
+    1,
+  )
+  assert.equal(
+    view.productionMonitoring.remainingGameCount,
+    99,
+  )
+  assert.equal(
+    view.productionMonitoring.progressRate,
+    0.01,
+  )
+  assert.equal(
+    view.productionMonitoring.transformFrozen,
+    true,
+  )
+  assert.equal(
+    view.productionMonitoring
+      .parameterReselectionPermitted,
+    false,
+  )
+})

@@ -378,6 +378,87 @@ class AppAccessProfile(Base):
     updated_at: datetime = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+
+class CanonicalBaserunningProductionObservation(Base):
+    """Immutable canonical production-monitoring observation."""
+
+    __tablename__ = (
+        "canonical_baserunning_production_observations"
+    )
+
+    id: int = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+    game_pk: int = Column(
+        Integer,
+        nullable=False,
+        index=True,
+    )
+    game_date: date = Column(
+        Date,
+        nullable=False,
+        index=True,
+    )
+    canonical_run_id: str = Column(
+        String(128),
+        nullable=False,
+    )
+    observation_digest: str = Column(
+        String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    paired_context_digest: str = Column(
+        String(64),
+        nullable=False,
+    )
+    calibrated_transform_digest: str = Column(
+        String(64),
+        nullable=False,
+        index=True,
+    )
+    simulation_count: int = Column(
+        Integer,
+        nullable=False,
+    )
+    status: str = Column(
+        String(24),
+        nullable=False,
+    )
+    ready: bool = Column(
+        Boolean,
+        nullable=False,
+    )
+    production_activation: bool = Column(
+        Boolean,
+        nullable=False,
+    )
+    authoritative_source: str = Column(
+        String(96),
+        nullable=False,
+    )
+    payload_json = Column(
+        JSON,
+        nullable=False,
+    )
+    created_at: datetime = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_canonical_baserunning_monitor_game",
+            "game_date",
+            "game_pk",
+        ),
+    )
+
+
 class AppGlobalSetting(Base):
     __tablename__ = "app_global_settings"
 

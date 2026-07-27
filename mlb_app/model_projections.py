@@ -5,6 +5,12 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
+from mlb_app.simulation.shadow.production_monitoring_ledger import (
+    CANONICAL_BASERUNNING_PRODUCTION_AUTHORITY,
+    CanonicalBaserunningProductionMonitoringRecord,
+    evaluate_canonical_production_monitoring_eligibility,
+    materialize_canonical_baserunning_production_monitoring,
+)
 
 from .canonical_game_context import build_canonical_game_context
 from .db_utils import get_pitch_arsenal_with_fallback, get_team_split
@@ -80,6 +86,8 @@ def _build_game_state_realism_diagnostics() -> dict:
             "status": "diagnostic_only",
             "final_probability_replacement": False,
         },
+        "stolen_bases": True,
+        "stolen_base_model": True,
         "steals_model_status": "canonical_calibrated_active",
         "steals_projection_wiring_status": (
             "canonical_event_driven_production_authority"
@@ -1012,9 +1020,6 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                 canonical_baserunning_evidence_discovery = (
                     CanonicalShadowBaserunningEvidenceDiscovery(
                         status="error",
-                        error_type=(
-                            type(baserunning_exc).__name__
-                        ),
                         error_message=str(
                             baserunning_exc
                         ),
@@ -1200,6 +1205,154 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                     shared_simulation=shared_simulation,
                 )
             )
+
+            activation_diagnostics = (
+                canonical_baserunning_activation
+                .to_diagnostics()
+            )
+            observation = (
+                canonical_live_baserunning_pair
+                .observation
+            )
+            observation_diagnostics = (
+                observation.to_diagnostics()
+            )
+            shared_meta = (
+                shared_simulation.get("meta", {})
+                if isinstance(shared_simulation, dict)
+                else {}
+            )
+            if not isinstance(shared_meta, dict):
+                shared_meta = {}
+
+            monitoring_eligibility = (
+                evaluate_canonical_production_monitoring_eligibility(
+                    game_date=str(
+                        matchup.get("game_date")
+                        or target_date
+                    ),
+                    game_status=str(
+                        matchup.get("status") or ""
+                    ),
+                    activation_requested=bool(
+                        activation_diagnostics.get(
+                            "activation_requested"
+                        )
+                    ),
+                    production_activation=bool(
+                        activation_diagnostics.get(
+                            "production_activation"
+                        )
+                    ),
+                    selected_execution=str(
+                        activation_diagnostics.get(
+                            "selected_execution"
+                        )
+                        or ""
+                    ),
+                    observation_ready=(
+                        observation.ready
+                    ),
+                    input_parity_verified=(
+                        observation.input_parity_verified
+                    ),
+                    seed_parity_verified=(
+                        observation.seed_parity_verified
+                    ),
+                    authoritative_source=str(
+                        shared_meta.get(
+                            "authoritative_source"
+                        )
+                        or ""
+                    ),
+                )
+            )
+
+            monitoring_record = None
+            if monitoring_eligibility["eligible"]:
+                monitoring_record = (
+                    CanonicalBaserunningProductionMonitoringRecord(
+                        game_pk=game_pk,
+                        game_date=str(
+                            matchup.get("game_date")
+                            or target_date
+                        ),
+                        canonical_run_id=str(
+                            shared_meta.get(
+                                "canonical_run_id"
+                            )
+                        ),
+                        observation_digest=(
+                            observation.digest
+                        ),
+                        paired_context_digest=(
+                            observation
+                            .paired_context_digest
+                        ),
+                        calibrated_transform_digest=(
+                            observation
+                            .calibrated_transform_digest
+                        ),
+                        simulation_count=int(
+                            shared_meta.get(
+                                "simulation_count"
+                            )
+                        ),
+                        status=observation.status,
+                        ready=observation.ready,
+                        production_activation=True,
+                        authoritative_source=(
+                            CANONICAL_BASERUNNING_PRODUCTION_AUTHORITY
+                        ),
+                        payload={
+                            "observation": (
+                                observation_diagnostics
+                            ),
+                            "activation": (
+                                activation_diagnostics
+                            ),
+                            "production_execution": (
+                                canonical_production_shadow_execution
+                                .to_diagnostics()
+                            ),
+                            "trial_policy": (
+                                canonical_production_trial_policy
+                                .to_diagnostics()
+                            ),
+                            "evidence_discovery": (
+                                canonical_baserunning_evidence_discovery
+                                .to_diagnostics()
+                            ),
+                        },
+                    )
+                )
+
+            production_monitoring = (
+                materialize_canonical_baserunning_production_monitoring(
+                    session,
+                    eligibility=monitoring_eligibility,
+                    record=monitoring_record,
+                )
+            )
+            workspace[
+                "canonicalBaserunningProductionMonitoring"
+            ] = production_monitoring
+
+            if isinstance(shared_simulation, dict):
+                monitoring_diagnostics = (
+                    shared_simulation.setdefault(
+                        "diagnostics",
+                        {},
+                    )
+                )
+                if isinstance(
+                    monitoring_diagnostics,
+                    dict,
+                ):
+                    monitoring_diagnostics[
+                        "canonical_baserunning_"
+                        "production_monitoring"
+                    ] = production_monitoring
 
             if isinstance(shared_simulation, dict):
                 shared_diagnostics = (
