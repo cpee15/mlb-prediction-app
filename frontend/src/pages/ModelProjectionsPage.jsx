@@ -1520,34 +1520,44 @@ function DiagnosticsTab({ game }) {
             title="Production Baserunning Monitoring"
             subtitle="Frozen 100-game evidence window"
             tag={
-              monitoring.monitoringComplete
+              monitoring.settlementComplete
                 ? 'Review ready'
                 : 'Collecting'
             }
             tagTone={
-              monitoring.monitoringComplete
+              monitoring.settlementComplete
                 ? 'success'
                 : 'diagnostic'
             }
           >
             <StatRow
-              k="Progress"
+              k="Pregame Observation Progress"
               v={monitoring.progressRate}
               format="pct"
             />
             <StatRow
-              k="Ready Games"
+              k="Pregame Observations"
               v={monitoring.readyGameCount}
               format="num"
             />
             <StatRow
-              k="Target Games"
-              v={monitoring.targetGameCount}
+              k="Settlement Progress"
+              v={monitoring.settlementProgressRate}
+              format="pct"
+            />
+            <StatRow
+              k="Settled Games"
+              v={monitoring.settledGameCount}
               format="num"
             />
             <StatRow
-              k="Games Remaining"
-              v={monitoring.remainingGameCount}
+              k="Target Settled Games"
+              v={monitoring.settlementTargetGameCount}
+              format="num"
+            />
+            <StatRow
+              k="Settlements Remaining"
+              v={monitoring.settlementRemainingGameCount}
               format="num"
             />
             <StatRow
@@ -1555,6 +1565,55 @@ function DiagnosticsTab({ game }) {
               v={monitoring.recorded ? 'Yes' : 'No'}
               format="text"
             />
+            {monitoring.settledGameCount > 0 ? (
+              <>
+                <StatRow
+                  k="Projected Stolen Bases"
+                  v={monitoring.projectedStolenBases}
+                  format="num"
+                />
+                <StatRow
+                  k="Observed Stolen Bases"
+                  v={monitoring.observedStolenBases}
+                  format="num"
+                />
+                <StatRow
+                  k="Stolen Base Bias"
+                  v={monitoring.stolenBaseBias}
+                  format="num"
+                />
+                <StatRow
+                  k="Stolen Base MAE"
+                  v={monitoring.stolenBaseMae}
+                  format="num"
+                />
+                <StatRow
+                  k="Projected Caught Stealing"
+                  v={monitoring.projectedCaughtStealing}
+                  format="num"
+                />
+                <StatRow
+                  k="Observed Caught Stealing"
+                  v={monitoring.observedCaughtStealing}
+                  format="num"
+                />
+                <StatRow
+                  k="Caught Stealing Bias"
+                  v={monitoring.caughtStealingBias}
+                  format="num"
+                />
+                <StatRow
+                  k="Caught Stealing MAE"
+                  v={monitoring.caughtStealingMae}
+                  format="num"
+                />
+                <StatRow
+                  k="Attempt MAE"
+                  v={monitoring.attemptMae}
+                  format="num"
+                />
+              </>
+            ) : null}
             <StatRow
               k="Transform Frozen"
               v={

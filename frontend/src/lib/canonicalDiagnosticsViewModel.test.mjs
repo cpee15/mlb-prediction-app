@@ -642,6 +642,23 @@ test('exposes canonical production monitoring progress', () => {
       transform_digests: ['transform-1'],
       parameter_reselection_permitted: false,
     },
+    settlement: {
+      settled_game_count: 1,
+      target_game_count: 100,
+      remaining_game_count: 99,
+      progress_rate: 0.01,
+      settlement_complete: false,
+      projected_stolen_bases: 1.4,
+      observed_stolen_bases: 2,
+      stolen_base_bias: -0.6,
+      stolen_base_mae: 0.6,
+      projected_caught_stealing: 0.3,
+      observed_caught_stealing: 1,
+      caught_stealing_bias: -0.7,
+      caught_stealing_mae: 0.7,
+      attempt_mae: 1.3,
+      parameter_reselection_permitted: false,
+    },
   }
 
   const view = (
@@ -668,6 +685,28 @@ test('exposes canonical production monitoring progress', () => {
   assert.equal(
     view.productionMonitoring.transformFrozen,
     true,
+  )
+  assert.equal(
+    view.productionMonitoring.settledGameCount,
+    1,
+  )
+  assert.equal(
+    view.productionMonitoring
+      .settlementRemainingGameCount,
+    99,
+  )
+  assert.equal(
+    view.productionMonitoring
+      .settlementProgressRate,
+    0.01,
+  )
+  assert.equal(
+    view.productionMonitoring.stolenBaseBias,
+    -0.6,
+  )
+  assert.equal(
+    view.productionMonitoring.attemptMae,
+    1.3,
   )
   assert.equal(
     view.productionMonitoring

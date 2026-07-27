@@ -690,6 +690,9 @@ function buildProductionMonitoring(sharedSimulation) {
       .canonical_baserunning_production_monitoring
   )
   const summary = objectValue(report.summary)
+  const settlement = objectValue(
+    report.settlement
+  )
   const eligibility = objectValue(
     report.eligibility
   )
@@ -732,8 +735,49 @@ function buildProductionMonitoring(sharedSimulation) {
     transformDigests: arrayValue(
       summary.transform_digests
     ).map(String),
+    settledGameCount: finiteNumber(
+      settlement.settled_game_count
+    ),
+    settlementTargetGameCount: finiteNumber(
+      settlement.target_game_count
+    ),
+    settlementRemainingGameCount: finiteNumber(
+      settlement.remaining_game_count
+    ),
+    settlementProgressRate: finiteNumber(
+      settlement.progress_rate
+    ),
+    settlementComplete:
+      settlement.settlement_complete === true,
+    projectedStolenBases: finiteNumber(
+      settlement.projected_stolen_bases
+    ),
+    observedStolenBases: finiteNumber(
+      settlement.observed_stolen_bases
+    ),
+    stolenBaseBias: finiteNumber(
+      settlement.stolen_base_bias
+    ),
+    stolenBaseMae: finiteNumber(
+      settlement.stolen_base_mae
+    ),
+    projectedCaughtStealing: finiteNumber(
+      settlement.projected_caught_stealing
+    ),
+    observedCaughtStealing: finiteNumber(
+      settlement.observed_caught_stealing
+    ),
+    caughtStealingBias: finiteNumber(
+      settlement.caught_stealing_bias
+    ),
+    caughtStealingMae: finiteNumber(
+      settlement.caught_stealing_mae
+    ),
+    attemptMae: finiteNumber(
+      settlement.attempt_mae
+    ),
     parameterReselectionPermitted:
-      summary.parameter_reselection_permitted === true,
+      settlement.parameter_reselection_permitted === true,
   }
 }
 

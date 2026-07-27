@@ -138,4 +138,9 @@ test('diagnostics distinguishes production monitoring', async () => {
     /Global Profile Fallback Rate/,
   )
   assert.match(source, /Parameter Reselection/)
+  assert.match(source, /Pregame Observation Progress/)
+  assert.match(source, /Settlement Progress/)
+  assert.match(source, /Settled Games/)
+  assert.match(source, /Stolen Base MAE/)
+  assert.match(source, /Caught Stealing MAE/)
 })

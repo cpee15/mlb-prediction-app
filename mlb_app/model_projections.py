@@ -41,7 +41,9 @@ from mlb_app.simulation.shadow import (
     discover_confirmed_catcher_assignments,
     execute_live_baserunning_shadow_pair,
     load_baserunning_production_prior,
+    load_canonical_baserunning_production_settlements,
     run_canonical_production_shadow,
+    summarize_canonical_baserunning_production_settlements,
 )
 
 
@@ -1334,6 +1336,16 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                     record=monitoring_record,
                 )
             )
+            settlement_summary = (
+                summarize_canonical_baserunning_production_settlements(
+                    load_canonical_baserunning_production_settlements(
+                        session
+                    )
+                )
+            )
+            production_monitoring[
+                "settlement"
+            ] = settlement_summary
             workspace[
                 "canonicalBaserunningProductionMonitoring"
             ] = production_monitoring
