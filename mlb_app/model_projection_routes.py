@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 
-from .database import create_tables, get_engine, get_session
+from .database import SharedReportArtifact, create_tables, get_engine, get_session
 from .model_projection_performance_cache import build_model_projection_payload
 from .model_projection_probability import build_model_projection_probability
 from .model_tracker_routes import router as model_tracker_router
@@ -21,7 +21,7 @@ from .shared_artifacts import (
     model_projection_probability_key,
     payload_input_hash,
 )
-from .shared_payload_cache import env_ttl, get_or_set
+from .shared_payload_cache import env_ttl, get_cache
 from mlb_app.simulation.game_simulation_builder import build_game_simulation as build_shared_game_simulation
 
 router = APIRouter()
@@ -174,6 +174,27 @@ def warm_model_projection_payload(target_date: str) -> Dict[str, Any]:
         model_version=MODEL_PROJECTION_WORKSPACE_VERSION,
         probability_source="model_projections",
     )
+    factory = _session_factory()
+    with factory() as session:
+        artifact = (
+            session.query(SharedReportArtifact)
+            .filter(SharedReportArtifact.artifact_key == _projection_cache_key(target_date))
+            .first()
+        )
+        if artifact is None:
+            artifact = SharedReportArtifact(
+                artifact_key=_projection_cache_key(target_date),
+                artifact_type="model_projection_date",
+                target_date=datetime.date.fromisoformat(target_date),
+                payload_json=stored,
+            )
+            session.add(artifact)
+        else:
+            artifact.payload_json = stored
+            artifact.updated_at = datetime.datetime.utcnow()
+        artifact.row_count = len(stored.get("games") or []) if isinstance(stored, dict) else 0
+        artifact.generated_at = datetime.datetime.utcnow()
+        session.commit()
     return {
         "warmed": True,
         "date": target_date,
@@ -186,12 +207,43 @@ def warm_model_projection_payload(target_date: str) -> Dict[str, Any]:
 
 
 def get_model_projection_payload(target_date: str) -> Dict[str, Any]:
-    """Resolve the shared cached projection artifact for product and report readers."""
-    return get_or_set(
-        _projection_cache_key(target_date),
-        env_ttl("MODEL_PROJECTION_CACHE_TTL_SECONDS"),
-        lambda: _build_uncached_projection_payload(target_date),
-    )
+    """Read the warmed projection artifact without building inside a user request."""
+    cache_key = _projection_cache_key(target_date)
+    cached = get_cache(cache_key, env_ttl("MODEL_PROJECTION_CACHE_TTL_SECONDS"))
+    if cached is not None:
+        if isinstance(cached, dict):
+            cached.setdefault("cache_hit", True)
+            cached.setdefault("cache_key", cache_key)
+            cached.setdefault("data_status", "ready")
+        return cached
+    factory = _session_factory()
+    with factory() as session:
+        artifact = (
+            session.query(SharedReportArtifact)
+            .filter(SharedReportArtifact.artifact_key == cache_key)
+            .first()
+        )
+        if artifact is not None and isinstance(artifact.payload_json, dict):
+            payload = dict(artifact.payload_json)
+            payload.update({
+                "cache_hit": False,
+                "durable_artifact_hit": True,
+                "cache_key": cache_key,
+                "data_status": "ready",
+                "last_successful_at": artifact.updated_at.isoformat() if artifact.updated_at else None,
+            })
+            return payload
+    return {
+        "date": target_date,
+        "games": [],
+        "data_status": "not_ready",
+        "refreshing": False,
+        "stale": False,
+        "cache_hit": False,
+        "cache_key": cache_key,
+        "message": "Model projections have not been warmed for this date.",
+        "refresh_contract": "scheduled_warm_required",
+    }
 
 
 @router.get("/models/projections")
