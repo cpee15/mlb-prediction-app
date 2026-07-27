@@ -459,6 +459,85 @@ class CanonicalBaserunningProductionObservation(Base):
     )
 
 
+class CanonicalBaserunningProductionSettlement(Base):
+    """Immutable postgame settlement for one production observation."""
+
+    __tablename__ = (
+        "canonical_baserunning_production_settlements"
+    )
+
+    id: int = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+    monitoring_observation_digest: str = Column(
+        String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    settlement_digest: str = Column(
+        String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    game_pk: int = Column(
+        Integer,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    game_date: date = Column(
+        Date,
+        nullable=False,
+        index=True,
+    )
+    canonical_run_id: str = Column(
+        String(128),
+        nullable=False,
+    )
+    observed_source_version: str = Column(
+        String(96),
+        nullable=False,
+    )
+    observed_source_digest: str = Column(
+        String(64),
+        nullable=False,
+    )
+    observed_stolen_bases: int = Column(
+        Integer,
+        nullable=False,
+    )
+    observed_caught_stealing: int = Column(
+        Integer,
+        nullable=False,
+    )
+    comparison_json = Column(
+        JSON,
+        nullable=False,
+    )
+    payload_json = Column(
+        JSON,
+        nullable=False,
+    )
+    created_at: datetime = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_canonical_baserunning_settlement_game",
+            "game_date",
+            "game_pk",
+        ),
+    )
+
+
+
 class AppGlobalSetting(Base):
     __tablename__ = "app_global_settings"
 
