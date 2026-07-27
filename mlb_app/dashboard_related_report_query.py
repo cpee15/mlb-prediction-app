@@ -220,7 +220,28 @@ def query_related_report(
         default_sort = "most_recent_lineup_date"
         tie_column = DashboardPlayer.mlb_player_id
     elif report_type in {"hitters_arsenal_splits", "competitive_batter_arsenal"}:
+        latest_matchup = (
+            session.query(
+                BatterPitchTypeMatchup.batter_id.label("batter_id"),
+                BatterPitchTypeMatchup.opposing_pitcher_id.label("opposing_pitcher_id"),
+                BatterPitchTypeMatchup.pitch_type.label("pitch_type"),
+                BatterPitchTypeMatchup.target_date.label("target_date"),
+                BatterPitchTypeMatchup.game_pk.label("game_pk"),
+                func.max(BatterPitchTypeMatchup.id).label("matchup_id"),
+            )
+            .group_by(
+                BatterPitchTypeMatchup.batter_id,
+                BatterPitchTypeMatchup.opposing_pitcher_id,
+                BatterPitchTypeMatchup.pitch_type,
+                BatterPitchTypeMatchup.target_date,
+                BatterPitchTypeMatchup.game_pk,
+            )
+            .subquery()
+        )
         query = session.query(model).join(
+            latest_matchup,
+            BatterPitchTypeMatchup.id == latest_matchup.c.matchup_id,
+        ).join(
             DashboardPlayer, DashboardPlayer.mlb_player_id == BatterPitchTypeMatchup.batter_id
         ).filter(
             DashboardPlayer.is_active.is_(True),
