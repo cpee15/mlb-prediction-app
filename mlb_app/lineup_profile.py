@@ -7,6 +7,9 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from .lineup_handedness import build_lineup_handedness_mix
+from .simulation.profile_provenance import (
+    build_canonical_profile_provenance,
+)
 from .statsapi_cache import fetch_json_with_cache, make_cache_key
 from sqlalchemy.orm import Session
 
@@ -336,6 +339,33 @@ def build_hitter_profile(
         "iso",
     ]
     has_usable_profile = any(simulation_inputs.get(key) is not None for key in usable_core_fields)
+    selected_split = (
+        split
+        if selected
+        else opposite_split
+        if opposite
+        else None
+    )
+    sample_window = (
+        f"{season}:{selected_split}"
+        if split_source
+        else "90d"
+        if agg_data
+        else "team_fallback"
+    )
+    profile_provenance = build_canonical_profile_provenance(
+        {
+            "profile_source": profile_source,
+            "profile_granularity": "individual_hitter",
+            "batter_id": player_id,
+            "requested_split": split,
+            "selected_split": selected_split,
+            "sample_window": sample_window,
+            "sample_size": split_data.get("pa"),
+        },
+        role="batter",
+        input_values=simulation_inputs,
+    )
 
     return {
         "batter_id": player_id,
@@ -349,6 +379,7 @@ def build_hitter_profile(
         "has_batter_aggregate": bool(agg_data),
         "used_opposite_split": bool(opposite and not selected),
         "has_usable_profile": has_usable_profile,
+        "profile_provenance": profile_provenance,
         "simulation_inputs": simulation_inputs,
     }
 
@@ -381,6 +412,48 @@ def _aggregate_hitter_profiles(
         iso = _compute_iso(batting_avg, slugging_pct, None)
 
     player_count_used = len(profiles)
+    source_distribution: Dict[str, int] = {}
+    for profile in profiles:
+        source = str(
+            profile.get("profile_source")
+            or "unavailable"
+        )
+        source_distribution[source] = (
+            source_distribution.get(source, 0) + 1
+        )
+    lineup_provenance = build_canonical_profile_provenance(
+        {
+            "source": "confirmed_lineup_player_splits",
+            "profile_granularity": "lineup_average",
+            "team_id": team_id,
+            "split": split,
+            "sample_window": str(season),
+            "sample_size": player_count_used,
+        },
+        role="lineup_offense",
+        input_values={
+            key: avg_key(key)
+            for key in (
+                "k_pct",
+                "bb_pct",
+                "batting_avg",
+                "on_base_pct",
+                "slugging_pct",
+                "iso",
+                "avg_exit_velocity",
+                "avg_launch_angle",
+                "hard_hit_pct",
+                "barrel_pct",
+            )
+        },
+        shared_profile_reused=True,
+    )
+    lineup_provenance["source_distribution"] = (
+        source_distribution
+    )
+    lineup_provenance["fallback_player_count"] = (
+        fallback_player_count
+    )
 
     return {
         "source": "confirmed_lineup_player_splits",
@@ -412,6 +485,7 @@ def _aggregate_hitter_profiles(
         "real_player_profile_count": player_count_used - fallback_player_count,
         "minimum_required_players": MIN_USABLE_HITTERS,
         "unavailable_reason": None,
+        "profile_provenance": lineup_provenance,
         "lineup": [
             {
                 "batter_id": profile.get("batter_id"),
@@ -423,6 +497,7 @@ def _aggregate_hitter_profiles(
                 "has_player_split": profile.get("has_player_split"),
                 "has_batter_aggregate": profile.get("has_batter_aggregate"),
                 "used_opposite_split": profile.get("used_opposite_split"),
+                "profile_provenance": profile.get("profile_provenance"),
                 "simulation_inputs": profile.get("simulation_inputs"),
             }
             for profile in profiles

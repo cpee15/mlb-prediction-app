@@ -318,6 +318,9 @@ def _pitcher_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
             "pitcher_name": team.get("pitcher_name"),
             "pitch_arsenal_source": team.get("pitch_arsenal_source"),
             "profile_granularity": "probable_pitcher",
+            "sample_window": features.get("source_window"),
+            "sample_size": safe_float(features.get("pa")),
+            "sample_blend_policy": "selected_source_window",
             "rate_source_notes": rate_source_notes,
         },
         "bat_missing": {"k_rate": k_rate, "whiff_rate": None, "csw_rate": None},
@@ -349,6 +352,16 @@ def _offense_workspace_profile(team: Dict[str, Any]) -> Dict[str, Any]:
             "lineup_source": inputs.get("lineup_source"),
             "profile_granularity": inputs.get("profile_granularity") or "team_offense",
             "sample_blend": inputs.get("sample_blend"),
+            "sample_window": (
+                f"season={inputs.get('season')};"
+                f"split={inputs.get('split')}"
+                if inputs.get("season")
+                else None
+            ),
+            "sample_size": safe_float(inputs.get("pa")),
+            "sample_blend_policy": (
+                (inputs.get("sample_blend") or {}).get("type")
+            ),
             "rate_source_notes": {
                 "k_rate_source": k_rate_source,
                 "bb_rate_source": bb_rate_source,

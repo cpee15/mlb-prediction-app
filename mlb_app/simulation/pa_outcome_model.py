@@ -15,6 +15,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from .profile_provenance import (
+    CANONICAL_PROFILE_PROVENANCE_VERSION,
+    build_canonical_profile_provenance,
+)
+
 
 BASE_PA_OUTCOMES = {
     "k": 0.225,
@@ -232,10 +237,51 @@ def build_pa_outcome_probabilities(
         "contact_out_probability": probabilities["out"],
     }
 
+    batter_inputs = {
+        "k_rate": batter_k,
+        "bb_rate": batter_bb,
+        "iso": batter_iso,
+        "barrel_rate": batter_barrel,
+        "hard_hit_rate": batter_hard_hit,
+        "contact_rate": batter_contact,
+    }
+    pitcher_inputs = {
+        "k_rate": pitcher_k,
+        "bb_rate": pitcher_bb,
+        "barrel_rate_allowed": pitcher_barrel_allowed,
+        "hard_hit_rate_allowed": pitcher_hard_hit_allowed,
+        "xba_allowed": pitcher_xba_allowed,
+    }
+    environment_inputs = {
+        "hr_boost_index": hr_index,
+        "hit_boost_index": hit_index,
+        "run_scoring_index": run_index,
+    }
+
     return {
         "model_version": "pa_outcome_v1",
         "probabilities": probabilities,
         "summary": summary,
+        "profile_provenance": {
+            "schema_version": (
+                CANONICAL_PROFILE_PROVENANCE_VERSION
+            ),
+            "batter": build_canonical_profile_provenance(
+                batter_profile,
+                role="batter",
+                input_values=batter_inputs,
+            ),
+            "pitcher": build_canonical_profile_provenance(
+                pitcher_profile,
+                role="pitcher",
+                input_values=pitcher_inputs,
+            ),
+            "environment": build_canonical_profile_provenance(
+                environment_profile,
+                role="environment",
+                input_values=environment_inputs,
+            ),
+        },
         "inputs_used": {
             "batter_k_rate": batter_k,
             "batter_bb_rate": batter_bb,

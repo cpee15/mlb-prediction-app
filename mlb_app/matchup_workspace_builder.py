@@ -54,12 +54,29 @@ def build_lineup_pa_outcome_model(lineup, lineup_profile, opposing_pitcher_profi
             "player_name": player.get("name"),
             "probabilities": model.get("probabilities"),
             "summary": model.get("summary"),
+            "profile_provenance": (
+                model.get("profile_provenance")
+            ),
+            "profile_granularity": (
+                (lineup_profile or {}).get(
+                    "profile_granularity"
+                )
+                or "lineup_average"
+            ),
+            "shared_profile_reused": True,
         })
 
     return {
         "model_version": "lineup_pa_outcome_v1",
         "side": side_label,
         "player_count_used": len(player_models),
+        "profile_granularity": (
+            (lineup_profile or {}).get(
+                "profile_granularity"
+            )
+            or "lineup_average"
+        ),
+        "shared_profile_reused": True,
         "lineup_average_probabilities": _average_probability_dict(player_models),
         "lineup_average_summary": _average_summary_dict(player_models),
         "player_outcomes": player_models,
