@@ -18,6 +18,10 @@ from mlb_app.environment_profile import compute_environment_profile
 from mlb_app.bullpen_profile import build_bullpen_profile
 from mlb_app.simulation.inning_simulator import simulate_half_innings
 from mlb_app.simulation.game_simulator import simulate_game, simulate_game_with_bullpen
+from mlb_app.simulation.profile_provenance import (
+    CANONICAL_PROFILE_PROVENANCE_VERSION,
+    build_canonical_profile_provenance,
+)
 
 
 ENGINE_VERSION = "game-engine-v2"
@@ -251,6 +255,42 @@ def _build_pa_model(
         "side": side,
         "lineup_average_probabilities": probabilities,
         "lineup_average_summary": summary,
+        "profile_provenance": {
+            "schema_version": CANONICAL_PROFILE_PROVENANCE_VERSION,
+            "batter": build_canonical_profile_provenance(
+                offense_profile,
+                role="batter",
+                input_values={
+                    "k_rate": off_k,
+                    "bb_rate": off_bb,
+                    "batting_avg": off_avg,
+                    "iso": off_iso,
+                    "slugging_pct": off_slg,
+                },
+                shared_profile_reused=True,
+            ),
+            "pitcher": build_canonical_profile_provenance(
+                opposing_pitcher_profile,
+                role=pitcher_role,
+                input_values={
+                    "k_rate": pit_k,
+                    "bb_rate": pit_bb,
+                    "xba_allowed": pit_xba,
+                    "xwoba_allowed": pit_xwoba,
+                    "hard_hit_rate_allowed": pit_hard_hit,
+                    "hr_rate": pit_hr,
+                },
+            ),
+            "environment": build_canonical_profile_provenance(
+                environment_profile,
+                role="environment",
+                input_values={
+                    "run_scoring_index": run_env,
+                    "hr_boost_index": hr_env,
+                    "hit_boost_index": hit_env,
+                },
+            ),
+        },
         "direct_inputs": {
             "offense": {
                 "k_rate": off_k,
