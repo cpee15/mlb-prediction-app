@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { API_BASE, getMlbLiveDate } from '../lib/api'
+import './NewsPage.css'
 
 const BUCKETS = ['hourly', 'daily', 'weekly', 'monthly', 'beat', 'betting']
 const API = API_BASE
@@ -18,7 +19,8 @@ const s = {
   muted: { background: '#21262d', border: '1px solid #30363d', color: '#58a6ff', borderRadius: 10, padding: '9px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer', textDecoration: 'none' },
   ticker: { border: '1px solid #30363d', borderRadius: 14, background: '#05080d', overflow: 'hidden' },
   tickerHead: { display: 'flex', gap: 10, alignItems: 'center', padding: '10px 12px', borderBottom: '1px solid #30363d', color: '#e6edf3', fontWeight: 900, fontSize: 12, textTransform: 'uppercase', letterSpacing: .9 },
-  tickerRow: { display: 'flex', gap: 18, overflowX: 'auto', padding: '11px 12px', whiteSpace: 'nowrap' },
+  tickerRow: { overflow: 'hidden', padding: '11px 0', whiteSpace: 'nowrap' },
+  tickerTrack: { display: 'flex', width: 'max-content', gap: 28, paddingLeft: 12 },
   tickerItem: { color: '#c9d1d9', fontSize: 13, display: 'inline-flex', gap: 8, alignItems: 'center', textDecoration: 'none' },
   badge: { border: '1px solid #30363d', background: '#0d1117', color: '#8b949e', borderRadius: 999, padding: '4px 8px', fontSize: 11, fontWeight: 900 },
   hot: { border: '1px solid rgba(248,81,73,.45)', background: 'rgba(248,81,73,.14)', color: '#f85149', borderRadius: 999, padding: '4px 8px', fontSize: 11, fontWeight: 900 },
@@ -106,7 +108,7 @@ function Ticker({ rows, status, provider, loading }) {
     : 'No provider items yet. Enable RSS or configure a paid provider to light up the terminal.'
   return <section style={s.ticker}>
     <div style={s.tickerHead}><span style={s.hot}>Live Wire</span><span>MLB News Terminal</span><span style={s.badge}>{statusLabel(status, loading)}</span></div>
-    <div style={s.tickerRow}>{loading ? <span style={s.tickerItem}>Loading MLB news wire...</span> : dedupedRows.length === 0 ? <span style={s.tickerItem}>{emptyText}</span> : dedupedRows.map(row => <a key={dedupeKey(row)} href={row.url || '#'} target="_blank" rel="noreferrer" style={s.tickerItem}><span style={s.hot}>{row.tag || 'news'}</span><strong>{row.headline || row.title}</strong><span>{row.source}</span><span>{row.time_ago}</span></a>)}</div>
+    <div style={s.tickerRow}>{loading ? <span style={{ ...s.tickerItem, paddingLeft: 12 }}>Loading MLB news wire...</span> : dedupedRows.length === 0 ? <span style={{ ...s.tickerItem, paddingLeft: 12 }}>{emptyText}</span> : <div className="news-ticker-track" style={s.tickerTrack}>{[...dedupedRows, ...dedupedRows].map((row, index) => <a key={`${dedupeKey(row)}-${index}`} href={row.url || '#'} target="_blank" rel="noreferrer" style={s.tickerItem}><span style={s.hot}>{row.tag || 'news'}</span><strong>{row.headline || row.title}</strong><span>{row.source}</span><span>{row.time_ago}</span></a>)}</div>}</div>
   </section>
 }
 
@@ -322,7 +324,6 @@ export default function NewsPage() {
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}><button style={breakingOnly ? s.button : s.muted} type="button" onClick={() => setBreakingOnly(v => !v)}>Breaking Only</button><button style={bettingOnly ? s.button : s.muted} type="button" onClick={() => setBettingOnly(v => !v)}>Betting Relevant</button><button style={localOnly ? s.button : s.muted} type="button" onClick={() => setLocalOnly(v => !v)}>Beat/Local Only</button><Link style={s.muted} to="/daily-odds">Daily Odds</Link><Link style={s.muted} to="/models/projections">Model Projections</Link></div>
     </section>
-    <MatchupTwitterIntel date={date} teams={teams.length ? teams : ['CHC', 'CWS', 'STL', 'MIL']} />
     <section style={s.section}>
       <div style={s.row}><div><div style={s.sectionTitle}>Terminal Buckets</div><div style={s.meta}>Exclusive buckets prevent national wire spam from flooding every section.</div></div><div style={s.tabs}>{[...BUCKETS, 'team_intel'].map(bucket => <button key={bucket} type="button" style={s.tab(activeBucket === bucket)} onClick={() => setActiveBucket(bucket)}>{bucket.replace('_', ' ')}</button>)}</div></div>
       {activeBucket === 'team_intel' ? <TeamIntel boards={intel?.team_intel} loading={intelLoading && !intel} /> : newsLoading && !payload ? <div style={s.loading}>Loading news bucket...</div> : visible.length === 0 ? <div style={s.empty}>{emptyMessage(payload)}</div> : <div style={s.grid}>{visible.map(item => <NewsCard key={dedupeKey(item)} item={item} />)}</div>}
