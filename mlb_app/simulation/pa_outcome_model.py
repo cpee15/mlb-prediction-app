@@ -122,6 +122,7 @@ def build_pa_outcome_probabilities(
     batter_barrel = _nested(batter_profile, "power", "barrel_rate")
     batter_hard_hit = _nested(batter_profile, "power", "hard_hit_rate")
     batter_contact = _nested(batter_profile, "contact_skill", "contact_rate")
+    batter_hit_skill = _nested(batter_profile, "contact_skill", "hit_skill")
 
     pitcher_k = _nested(pitcher_profile, "bat_missing", "k_rate")
     pitcher_bb = _nested(pitcher_profile, "command_control", "bb_rate")
@@ -161,6 +162,7 @@ def build_pa_outcome_probabilities(
 
     hit_skill = _blend(
         [
+            batter_hit_skill,
             batter_contact,
             pitcher_xba_allowed,
             contact_quality,
@@ -244,6 +246,7 @@ def build_pa_outcome_probabilities(
         "barrel_rate": batter_barrel,
         "hard_hit_rate": batter_hard_hit,
         "contact_rate": batter_contact,
+        "hit_skill": batter_hit_skill,
     }
     pitcher_inputs = {
         "k_rate": pitcher_k,
@@ -289,6 +292,7 @@ def build_pa_outcome_probabilities(
             "batter_barrel_rate": batter_barrel,
             "batter_hard_hit_rate": batter_hard_hit,
             "batter_contact_rate": batter_contact,
+            "batter_hit_skill": batter_hit_skill,
             "pitcher_k_rate": pitcher_k,
             "pitcher_bb_rate": pitcher_bb,
             "pitcher_barrel_rate_allowed": pitcher_barrel_allowed,
