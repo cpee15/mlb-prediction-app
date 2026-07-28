@@ -1,0 +1,20 @@
+@keyframes news-ticker-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.news-ticker-track {
+  animation: news-ticker-scroll 55s linear infinite;
+  will-change: transform;
+}
+
+.news-ticker-track:hover,
+.news-ticker-track:focus-within {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .news-ticker-track {
+    animation: none;
+  }
+}
