@@ -137,6 +137,28 @@ test('projection, tracker, and competitive objects use safe registered sort defa
   assert.equal(arsenal.payload.sort_by, 'pitches_seen')
 })
 
+test('player trends sends the required user-selected configuration', () => {
+  const trendConfig = {
+    player_type: 'hitter',
+    window_days: 15,
+    comparison_baseline: 'previous_n_days',
+    minimum_sample_size: 25,
+    trend_direction: 'improving',
+    selected_metrics: ['batting_avg', 'hard_hit_pct'],
+  }
+  const request = buildReportRequest({
+    objectKey: 'player_trends',
+    activeLineupsOnly: false,
+    date: '2026-07-29',
+    cleanedFilters: {},
+    query,
+    trendConfig,
+  })
+  assert.equal(request.payload.report_type, 'player_trends')
+  assert.equal(request.payload.sort_by, 'absolute_change')
+  assert.deepEqual(request.payload.trend_config, trendConfig)
+})
+
 test('canonical pagination is adapted to the Report Workspace contract', () => {
   const result = normalizeCanonicalPage({ totalSize: 125, records: Array(50).fill({}), page_info: { has_next_page: true } }, query)
   assert.equal(result.page_info.page_count, 3)
