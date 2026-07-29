@@ -10,6 +10,7 @@ export const CANONICAL_REPORT_TYPES = {
   model_projection_players: 'model_projection_players',
   model_tracker: 'model_tracker_snapshots',
   batter_arsenal: 'competitive_batter_arsenal',
+  player_trends: 'player_trends',
 }
 
 const LEGACY_DEFAULT_FIELDS = ['rank', 'entity_name', 'team', 'opponent', 'score', 'confidence']
@@ -24,6 +25,7 @@ export const DEFAULT_FIELDS_BY_OBJECT = {
   model_projection_players: ['full_name', 'player_type', 'team_name', 'projected_dfs_points', 'dfs_floor', 'dfs_ceiling'],
   model_tracker: ['snapshot_date', 'pick_label', 'model_name', 'score', 'grade', 'result_status'],
   batter_arsenal: ['batter_name', 'pitcher_pitch_name', 'pitcher_usage_pct', 'pitches_seen', 'xwoba', 'edge_score', 'matchup_confidence'],
+  player_trends: ['rank', 'player_name', 'team', 'metric_label', 'current_value', 'baseline_value', 'absolute_change', 'trend_direction'],
 }
 
 export function defaultFieldsForObject(objectKey) {
@@ -61,6 +63,7 @@ export function canonicalSortField(field, objectKey) {
     if (objectKey === 'model_projection_players') return 'projected_dfs_points'
     if (objectKey === 'batter_arsenal') return 'pitches_seen'
     if (objectKey === 'model_tracker') return 'score'
+    if (objectKey === 'player_trends') return 'absolute_change'
   }
   if (!['hitters', 'pitchers'].includes(objectKey)) return field
   return ({
@@ -78,6 +81,7 @@ export function buildReportRequest({
   cleanedFilters,
   query,
   selectedFields,
+  trendConfig,
 }) {
   const reportType = CANONICAL_REPORT_TYPES[objectKey]
   const confirmedCanonicalHitters = Boolean(
@@ -105,6 +109,7 @@ export function buildReportRequest({
             objectKey === 'overall_players'
           )
         ),
+        trend_config: objectKey === 'player_trends' ? trendConfig : undefined,
       },
     }
   }

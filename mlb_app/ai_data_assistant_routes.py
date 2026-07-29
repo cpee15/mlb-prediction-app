@@ -5,14 +5,20 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Cookie, Header, HTTPException
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from .admin_access import resolve_principal
 from .ai_data_assistant import AI_DATA_ASSISTANT_SYSTEM_PROMPT, PROMPT_CHIPS, classify_assistant_intent
 from .ai_data_assistant_performance import build_ai_data_assistant_response, clear_ai_data_assistant_caches
 from .database import create_tables, get_engine, get_session
-from .my_dashboard_routes import router as my_dashboard_router
+from .my_dashboard_routes import DashboardPlayerReportRequest, my_dashboard_player_report_query, router as my_dashboard_router
+from .saved_report_analysis import (
+    build_saved_report_packet,
+    render_saved_report_answer,
+    resolve_owned_saved_reports,
+)
 
 router = APIRouter()
 router.include_router(my_dashboard_router)
@@ -31,6 +37,7 @@ class AIDataAssistantRequest(BaseModel):
     team_id: Optional[int] = None
     use_llm: Optional[bool] = None
     conversation: Optional[List[ConversationTurn]] = None
+    saved_report_ids: List[int] = Field(default_factory=list, max_length=5)
 
 
 def session_factory():
@@ -96,6 +103,8 @@ def _apply_conversational_llm_polish(message: str, result: Dict[str, Any], conve
             "warnings": result.get("warnings") or [],
             "missing_data": result.get("missing_data") or [],
             "confidence_note": result.get("confidence_note"),
+            "saved_report_analysis": result.get("saved_report_analysis"),
+            "deterministic_answer": result.get("answer"),
         },
         default=str,
     )
@@ -243,7 +252,11 @@ def ai_data_assistant_health() -> Dict[str, Any]:
 
 
 @router.post("/ai-data-assistant")
-def ai_data_assistant_query(payload: AIDataAssistantRequest) -> Dict[str, Any]:
+def ai_data_assistant_query(
+    payload: AIDataAssistantRequest,
+    mlb_dashboard_session: Optional[str] = Cookie(default=None),
+    x_dashboard_session: Optional[str] = Header(default=None, alias="X-Dashboard-Session"),
+) -> Dict[str, Any]:
     if not payload.message or not payload.message.strip():
         raise HTTPException(status_code=400, detail="message is required")
     try:
@@ -251,6 +264,20 @@ def ai_data_assistant_query(payload: AIDataAssistantRequest) -> Dict[str, Any]:
         with factory() as session:
             conversation = _normalize_conversation(payload.conversation)
             resolved_use_llm = _resolve_use_llm(payload.use_llm)
+            owned_reports = []
+            if payload.saved_report_ids:
+                principal = resolve_principal(session, x_dashboard_session or mlb_dashboard_session)
+                if not principal:
+                    raise HTTPException(status_code=401, detail="Dashboard sign-in required")
+                try:
+                    owned_reports = resolve_owned_saved_reports(
+                        session, principal.user_id, payload.saved_report_ids
+                    )
+                except LookupError as exc:
+                    # Deliberately does not reveal whether an ID exists for another user.
+                    raise HTTPException(status_code=404, detail="One or more saved reports are unavailable") from exc
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
             result = build_ai_data_assistant_response(
                 session=session,
                 message=payload.message,
@@ -260,6 +287,37 @@ def ai_data_assistant_query(payload: AIDataAssistantRequest) -> Dict[str, Any]:
                 team_id=payload.team_id,
                 use_llm=False,
             )
+            if owned_reports:
+                try:
+                    saved_packet = build_saved_report_packet(
+                        owned_reports,
+                        lambda request: my_dashboard_player_report_query(
+                            DashboardPlayerReportRequest(**request)
+                        ),
+                    )
+                    base_context = result.get("context_preview") or {}
+                    saved_packet["authoritative_context"] = {
+                        "projection_edges": list(
+                            base_context.get("projection_edges")
+                            or base_context.get("top_edges")
+                            or []
+                        )[:5],
+                        "game_projection_edge": base_context.get("game_projection_edge"),
+                        "projection_watchlist": list(base_context.get("projection_watchlist") or [])[:5],
+                        "odds_summary": base_context.get("odds_summary"),
+                        "data_quality": base_context.get("data_quality"),
+                    }
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+                result["saved_report_analysis"] = saved_packet
+                result["answer"] = render_saved_report_answer(saved_packet)
+                result["context_preview"] = {
+                    **(result.get("context_preview") or {}),
+                    "saved_report_analysis": saved_packet,
+                }
+                result["sources_used"] = list(dict.fromkeys(
+                    [*(result.get("sources_used") or []), "owned_saved_reports", "my_dashboard_report_engine"]
+                ))
             llm_mode = {
                 "requested": bool(payload.use_llm) if payload.use_llm is not None else resolved_use_llm,
                 "configured": _llm_configured(),

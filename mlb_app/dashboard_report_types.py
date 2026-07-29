@@ -19,6 +19,7 @@ REPORT_TYPES: Dict[str, Dict[str, Any]] = {
     "model_projection_players": {"label": "Model Projection Players", "ui_object": "model_projection_players", "base_object": "model_projection_date_artifact", "population": {"row_type": "player"}, "relationships": ["model_projection_games", "dashboard_player_current"], "queryable": True, "workbench_queryable": False},
     "model_tracker_snapshots": {"label": "Model Tracker", "ui_object": "model_tracker", "base_object": "model_tracker_snapshots", "population": {}, "relationships": ["games", "dashboard_player_current"], "queryable": True, "workbench_queryable": False},
     "competitive_batter_arsenal": {"label": "Batter vs Arsenal", "ui_object": "batter_arsenal", "base_object": "batter_pitch_type_matchups", "population": {}, "relationships": ["dashboard_players", "pitch_arsenal"], "queryable": True, "workbench_queryable": True},
+    "player_trends": {"label": "Player Trends", "ui_object": "player_trends", "base_object": "statcast_events", "population": {}, "relationships": ["dashboard_players", "batter_rolling", "pitcher_rolling"], "queryable": True, "workbench_queryable": False},
 }
 
 
@@ -590,6 +591,35 @@ COMPETITIVE_ARSENAL_FIELDS.extend([
     ]
 ])
 
+PLAYER_TREND_FIELDS = [
+    _runtime_field(name, label, data_type, group, "statcast_events", description, freshness="requested_trend_window")
+    for name, label, data_type, group, description in [
+        ("rank", "Rank", "integer", "Identity", "Report-engine rank after the saved sort."),
+        ("player_id", "MLB Player ID", "id", "Identity", "Canonical MLBAM player identifier."),
+        ("player_name", "Player Name", "string", "Identity", "Canonical player name."),
+        ("player_type", "Player Type", "string", "Identity", "Hitter or pitcher."),
+        ("team", "Team", "string", "Identity", "Current canonical team."),
+        ("metric", "Metric", "string", "Trend", "Rolling-page metric API name."),
+        ("metric_label", "Metric Name", "string", "Trend", "Rolling-page metric display name."),
+        ("selected_window_days", "Window Days", "integer", "Configuration", "User-selected N-day window."),
+        ("comparison_baseline", "Comparison Baseline", "string", "Configuration", "User-selected authoritative comparison period."),
+        ("window_start", "Window Start", "date", "Window", "Inclusive trend-window start date."),
+        ("window_end", "Window End", "date", "Window", "Inclusive trend-window end date."),
+        ("baseline_start", "Baseline Start", "date", "Window", "Inclusive comparison-period start date."),
+        ("baseline_end", "Baseline End", "date", "Window", "Inclusive comparison-period end date."),
+        ("window_sample_size", "Window Sample", "integer", "Sample", "Plate appearances for hitters or batters faced for pitchers."),
+        ("baseline_sample_size", "Baseline Sample", "integer", "Comparison plate appearances or batters faced."),
+        ("current_value", "Window Value", "double", "Trend", "Metric value in the selected window."),
+        ("baseline_value", "Baseline Value", "double", "Trend", "Metric value in the comparison period."),
+        ("absolute_change", "Absolute Change", "double", "Trend", "Window value minus baseline value."),
+        ("percentage_change", "Percentage Change", "double", "Trend", "Change divided by the absolute baseline when nonzero."),
+        ("trend_direction", "Trend Direction", "string", "Trend", "Deterministic improving, declining, or stable classification."),
+        ("favorable_direction", "Favorable Direction", "string", "Trend", "Metric-aware higher- or lower-is-better rule."),
+        ("freshness_date", "Freshness Date", "date", "Audit", "Requested as-of date for the calculation."),
+        ("source", "Source", "string", "Audit", "Authoritative rolling-page data source."),
+    ]
+]
+
 FIELD_CATALOG: Dict[str, List[Dict[str, Any]]] = {}
 for key, config in REPORT_TYPES.items():
     if key == "all_active_hitters":
@@ -626,6 +656,8 @@ for key, config in REPORT_TYPES.items():
         FIELD_CATALOG[key] = deepcopy(MODEL_TRACKER_FIELDS)
     elif key == "competitive_batter_arsenal":
         FIELD_CATALOG[key] = deepcopy(COMPETITIVE_ARSENAL_FIELDS)
+    elif key == "player_trends":
+        FIELD_CATALOG[key] = deepcopy(PLAYER_TREND_FIELDS)
     elif config["base_object"] == "dashboard_players":
         FIELD_CATALOG[key] = deepcopy(CURRENT_PLAYER_FIELDS[:6])
         for field in FIELD_CATALOG[key]:
