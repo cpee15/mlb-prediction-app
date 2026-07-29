@@ -152,3 +152,56 @@ class DashboardPlayerCurrent(Base):
         Index("ix_dashboard_current_hitter_xwoba", "player_type", "is_active", "xwoba"),
         Index("ix_dashboard_current_pitcher_score", "player_type", "is_active", "model_score"),
     )
+
+
+class PlayerTrendSnapshot(Base):
+    """Cached rolling-period comparison used by MyDashboard and AI analysis."""
+
+    __tablename__ = "player_trend_snapshots"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    as_of_date: date = Column(Date, nullable=False)
+    player_id: int = Column(Integer, nullable=False)
+    player_name: str = Column(String(255), nullable=False)
+    player_type: str = Column(String(32), nullable=False)
+    team: Optional[str] = Column(String(120), nullable=True)
+    window_days: int = Column(Integer, nullable=False)
+    comparison_baseline: str = Column(String(32), nullable=False)
+    metric: str = Column(String(64), nullable=False)
+    window_start: date = Column(Date, nullable=False)
+    window_end: date = Column(Date, nullable=False)
+    baseline_start: date = Column(Date, nullable=False)
+    baseline_end: date = Column(Date, nullable=False)
+    window_sample_size: int = Column(Integer, nullable=False, default=0)
+    baseline_sample_size: int = Column(Integer, nullable=False, default=0)
+    current_value: Optional[float] = Column(Float, nullable=True)
+    baseline_value: Optional[float] = Column(Float, nullable=True)
+    absolute_change: Optional[float] = Column(Float, nullable=True)
+    percentage_change: Optional[float] = Column(Float, nullable=True)
+    trend_direction: Optional[str] = Column(String(24), nullable=True)
+    favorable_direction: str = Column(String(12), nullable=False)
+    window_metrics_json = Column(JSON, nullable=False, default=dict)
+    baseline_metrics_json = Column(JSON, nullable=False, default=dict)
+    source: str = Column(String(120), nullable=False, default="statcast_events_sql_aggregate")
+    generated_at: datetime = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "as_of_date",
+            "player_id",
+            "player_type",
+            "window_days",
+            "comparison_baseline",
+            "metric",
+            name="uq_player_trend_snapshot_config_metric",
+        ),
+        Index(
+            "ix_player_trends_config",
+            "as_of_date",
+            "player_type",
+            "window_days",
+            "comparison_baseline",
+        ),
+        Index("ix_player_trends_player_date", "player_id", "as_of_date"),
+        Index("ix_player_trends_metric_direction", "metric", "trend_direction"),
+    )

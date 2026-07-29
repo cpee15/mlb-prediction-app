@@ -48,8 +48,21 @@ const FRANKLIN = '"Franklin Gothic Medium", "Franklin Gothic", "Arial Narrow", A
 const CENTURY = '"Century Gothic", CenturyGothic, AppleGothic, Arial, sans-serif'
 const EMPTY_TREND_CONFIG = { player_type: '', window_days: '', comparison_baseline: '', minimum_sample_size: '', trend_direction: 'all', selected_metrics: [] }
 const TREND_METRICS = {
-  hitter: [['batting_avg', 'Batting Average'], ['on_base_pct', 'OBP'], ['slugging_pct', 'SLG'], ['iso', 'ISO'], ['avg_exit_velocity', 'Average Exit Velocity'], ['hard_hit_pct', 'Hard-Hit Rate'], ['barrel_pct', 'Barrel Rate'], ['k_pct', 'Strikeout Rate'], ['bb_pct', 'Walk Rate'], ['whiff_pct', 'Whiff Rate']],
-  pitcher: [['k_pct', 'Strikeout Rate'], ['bb_pct', 'Walk Rate'], ['hard_hit_pct', 'Hard-Hit Rate Allowed'], ['avg_velocity', 'Average Pitch Velocity']],
+  hitter: [
+    ['batting_avg', 'Batting Average'], ['on_base_pct', 'OBP'], ['slugging_pct', 'SLG'],
+    ['ops', 'OPS'], ['iso', 'ISO'], ['avg_exit_velocity', 'Average Exit Velocity'],
+    ['max_exit_velocity', 'Maximum Exit Velocity'], ['avg_launch_angle', 'Average Launch Angle'],
+    ['hard_hit_pct', 'Hard-Hit Rate'], ['barrel_pct', 'Barrel Rate'],
+    ['k_pct', 'Strikeout Rate'], ['bb_pct', 'Walk Rate'],
+    ['whiff_pct', 'Whiff Rate'], ['contact_pct', 'Contact Rate'],
+  ],
+  pitcher: [
+    ['k_pct', 'Strikeout Rate'], ['bb_pct', 'Walk Rate'],
+    ['hard_hit_pct', 'Hard-Hit Rate Allowed'], ['avg_velocity', 'Average Pitch Velocity'],
+    ['avg_spin_rate', 'Average Spin Rate'], ['xwoba', 'xwOBA Allowed'],
+    ['xba', 'xBA Allowed'], ['avg_horiz_break', 'Average Horizontal Break'],
+    ['avg_vert_break', 'Average Vertical Break'],
+  ],
 }
 
 class DashboardWorkspaceErrorBoundary extends React.Component {
