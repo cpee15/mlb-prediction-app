@@ -608,7 +608,7 @@ PLAYER_TREND_FIELDS = [
         ("baseline_start", "Baseline Start", "date", "Window", "Inclusive comparison-period start date."),
         ("baseline_end", "Baseline End", "date", "Window", "Inclusive comparison-period end date."),
         ("window_sample_size", "Window Sample", "integer", "Sample", "Plate appearances for hitters or batters faced for pitchers."),
-        ("baseline_sample_size", "Baseline Sample", "integer", "Comparison plate appearances or batters faced."),
+        ("baseline_sample_size", "Baseline Sample", "integer", "Sample", "Comparison plate appearances or batters faced."),
         ("current_value", "Window Value", "double", "Trend", "Metric value in the selected window."),
         ("baseline_value", "Baseline Value", "double", "Trend", "Metric value in the comparison period."),
         ("absolute_change", "Absolute Change", "double", "Trend", "Window value minus baseline value."),
