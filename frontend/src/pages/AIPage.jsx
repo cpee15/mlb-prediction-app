@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { API_BASE, getMlbLiveDate } from '../lib/api'
+import { dashboardApi } from '../lib/dashboardSession.mjs'
 
 const STORAGE_KEY = 'mlbgpt-ai-data-assistant-chat-v3'
 const PROMPT_CHIPS = [
@@ -65,6 +66,10 @@ export default function AIPage() {
   const [useLlm, setUseLlm] = useState(true)
   const [healthLoaded, setHealthLoaded] = useState(false)
   const [pendingDraftValue, setPendingDraftValue] = useState('')
+  const [savedWorkspace, setSavedWorkspace] = useState(null)
+  const [savedReportsError, setSavedReportsError] = useState('')
+  const [savedReportsLoading, setSavedReportsLoading] = useState(true)
+  const [selectedReportIds, setSelectedReportIds] = useState([])
   const chatEndRef = useRef(null)
   const composerRef = useRef(null)
 
@@ -90,6 +95,15 @@ export default function AIPage() {
     return () => {
       ignore = true
     }
+  }, [])
+
+  useEffect(() => {
+    let ignore = false
+    dashboardApi('/my-dashboard/workspace')
+      .then(json => { if (!ignore) setSavedWorkspace(json) })
+      .catch(err => { if (!ignore && err?.status !== 401) setSavedReportsError(err.message || 'Saved reports are unavailable.') })
+      .finally(() => { if (!ignore) setSavedReportsLoading(false) })
+    return () => { ignore = true }
   }, [])
 
   useEffect(() => {
@@ -143,18 +157,14 @@ export default function AIPage() {
         player_id: playerId ? Number(playerId) : null,
         use_llm: Boolean(llmConfigured && useLlm),
         conversation: historyForPayload,
+        saved_report_ids: selectedReportIds,
       }
 
-      const res = await fetch(`${API_BASE}/ai-data-assistant`, {
+      const json = await dashboardApi('/ai-data-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-
-      const json = await res.json()
-      if (!res.ok) {
-        throw new Error(typeof json?.detail === 'string' ? json.detail : JSON.stringify(json?.detail || json))
-      }
 
       const assistantMessage = {
         id: pendingId,
@@ -245,6 +255,8 @@ export default function AIPage() {
           </label>
         </div>
 
+        <SavedReportSelector workspace={savedWorkspace} loading={savedReportsLoading} error={savedReportsError} selectedIds={selectedReportIds} setSelectedIds={setSelectedReportIds} />
+
         {!hasConversation && (
           <div style={emptyStateStyle}>
             <div style={emptyTitleStyle}>Start with one of these</div>
@@ -293,6 +305,35 @@ export default function AIPage() {
       </div>
     </div>
   )
+}
+
+function SavedReportSelector({ workspace, loading, error, selectedIds, setSelectedIds }) {
+  const folders = Array.isArray(workspace?.folders) ? workspace.folders : []
+  const selected = new Set(selectedIds.map(String))
+  const reports = folders.flatMap(folder => (Array.isArray(folder?.items) ? folder.items : [])
+    .filter(item => ['report_view', 'workbench_view', 'dashboard_report'].includes(item?.source_type))
+    .map(item => ({ ...item, folderName: folder.folder_name || 'Saved Reports' })))
+  function toggle(id) {
+    const key = String(id)
+    setSelectedIds(current => current.map(String).includes(key)
+      ? current.filter(value => String(value) !== key)
+      : current.length < 5 ? [...current, id] : current)
+  }
+  return <details style={savedSelectorStyle} open={selectedIds.length > 0}>
+    <summary style={savedSelectorSummaryStyle}>Saved Reports <span style={savedCountStyle}>{selectedIds.length} selected</span></summary>
+    <div style={savedSelectorBodyStyle}>
+      {loading ? <div style={savedNoticeStyle}>Loading your saved reports…</div> : null}
+      {error ? <div style={{ ...savedNoticeStyle, color: '#fca5a5' }}>{error}</div> : null}
+      {!loading && !error && !reports.length ? <div style={savedNoticeStyle}>No saved reports yet. Save one in MyDashboard first.</div> : null}
+      {selectedIds.length ? <div style={selectedReportWrapStyle}>{reports.filter(report => selected.has(String(report.id))).map(report => <button key={`selected-${report.id}`} type="button" style={selectedReportChipStyle} onClick={() => toggle(report.id)}>{report.title || 'Saved report'} ×</button>)}</div> : null}
+      <div style={savedReportGridStyle}>{reports.map(report => {
+        const reportType = report?.payload_json?.definition?.report_type || report.source_type
+        const checked = selected.has(String(report.id))
+        return <label key={report.id} style={checked ? savedReportActiveStyle : savedReportStyle}><input type="checkbox" checked={checked} disabled={!checked && selectedIds.length >= 5} onChange={() => toggle(report.id)} /><span><strong>{report.title || 'Saved report'}</strong><small>{report.folderName} · {reportType}</small></span></label>
+      })}</div>
+      <div style={savedNoticeStyle}>Select up to five. The assistant reruns each report with its saved filters, weights, date, and sort.</div>
+    </div>
+  </details>
 }
 
 function ChatMessage({ message }) {
@@ -506,6 +547,17 @@ const toolbarStyle = {
   padding: '14px 20px',
   borderBottom: '1px solid rgba(148,163,184,0.10)',
 }
+
+const savedSelectorStyle = { margin: '12px 20px 0', border: '1px solid rgba(148,163,184,0.14)', borderRadius: 14, background: 'rgba(255,255,255,0.02)' }
+const savedSelectorSummaryStyle = { cursor: 'pointer', padding: '11px 13px', color: '#dbeafe', fontWeight: 700, fontSize: 13 }
+const savedCountStyle = { marginLeft: 8, color: '#7dd3fc', fontSize: 11 }
+const savedSelectorBodyStyle = { padding: '0 12px 12px' }
+const savedReportGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 8, maxHeight: 230, overflowY: 'auto' }
+const savedReportStyle = { display: 'flex', gap: 9, alignItems: 'flex-start', padding: 10, border: '1px solid rgba(148,163,184,0.12)', borderRadius: 10, color: '#dbeafe', background: '#0b1424', fontSize: 12 }
+const savedReportActiveStyle = { ...savedReportStyle, border: '1px solid rgba(56,189,248,0.42)', background: 'rgba(56,189,248,0.10)' }
+const savedNoticeStyle = { margin: '8px 0', color: '#91a5c8', fontSize: 12, lineHeight: 1.45 }
+const selectedReportWrapStyle = { display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 10 }
+const selectedReportChipStyle = { border: '1px solid rgba(56,189,248,0.24)', borderRadius: 999, background: 'rgba(56,189,248,0.08)', color: '#dff7ff', padding: '6px 9px', fontSize: 11 }
 
 const controlLabelStyle = {
   display: 'grid',
