@@ -159,16 +159,17 @@ def load_combined_shadow_hitter_profile(
     from mlb_app.simulation.shadow.hitter_expected_components import (
         load_shadow_hitter_expected_components,
     )
-    from mlb_app.simulation.shadow.player_profile_blend import (
-        load_shadow_hitter_profile_blend,
+    from mlb_app.simulation.shadow.hitter_actual_components import (
+        load_shadow_hitter_actual_components,
     )
 
-    actual_blend = load_shadow_hitter_profile_blend(
+    actual_blend = load_shadow_hitter_actual_components(
         session,
         player_id=player_id,
         season=season,
         split=split,
         as_of_date=as_of_date,
+        career_start_season=career_start_season,
     )
     expected_components = load_shadow_hitter_expected_components(
         session,
