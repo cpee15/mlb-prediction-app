@@ -19,7 +19,7 @@ REPORT_TYPES: Dict[str, Dict[str, Any]] = {
     "model_projection_players": {"label": "Model Projection Players", "ui_object": "model_projection_players", "base_object": "model_projection_date_artifact", "population": {"row_type": "player"}, "relationships": ["model_projection_games", "dashboard_player_current"], "queryable": True, "workbench_queryable": False},
     "model_tracker_snapshots": {"label": "Model Tracker", "ui_object": "model_tracker", "base_object": "model_tracker_snapshots", "population": {}, "relationships": ["games", "dashboard_player_current"], "queryable": True, "workbench_queryable": False},
     "competitive_batter_arsenal": {"label": "Batter vs Arsenal", "ui_object": "batter_arsenal", "base_object": "batter_pitch_type_matchups", "population": {}, "relationships": ["dashboard_players", "pitch_arsenal"], "queryable": True, "workbench_queryable": True},
-    "player_trends": {"label": "Player Trends", "ui_object": "player_trends", "base_object": "statcast_events", "population": {}, "relationships": ["dashboard_players", "batter_rolling", "pitcher_rolling"], "queryable": True, "workbench_queryable": False},
+    "player_trends": {"label": "Player Trends", "ui_object": "player_trends", "base_object": "player_trend_snapshots", "population": {"is_active": True, "player_type": "request_config"}, "relationships": ["dashboard_players", "statcast_events", "batter_id_rolling", "pitcher_id_rolling"], "queryable": True, "workbench_queryable": False},
 }
 
 
@@ -592,7 +592,7 @@ COMPETITIVE_ARSENAL_FIELDS.extend([
 ])
 
 PLAYER_TREND_FIELDS = [
-    _runtime_field(name, label, data_type, group, "statcast_events", description, freshness="requested_trend_window")
+    _runtime_field(name, label, data_type, group, "player_trend_snapshots", description, freshness="cached_trend_snapshot")
     for name, label, data_type, group, description in [
         ("rank", "Rank", "integer", "Identity", "Report-engine rank after the saved sort."),
         ("player_id", "MLB Player ID", "id", "Identity", "Canonical MLBAM player identifier."),
@@ -616,9 +616,124 @@ PLAYER_TREND_FIELDS = [
         ("trend_direction", "Trend Direction", "string", "Trend", "Deterministic improving, declining, or stable classification."),
         ("favorable_direction", "Favorable Direction", "string", "Trend", "Metric-aware higher- or lower-is-better rule."),
         ("freshness_date", "Freshness Date", "date", "Audit", "Requested as-of date for the calculation."),
-        ("source", "Source", "string", "Audit", "Authoritative rolling-page data source."),
+        ("dataset_generated_at", "Dataset Generated At", "datetime", "Audit", "Time the cached trend dataset was generated."),
+        ("source", "Source", "string", "Audit", "Cached trend dataset and authoritative rolling-page source."),
     ]
 ]
+
+PLAYER_TREND_ROLLING_FIELDS = {
+    "actual_pa": ("Plate Appearances", "integer"),
+    "actual_ab": ("At Bats", "integer"),
+    "event_count": ("Pitch Events", "integer"),
+    "batters_faced": ("Batters Faced", "integer"),
+    "pitch_count": ("Pitch Count", "integer"),
+    "batted_ball_count": ("Batted Balls", "integer"),
+    "hard_hit_count": ("Hard-Hit Balls", "integer"),
+    "barrel_count": ("Barrels", "integer"),
+    "hits": ("Hits", "integer"),
+    "doubles": ("Doubles", "integer"),
+    "triples": ("Triples", "integer"),
+    "walks": ("Walks", "integer"),
+    "strikeouts": ("Strikeouts", "integer"),
+    "home_runs": ("Home Runs", "integer"),
+    "total_bases": ("Total Bases", "integer"),
+    "swings": ("Swings", "integer"),
+    "whiffs": ("Whiffs", "integer"),
+    "batting_avg": ("Batting Average", "double"),
+    "on_base_pct": ("On-Base Percentage", "double"),
+    "slugging_pct": ("Slugging Percentage", "double"),
+    "ops": ("OPS", "double"),
+    "iso": ("ISO", "double"),
+    "avg_exit_velocity": ("Average Exit Velocity", "double"),
+    "max_exit_velocity": ("Maximum Exit Velocity", "double"),
+    "avg_launch_angle": ("Average Launch Angle", "double"),
+    "hard_hit_pct": ("Hard-Hit Rate", "double"),
+    "barrel_pct": ("Barrel Rate", "double"),
+    "k_pct": ("Strikeout Rate", "double"),
+    "bb_pct": ("Walk Rate", "double"),
+    "whiff_pct": ("Whiff Rate", "double"),
+    "contact_pct": ("Contact Rate", "double"),
+    "avg_velocity": ("Average Pitch Velocity", "double"),
+    "avg_spin_rate": ("Average Spin Rate", "double"),
+    "xwoba": ("xwOBA Allowed", "double"),
+    "xba": ("xBA Allowed", "double"),
+    "avg_horiz_break": ("Average Horizontal Break", "double"),
+    "avg_vert_break": ("Average Vertical Break", "double"),
+}
+for field_name, (label, data_type) in PLAYER_TREND_ROLLING_FIELDS.items():
+    PLAYER_TREND_FIELDS.extend([
+        _runtime_field(
+            f"window_{field_name}",
+            f"Window {label}",
+            data_type,
+            "Rolling Window",
+            "player_trend_snapshots",
+            f"{label} from the requested player-ID rolling window.",
+            freshness="cached_trend_snapshot",
+        ),
+        _runtime_field(
+            f"baseline_{field_name}",
+            f"Baseline {label}",
+            data_type,
+            "Rolling Baseline",
+            "player_trend_snapshots",
+            f"{label} from the authoritative comparison window.",
+            freshness="cached_trend_snapshot",
+        ),
+    ])
+
+PLAYER_TREND_CHANGE_FIELDS = {
+    "batting_avg": "Batting Average",
+    "on_base_pct": "On-Base Percentage",
+    "slugging_pct": "Slugging Percentage",
+    "ops": "OPS",
+    "iso": "ISO",
+    "avg_exit_velocity": "Average Exit Velocity",
+    "max_exit_velocity": "Maximum Exit Velocity",
+    "avg_launch_angle": "Average Launch Angle",
+    "hard_hit_pct": "Hard-Hit Rate",
+    "barrel_pct": "Barrel Rate",
+    "k_pct": "Strikeout Rate",
+    "bb_pct": "Walk Rate",
+    "whiff_pct": "Whiff Rate",
+    "contact_pct": "Contact Rate",
+    "avg_velocity": "Average Pitch Velocity",
+    "avg_spin_rate": "Average Spin Rate",
+    "xwoba": "xwOBA Allowed",
+    "xba": "xBA Allowed",
+    "avg_horiz_break": "Average Horizontal Break",
+    "avg_vert_break": "Average Vertical Break",
+}
+for metric_name, label in PLAYER_TREND_CHANGE_FIELDS.items():
+    PLAYER_TREND_FIELDS.extend([
+        _runtime_field(
+            f"{metric_name}_change",
+            f"{label} Change",
+            "double",
+            "Metric Changes",
+            "player_trend_snapshots",
+            f"Absolute change in {label.lower()} from baseline to window.",
+            freshness="cached_trend_snapshot",
+        ),
+        _runtime_field(
+            f"{metric_name}_change_pct",
+            f"{label} Change %",
+            "double",
+            "Metric Changes",
+            "player_trend_snapshots",
+            f"Percentage change in {label.lower()} from baseline to window.",
+            freshness="cached_trend_snapshot",
+        ),
+        _runtime_field(
+            f"{metric_name}_direction",
+            f"{label} Direction",
+            "string",
+            "Metric Changes",
+            "player_trend_snapshots",
+            f"Metric-aware improving, declining, or stable classification for {label.lower()}.",
+            freshness="cached_trend_snapshot",
+        ),
+    ])
 
 FIELD_CATALOG: Dict[str, List[Dict[str, Any]]] = {}
 for key, config in REPORT_TYPES.items():
