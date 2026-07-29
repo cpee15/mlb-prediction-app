@@ -178,7 +178,7 @@ def test_paired_comparison_preserves_production_profile():
 
 def test_player_id_loader_combines_matching_persisted_evidence(monkeypatch):
     import mlb_app.simulation.shadow.hitter_expected_components as expected_mod
-    import mlb_app.simulation.shadow.player_profile_blend as actual_mod
+    import mlb_app.simulation.shadow.hitter_actual_components as actual_mod
     from mlb_app.simulation.shadow.combined_hitter_profile import (
         load_combined_shadow_hitter_profile,
     )
@@ -188,7 +188,7 @@ def test_player_id_loader_combines_matching_persisted_evidence(monkeypatch):
     def load_actual(session, **kwargs):
         calls["actual"] = (session, kwargs)
         result = actual_blend()
-        result["storage_evidence"] = {"player_split_row_count": 4}
+        result["storage_evidence"] = {"raw_row_count": 700}
         return result
 
     def load_expected(session, **kwargs):
@@ -198,7 +198,7 @@ def test_player_id_loader_combines_matching_persisted_evidence(monkeypatch):
         return result
 
     monkeypatch.setattr(
-        actual_mod, "load_shadow_hitter_profile_blend", load_actual
+        actual_mod, "load_shadow_hitter_actual_components", load_actual
     )
     monkeypatch.setattr(
         expected_mod, "load_shadow_hitter_expected_components", load_expected
@@ -220,10 +220,11 @@ def test_player_id_loader_combines_matching_persisted_evidence(monkeypatch):
         "expected": "ready",
     }
     assert result["storage_evidence"]["actual"] == {
-        "player_split_row_count": 4
+        "raw_row_count": 700
     }
     assert result["storage_evidence"]["expected"] == {
         "raw_row_count": 700
     }
     assert calls["actual"][1]["player_id"] == 7
+    assert calls["actual"][1]["career_start_season"] == 2023
     assert calls["expected"][1]["career_start_season"] == 2023
