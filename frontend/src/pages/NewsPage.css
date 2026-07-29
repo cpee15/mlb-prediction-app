@@ -4,7 +4,7 @@
 }
 
 .news-ticker-track {
-  animation: news-ticker-scroll 55s linear infinite;
+  animation: news-ticker-scroll 110s linear infinite;
   will-change: transform;
 }
 
