@@ -4,7 +4,8 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from mlb_app.dashboard_object_models import DashboardPlayer
+from mlb_app.dashboard_object_models import DashboardPlayer, PlayerTrendSnapshot
+from mlb_app.dashboard_report_types import describe_report_type
 from mlb_app.database import AppDashboardFolder, AppDashboardItem, Base, StatcastEvent
 from mlb_app.player_trends import query_player_trends, supported_trend_configuration
 from mlb_app.saved_report_analysis import (
@@ -75,7 +76,25 @@ def test_hitter_previous_window_uses_rolling_page_calculator_and_direction(sessi
     assert result["totalSize"] == 3
     assert {row["trend_direction"] for row in result["records"]} == {"improving"}
     assert all(row["window_sample_size"] == 2 for row in result["records"])
-    assert result["provenance"]["source"] == "statcast_events"
+    assert result["provenance"]["source"] == "player_trend_snapshots"
+    assert result["provenance"]["upstream_source"] == "statcast_events"
+    assert result["data_quality"]["dataset_cache_hit"] is False
+    assert session.query(PlayerTrendSnapshot).count() == 3
+
+    cached = query_player_trends(
+        session,
+        as_of_date=dt.date(2026, 7, 21),
+        trend_config={
+            "player_type": "hitter",
+            "window_days": 7,
+            "comparison_baseline": "previous_n_days",
+            "minimum_sample_size": 2,
+            "trend_direction": "all",
+            "selected_metrics": ["batting_avg", "avg_exit_velocity", "k_pct"],
+        },
+    )
+    assert cached["data_quality"]["dataset_cache_hit"] is True
+    assert cached["records"] == result["records"]
 
 
 def test_pitcher_higher_strikeout_rate_is_improving(session):
@@ -123,6 +142,27 @@ def test_unsupported_prior_equivalent_period_is_not_advertised(session):
                 "selected_metrics": ["batting_avg"],
             },
         )
+
+
+def test_player_trend_object_registers_cached_rolling_fields():
+    object_info = describe_report_type("player_trends")
+    field_names = {field["name"] for field in object_info["fields"]}
+
+    assert object_info["base_object"] == "player_trend_snapshots"
+    assert {
+        "window_batting_avg",
+        "baseline_batting_avg",
+        "batting_avg_change",
+        "window_avg_velocity",
+        "baseline_avg_velocity",
+        "avg_velocity_change",
+        "dataset_generated_at",
+    }.issubset(field_names)
+    assert all(
+        field["filterable"]
+        for field in object_info["fields"]
+        if field["name"] in {"window_batting_avg", "baseline_avg_velocity"}
+    )
 
 
 def test_saved_report_resolution_is_user_scoped_and_packet_preserves_rank(session):
