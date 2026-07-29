@@ -32,6 +32,7 @@ from .my_dashboard_report_query import (
     apply_report_query,
     install_full_result_finalizer,
 )
+from .player_trends import query_player_trends, supported_trend_configuration
 from .shared_payload_cache import env_ttl, get_or_set, make_cache_key, stable_hash
 from .workbench_query import execute_workbench_plan, parse_workbench_statement, queryable_objects
 
@@ -78,6 +79,7 @@ class DashboardPlayerReportRequest(BaseModel):
     selected_fields: Optional[List[str]] = None
     include_metadata: bool = True
     confirmed_lineups_only: bool = False
+    trend_config: Optional[Dict[str, Any]] = None
 
 
 class QueryStudioRequest(BaseModel):
@@ -139,6 +141,9 @@ def my_dashboard_hydration_status() -> Dict[str, Any]:
 @router.get("/my-dashboard/report-types")
 def my_dashboard_report_types() -> Dict[str, Any]:
     report_types = list_report_types()
+    for report_type in report_types:
+        if report_type.get("api_name") == "player_trends":
+            report_type["trend_configuration"] = supported_trend_configuration()
     return {"report_types": report_types, "totalSize": len(report_types)}
 
 
@@ -225,6 +230,19 @@ def my_dashboard_player_report_query(payload: DashboardPlayerReportRequest) -> D
     try:
         factory = session_factory()
         with factory() as session:
+            if payload.report_type == "player_trends":
+                return query_player_trends(
+                    session,
+                    as_of_date=payload.as_of_date or mlb_business_date(),
+                    trend_config=payload.trend_config or {},
+                    filters=payload.filters,
+                    page_size=payload.page_size,
+                    page_number=payload.page_number,
+                    sort_by="absolute_change" if payload.sort_by == "model_score" else payload.sort_by,
+                    sort_direction=payload.sort_direction,
+                    selected_fields=payload.selected_fields,
+                    include_metadata=payload.include_metadata,
+                )
             if payload.report_type in {
                 "players_lineup_history",
                 "hitters_arsenal_splits",
