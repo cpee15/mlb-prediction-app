@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
 import os
 import time
@@ -67,6 +68,33 @@ def _effective_ttl(key: str, ttl_seconds: int) -> int:
     return ttl_seconds
 
 
+def _explicit_matchup_snapshot_refresh(key: str) -> bool:
+    """Bypass the daily matchup cache only for the explicit snapshot endpoint.
+
+    The Railway refresh worker calls POST /matchups/snapshot/{date} after it has
+    refreshed probable-pitcher and lineup inputs. That endpoint historically
+    called the same cached generator used by the homepage, so a warm request
+    could simply re-store the old slate. Keep normal /matchups requests fast,
+    but treat the dedicated snapshot function as a force-refresh boundary.
+
+    This is intentionally narrow: only matchup date keys are eligible and only
+    while the call stack contains app.snapshot_matchups.
+    """
+    if not str(key).startswith("matchups:date:"):
+        return False
+
+    frame = inspect.currentframe()
+    try:
+        frame = frame.f_back if frame else None
+        while frame is not None:
+            if frame.f_code.co_name == "snapshot_matchups":
+                return True
+            frame = frame.f_back
+    finally:
+        del frame
+    return False
+
+
 def get_cache(key: str, ttl_seconds: int) -> Optional[Any]:
     ttl_seconds = _effective_ttl(key, ttl_seconds)
     with timing_span(
@@ -75,6 +103,22 @@ def get_cache(key: str, ttl_seconds: int) -> Optional[Any]:
         cache_status=None,
         extra={"cache_key_prefix": str(key).split(":", 1)[0], "ttl_seconds": ttl_seconds},
     ):
+        if _explicit_matchup_snapshot_refresh(key):
+            previous = _CACHE.pop(key, None)
+            record_cache_status("MISS")
+            record_span(
+                "shared_payload_cache.lookup",
+                category="cache",
+                cache_status="BYPASS",
+                payload_bytes=estimate_payload_bytes(previous[1]) if previous else None,
+                extra={
+                    "cache_key_prefix": str(key).split(":", 1)[0],
+                    "ttl_seconds": ttl_seconds,
+                    "refresh_boundary": "snapshot_matchups",
+                },
+            )
+            return None
+
         record = _CACHE.get(key)
         if not record:
             record_cache_status("MISS")
