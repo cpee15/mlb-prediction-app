@@ -22,7 +22,7 @@ def test_synthesizes_current_readiness():
     )
     assert (
         result["activation_eligible_signals"]
-        == []
+        == ["walk_skill"]
     )
     assert set(
         result[
@@ -30,7 +30,6 @@ def test_synthesizes_current_readiness():
         ]
     ) == {
         "strikeout_skill",
-        "walk_skill",
         "power_skill",
         "hit_type_allocation",
     }
@@ -61,7 +60,24 @@ def test_walk_policy_selects_called_ball_only():
         result["walk_policy"][
             "per_pitch_to_per_pa_mapping_required"
         ]
+        is False
+    )
+    assert (
+        result["walk_policy"][
+            "parameterization_selected"
+        ]
         is True
+    )
+    assert (
+        walk["state"]
+        == ACTIVATION_ELIGIBLE
+    )
+    assert walk["blockers"] == []
+    assert (
+        walk["selected_parameterization"][
+            "production_enabled"
+        ]
+        is False
     )
 
 

@@ -93,12 +93,23 @@ DEFAULT_SIGNAL_EVIDENCE = {
             "production_denominator":
                 "plate_appearances",
         },
-        "state": PARAMETERIZATION_PENDING,
-        "blockers": [
-            "per_pitch_to_per_pa_mapping_not_selected",
-            "production_coefficients_not_selected",
-            "coefficient_stability_not_validated",
-        ],
+        "state": ACTIVATION_ELIGIBLE,
+        "blockers": [],
+        "selected_parameterization": {
+            "schema_version":
+                "shadow_hitter_walk_skill_parameterization_v1",
+            "intercept":
+                -0.12043625608007737,
+            "slope":
+                0.5605462949774747,
+            "minimum_called_ball_rate":
+                0.2383177570093458,
+            "maximum_called_ball_rate":
+                0.5,
+            "outside_range_policy":
+                "fallback_to_actual_walk_rate",
+            "production_enabled": False,
+        },
         "fallback": "actual_walk_rate",
         "excluded_features": [
             "actual_walk_rate_blend_increment",
@@ -368,7 +379,13 @@ def synthesize_hitter_profile_activation_readiness(
                 "production_fallback",
             "blend_supported": False,
             "per_pitch_to_per_pa_mapping_required":
+                False,
+            "parameterization_selected":
                 True,
+            "activation_eligible":
+                True,
+            "production_enabled":
+                False,
         },
         "parameter_selected": False,
         "production_authority_changed": False,
