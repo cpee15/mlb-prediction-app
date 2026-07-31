@@ -22,14 +22,16 @@ def test_synthesizes_current_readiness():
     )
     assert (
         result["activation_eligible_signals"]
-        == ["walk_skill"]
+        == [
+            "strikeout_skill",
+            "walk_skill",
+        ]
     )
     assert set(
         result[
             "parameterization_pending_signals"
         ]
     ) == {
-        "strikeout_skill",
         "power_skill",
         "hit_type_allocation",
     }
@@ -81,7 +83,7 @@ def test_walk_policy_selects_called_ball_only():
     )
 
 
-def test_strikeout_blend_remains_pending():
+def test_strikeout_blend_is_activation_eligible():
     result = (
         synthesize_hitter_profile_activation_readiness()
     )
@@ -92,8 +94,16 @@ def test_strikeout_blend_remains_pending():
     assert strikeout["candidate"] == (
         "actual_strikeout_rate_plus_whiff_rate"
     )
-    assert strikeout["state"] == (
-        "signal_supported_parameterization_pending"
+    assert (
+        strikeout["state"]
+        == ACTIVATION_ELIGIBLE
+    )
+    assert strikeout["blockers"] == []
+    assert (
+        strikeout["selected_parameterization"][
+            "production_enabled"
+        ]
+        is False
     )
 
 

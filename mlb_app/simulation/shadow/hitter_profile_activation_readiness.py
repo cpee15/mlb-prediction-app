@@ -63,11 +63,21 @@ DEFAULT_SIGNAL_EVIDENCE = {
             "bootstrap_interval_fully_positive":
                 True,
         },
-        "state": PARAMETERIZATION_PENDING,
-        "blockers": [
-            "production_coefficients_not_selected",
-            "coefficient_stability_not_validated",
-        ],
+        "state": ACTIVATION_ELIGIBLE,
+        "blockers": [],
+        "selected_parameterization": {
+            "schema_version":
+                "shadow_hitter_strikeout_skill_parameterization_v1",
+            "intercept":
+                0.04501320822630234,
+            "actual_k_coefficient":
+                0.4339959775511906,
+            "whiff_coefficient":
+                0.34344736989394414,
+            "outside_range_policy":
+                "fallback_to_actual_strikeout_rate",
+            "production_enabled": False,
+        },
         "excluded_features": [
             "called_strike_rate",
             "swinging_strike_rate_increment",
