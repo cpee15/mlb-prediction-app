@@ -24,7 +24,9 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import socket
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -36,6 +38,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("REFRESH_TIMEOUT_SECONDS", "60"))
+REQUEST_MAX_ATTEMPTS = max(
+    1,
+    int(os.environ.get("REFRESH_MAX_ATTEMPTS", "3")),
+)
+REQUEST_RETRY_BACKOFF_SECONDS = max(
+    0.0,
+    float(os.environ.get("REFRESH_RETRY_BACKOFF_SECONDS", "1")),
+)
+RETRYABLE_HTTP_STATUS_CODES = frozenset({502, 503, 504})
 RUN_FAST_MATCHUP_REFRESH = os.environ.get("RUN_FAST_MATCHUP_REFRESH", "1") == "1"
 WARM_SNAPSHOTS = os.environ.get("WARM_MATCHUP_SNAPSHOTS", "1") == "1"
 REFRESH_MATCHUPS_FIRST = os.environ.get("REFRESH_MATCHUPS_FIRST", "1") == "1"
@@ -57,16 +68,106 @@ def _log(message: str) -> None:
     print(f"[{timestamp}] {message}", flush=True)
 
 
-def _request_json(url: str, method: str = "GET") -> dict | list | str | None:
+def _is_retryable_request_error(exc: BaseException) -> bool:
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in RETRYABLE_HTTP_STATUS_CODES
+    return isinstance(
+        exc,
+        (
+            urllib.error.URLError,
+            TimeoutError,
+            socket.timeout,
+            ConnectionError,
+        ),
+    )
+
+
+def _request_json(
+    url: str,
+    method: str = "GET",
+    *,
+    label: str = "unknown",
+) -> dict | list | str | None:
     request = urllib.request.Request(url=url, method=method)
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-        body = response.read().decode("utf-8", errors="replace")
-        if not body:
-            return None
+
+    for attempt in range(1, REQUEST_MAX_ATTEMPTS + 1):
+        started = time.monotonic()
         try:
-            return json.loads(body)
-        except json.JSONDecodeError:
-            return body
+            with urllib.request.urlopen(
+                request,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            ) as response:
+                body = response.read().decode(
+                    "utf-8",
+                    errors="replace",
+                )
+                if attempt > 1:
+                    _log(
+                        json.dumps(
+                            {
+                                "event": "refresh_request_recovered",
+                                "target": label,
+                                "url": url,
+                                "method": method,
+                                "attempt": attempt,
+                                "elapsed_seconds": round(
+                                    time.monotonic() - started,
+                                    3,
+                                ),
+                            },
+                            sort_keys=True,
+                        )
+                    )
+                if not body:
+                    return None
+                try:
+                    return json.loads(body)
+                except json.JSONDecodeError:
+                    return body
+        except Exception as exc:
+            elapsed = round(time.monotonic() - started, 3)
+            retryable = _is_retryable_request_error(exc)
+            exhausted = attempt >= REQUEST_MAX_ATTEMPTS
+            diagnostic = {
+                "event": "refresh_request_failed",
+                "target": label,
+                "url": url,
+                "method": method,
+                "attempt": attempt,
+                "max_attempts": REQUEST_MAX_ATTEMPTS,
+                "elapsed_seconds": elapsed,
+                "exception_type": type(exc).__name__,
+                "message": str(exc),
+                "retryable": retryable,
+                "retries_exhausted": exhausted,
+            }
+            if isinstance(exc, urllib.error.HTTPError):
+                diagnostic["http_status"] = exc.code
+            _log(json.dumps(diagnostic, sort_keys=True))
+
+            if not retryable or exhausted:
+                raise
+
+            backoff_seconds = (
+                REQUEST_RETRY_BACKOFF_SECONDS
+                * (2 ** (attempt - 1))
+            )
+            _log(
+                json.dumps(
+                    {
+                        "event": "refresh_request_retry_scheduled",
+                        "target": label,
+                        "url": url,
+                        "method": method,
+                        "next_attempt": attempt + 1,
+                        "backoff_seconds": backoff_seconds,
+                    },
+                    sort_keys=True,
+                )
+            )
+            time.sleep(backoff_seconds)
+
+    raise RuntimeError("request retry loop exited unexpectedly")
 
 
 def _has_pitcher(game: dict, side: str) -> bool:
@@ -97,7 +198,11 @@ def _refresh_matchups_for_date(label: str, base_url: str, target_date: dt.date) 
     query = urllib.parse.urlencode({"date": target_date.isoformat()})
     url = f"{base_url}/matchups?{query}"
     _log(f"[{label}] Refreshing live matchup payload for {target_date.isoformat()} via {url}")
-    result = _request_json(url, method="GET")
+    result = _request_json(
+        url,
+        method="GET",
+        label=label,
+    )
     if isinstance(result, list):
         pitcher_counts = {
             "home": sum(
@@ -134,7 +239,11 @@ def _refresh_matchups_for_date(label: str, base_url: str, target_date: dt.date) 
 def _warm_snapshot_for_date(label: str, base_url: str, target_date: dt.date) -> None:
     url = f"{base_url}/matchups/snapshot/{target_date.isoformat()}"
     _log(f"[{label}] Warming matchup snapshot for {target_date.isoformat()} via {url}")
-    result = _request_json(url, method="POST")
+    result = _request_json(
+        url,
+        method="POST",
+        label=label,
+    )
     _log(f"[{label}] Snapshot response for {target_date.isoformat()}: {result}")
 
 
@@ -151,7 +260,11 @@ def _clear_ai_data_assistant_cache(label: str, base_url: str) -> None:
     url = f"{base_url}/ai-data-assistant/cache/clear"
     try:
         _log(f"[{label}] Clearing AI Data Assistant cache via {url}")
-        result = _request_json(url, method="POST")
+        result = _request_json(
+            url,
+            method="POST",
+            label=label,
+        )
         _log(f"[{label}] AI Data Assistant cache clear response: {result}")
     except Exception as exc:
         _log(f"[{label}] AI Data Assistant cache clear failed but refresh will continue: {exc}")
@@ -294,7 +407,19 @@ def _load_targets() -> list[tuple[str, str]]:
     return targets
 
 
+def _check_readiness(label: str, base_url: str) -> None:
+    url = f"{base_url}/health"
+    _log(f"[{label}] Checking target readiness via {url}")
+    result = _request_json(
+        url,
+        method="GET",
+        label=label,
+    )
+    _log(f"[{label}] Readiness response: {result}")
+
+
 def _run_target(label: str, base_url: str) -> None:
+    _check_readiness(label, base_url)
     today = dt.date.today()
     tomorrow = today + dt.timedelta(days=1)
 
@@ -357,7 +482,10 @@ def main() -> int:
         f"run_hitter_statcast_backfill={int(RUN_HITTER_STATCAST_BACKFILL)}, "
         f"run_hitting_matchups_refresh={int(RUN_HITTING_MATCHUPS_REFRESH)}, "
         f"run_canonical_dashboard_refresh={int(RUN_CANONICAL_DASHBOARD_REFRESH)}, "
-        f"clear_ai_cache_after_refresh={int(CLEAR_AI_CACHE_AFTER_REFRESH)}"
+        f"clear_ai_cache_after_refresh={int(CLEAR_AI_CACHE_AFTER_REFRESH)}, "
+        f"request_timeout_seconds={REQUEST_TIMEOUT_SECONDS}, "
+        f"request_max_attempts={REQUEST_MAX_ATTEMPTS}, "
+        f"request_retry_backoff_seconds={REQUEST_RETRY_BACKOFF_SECONDS}"
     )
 
     try:
