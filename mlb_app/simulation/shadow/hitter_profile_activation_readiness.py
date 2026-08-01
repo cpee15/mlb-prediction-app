@@ -186,12 +186,24 @@ DEFAULT_SIGNAL_EVIDENCE = {
             "blend_increment_probability": 0.905,
             "geometry_increment_probability": 0.455,
         },
-        "state": PARAMETERIZATION_PENDING,
-        "blockers": [
-            "production_model_choice_not_selected",
-            "allocation_shrinkage_not_selected",
-            "triple_policy_restricted_without_speed",
-        ],
+        "state": ACTIVATION_ELIGIBLE,
+        "blockers": [],
+        "selected_parameterization": {
+            "schema_version":
+                "shadow_hitter_hit_type_allocation_parameterization_v1",
+            "selected_model":
+                "expected_damage",
+            "selected_outcomes": [
+                "single",
+                "double",
+                "home_run",
+            ],
+            "triple_policy":
+                "retain_current_conservative_triple_probability",
+            "outside_range_policy":
+                "fallback_to_actual_allocation",
+            "production_enabled": False,
+        },
         "excluded_features": [
             "actual_expected_blend_increment",
             "contact_geometry_increment",
@@ -373,8 +385,11 @@ def synthesize_hitter_profile_activation_readiness(
             context_only_signals,
         "activation_blockers":
             activation_blockers,
-        "recommended_next_slice":
-            RECOMMENDED_NEXT_SLICE,
+        "recommended_next_slice": (
+            "run_hitter_profile_shadow_canary"
+            if first_activation_ready
+            else RECOMMENDED_NEXT_SLICE
+        ),
         "first_activation_scope": {
             "include_only_after_selection": [
                 "strikeout_skill",
@@ -408,7 +423,8 @@ def synthesize_hitter_profile_activation_readiness(
             "production_enabled":
                 False,
         },
-        "parameter_selected": False,
+        "parameter_selected":
+            first_activation_ready,
         "production_authority_changed": False,
         "shadow_only": True,
     }
