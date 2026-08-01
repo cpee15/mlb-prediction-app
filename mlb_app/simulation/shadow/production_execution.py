@@ -46,6 +46,11 @@ from .probability_provider_discovery import (
 )
 
 
+from .hitter_profile_simulation_shadow_overlay import (
+    build_hitter_profile_simulation_shadow_overlay,
+)
+
+
 CANONICAL_PRODUCTION_SHADOW_EXECUTION_VERSION = (
     "canonical_production_shadow_execution_v1"
 )
@@ -65,6 +70,9 @@ class CanonicalProductionShadowExecution:
     simulation_count: int = 0
     error_type: Optional[str] = None
     error_message: Optional[str] = None
+    hitter_profile_overlay: Optional[
+        Mapping[str, Any]
+    ] = None
     execution_version: str = (
         CANONICAL_PRODUCTION_SHADOW_EXECUTION_VERSION
     )
@@ -102,6 +110,19 @@ class CanonicalProductionShadowExecution:
                 "CanonicalShadowExecutionInputs or None"
             )
 
+        if (
+            self.hitter_profile_overlay
+            is not None
+            and not isinstance(
+                self.hitter_profile_overlay,
+                Mapping,
+            )
+        ):
+            raise TypeError(
+                "hitter_profile_overlay must be "
+                "a mapping or None"
+            )
+
     @property
     def executed(self) -> bool:
         return self.material is not None
@@ -118,7 +139,7 @@ class CanonicalProductionShadowExecution:
             or {}
         )
 
-        return {
+        diagnostics = {
             "schema_version": self.execution_version,
             "status": self.status,
             "executed": self.executed,
@@ -161,6 +182,15 @@ class CanonicalProductionShadowExecution:
             "production_authority_changed": False,
             "authoritative_source": "legacy",
         }
+
+        if self.hitter_profile_overlay is not None:
+            diagnostics[
+                "hitter_profile_simulation_shadow"
+            ] = dict(
+                self.hitter_profile_overlay
+            )
+
+        return diagnostics
 
 
 def _canonical_pitching_plan_metadata(
@@ -354,6 +384,16 @@ def run_canonical_production_shadow(
     home_pitching_plan_classification: Optional[
         Mapping[str, Any]
     ] = None,
+    hitter_profile_shadow_enabled: bool = False,
+    hitter_profile_acceptance_gate: Optional[
+        Mapping[str, Any]
+    ] = None,
+    hitter_profile_candidate_results: Optional[
+        Mapping[
+            str,
+            Mapping[str, Any],
+        ]
+    ] = None,
 ) -> CanonicalProductionShadowExecution:
     """
     Execute a small canonical batch when every production input is ready.
@@ -393,6 +433,8 @@ def run_canonical_production_shadow(
             status="blocked",
         )
 
+    hitter_profile_overlay_diagnostics = None
+
     try:
         normalized_simulation_count = int(
             simulation_count
@@ -415,6 +457,43 @@ def run_canonical_production_shadow(
                 home_pitching_plan_classification
             ),
         )
+
+        if hitter_profile_shadow_enabled is True:
+            overlay = (
+                build_hitter_profile_simulation_shadow_overlay(
+                    enabled=True,
+                    acceptance_gate=(
+                        hitter_profile_acceptance_gate
+                    ),
+                    matchup_input=matchup_input,
+                    exact_artifact=exact_artifact,
+                    fallback_catalog=fallback_catalog,
+                    candidate_results=(
+                        hitter_profile_candidate_results
+                    ),
+                )
+            )
+            hitter_profile_overlay_diagnostics = {
+                key: value
+                for key, value in overlay.items()
+                if key
+                not in {
+                    "matchup_input",
+                    "exact_artifact",
+                    "fallback_catalog",
+                }
+            }
+
+            if overlay.get("overlay_applied") is True:
+                matchup_input = overlay[
+                    "matchup_input"
+                ]
+                exact_artifact = overlay[
+                    "exact_artifact"
+                ]
+                fallback_catalog = overlay[
+                    "fallback_catalog"
+                ]
 
         fallback_policy = (
             CanonicalProbabilityFallbackPolicy(
@@ -489,6 +568,9 @@ def run_canonical_production_shadow(
             simulation_count=(
                 normalized_simulation_count
             ),
+            hitter_profile_overlay=(
+                hitter_profile_overlay_diagnostics
+            ),
         )
     except Exception as exc:
         return CanonicalProductionShadowExecution(
@@ -496,4 +578,7 @@ def run_canonical_production_shadow(
             simulation_count=0,
             error_type=exc.__class__.__name__,
             error_message=str(exc),
+            hitter_profile_overlay=(
+                hitter_profile_overlay_diagnostics
+            ),
         )
