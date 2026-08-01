@@ -1196,3 +1196,143 @@ def test_authority_adapter_rejects_invalid_activation():
             legacy_result={},
             activation=object(),
         )
+
+def hitter_profile_gate(passed=True):
+    return {
+        "status": (
+            "accepted_for_feature_flag_integration"
+            if passed
+            else "blocked"
+        ),
+        "gate_passed": passed,
+        "decision": {
+            "feature_flag_integration_allowed":
+                passed,
+            "production_activation_allowed":
+                False,
+        },
+        "production_authority_changed": False,
+    }
+
+
+def hitter_profile_candidate():
+    return {
+        "status": "ready",
+        "executed": True,
+        "production_inputs_unchanged": True,
+        "production_authority_changed": False,
+        "fallback_telemetry": {
+            "fallback_count": 0,
+        },
+        "probability_deltas": {
+            "out": 0.02,
+            "reached_on_error": 0.0,
+            "single": 0.0,
+            "double": 0.0,
+            "triple": 0.0,
+            "hr": 0.0,
+            "bb": 0.0,
+            "hbp": 0.0,
+            "k": -0.02,
+        },
+    }
+
+
+def test_hitter_profile_shadow_is_disabled_by_default():
+    result = run()
+    diagnostics = result.to_diagnostics()
+
+    assert result.status == "executed"
+    assert (
+        "hitter_profile_simulation_shadow"
+        not in diagnostics
+    )
+    assert (
+        result.execution_inputs.provider_identity
+        == PROVIDER.identity
+    )
+
+
+def test_explicit_hitter_profile_shadow_uses_overlay():
+    result = run(
+        hitter_profile_shadow_enabled=True,
+        hitter_profile_acceptance_gate=(
+            hitter_profile_gate()
+        ),
+        hitter_profile_candidate_results={
+            "a1": hitter_profile_candidate(),
+        },
+    )
+    diagnostics = result.to_diagnostics()
+    overlay = diagnostics[
+        "hitter_profile_simulation_shadow"
+    ]
+
+    assert result.status == "executed"
+    assert overlay["status"] == "ready"
+    assert overlay["overlay_applied"] is True
+    assert overlay["overlaid_matchup_count"] == 1
+    assert (
+        result.execution_inputs.provider_identity
+        == overlay["shadow_provider_identity"]
+    )
+    assert (
+        diagnostics["production_authority_changed"]
+        is False
+    )
+
+
+def test_blocked_hitter_gate_fails_open_to_base_shadow():
+    result = run(
+        hitter_profile_shadow_enabled=True,
+        hitter_profile_acceptance_gate=(
+            hitter_profile_gate(False)
+        ),
+        hitter_profile_candidate_results={
+            "a1": hitter_profile_candidate(),
+        },
+    )
+    diagnostics = result.to_diagnostics()
+    overlay = diagnostics[
+        "hitter_profile_simulation_shadow"
+    ]
+
+    assert result.status == "executed"
+    assert overlay["status"] == "blocked"
+    assert overlay["overlay_applied"] is False
+    assert (
+        result.execution_inputs.provider_identity
+        == PROVIDER.identity
+    )
+    assert (
+        diagnostics["production_authority_changed"]
+        is False
+    )
+
+
+def test_ineligible_hitter_candidate_fails_open():
+    candidate = hitter_profile_candidate()
+    candidate["fallback_telemetry"] = {
+        "fallback_count": 1,
+    }
+
+    result = run(
+        hitter_profile_shadow_enabled=True,
+        hitter_profile_acceptance_gate=(
+            hitter_profile_gate()
+        ),
+        hitter_profile_candidate_results={
+            "a1": candidate,
+        },
+    )
+    overlay = result.to_diagnostics()[
+        "hitter_profile_simulation_shadow"
+    ]
+
+    assert result.status == "executed"
+    assert overlay["status"] == "fallback"
+    assert overlay["overlay_applied"] is False
+    assert (
+        result.execution_inputs.provider_identity
+        == PROVIDER.identity
+    )
