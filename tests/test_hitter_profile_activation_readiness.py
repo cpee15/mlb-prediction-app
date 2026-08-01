@@ -14,27 +14,27 @@ def test_synthesizes_current_readiness():
 
     assert (
         result["status"]
-        == "not_ready_for_activation"
+        == "ready_for_activation"
     )
     assert (
         result["first_activation_ready"]
-        is False
+        is True
     )
     assert (
         result["activation_eligible_signals"]
         == [
+            "hit_type_allocation",
             "power_skill",
             "strikeout_skill",
             "walk_skill",
         ]
     )
-    assert set(
+    assert (
         result[
             "parameterization_pending_signals"
         ]
-    ) == {
-        "hit_type_allocation",
-    }
+        == []
+    )
 
 
 def test_walk_policy_selects_called_ball_only():
@@ -132,6 +132,37 @@ def test_expected_damage_power_is_activation_eligible():
     )
     assert "barrel_proxy_increment" in (
         power["excluded_features"]
+    )
+
+
+def test_hit_type_allocation_is_activation_eligible():
+    result = (
+        synthesize_hitter_profile_activation_readiness()
+    )
+    allocation = result["signals"][
+        "hit_type_allocation"
+    ]
+
+    assert (
+        allocation["state"]
+        == ACTIVATION_ELIGIBLE
+    )
+    assert allocation["blockers"] == []
+    assert (
+        allocation["selected_parameterization"][
+            "selected_model"
+        ]
+        == "expected_damage"
+    )
+    assert (
+        allocation["selected_parameterization"][
+            "production_enabled"
+        ]
+        is False
+    )
+    assert (
+        result["recommended_next_slice"]
+        == "run_hitter_profile_shadow_canary"
     )
 
 
@@ -235,7 +266,7 @@ def test_no_authority_or_selection():
         synthesize_hitter_profile_activation_readiness()
     )
 
-    assert result["parameter_selected"] is False
+    assert result["parameter_selected"] is True
     assert (
         result["production_authority_changed"]
         is False
@@ -281,8 +312,13 @@ def test_audit_script_reports_same_contract():
     assert payload == expected
     assert (
         payload["status"]
-        == "not_ready_for_activation"
+        == "ready_for_activation"
     )
+    assert (
+        payload["recommended_next_slice"]
+        == "run_hitter_profile_shadow_canary"
+    )
+    assert payload["parameter_selected"] is True
     assert (
         payload["walk_policy"][
             "supported_signal"
