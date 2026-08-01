@@ -860,7 +860,26 @@ def _enrich_game_workspace_player_projections(
     return shared_simulation
 
 
-def build_model_projection_payload(session: Session, target_date: str) -> Dict[str, Any]:
+def build_model_projection_payload(
+    session: Session,
+    target_date: str,
+    *,
+    canonical_shadow_context_observer: Optional[
+        Any
+    ] = None,
+) -> Dict[str, Any]:
+    if (
+        canonical_shadow_context_observer
+        is not None
+        and not callable(
+            canonical_shadow_context_observer
+        )
+    ):
+        raise TypeError(
+            "canonical_shadow_context_observer "
+            "must be callable or None"
+        )
+
     try:
         date_obj = datetime.datetime.strptime(target_date, "%Y-%m-%d").date()
     except ValueError as exc:
@@ -965,6 +984,91 @@ def build_model_projection_payload(session: Session, target_date: str) -> Dict[s
                     workspace=canonical_readiness_workspace,
                 )
             )
+
+            if (
+                canonical_shadow_context_observer
+                is not None
+            ):
+                canonical_shadow_context_observer({
+                    "game_pk": game_pk,
+                    "game_date": str(
+                        matchup.get("game_date")
+                        or target_date
+                    ),
+                    "season": date_obj.year,
+                    "matchup": matchup,
+                    "away_context": away,
+                    "home_context": home,
+                    "workspace": workspace,
+                    "lineups": (
+                        canonical_shadow_lineup_discovery
+                    ),
+                    "bullpens": (
+                        canonical_shadow_bullpen_discovery
+                    ),
+                    "provider_discovery": (
+                        canonical_shadow_probability_provider_discovery
+                    ),
+                    "exact_artifact_discovery": (
+                        canonical_shadow_exact_artifact_discovery
+                    ),
+                    "fallback_catalog_discovery": (
+                        canonical_shadow_fallback_catalog_discovery
+                    ),
+                    "bootstrap_readiness": (
+                        canonical_shadow_bootstrap_readiness
+                    ),
+                    "bootstrap_ready": bool(
+                        canonical_shadow_bootstrap_readiness
+                        .get("ready")
+                    ),
+                    "pitcher_hands_by_id": {
+                        str(
+                            away.get("pitcher_id")
+                        ): (
+                            matchup.get(
+                                "away_pitcher_hand"
+                            )
+                            or matchup.get(
+                                "away_pitcher_throws"
+                            )
+                        ),
+                        str(
+                            home.get("pitcher_id")
+                        ): (
+                            matchup.get(
+                                "home_pitcher_hand"
+                            )
+                            or matchup.get(
+                                "home_pitcher_throws"
+                            )
+                        ),
+                    },
+                    "pitcher_profiles_by_id": {
+                        str(
+                            away.get("pitcher_id")
+                        ): dict(
+                            workspace.get(
+                                "awayPitcherProfile"
+                            )
+                            or {}
+                        ),
+                        str(
+                            home.get("pitcher_id")
+                        ): dict(
+                            workspace.get(
+                                "homePitcherProfile"
+                            )
+                            or {}
+                        ),
+                    },
+                    "environment_profile": dict(
+                        workspace.get(
+                            "environmentProfile"
+                        )
+                        or {}
+                    ),
+                })
 
             canonical_legacy_fallback_execution = (
                 run_canonical_production_shadow(
