@@ -35,6 +35,10 @@ from mlb_app.simulation.shadow import (
 )
 
 
+from mlb_app.simulation.shadow.hitter_profile_paired_simulation_shadow_audit import (
+    run_paired_hitter_profile_simulation_shadow_audit,
+)
+
 PROVIDER = CanonicalProbabilityProviderIdentity(
     provider_name="model_projections_pa_outcome",
     provider_version="pa_outcome_v1",
@@ -1336,3 +1340,122 @@ def test_ineligible_hitter_candidate_fails_open():
         result.execution_inputs.provider_identity
         == PROVIDER.identity
     )
+
+def test_real_hitter_profile_shadow_pair_uses_same_trials():
+    candidate_materialization = {
+        "status": "ready",
+        "materialized": True,
+        "candidate_results": {
+            "a1": hitter_profile_candidate(),
+        },
+        "candidate_batter_count": 1,
+        "database_writes_performed": False,
+        "production_inputs_unchanged": True,
+        "production_authority_changed": False,
+    }
+
+    paired = (
+        run_paired_hitter_profile_simulation_shadow_audit(
+            enabled=True,
+            acceptance_gate=(
+                hitter_profile_gate()
+            ),
+            candidate_materialization=(
+                candidate_materialization
+            ),
+            execution_runner=(
+                run_canonical_production_shadow
+            ),
+            game_pk=123,
+            lineups=lineups(),
+            bullpens=bullpens(),
+            provider_discovery=(
+                provider_discovery()
+            ),
+            exact_artifact_discovery=(
+                exact_discovery()
+            ),
+            fallback_catalog_discovery=(
+                fallback_discovery()
+            ),
+            bootstrap_ready=True,
+            simulation_count=2,
+        )
+    )
+
+    assert paired.status == "observed"
+    assert paired.production_execution is (
+        paired.baseline_execution
+    )
+    assert (
+        paired.baseline_execution.status
+        == "executed"
+    )
+    assert (
+        paired.candidate_execution.status
+        == "executed"
+    )
+    assert (
+        paired.baseline_execution.simulation_count
+        == paired.candidate_execution.simulation_count
+        == 2
+    )
+
+    baseline_inputs = (
+        paired.baseline_execution.execution_inputs
+    )
+    candidate_inputs = (
+        paired.candidate_execution.execution_inputs
+    )
+
+    assert (
+        baseline_inputs.exact_artifact_digest
+        != candidate_inputs.exact_artifact_digest
+    )
+    assert (
+        baseline_inputs
+        .baserunning_evidence_catalog_digest
+        == candidate_inputs
+        .baserunning_evidence_catalog_digest
+    )
+    assert (
+        baseline_inputs.provider_identity
+        != candidate_inputs.provider_identity
+    )
+
+    diagnostics = paired.to_diagnostics()
+    overlay = diagnostics[
+        "candidate_execution"
+    ][
+        "hitter_profile_simulation_shadow"
+    ]
+
+    assert overlay["overlay_applied"] is True
+    assert overlay["overlaid_matchup_count"] == 1
+    assert diagnostics[
+        "safety_checks"
+    ]["simulation_counts_match"] is True
+    assert diagnostics[
+        "safety_checks"
+    ]["production_authority_unchanged"] is True
+    assert diagnostics[
+        "production_result"
+    ] == "baseline_execution"
+    assert diagnostics[
+        "production_activation_allowed"
+    ] is False
+
+    comparison = diagnostics["comparison"]
+    assert comparison["status"] == "ready"
+    assert comparison["simulation_count"] == 2
+    assert comparison["comparison_count"] > 0
+    assert {
+        record["scope"]
+        for record in comparison["records"]
+    } >= {
+        "game",
+        "game_probability",
+        "team",
+        "batter",
+        "pitcher",
+    }
