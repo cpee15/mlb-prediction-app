@@ -23,6 +23,7 @@ def test_synthesizes_current_readiness():
     assert (
         result["activation_eligible_signals"]
         == [
+            "power_skill",
             "strikeout_skill",
             "walk_skill",
         ]
@@ -32,7 +33,6 @@ def test_synthesizes_current_readiness():
             "parameterization_pending_signals"
         ]
     ) == {
-        "power_skill",
         "hit_type_allocation",
     }
 
@@ -107,7 +107,7 @@ def test_strikeout_blend_is_activation_eligible():
     )
 
 
-def test_expected_damage_is_power_candidate():
+def test_expected_damage_power_is_activation_eligible():
     result = (
         synthesize_hitter_profile_activation_readiness()
     )
@@ -115,6 +115,17 @@ def test_expected_damage_is_power_candidate():
 
     assert power["candidate"] == (
         "expected_damage"
+    )
+    assert (
+        power["state"]
+        == ACTIVATION_ELIGIBLE
+    )
+    assert power["blockers"] == []
+    assert (
+        power["selected_parameterization"][
+            "production_enabled"
+        ]
+        is False
     )
     assert "hard_hit_increment" in (
         power["excluded_features"]

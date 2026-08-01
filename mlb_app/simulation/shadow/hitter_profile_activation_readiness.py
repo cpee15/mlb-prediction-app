@@ -143,12 +143,23 @@ DEFAULT_SIGNAL_EVIDENCE = {
             "bootstrap_interval_fully_positive":
                 True,
         },
-        "state": PARAMETERIZATION_PENDING,
-        "blockers": [
-            "production_coefficients_not_selected",
-            "coefficient_stability_not_validated",
-            "expected_damage_to_iso_mapping_not_selected",
-        ],
+        "state": ACTIVATION_ELIGIBLE,
+        "blockers": [],
+        "selected_parameterization": {
+            "schema_version":
+                "shadow_hitter_power_skill_parameterization_v1",
+            "intercept":
+                0.08025334564396619,
+            "expected_damage_coefficient":
+                1.5145365016897803,
+            "minimum_expected_damage_per_ab":
+                0.005903692307692304,
+            "maximum_expected_damage_per_ab":
+                0.1880161714254247,
+            "outside_range_policy":
+                "fallback_to_actual_iso",
+            "production_enabled": False,
+        },
         "excluded_features": [
             "hard_hit_increment",
             "barrel_proxy_increment",
