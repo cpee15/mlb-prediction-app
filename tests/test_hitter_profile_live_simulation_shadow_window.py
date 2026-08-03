@@ -531,3 +531,73 @@ def test_preserves_paired_execution_errors():
         "error_type": "ValueError",
         "error_message": "candidate failed",
     }
+
+def test_live_runner_emits_raw_observations():
+    emitted = []
+
+    def payload_builder(
+        session,
+        target_date,
+        *,
+        canonical_shadow_context_observer,
+    ):
+        canonical_shadow_context_observer(
+            context(10)
+        )
+        return {
+            "games": [{"game_pk": 10}],
+        }
+
+    def materializer(*args, **kwargs):
+        return {
+            "status": "ready",
+            "materialized": True,
+            "candidate_results": {
+                "1": {"status": "ready"},
+            },
+            "database_writes_performed": False,
+            "production_inputs_unchanged": True,
+            "production_authority_changed": False,
+        }
+
+    class Paired:
+        def to_diagnostics(self):
+            return observation(
+                game_pk=10,
+                delta=0.01,
+            )
+
+    run_hitter_profile_live_simulation_shadow_window(
+        object(),
+        enabled=True,
+        target_date="2026-05-03",
+        acceptance_gate=accepted_gate(),
+        game_limit=1,
+        projection_payload_builder=payload_builder,
+        candidate_materializer=materializer,
+        paired_audit_runner=(
+            lambda **kwargs: Paired()
+        ),
+        observation_observer=emitted.append,
+    )
+
+    assert len(emitted) == 1
+    assert emitted[0]["game_pk"] == 10
+    assert emitted[0]["comparison"][
+        "records"
+    ][0]["absolute_delta"] == 0.01
+
+
+def test_live_runner_validates_observer():
+    import pytest
+
+    with pytest.raises(
+        TypeError,
+        match="observation_observer",
+    ):
+        run_hitter_profile_live_simulation_shadow_window(
+            object(),
+            target_date="2026-05-03",
+            acceptance_gate=accepted_gate(),
+            observation_observer=object(),
+        )
