@@ -537,6 +537,7 @@ def run_hitter_profile_live_simulation_shadow_window(
     candidate_materializer: Any = None,
     paired_audit_runner: Any = None,
     pitcher_hand_loader: Any = None,
+    observation_observer: Any = None,
 ) -> dict[str, Any]:
     """Run a bounded read-only paired audit over projection games."""
 
@@ -547,6 +548,13 @@ def run_hitter_profile_live_simulation_shadow_window(
     if game_limit <= 0:
         raise ValueError(
             "game_limit must be positive"
+        )
+    if (
+        observation_observer is not None
+        and not callable(observation_observer)
+    ):
+        raise TypeError(
+            "observation_observer must be callable"
         )
 
     if enabled is not True:
@@ -886,6 +894,12 @@ def run_hitter_profile_live_simulation_shadow_window(
                 "production_authority_changed":
                     False,
             })
+
+    if observation_observer is not None:
+        for observation in observations:
+            observation_observer(
+                dict(observation)
+            )
 
     result = (
         aggregate_hitter_profile_live_simulation_shadow_window(
