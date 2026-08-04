@@ -1459,3 +1459,87 @@ def test_real_hitter_profile_shadow_pair_uses_same_trials():
         "batter",
         "pitcher",
     }
+
+def test_execution_exposes_pitcher_appearance_sequence_audit():
+    result = run()
+    diagnostics = result.to_diagnostics()
+
+    audit = (
+        result.material
+        .pitcher_appearance_sequence_audit
+    )
+
+    assert result.status == "executed"
+    assert audit is not None
+    assert audit["status"] == "observed"
+    assert audit["trial_count"] == 2
+    assert audit["appearance_count"] >= 4
+    assert (
+        diagnostics[
+            "pitcher_appearance_sequence_audit"
+        ]
+        == audit
+    )
+    assert (
+        "pitcher_appearance_sequence_audit"
+        not in result.material.canonical_payload
+    )
+    assert (
+        audit["database_writes_performed"]
+        is False
+    )
+    assert (
+        audit["production_authority_changed"]
+        is False
+    )
+    assert audit["decision"][
+        "production_activation_allowed"
+    ] is False
+
+def test_opener_bulk_sequence_is_observed_by_audit():
+    result = run(
+        simulation_count=5,
+        away_pitching_plan_classification=(
+            opener_bulk_classification(
+                starter_id="100",
+                bulk_id="101",
+            )
+        ),
+    )
+
+    audit = (
+        result.material
+        .pitcher_appearance_sequence_audit
+    )
+    away_records = [
+        record
+        for record in audit["records"]
+        if record["team_side"] == "away"
+    ]
+
+    assert result.status == "executed"
+    assert audit["trial_count"] == 5
+    assert {
+        record["planned_role"]
+        for record in away_records
+    } >= {
+        "opener",
+        "bulk_follower",
+    }
+    assert all(
+        trial["away_pitcher_ids"][:2]
+        == ["100", "101"]
+        for trial in audit["trials"]
+    )
+    assert (
+        "away:preferred_follower_skipped"
+        not in audit["anomaly_counts"]
+    )
+    assert (
+        audit["starter_relief_detected"]
+        is False
+    )
+    assert (
+        "pitcher_appearance_sequence_audit"
+        not in result.material.canonical_payload
+    )
