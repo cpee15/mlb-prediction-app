@@ -181,6 +181,19 @@ class CanonicalProductionShadowExecution:
             "activation_permitted": False,
             "production_authority_changed": False,
             "authoritative_source": "legacy",
+            "pitcher_appearance_sequence_audit": (
+                dict(
+                    self.material
+                    .pitcher_appearance_sequence_audit
+                )
+                if (
+                    self.material is not None
+                    and self.material
+                    .pitcher_appearance_sequence_audit
+                    is not None
+                )
+                else None
+            ),
         }
 
         if self.hitter_profile_overlay is not None:

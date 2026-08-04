@@ -103,6 +103,9 @@ class CanonicalShadowExecutionMaterial:
     canonical_shadow_execution_inputs: Optional[
         "CanonicalShadowExecutionInputs"
     ] = None
+    pitcher_appearance_sequence_audit: Optional[
+        Dict[str, Any]
+    ] = None
 
     def __post_init__(self) -> None:
         if not isinstance(
@@ -140,6 +143,19 @@ class CanonicalShadowExecutionMaterial:
                     "or None"
                 )
 
+        if (
+            self.pitcher_appearance_sequence_audit
+            is not None
+            and not isinstance(
+                self.pitcher_appearance_sequence_audit,
+                dict,
+            )
+        ):
+            raise TypeError(
+                "pitcher_appearance_sequence_audit "
+                "must be a dictionary or None"
+            )
+
 
 def canonical_shadow_execution_bundle_to_material(
     bundle: CanonicalShadowExecutionBundle,
@@ -154,6 +170,31 @@ def canonical_shadow_execution_bundle_to_material(
             "bundle must be a CanonicalShadowExecutionBundle"
         )
 
+    appearance_sequence_audit = None
+    execution_inputs = (
+        bundle.canonical_shadow_execution_inputs
+    )
+
+    if execution_inputs is not None:
+        from .canonical_pitcher_appearance_sequence_audit import (
+            audit_canonical_pitcher_appearance_sequence,
+        )
+
+        matchup_input = (
+            execution_inputs.matchup_input
+        )
+        appearance_sequence_audit = (
+            audit_canonical_pitcher_appearance_sequence(
+                games=bundle.trial_batch.games,
+                away_pitching_plan=(
+                    matchup_input.away_pitching_plan
+                ),
+                home_pitching_plan=(
+                    matchup_input.home_pitching_plan
+                ),
+            )
+        )
+
     return CanonicalShadowExecutionMaterial(
         canonical_payload=(
             canonical_trial_batch_to_shadow_payload(
@@ -164,6 +205,9 @@ def canonical_shadow_execution_bundle_to_material(
             bundle.probability_resolution_diagnostics
         ),
         canonical_shadow_execution_inputs=(
-            bundle.canonical_shadow_execution_inputs
+            execution_inputs
+        ),
+        pitcher_appearance_sequence_audit=(
+            appearance_sequence_audit
         ),
     )
