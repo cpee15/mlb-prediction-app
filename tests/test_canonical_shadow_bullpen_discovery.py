@@ -181,3 +181,144 @@ def test_roster_failure_fails_open():
         "RuntimeError"
     )
     assert result.readiness_matchup_fields() == {}
+
+def role_evidence(
+    status,
+    role,
+    reason=None,
+):
+    return {
+        "status": status,
+        "role": role,
+        "source": "pregame_role_evidence_v1",
+        "reason": reason,
+    }
+
+
+def test_verified_probable_starter_is_excluded():
+    result = discovery(
+        away_eligibility_evidence_by_pitcher_id={
+            "101": role_evidence(
+                "ineligible",
+                "probable_starter",
+                "probable_starter_not_in_plan",
+            ),
+            "102": role_evidence(
+                "eligible",
+                "reliever",
+            ),
+        },
+    )
+
+    assert result.away.bullpen_pitcher_ids == (
+        "102",
+    )
+
+    diagnostics = (
+        result.away.to_diagnostics()
+    )
+
+    assert diagnostics[
+        "eligibility_status"
+    ] == "enforced"
+    assert diagnostics[
+        "eligibility_evidence_complete"
+    ] is True
+    assert diagnostics[
+        "excluded_pitcher_count"
+    ] == 1
+    assert diagnostics[
+        "exclusion_reason_counts"
+    ] == {
+        "probable_starter_not_in_plan": 1,
+    }
+
+
+def test_missing_evidence_preserves_existing_pool():
+    result = discovery()
+
+    assert result.away.bullpen_pitcher_ids == (
+        "101",
+        "102",
+    )
+
+    diagnostics = (
+        result.away.to_diagnostics()
+    )
+
+    assert diagnostics[
+        "eligibility_status"
+    ] == "fallback"
+    assert diagnostics[
+        "eligibility_evidence_complete"
+    ] is False
+    assert diagnostics[
+        "eligibility_evidence_coverage_rate"
+    ] == 0.0
+    assert diagnostics[
+        "excluded_pitcher_count"
+    ] == 0
+
+
+def test_planned_bulk_pitcher_overrides_exclusion():
+    result = discovery(
+        away_eligibility_evidence_by_pitcher_id={
+            "101": role_evidence(
+                "ineligible",
+                "probable_starter",
+            ),
+            "102": role_evidence(
+                "eligible",
+                "reliever",
+            ),
+        },
+        away_planned_pitcher_ids=(
+            "101",
+        ),
+    )
+
+    assert result.away.bullpen_pitcher_ids == (
+        "101",
+        "102",
+    )
+    assert result.away.to_diagnostics()[
+        "planned_override_count"
+    ] == 1
+
+
+def test_invalid_evidence_retains_candidate():
+    result = discovery(
+        away_eligibility_evidence_by_pitcher_id={
+            "101": {
+                "status": "blocked",
+                "role": "mystery",
+            },
+        },
+    )
+
+    assert "101" in (
+        result.away.bullpen_pitcher_ids
+    )
+    assert result.away.to_diagnostics()[
+        "excluded_pitcher_count"
+    ] == 0
+
+
+def test_eligibility_diagnostics_do_not_expose_ids():
+    diagnostics = discovery(
+        away_eligibility_evidence_by_pitcher_id={
+            "101": role_evidence(
+                "ineligible",
+                "probable_starter",
+            ),
+        },
+    ).to_diagnostics()
+
+    assert (
+        "eligible_bullpen_pitcher_ids"
+        not in diagnostics["away"]
+    )
+    assert (
+        "excluded_pitcher_ids"
+        not in diagnostics["away"]
+    )
