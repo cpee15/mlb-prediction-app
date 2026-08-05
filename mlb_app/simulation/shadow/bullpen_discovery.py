@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Tuple
 
+from .canonical_bullpen_eligibility import (
+    enforce_canonical_bullpen_eligibility,
+)
+
 
 CANONICAL_SHADOW_BULLPEN_DISCOVERY_VERSION = (
     "canonical_shadow_bullpen_discovery_v1"
@@ -74,6 +78,7 @@ class CanonicalShadowBullpenSideDiscovery:
     team_id: Optional[str] = None
     starter_id: Optional[str] = None
     bullpen_pitcher_ids: Tuple[str, ...] = ()
+    eligibility: Optional[Dict[str, Any]] = None
     source_record_count: int = 0
     status: str = "unavailable"
     error_type: Optional[str] = None
@@ -114,6 +119,63 @@ class CanonicalShadowBullpenSideDiscovery:
                 self.bullpen_pitcher_ids
             ),
             "minimum_pitcher_count": 1,
+            "eligibility_status": (
+                self.eligibility.get("status")
+                if self.eligibility is not None
+                else None
+            ),
+            "eligibility_evidence_complete": (
+                self.eligibility.get(
+                    "eligibility_evidence_complete"
+                )
+                if self.eligibility is not None
+                else False
+            ),
+            "eligibility_evidence_coverage_rate": (
+                self.eligibility.get(
+                    "eligibility_evidence_coverage_rate"
+                )
+                if self.eligibility is not None
+                else 0.0
+            ),
+            "eligible_pitcher_count": (
+                self.eligibility.get(
+                    "eligible_pitcher_count"
+                )
+                if self.eligibility is not None
+                else len(self.bullpen_pitcher_ids)
+            ),
+            "excluded_pitcher_count": (
+                self.eligibility.get(
+                    "excluded_pitcher_count"
+                )
+                if self.eligibility is not None
+                else 0
+            ),
+            "unknown_role_count": (
+                self.eligibility.get(
+                    "unknown_role_count"
+                )
+                if self.eligibility is not None
+                else len(self.bullpen_pitcher_ids)
+            ),
+            "planned_override_count": (
+                self.eligibility.get(
+                    "planned_override_count"
+                )
+                if self.eligibility is not None
+                else 0
+            ),
+            "exclusion_reason_counts": (
+                dict(
+                    self.eligibility.get(
+                        "exclusion_reason_counts"
+                    )
+                    or {}
+                )
+                if self.eligibility is not None
+                else {}
+            ),
             "error_type": self.error_type,
             "error_message": self.error_message,
             "pitcher_identifiers_exposed": False,
@@ -190,6 +252,10 @@ def _discover_side(
     starter_id: Any,
     season: int,
     roster_fetcher: Callable[..., Sequence[Mapping[str, Any]]],
+    eligibility_evidence_by_pitcher_id: Optional[
+        Mapping[Any, Any]
+    ] = None,
+    planned_pitcher_ids: Any = (),
 ) -> CanonicalShadowBullpenSideDiscovery:
     normalized_team = _normalize_identifier(
         team_id
@@ -253,15 +319,35 @@ def _discover_side(
         records,
         starter_id=normalized_starter,
     )
+    eligibility = (
+        enforce_canonical_bullpen_eligibility(
+            candidate_pitcher_ids=pitcher_ids,
+            starter_id=normalized_starter,
+            evidence_by_pitcher_id=(
+                eligibility_evidence_by_pitcher_id
+            ),
+            planned_pitcher_ids=(
+                planned_pitcher_ids
+            ),
+        )
+    )
+    eligible_pitcher_ids = tuple(
+        eligibility[
+            "eligible_bullpen_pitcher_ids"
+        ]
+    )
 
     return CanonicalShadowBullpenSideDiscovery(
         team_id=normalized_team,
         starter_id=normalized_starter,
-        bullpen_pitcher_ids=pitcher_ids,
+        bullpen_pitcher_ids=(
+            eligible_pitcher_ids
+        ),
+        eligibility=eligibility,
         source_record_count=len(records),
         status=(
             "ready"
-            if pitcher_ids
+            if eligible_pitcher_ids
             else "unavailable"
         ),
     )
@@ -279,6 +365,14 @@ def discover_canonical_shadow_bullpens(
     roster_fetcher: Optional[
         Callable[..., Sequence[Mapping[str, Any]]]
     ] = None,
+    away_eligibility_evidence_by_pitcher_id: Optional[
+        Mapping[Any, Any]
+    ] = None,
+    home_eligibility_evidence_by_pitcher_id: Optional[
+        Mapping[Any, Any]
+    ] = None,
+    away_planned_pitcher_ids: Any = (),
+    home_planned_pitcher_ids: Any = (),
 ) -> CanonicalShadowBullpenDiscovery:
     """
     Discover active-roster bullpen IDs without activating canonical execution.
@@ -301,6 +395,12 @@ def discover_canonical_shadow_bullpens(
             starter_id=away_starter_id,
             season=season,
             roster_fetcher=roster_fetcher,
+            eligibility_evidence_by_pitcher_id=(
+                away_eligibility_evidence_by_pitcher_id
+            ),
+            planned_pitcher_ids=(
+                away_planned_pitcher_ids
+            ),
         ),
         home=_discover_side(
             team_id=home_team_id,
@@ -308,5 +408,11 @@ def discover_canonical_shadow_bullpens(
             starter_id=home_starter_id,
             season=season,
             roster_fetcher=roster_fetcher,
+            eligibility_evidence_by_pitcher_id=(
+                home_eligibility_evidence_by_pitcher_id
+            ),
+            planned_pitcher_ids=(
+                home_planned_pitcher_ids
+            ),
         ),
     )
