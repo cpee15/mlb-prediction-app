@@ -15,7 +15,6 @@ from mlb_app.simulation.game import (
     CanonicalBaserunningProbabilityTransform,
     CanonicalLineup,
     CanonicalMatchupInput,
-    CanonicalPitchingPlan,
     CanonicalProbabilityFallbackPolicy,
     CanonicalProbabilityFallbackTier,
     build_canonical_trial_factory_input,
@@ -23,6 +22,9 @@ from mlb_app.simulation.game import (
 
 from .bullpen_discovery import (
     CanonicalShadowBullpenDiscovery,
+)
+from .pregame_pitching_plan_materialization import (
+    materialize_canonical_pregame_pitching_plan,
 )
 from .execution_bundle import (
     CanonicalShadowExecutionMaterial,
@@ -206,76 +208,6 @@ class CanonicalProductionShadowExecution:
         return diagnostics
 
 
-def _canonical_pitching_plan_metadata(
-    *,
-    classification: Optional[
-        Mapping[str, Any]
-    ],
-    starter_id: str,
-    bullpen_pitcher_ids: Tuple[str, ...],
-) -> Tuple[str, Tuple[str, ...]]:
-    if not isinstance(classification, Mapping):
-        return "traditional_starter", ()
-
-    plan_type = str(
-        classification.get(
-            "plan_type",
-            "traditional_starter",
-        )
-    ).strip()
-
-    supported_plan_types = {
-        "traditional_starter",
-        "opener_bulk",
-        "tandem",
-        "bullpen_game",
-        "workload_capped_starter",
-        "unknown_fallback",
-    }
-
-    if plan_type not in supported_plan_types:
-        return "traditional_starter", ()
-
-    if classification.get("fallback_used") is True:
-        return "traditional_starter", ()
-
-    bullpen_ids = set(bullpen_pitcher_ids)
-    preferred = []
-    seen = set()
-
-    planned_sequence = classification.get(
-        "planned_sequence"
-    )
-
-    if isinstance(planned_sequence, (list, tuple)):
-        for row in planned_sequence:
-            if not isinstance(row, Mapping):
-                continue
-
-            pitcher_id = str(
-                row.get("pitcher_id") or ""
-            ).strip()
-
-            if (
-                not pitcher_id
-                or pitcher_id == starter_id
-                or pitcher_id not in bullpen_ids
-                or pitcher_id in seen
-            ):
-                continue
-
-            seen.add(pitcher_id)
-            preferred.append(pitcher_id)
-
-    if plan_type not in {
-        "opener_bulk",
-        "tandem",
-    }:
-        preferred = []
-
-    return plan_type, tuple(preferred)
-
-
 def _build_matchup_input(
     *,
     game_pk: int,
@@ -313,26 +245,25 @@ def _build_matchup_input(
         bullpens.home.bullpen_pitcher_ids
     )
 
-    (
-        away_plan_type,
-        away_preferred_replacements,
-    ) = _canonical_pitching_plan_metadata(
-        classification=(
-            away_pitching_plan_classification
-        ),
-        starter_id=away_starter,
-        bullpen_pitcher_ids=away_bullpen_ids,
+    away_plan_materialization = (
+        materialize_canonical_pregame_pitching_plan(
+            team_side="away",
+            starter_id=away_starter,
+            bullpen_pitcher_ids=away_bullpen_ids,
+            classification=(
+                away_pitching_plan_classification
+            ),
+        )
     )
-
-    (
-        home_plan_type,
-        home_preferred_replacements,
-    ) = _canonical_pitching_plan_metadata(
-        classification=(
-            home_pitching_plan_classification
-        ),
-        starter_id=home_starter,
-        bullpen_pitcher_ids=home_bullpen_ids,
+    home_plan_materialization = (
+        materialize_canonical_pregame_pitching_plan(
+            team_side="home",
+            starter_id=home_starter,
+            bullpen_pitcher_ids=home_bullpen_ids,
+            classification=(
+                home_pitching_plan_classification
+            ),
+        )
     )
 
     return CanonicalMatchupInput(
@@ -345,23 +276,11 @@ def _build_matchup_input(
             team_side="home",
             player_ids=lineups.home_player_ids,
         ),
-        away_pitching_plan=CanonicalPitchingPlan(
-            team_side="away",
-            starter_id=away_starter,
-            bullpen_pitcher_ids=away_bullpen_ids,
-            plan_type=away_plan_type,
-            preferred_replacement_pitcher_ids=(
-                away_preferred_replacements
-            ),
+        away_pitching_plan=(
+            away_plan_materialization.pitching_plan
         ),
-        home_pitching_plan=CanonicalPitchingPlan(
-            team_side="home",
-            starter_id=home_starter,
-            bullpen_pitcher_ids=home_bullpen_ids,
-            plan_type=home_plan_type,
-            preferred_replacement_pitcher_ids=(
-                home_preferred_replacements
-            ),
+        home_pitching_plan=(
+            home_plan_materialization.pitching_plan
         ),
         probability_provider=provider,
     )
