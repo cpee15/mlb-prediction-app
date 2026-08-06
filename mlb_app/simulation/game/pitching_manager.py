@@ -7,6 +7,10 @@ from typing import Dict, Optional, Tuple
 
 from mlb_app.simulation.events import GameState, PlayEvent
 
+from .bulk_follower_hook_policy import (
+    CanonicalBulkFollowerHookPolicy,
+    build_baseline_bulk_follower_hook_policy,
+)
 from .bullpen_selector import (
     CanonicalBullpenPitcher,
     CanonicalBullpenSelectionContext,
@@ -59,6 +63,9 @@ class CanonicalPitchingManager:
     home_bullpen: Tuple[CanonicalBullpenPitcher, ...]
     opener_hook_policy: Optional[
         CanonicalStarterHookPolicy
+    ] = None
+    bulk_follower_hook_policy: Optional[
+        CanonicalBulkFollowerHookPolicy
     ] = None
     reliever_hook_policy: CanonicalRelieverHookPolicy = (
         field(
@@ -125,6 +132,20 @@ class CanonicalPitchingManager:
             raise TypeError(
                 "opener_hook_policy must be a "
                 "CanonicalStarterHookPolicy or None"
+            )
+
+        if (
+            self.bulk_follower_hook_policy
+            is not None
+            and not isinstance(
+                self.bulk_follower_hook_policy,
+                CanonicalBulkFollowerHookPolicy,
+            )
+        ):
+            raise TypeError(
+                "bulk_follower_hook_policy must "
+                "be a CanonicalBulkFollowerHookPolicy "
+                "or None"
             )
 
         if not isinstance(
@@ -253,7 +274,32 @@ class CanonicalPitchingManager:
                 decision_context
             )
         else:
-            decision = self.reliever_hook_policy.decide(
+            pitching_plan = (
+                self.matchup_input.away_pitching_plan
+                if team_side == "away"
+                else
+                self.matchup_input.home_pitching_plan
+            )
+            hook_policy = self.reliever_hook_policy
+
+            preferred = (
+                pitching_plan.preferred_replacement_pitcher_ids
+            )
+
+            if (
+                pitching_plan.plan_type
+                == "opener_bulk"
+                and preferred
+                and lifecycle.pitcher_id
+                == str(preferred[0])
+                and self.bulk_follower_hook_policy
+                is not None
+            ):
+                hook_policy = (
+                    self.bulk_follower_hook_policy
+                )
+
+            decision = hook_policy.decide(
                 decision_context
             )
 
