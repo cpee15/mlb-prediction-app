@@ -1543,3 +1543,98 @@ def test_opener_bulk_sequence_is_observed_by_audit():
         "pitcher_appearance_sequence_audit"
         not in result.material.canonical_payload
     )
+
+def test_bulk_follower_exit_is_dynamic_with_bullpen_depth():
+    from dataclasses import replace
+
+    baseline_bullpens = bullpens()
+
+    expanded_bullpens = replace(
+        baseline_bullpens,
+        away=replace(
+            baseline_bullpens.away,
+            bullpen_pitcher_ids=(
+                "101",
+                "102",
+                "103",
+                "104",
+            ),
+            source_record_count=5,
+        ),
+        home=replace(
+            baseline_bullpens.home,
+            bullpen_pitcher_ids=(
+                "201",
+                "202",
+                "203",
+                "204",
+            ),
+            source_record_count=5,
+        ),
+    )
+
+    result = run(
+        simulation_count=25,
+        bullpens=expanded_bullpens,
+        away_pitching_plan_classification=(
+            opener_bulk_classification(
+                starter_id="100",
+                bulk_id="101",
+            )
+        ),
+    )
+
+    diagnostics = result.to_diagnostics()
+    audit = diagnostics[
+        "pitcher_appearance_sequence_audit"
+    ]
+    roles = audit["role_summaries"]
+
+    opener_innings = roles[
+        "opener"
+    ]["innings_equivalent"]
+    bulk_innings = roles[
+        "bulk_follower"
+    ]["innings_equivalent"]
+
+    assert result.status == "executed"
+    assert audit["status"] == "observed"
+    assert audit["anomaly_counts"] == {}
+    assert (
+        audit["starter_relief_detected"]
+        is False
+    )
+
+    # The opener remains shorter than its bulk
+    # follower without assigning final innings.
+    assert (
+        opener_innings["mean"]
+        < bulk_innings["mean"]
+    )
+
+    # Poor simulated outings can terminate well
+    # before the efficient-outing workload ceiling.
+    assert (
+        bulk_innings["minimum"]
+        < bulk_innings["median"]
+    )
+    assert bulk_innings["p10"] < 6.0
+
+    # Efficient bulk appearances can still go deep.
+    assert bulk_innings["maximum"] >= 6.0
+
+    # Replacement depth is actually exercised after
+    # the opener and planned bulk follower.
+    assert any(
+        len(trial["away_pitcher_ids"]) >= 3
+        for trial in audit["trials"]
+    )
+
+    assert (
+        audit["database_writes_performed"]
+        is False
+    )
+    assert (
+        audit["production_authority_changed"]
+        is False
+    )

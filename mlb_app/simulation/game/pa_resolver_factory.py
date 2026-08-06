@@ -10,6 +10,10 @@ from mlb_app.simulation.events import (
     PlayEvent,
 )
 
+from .bulk_follower_hook_policy import (
+    CanonicalBulkFollowerHookPolicy,
+    build_baseline_bulk_follower_hook_policy,
+)
 from .bullpen_selector import (
     CanonicalBullpenPitcher,
     CanonicalBullpenSelector,
@@ -68,6 +72,9 @@ class CanonicalPlateAppearanceResolverFactory:
     ] = None
     opener_hook_policy: Optional[
         CanonicalStarterHookPolicy
+    ] = None
+    bulk_follower_hook_policy: Optional[
+        CanonicalBulkFollowerHookPolicy
     ] = None
     bullpen_selector: Optional[
         CanonicalBullpenSelector
@@ -144,6 +151,10 @@ class CanonicalPlateAppearanceResolverFactory:
                 opener_hook_policy=(
                     self.opener_hook_policy
                     or build_baseline_opener_hook_policy()
+                ),
+                bulk_follower_hook_policy=(
+                    self.bulk_follower_hook_policy
+                    or build_baseline_bulk_follower_hook_policy()
                 ),
                 bullpen_selector=(
                     self.bullpen_selector
