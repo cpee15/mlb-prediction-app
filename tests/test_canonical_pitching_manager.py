@@ -835,3 +835,153 @@ def test_manager_preserves_runner_on_successful_steal():
         responsibility.responsible_pitcher_id
         == "home_starter"
     )
+
+
+def test_manager_uses_opener_hook_for_opener_bulk():
+    from mlb_app.simulation.game.pitcher_hook_policy import (
+        build_baseline_opener_hook_policy,
+        build_baseline_starter_hook_policy,
+    )
+
+    matchup_input = matchup()
+    matchup_input = replace(
+        matchup_input,
+        home_pitching_plan=CanonicalPitchingPlan(
+            team_side="home",
+            starter_id="home_starter",
+            bullpen_pitcher_ids=(
+                "home_long",
+                "home_middle",
+            ),
+            plan_type="opener_bulk",
+            preferred_replacement_pitcher_ids=(
+                "home_middle",
+            ),
+        ),
+    )
+    value = CanonicalPitchingManager(
+        matchup_input=matchup_input,
+        starter_hook_policy=(
+            build_baseline_starter_hook_policy()
+        ),
+        opener_hook_policy=(
+            build_baseline_opener_hook_policy()
+        ),
+        bullpen_selector=(
+            build_canonical_bullpen_selector()
+        ),
+        away_bullpen=bullpen("away"),
+        home_bullpen=bullpen("home"),
+    )
+    value._active["home"] = replace(
+        value.active_lifecycle("home"),
+        batters_faced=9,
+    )
+
+    pitcher = value.pitcher_for_plate_appearance(
+        state=GameState(
+            inning=3,
+            half="top",
+        ),
+        batter_id="away_batter_0",
+    )
+
+    assert pitcher == "home_middle"
+
+
+def test_manager_preserves_traditional_starter_hook():
+    from mlb_app.simulation.game.pitcher_hook_policy import (
+        build_baseline_opener_hook_policy,
+        build_baseline_starter_hook_policy,
+    )
+
+    value = CanonicalPitchingManager(
+        matchup_input=matchup(),
+        starter_hook_policy=(
+            build_baseline_starter_hook_policy()
+        ),
+        opener_hook_policy=(
+            build_baseline_opener_hook_policy()
+        ),
+        bullpen_selector=(
+            build_canonical_bullpen_selector()
+        ),
+        away_bullpen=bullpen("away"),
+        home_bullpen=bullpen("home"),
+    )
+    value._active["home"] = replace(
+        value.active_lifecycle("home"),
+        batters_faced=9,
+    )
+
+    pitcher = value.pitcher_for_plate_appearance(
+        state=GameState(
+            inning=3,
+            half="top",
+        ),
+        batter_id="away_batter_0",
+    )
+
+    assert pitcher == "home_starter"
+
+
+def test_manager_falls_back_when_bulk_unavailable_under_opener_hook():
+    from mlb_app.simulation.game.pitcher_hook_policy import (
+        build_baseline_opener_hook_policy,
+        build_baseline_starter_hook_policy,
+    )
+
+    matchup_input = replace(
+        matchup(),
+        home_pitching_plan=CanonicalPitchingPlan(
+            team_side="home",
+            starter_id="home_starter",
+            bullpen_pitcher_ids=(
+                "home_long",
+                "home_middle",
+            ),
+            plan_type="opener_bulk",
+            preferred_replacement_pitcher_ids=(
+                "home_middle",
+            ),
+        ),
+    )
+    home_options = (
+        CanonicalBullpenPitcher(
+            pitcher_id="home_long",
+            role=CanonicalBullpenRole.LONG_RELIEF,
+        ),
+        CanonicalBullpenPitcher(
+            pitcher_id="home_middle",
+            role=CanonicalBullpenRole.MIDDLE_RELIEF,
+            available=False,
+        ),
+    )
+    value = CanonicalPitchingManager(
+        matchup_input=matchup_input,
+        starter_hook_policy=(
+            build_baseline_starter_hook_policy()
+        ),
+        opener_hook_policy=(
+            build_baseline_opener_hook_policy()
+        ),
+        bullpen_selector=(
+            build_canonical_bullpen_selector()
+        ),
+        away_bullpen=bullpen("away"),
+        home_bullpen=home_options,
+    )
+    value._active["home"] = replace(
+        value.active_lifecycle("home"),
+        batters_faced=9,
+    )
+
+    pitcher = value.pitcher_for_plate_appearance(
+        state=GameState(
+            inning=3,
+            half="top",
+        ),
+        batter_id="away_batter_0",
+    )
+
+    assert pitcher == "home_long"
