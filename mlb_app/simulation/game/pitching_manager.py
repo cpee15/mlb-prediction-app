@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from mlb_app.simulation.events import GameState, PlayEvent
 
@@ -57,6 +57,9 @@ class CanonicalPitchingManager:
     bullpen_selector: CanonicalBullpenSelector
     away_bullpen: Tuple[CanonicalBullpenPitcher, ...]
     home_bullpen: Tuple[CanonicalBullpenPitcher, ...]
+    opener_hook_policy: Optional[
+        CanonicalStarterHookPolicy
+    ] = None
     reliever_hook_policy: CanonicalRelieverHookPolicy = (
         field(
             default_factory=(
@@ -110,6 +113,18 @@ class CanonicalPitchingManager:
             raise TypeError(
                 "starter_hook_policy must be a "
                 "CanonicalStarterHookPolicy"
+            )
+
+        if (
+            self.opener_hook_policy is not None
+            and not isinstance(
+                self.opener_hook_policy,
+                CanonicalStarterHookPolicy,
+            )
+        ):
+            raise TypeError(
+                "opener_hook_policy must be a "
+                "CanonicalStarterHookPolicy or None"
             )
 
         if not isinstance(
@@ -213,7 +228,28 @@ class CanonicalPitchingManager:
         if lifecycle.role is (
             CanonicalPitcherRole.STARTER
         ):
-            decision = self.starter_hook_policy.decide(
+            pitching_plan = (
+                self.matchup_input.away_pitching_plan
+                if team_side == "away"
+                else
+                self.matchup_input.home_pitching_plan
+            )
+            hook_policy = self.starter_hook_policy
+
+            if (
+                pitching_plan.plan_type
+                in {
+                    "opener_bulk",
+                    "bullpen_game",
+                }
+                and self.opener_hook_policy
+                is not None
+            ):
+                hook_policy = (
+                    self.opener_hook_policy
+                )
+
+            decision = hook_policy.decide(
                 decision_context
             )
         else:

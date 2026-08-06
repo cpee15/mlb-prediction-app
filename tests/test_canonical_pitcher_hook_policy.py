@@ -281,3 +281,66 @@ def test_inactive_starter_is_rejected():
                 )
             )
         )
+
+
+def test_baseline_opener_policy_has_short_workload():
+    from mlb_app.simulation.game.pitcher_hook_policy import (
+        build_baseline_opener_hook_policy,
+    )
+
+    policy = build_baseline_opener_hook_policy()
+
+    assert policy.minimum_batters_faced == 3
+    assert policy.target_batters_faced == 6
+    assert policy.maximum_batters_faced == 9
+
+
+def test_baseline_opener_replaces_at_nine_batters():
+    from mlb_app.simulation.game.pitcher_hook_policy import (
+        build_baseline_opener_hook_policy,
+    )
+
+    decision = (
+        build_baseline_opener_hook_policy()
+        .decide(
+            context(
+                pitcher=lifecycle(
+                    batters_faced=9,
+                ),
+                inning=3,
+            )
+        )
+    )
+
+    assert decision.action is (
+        CanonicalPitchingDecisionAction.REPLACE
+    )
+    assert decision.reason == (
+        "maximum_batters_reached"
+    )
+
+
+def test_baseline_opener_holds_before_minimum():
+    from mlb_app.simulation.game.pitcher_hook_policy import (
+        build_baseline_opener_hook_policy,
+    )
+
+    decision = (
+        build_baseline_opener_hook_policy()
+        .decide(
+            context(
+                pitcher=lifecycle(
+                    batters_faced=2,
+                    runs_scored_during_stint=5,
+                ),
+                inning=1,
+            )
+        )
+    )
+
+    assert decision.action is (
+        CanonicalPitchingDecisionAction.HOLD
+    )
+    assert decision.reason == (
+        "minimum_batters_not_reached"
+    )

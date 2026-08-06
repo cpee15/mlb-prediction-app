@@ -17,6 +17,7 @@ from .bullpen_selector import (
 )
 from .pitcher_hook_policy import (
     CanonicalStarterHookPolicy,
+    build_baseline_opener_hook_policy,
     build_baseline_starter_hook_policy,
 )
 from .pitching_manager import CanonicalPitchingManager
@@ -63,6 +64,9 @@ class CanonicalPlateAppearanceResolverFactory:
         CanonicalPitchingManager
     ] = None
     starter_hook_policy: Optional[
+        CanonicalStarterHookPolicy
+    ] = None
+    opener_hook_policy: Optional[
         CanonicalStarterHookPolicy
     ] = None
     bullpen_selector: Optional[
@@ -136,6 +140,10 @@ class CanonicalPlateAppearanceResolverFactory:
                 starter_hook_policy=(
                     self.starter_hook_policy
                     or build_baseline_starter_hook_policy()
+                ),
+                opener_hook_policy=(
+                    self.opener_hook_policy
+                    or build_baseline_opener_hook_policy()
                 ),
                 bullpen_selector=(
                     self.bullpen_selector

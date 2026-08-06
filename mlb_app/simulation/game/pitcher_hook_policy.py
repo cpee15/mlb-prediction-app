@@ -231,3 +231,21 @@ def build_baseline_starter_hook_policy(
     """Return the default deterministic starter-hook policy."""
 
     return CanonicalStarterHookPolicy()
+
+
+def build_baseline_opener_hook_policy(
+) -> CanonicalStarterHookPolicy:
+    """
+    Build the deterministic baseline opener workload policy.
+
+    Three, six, and nine batters represent approximately one, two,
+    and three innings. Performance triggers continue to use the
+    canonical starter-hook contract.
+    """
+
+    return CanonicalStarterHookPolicy(
+        minimum_batters_faced=3,
+        target_batters_faced=6,
+        maximum_batters_faced=9,
+        late_inning_threshold=3,
+    )
