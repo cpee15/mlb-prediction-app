@@ -67,6 +67,17 @@ def test_policy_thresholds_must_be_ordered():
         )
 
 
+def test_optional_maximum_must_not_precede_target():
+    with pytest.raises(
+        ValueError,
+        match="must be ordered",
+    ):
+        CanonicalStarterHookPolicy(
+            target_batters_faced=24,
+            maximum_batters_faced=20,
+        )
+
+
 def test_holds_before_minimum_batters():
     decision = (
         build_baseline_starter_hook_policy()
@@ -201,14 +212,15 @@ def test_holds_when_no_reliever_is_available():
     )
 
 
-def test_replaces_at_maximum_batters():
-    decision = (
-        build_baseline_starter_hook_policy()
-        .decide(
-            context(
-                pitcher=lifecycle(
-                    batters_faced=27,
-                )
+def test_optional_maximum_batters_is_enforced_when_configured():
+    policy = CanonicalStarterHookPolicy(
+        maximum_batters_faced=27,
+    )
+
+    decision = policy.decide(
+        context(
+            pitcher=lifecycle(
+                batters_faced=27,
             )
         )
     )
@@ -218,6 +230,31 @@ def test_replaces_at_maximum_batters():
     )
     assert decision.reason == (
         "maximum_batters_reached"
+    )
+
+
+def test_baseline_starter_can_exceed_twenty_seven_batters():
+    decision = (
+        build_baseline_starter_hook_policy()
+        .decide(
+            context(
+                pitcher=lifecycle(
+                    batters_faced=28,
+                    hits_allowed=4,
+                    walks_allowed=2,
+                    runs_scored_during_stint=2,
+                ),
+                batting_score=0,
+                fielding_score=5,
+            )
+        )
+    )
+
+    assert decision.action is (
+        CanonicalPitchingDecisionAction.HOLD
+    )
+    assert decision.reason == (
+        "starter_within_limits"
     )
 
 
@@ -380,7 +417,7 @@ def test_baseline_starter_policy_uses_dynamic_decision_floor():
 
     assert policy.minimum_batters_faced == 3
     assert policy.target_batters_faced == 24
-    assert policy.maximum_batters_faced == 27
+    assert policy.maximum_batters_faced is None
     assert policy.maximum_hits_allowed == 9
     assert policy.maximum_traffic_allowed == 12
 

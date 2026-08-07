@@ -29,7 +29,7 @@ class CanonicalStarterHookPolicy:
 
     minimum_batters_faced: int = 3
     target_batters_faced: int = 24
-    maximum_batters_faced: int = 27
+    maximum_batters_faced: int | None = None
     maximum_runs_during_stint: int = 5
     maximum_walks_allowed: int = 4
     maximum_home_runs_allowed: int = 3
@@ -44,7 +44,6 @@ class CanonicalStarterHookPolicy:
         thresholds = (
             self.minimum_batters_faced,
             self.target_batters_faced,
-            self.maximum_batters_faced,
             self.maximum_runs_during_stint,
             self.maximum_walks_allowed,
             self.maximum_home_runs_allowed,
@@ -53,7 +52,13 @@ class CanonicalStarterHookPolicy:
             self.late_inning_threshold,
         )
 
-        if any(value < 0 for value in thresholds):
+        if (
+            any(value < 0 for value in thresholds)
+            or (
+                self.maximum_batters_faced is not None
+                and self.maximum_batters_faced < 0
+            )
+        ):
             raise ValueError(
                 "starter hook thresholds cannot be negative"
             )
@@ -63,10 +68,15 @@ class CanonicalStarterHookPolicy:
                 "minimum_batters_faced must be at least three"
             )
 
-        if not (
+        if (
             self.minimum_batters_faced
-            <= self.target_batters_faced
-            <= self.maximum_batters_faced
+            > self.target_batters_faced
+            or (
+                self.maximum_batters_faced
+                is not None
+                and self.target_batters_faced
+                > self.maximum_batters_faced
+            )
         ):
             raise ValueError(
                 "starter batter thresholds must be ordered"
@@ -119,7 +129,8 @@ class CanonicalStarterHookPolicy:
             )
 
         if (
-            lifecycle.batters_faced
+            self.maximum_batters_faced is not None
+            and lifecycle.batters_faced
             >= self.maximum_batters_faced
         ):
             return self._replace(
