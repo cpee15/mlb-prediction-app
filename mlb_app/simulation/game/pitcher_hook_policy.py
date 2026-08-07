@@ -283,5 +283,10 @@ def build_baseline_opener_hook_policy(
         minimum_batters_faced=3,
         target_batters_faced=6,
         maximum_batters_faced=9,
+        maximum_runs_during_stint=3,
+        maximum_walks_allowed=2,
+        maximum_home_runs_allowed=2,
+        maximum_hits_allowed=4,
+        maximum_traffic_allowed=5,
         late_inning_threshold=3,
     )
