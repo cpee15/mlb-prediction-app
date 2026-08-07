@@ -62,7 +62,14 @@ function payload() {
               team_side: 'home',
               metrics: {
                 batters_faced: metric(24),
-                outs_recorded: metric(18),
+                outs_recorded: metric(
+                  18,
+                  {
+                    p10: 12,
+                    median: 18,
+                    p90: 21,
+                  },
+                ),
                 hits_allowed: metric(5),
                 walks: metric(2),
                 hit_by_pitch: metric(0.3),
@@ -133,6 +140,12 @@ test('derives pitcher innings from canonical outs recorded', () => {
 
   assert.equal(pitcher.name, 'p-1')
   assert.equal(pitcher.inningsPitched, 6)
+  assert.equal(pitcher.inningsPitchedP10, 4)
+  assert.equal(
+    pitcher.inningsPitchedMedian,
+    6,
+  )
+  assert.equal(pitcher.inningsPitchedP90, 7)
   assert.equal(pitcher.battersFaced, 24)
   assert.equal(pitcher.dfsMean, 18)
   assert.equal(pitcher.dfsFloor, 8)
@@ -162,6 +175,18 @@ test('preserves legacy RBI and outs metric aliases', () => {
 
   assert.equal(view.batters[0].rbis, 1.1)
   assert.equal(view.pitchers[0].inningsPitched, 6)
+  assert.equal(
+    view.pitchers[0].inningsPitchedP10,
+    4,
+  )
+  assert.equal(
+    view.pitchers[0].inningsPitchedMedian,
+    6,
+  )
+  assert.equal(
+    view.pitchers[0].inningsPitchedP90,
+    7,
+  )
 })
 
 

@@ -35,6 +35,30 @@ function metricValue(row, name, key = 'mean') {
   )
 }
 
+function pitcherInningsValue(
+  row,
+  key = 'mean',
+) {
+  const outs = (
+    metricValue(
+      row,
+      'outs_recorded',
+      key,
+    ) ??
+    metricValue(
+      row,
+      'outs',
+      key,
+    )
+  )
+
+  return (
+    outs === null
+      ? null
+      : outs / 3
+  )
+}
+
 function sumValues(values) {
   const available = values.filter(
     value => value !== null,
@@ -142,11 +166,6 @@ function batterRow(row) {
 }
 
 function pitcherRow(row) {
-  const outs = (
-    metricValue(row, 'outs_recorded') ??
-    metricValue(row, 'outs')
-  )
-
   return {
     playerId: row?.player_id ?? null,
     mlbPlayerId: row?.mlb_player_id ?? null,
@@ -156,10 +175,20 @@ function pitcherRow(row) {
       row,
       'batters_faced',
     ),
-    inningsPitched: (
-      outs === null
-        ? null
-        : outs / 3
+    inningsPitched: pitcherInningsValue(
+      row,
+    ),
+    inningsPitchedP10: pitcherInningsValue(
+      row,
+      'p10',
+    ),
+    inningsPitchedMedian: pitcherInningsValue(
+      row,
+      'median',
+    ),
+    inningsPitchedP90: pitcherInningsValue(
+      row,
+      'p90',
     ),
     hitsAllowed: (
       metricValue(row, 'hits_allowed') ??
