@@ -51,6 +51,13 @@ def test_default_policy_has_stable_version():
     )
 
 
+def test_baseline_reliever_has_dynamic_performance_thresholds():
+    policy = build_baseline_reliever_hook_policy()
+
+    assert policy.maximum_hits_allowed == 4
+    assert policy.maximum_traffic_allowed == 5
+
+
 def test_thresholds_must_be_ordered():
     with pytest.raises(
         ValueError,
@@ -179,6 +186,51 @@ def test_replaces_at_performance_thresholds(
         CanonicalPitchingDecisionAction.REPLACE
     )
     assert decision.reason == reason
+
+
+def test_hits_can_trigger_early_reliever_exit():
+    decision = (
+        build_baseline_reliever_hook_policy()
+        .decide(
+            context(
+                pitcher=lifecycle(
+                    batters_faced=4,
+                    hits_allowed=4,
+                )
+            )
+        )
+    )
+
+    assert decision.action is (
+        CanonicalPitchingDecisionAction.REPLACE
+    )
+    assert decision.reason == (
+        "hits_threshold_reached"
+    )
+
+
+def test_combined_traffic_can_trigger_reliever_exit():
+    policy = CanonicalRelieverHookPolicy(
+        maximum_hits_allowed=10,
+        maximum_traffic_allowed=4,
+    )
+
+    decision = policy.decide(
+        context(
+            pitcher=lifecycle(
+                batters_faced=4,
+                hits_allowed=3,
+                walks_allowed=1,
+            )
+        )
+    )
+
+    assert decision.action is (
+        CanonicalPitchingDecisionAction.REPLACE
+    )
+    assert decision.reason == (
+        "traffic_threshold_reached"
+    )
 
 
 def test_replaces_at_target_workload():

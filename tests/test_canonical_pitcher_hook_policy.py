@@ -432,6 +432,39 @@ def test_baseline_opener_policy_has_short_workload():
     assert policy.minimum_batters_faced == 3
     assert policy.target_batters_faced == 6
     assert policy.maximum_batters_faced == 9
+    assert policy.maximum_runs_during_stint == 3
+    assert policy.maximum_walks_allowed == 2
+    assert policy.maximum_home_runs_allowed == 2
+    assert policy.maximum_hits_allowed == 4
+    assert policy.maximum_traffic_allowed == 5
+
+
+def test_baseline_opener_uses_short_role_traffic_threshold():
+    from mlb_app.simulation.game.pitcher_hook_policy import (
+        build_baseline_opener_hook_policy,
+    )
+
+    decision = (
+        build_baseline_opener_hook_policy()
+        .decide(
+            context(
+                pitcher=lifecycle(
+                    batters_faced=5,
+                    hits_allowed=3,
+                    walks_allowed=1,
+                    hit_batters=1,
+                ),
+                inning=2,
+            )
+        )
+    )
+
+    assert decision.action is (
+        CanonicalPitchingDecisionAction.REPLACE
+    )
+    assert decision.reason == (
+        "traffic_threshold_reached"
+    )
 
 
 def test_baseline_opener_replaces_at_nine_batters():

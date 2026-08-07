@@ -32,6 +32,8 @@ class CanonicalRelieverHookPolicy:
     maximum_runs_during_stint: int = 3
     maximum_walks_allowed: int = 2
     maximum_home_runs_allowed: int = 2
+    maximum_hits_allowed: int = 4
+    maximum_traffic_allowed: int = 5
     schema_version: str = (
         CANONICAL_RELIEVER_HOOK_POLICY_VERSION
     )
@@ -44,6 +46,8 @@ class CanonicalRelieverHookPolicy:
             self.maximum_runs_during_stint,
             self.maximum_walks_allowed,
             self.maximum_home_runs_allowed,
+            self.maximum_hits_allowed,
+            self.maximum_traffic_allowed,
         )
 
         if any(value < 0 for value in thresholds):
@@ -141,6 +145,27 @@ class CanonicalRelieverHookPolicy:
             return self._replace(
                 lifecycle.pitcher_id,
                 "home_run_threshold_reached",
+            )
+
+        if (
+            lifecycle.hits_allowed
+            >= self.maximum_hits_allowed
+        ):
+            return self._replace(
+                lifecycle.pitcher_id,
+                "hits_threshold_reached",
+            )
+
+        traffic = (
+            lifecycle.hits_allowed
+            + lifecycle.walks_allowed
+            + lifecycle.hit_batters
+        )
+
+        if traffic >= self.maximum_traffic_allowed:
+            return self._replace(
+                lifecycle.pitcher_id,
+                "traffic_threshold_reached",
             )
 
         if (
