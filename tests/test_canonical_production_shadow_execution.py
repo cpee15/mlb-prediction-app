@@ -1676,6 +1676,11 @@ def test_starter_exit_is_dynamic_with_performance_and_workload():
     # Poor simulated starts are no longer forced
     # through the old eighteen-batter floor.
     assert min(starter_batters_faced) < 18
+
+    # Efficient starters are not forcibly removed
+    # merely because they faced batter number 27.
+    assert max(starter_batters_faced) > 27
+
     assert (
         starter_innings["minimum"]
         < starter_innings["median"]
