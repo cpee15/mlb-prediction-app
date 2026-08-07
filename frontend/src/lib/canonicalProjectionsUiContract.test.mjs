@@ -79,6 +79,20 @@ test('projections tab renders requested batter metrics', async () => {
   }
 })
 
+test('projections tab renders pitcher workload distribution', async () => {
+  const source = await pageSource()
+
+  for (const label of [
+    'BF',
+    'IP',
+    'IP P10',
+    'IP Median',
+    'IP P90',
+  ]) {
+    assert.match(source, new RegExp(label))
+  }
+})
+
 test('projections tab explains unavailable canonical states', async () => {
   const source = await pageSource()
 
