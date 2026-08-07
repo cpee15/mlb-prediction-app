@@ -1638,3 +1638,61 @@ def test_bulk_follower_exit_is_dynamic_with_bullpen_depth():
         audit["production_authority_changed"]
         is False
     )
+
+def test_starter_exit_is_dynamic_with_performance_and_workload():
+    result = run(
+        simulation_count=100,
+    )
+
+    diagnostics = result.to_diagnostics()
+    audit = diagnostics[
+        "pitcher_appearance_sequence_audit"
+    ]
+    roles = audit["role_summaries"]
+
+    starter_innings = roles[
+        "starter"
+    ]["innings_equivalent"]
+
+    starter_records = [
+        record
+        for record in audit["records"]
+        if record["planned_role"] == "starter"
+    ]
+
+    starter_batters_faced = [
+        record["batters_faced"]
+        for record in starter_records
+    ]
+
+    assert result.status == "executed"
+    assert audit["status"] == "observed"
+    assert audit["anomaly_counts"] == {}
+    assert (
+        audit["starter_relief_detected"]
+        is False
+    )
+
+    # Poor simulated starts are no longer forced
+    # through the old eighteen-batter floor.
+    assert min(starter_batters_faced) < 18
+    assert (
+        starter_innings["minimum"]
+        < starter_innings["median"]
+    )
+
+    # Efficient starts retain a meaningful deep
+    # workload tail instead of using a fixed IP.
+    assert starter_innings["p90"] >= 5.0
+    assert starter_innings["maximum"] >= 6.0
+
+    # Workload remains an emergent event-stream
+    # result and the audit stays non-authoritative.
+    assert (
+        audit["database_writes_performed"]
+        is False
+    )
+    assert (
+        audit["production_authority_changed"]
+        is False
+    )

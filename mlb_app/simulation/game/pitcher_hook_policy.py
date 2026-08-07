@@ -27,12 +27,14 @@ class CanonicalStarterHookPolicy:
     consumes the replace decision and available reliever pool.
     """
 
-    minimum_batters_faced: int = 18
+    minimum_batters_faced: int = 3
     target_batters_faced: int = 24
     maximum_batters_faced: int = 27
     maximum_runs_during_stint: int = 5
     maximum_walks_allowed: int = 4
     maximum_home_runs_allowed: int = 3
+    maximum_hits_allowed: int = 9
+    maximum_traffic_allowed: int = 12
     late_inning_threshold: int = 7
     schema_version: str = (
         CANONICAL_STARTER_HOOK_POLICY_VERSION
@@ -46,6 +48,8 @@ class CanonicalStarterHookPolicy:
             self.maximum_runs_during_stint,
             self.maximum_walks_allowed,
             self.maximum_home_runs_allowed,
+            self.maximum_hits_allowed,
+            self.maximum_traffic_allowed,
             self.late_inning_threshold,
         )
 
@@ -148,6 +152,27 @@ class CanonicalStarterHookPolicy:
             return self._replace(
                 lifecycle.pitcher_id,
                 "home_run_threshold_reached",
+            )
+
+        if (
+            lifecycle.hits_allowed
+            >= self.maximum_hits_allowed
+        ):
+            return self._replace(
+                lifecycle.pitcher_id,
+                "hits_threshold_reached",
+            )
+
+        traffic = (
+            lifecycle.hits_allowed
+            + lifecycle.walks_allowed
+            + lifecycle.hit_batters
+        )
+
+        if traffic >= self.maximum_traffic_allowed:
+            return self._replace(
+                lifecycle.pitcher_id,
+                "traffic_threshold_reached",
             )
 
         if (
