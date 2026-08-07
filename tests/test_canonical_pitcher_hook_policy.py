@@ -73,7 +73,7 @@ def test_holds_before_minimum_batters():
         .decide(
             context(
                 pitcher=lifecycle(
-                    batters_faced=17,
+                    batters_faced=2,
                     runs_scored_during_stint=8,
                 )
             )
@@ -87,6 +87,98 @@ def test_holds_before_minimum_batters():
         "minimum_batters_not_reached"
     )
 
+
+def test_poor_outing_can_exit_before_old_eighteen_batter_floor():
+    decision = (
+        build_baseline_starter_hook_policy()
+        .decide(
+            context(
+                pitcher=lifecycle(
+                    batters_faced=6,
+                    runs_scored_during_stint=5,
+                )
+            )
+        )
+    )
+
+    assert decision.action is (
+        CanonicalPitchingDecisionAction.REPLACE
+    )
+    assert decision.reason == (
+        "runs_threshold_reached"
+    )
+
+
+def test_hits_can_trigger_early_starter_exit():
+    policy = CanonicalStarterHookPolicy(
+        maximum_hits_allowed=6,
+    )
+
+    decision = policy.decide(
+        context(
+            pitcher=lifecycle(
+                batters_faced=12,
+                hits_allowed=6,
+            )
+        )
+    )
+
+    assert decision.action is (
+        CanonicalPitchingDecisionAction.REPLACE
+    )
+    assert decision.reason == (
+        "hits_threshold_reached"
+    )
+
+
+def test_combined_traffic_can_trigger_starter_exit():
+    policy = CanonicalStarterHookPolicy(
+        maximum_hits_allowed=20,
+        maximum_walks_allowed=20,
+        maximum_traffic_allowed=8,
+    )
+
+    decision = policy.decide(
+        context(
+            pitcher=lifecycle(
+                batters_faced=12,
+                hits_allowed=5,
+                walks_allowed=2,
+                hit_batters=1,
+            )
+        )
+    )
+
+    assert decision.action is (
+        CanonicalPitchingDecisionAction.REPLACE
+    )
+    assert decision.reason == (
+        "traffic_threshold_reached"
+    )
+
+
+def test_efficient_starter_can_continue_before_workload_target():
+    decision = (
+        build_baseline_starter_hook_policy()
+        .decide(
+            context(
+                pitcher=lifecycle(
+                    batters_faced=20,
+                    hits_allowed=3,
+                    walks_allowed=1,
+                    runs_scored_during_stint=1,
+                ),
+                inning=5,
+            )
+        )
+    )
+
+    assert decision.action is (
+        CanonicalPitchingDecisionAction.HOLD
+    )
+    assert decision.reason == (
+        "starter_within_limits"
+    )
 
 def test_holds_when_no_reliever_is_available():
     decision = (
@@ -281,6 +373,16 @@ def test_inactive_starter_is_rejected():
                 )
             )
         )
+
+
+def test_baseline_starter_policy_uses_dynamic_decision_floor():
+    policy = build_baseline_starter_hook_policy()
+
+    assert policy.minimum_batters_faced == 3
+    assert policy.target_batters_faced == 24
+    assert policy.maximum_batters_faced == 27
+    assert policy.maximum_hits_allowed == 9
+    assert policy.maximum_traffic_allowed == 12
 
 
 def test_baseline_opener_policy_has_short_workload():
